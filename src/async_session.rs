@@ -789,6 +789,10 @@ impl<P: CompileTimeProfile> Camera<P> {
     }
 
     /// Executes a plain command through this camera's shared owner.
+    ///
+    /// Ordinary commands wait for their terminal protocol application. A raw
+    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
+    /// local transport write succeeds; it does not claim camera application.
     pub async fn execute<C>(&self, command: &C) -> Result<()>
     where
         C: PlainCommand + ?Sized,

@@ -382,18 +382,22 @@ impl BlockingSessionHost {
             // without waiting for an ACK that cannot make room for this
             // request. The owner turn is serialized by `parts`, so the probe
             // and the subsequent admission cannot race another submission.
-            let (target, ack_budget) = prepared.preack_drain_hint();
+            let target = prepared.target();
             owner.ensure_admission_capacity(target)?;
             // Issue #673: before the first-write submit, drain the raw
             // single-candidate pre-ACK gate if that alone is what blocks this
             // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
-            // or any second operation — submitted while a caller still holds an
-            // un-awaited raw operation handle would lose the first-dispatch race
-            // and be rejected `TransportBusy` with zero bytes on the wire while
-            // the camera keeps moving. The drain pumps the peer's ACK (bounded
-            // by this request's own ACK budget) so a command socket frees and
-            // the subsequent first write wins.
-            owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
+            // or another ACK-then-completion operation — submitted while a
+            // caller still holds an un-awaited raw operation handle would lose
+            // the first-dispatch race and be rejected `TransportBusy` with zero
+            // bytes on the wire while the camera keeps moving. CompletionOnly
+            // still needs target idleness after that ACK, so it never meets the
+            // architecture's sole-obstacle rule and is not pumped. The drain
+            // pumps the peer's ACK (bounded by this request's own ACK budget) so
+            // a command socket frees and the subsequent first write wins.
+            if let Some(ack_budget) = prepared.preack_drain_hint() {
+                owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
+            }
             owner.submit_operation(driver, prepared)
         })
     }
@@ -998,6 +1002,11 @@ fn test_cancellation_observation(
     observation: ReceiptObservation,
 ) -> crate::runtime::engine::CancellationObservation {
     match observation {
+        ReceiptObservation::Terminal(RuntimeOutcome::Written) => {
+            crate::runtime::engine::CancellationObservation::Failed(Error::InvalidState(
+                "a local write outcome cannot authorize cancellation".into(),
+            ))
+        }
         ReceiptObservation::Terminal(RuntimeOutcome::Applied) => {
             crate::runtime::engine::CancellationObservation::Completed
         }
@@ -1023,6 +1032,9 @@ fn submission_observation_error(observation: ReceiptObservation) -> Error {
         ReceiptObservation::Terminal(RuntimeOutcome::Cancelled) => Error::CommandCanceled,
         ReceiptObservation::Terminal(RuntimeOutcome::Applied) => {
             Error::InvalidState("unwritten blocking submission completed as applied".into())
+        }
+        ReceiptObservation::Terminal(RuntimeOutcome::Written) => {
+            Error::InvalidState("unwritten blocking submission completed as locally written".into())
         }
         ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => Error::InvalidState(
             "unwritten blocking submission completed with an inquiry reply".into(),
@@ -1241,9 +1253,9 @@ impl BlockingOwner {
         self.submit_with_timeout_until(driver, request, configured_timeout, deadline)
     }
 
-    /// Drain the raw single-candidate pre-ACK gate before an operation's
-    /// first-write submit, when that gate alone blocks a new command on
-    /// `target` (issue #673).
+    /// Drain the raw single-candidate pre-ACK gate before an
+    /// ACK-then-completion operation's first-write submit, when that gate alone
+    /// blocks a new command on `target` (issue #673).
     ///
     /// On a raw-VISCA target the engine keeps at most one *unacknowledged*
     /// command in flight so a socketless ACK can never be misattributed to the
@@ -1258,15 +1270,17 @@ impl BlockingOwner {
     /// and the returned handle still names a request whose first write
     /// succeeded.
     ///
-    /// It is deliberately narrow. When the block is genuine socket-capacity
-    /// contention — every command socket already occupied, independent of the
-    /// pre-ACK gate — [`OwnerState::raw_preack_gate_frees_socket_on_ack`] is
-    /// `false`, no pump is attempted, and the fail-fast rejection the caller
-    /// then receives from the first-write submit stands. If the pump ends the
-    /// session (a close or poison observed while waiting), the session's own
-    /// boundary verdict is returned rather than the raw transport cause, so an
-    /// auto-reconnect loop keyed on `requires_new_session()` still behaves
-    /// (issue #629).
+    /// It is deliberately narrow. A completion-only successor still needs the
+    /// target to be entirely idle after a predecessor ACK, so that ACK is not
+    /// its sole obstacle and no pump is attempted. When the block is genuine
+    /// socket-capacity contention — every command socket already occupied,
+    /// independent of the pre-ACK gate —
+    /// [`OwnerState::raw_preack_gate_frees_socket_on_ack`] is `false`, no pump
+    /// is attempted, and the fail-fast rejection the caller then receives from
+    /// the first-write submit stands. If the pump ends the session (a close or
+    /// poison observed while waiting), the session's own boundary verdict is
+    /// returned rather than the raw transport cause, so an auto-reconnect loop
+    /// keyed on `requires_new_session()` still behaves (issue #629).
     fn drain_raw_preack_gate<D, R, F>(
         &mut self,
         driver: &mut D,
@@ -1570,15 +1584,15 @@ impl BlockingOwner {
                 // example a stream poison). Preserve that engine verdict over
                 // the raw driver error, exactly as the prior submission path
                 // did; only a successful write may retain an immediate
-                // `NoReply` `Applied` observation for the returned receipt.
+                // `NoReply` `Written` observation for the returned receipt.
                 return Err(buffered_submission_error(&completion).unwrap_or(error));
             }
         } else if let Some(error) = buffered_submission_error(&completion) {
             // A queued receipt has not reached the wire, so any terminal
             // observation remains a failed submission. Once a first write has
             // succeeded, however, a `NoReply` command legitimately resolves
-            // `Applied` in that same owner turn; leave that observation for the
-            // returned receipt to consume.
+            // `Written` in that same owner turn; leave that observation for
+            // the returned receipt to consume.
             return Err(error);
         }
         Ok(ReceiptCore::new(
@@ -1683,9 +1697,9 @@ impl BlockingOwner {
         };
         let (received, received_at) = match read {
             Ok(BlockingReceive::TimedOut) => {
-                // A clean idle read proves the adapter is responding again,
-                // so it breaks any prior run of transient failures.
-                self.faults.reset();
+                // Idle means no bytes arrived.  It neither proves that a
+                // transient fault run recovered nor consumes a response, so
+                // preserve the run exactly as the async owner does.
                 let now = Instant::now();
                 if self
                     .next_wake_for_mode(mode)
@@ -1710,6 +1724,21 @@ impl BlockingOwner {
                 // the bytes only complete a later frame.
                 self.faults.reset();
                 (received, Instant::now())
+            }
+            Err(Error::ResponseTooLarge { .. })
+                if self.state.policy().protocol.transport == TransportKind::Datagram =>
+            {
+                // Built-in UDP reports this only after consuming one datagram
+                // whose tail did not fit in the receive buffer.  A legacy
+                // custom datagram transport may report the same established
+                // spelling.  In either case the copied prefix must never reach
+                // framing; treat it exactly like a malformed atomic datagram,
+                // keep the session running, and let a later packet decode.
+                self.faults.reset();
+                let _ = self
+                    .state
+                    .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                return Ok(0);
             }
             Err(error) if super::receive_fault_is_transient(&error) => {
                 let received_at = Instant::now();
@@ -2194,8 +2223,9 @@ impl TransientFaultRun {
         (self.length, span)
     }
 
-    /// A successful or cleanly idle read proves the transport is answering
-    /// again, so the next fault starts a fresh run.
+    /// A successful byte-bearing read proves the transport is answering again,
+    /// so the next fault starts a fresh run.  An idle timeout consumed no bytes
+    /// and does not reset the run.
     fn reset(&mut self) {
         self.length = 0;
         self.first_at = None;
@@ -2513,6 +2543,44 @@ mod tests {
             assert!(reason.contains("12 consecutive receive faults"));
             assert!(reason.contains("simulated ICMP fault"));
         }
+        assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    #[test]
+    fn idle_reads_do_not_break_a_transient_fault_run() {
+        let now = Instant::now();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        // Seed eleven faults across the required span.  The idle read below
+        // must leave that run intact, so the following twelfth fault closes
+        // without a wall-clock multi-second test.
+        owner.faults = TransientFaultRun {
+            length: TRANSIENT_RECEIVE_FAULT_LIMIT - 1,
+            first_at: Some(now - TRANSIENT_RECEIVE_FAULT_SPAN),
+            last_at: Some(now),
+        };
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([
+                Ok(BlockingReceive::TimedOut),
+                Err(Error::TransportError("simulated ICMP fault".into())),
+            ]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .expect("an idle receive is not a boundary"),
+            0
+        );
+        assert_eq!(owner.faults.length, TRANSIENT_RECEIVE_FAULT_LIMIT - 1);
+        assert!(owner.faults.first_at.is_some());
+        assert!(owner.faults.last_at.is_some());
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("the fault following idle no-data is still the twelfth");
+        assert!(matches!(error, Error::ConnectionClosed { .. }));
         assert_eq!(owner.state().state(), SessionState::Closed);
     }
 

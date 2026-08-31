@@ -28,11 +28,12 @@ use std::{
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     command::CommandKind,
-    completion::AppliedOnly,
+    completion::{AppliedOnly, Targeted},
     profile::ProfileSpec,
+    raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive, ZoomStop},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    Error,
+    AffectedAxes, ControlClass, Error, RetryClass, TimeoutClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -41,6 +42,7 @@ const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
 const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
+const RAW_ZOOM_STOP: [u8; 6] = [0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 
 /// A raw datagram camera whose reads are scripted per write. The reads a send
 /// queues are only consumed by a *later* pump, so a command written but never
@@ -52,6 +54,7 @@ struct RawProbeTransport {
     per_send: VecDeque<Vec<Vec<u8>>>,
     reads: VecDeque<Vec<u8>>,
     writes: Arc<Mutex<usize>>,
+    read_count: Arc<Mutex<usize>>,
 }
 
 impl RawProbeTransport {
@@ -61,11 +64,16 @@ impl RawProbeTransport {
             per_send: per_send.into(),
             reads: VecDeque::new(),
             writes: Arc::new(Mutex::new(0)),
+            read_count: Arc::new(Mutex::new(0)),
         }
     }
 
     fn write_counter(&self) -> Arc<Mutex<usize>> {
         Arc::clone(&self.writes)
+    }
+
+    fn read_counter(&self) -> Arc<Mutex<usize>> {
+        Arc::clone(&self.read_count)
     }
 }
 
@@ -93,6 +101,7 @@ impl BlockingTransport for RawProbeTransport {
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
+        *self.read_count.lock().expect("read count lock") += 1;
         let bytes = self.reads.pop_front().ok_or(Error::Timeout)?;
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -103,19 +112,47 @@ impl BlockingTransport for RawProbeTransport {
     }
 }
 
-fn session(per_send: Vec<Vec<Vec<u8>>>) -> (Session, Arc<Mutex<usize>>) {
+fn session_with_counters(
+    per_send: Vec<Vec<Vec<u8>>>,
+) -> (Session, Arc<Mutex<usize>>, Arc<Mutex<usize>>) {
     let transport = RawProbeTransport::new(per_send);
     let writes = transport.write_counter();
+    let reads = transport.read_counter();
     let config = SessionConfig::new(
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("two-socket raw runtime profile"),
     );
     let session = Session::open(transport, config).expect("owner session");
+    (session, writes, reads)
+}
+
+fn session(per_send: Vec<Vec<Vec<u8>>>) -> (Session, Arc<Mutex<usize>>) {
+    let (session, writes, _reads) = session_with_counters(per_send);
     (session, writes)
 }
 
 fn write_count(writes: &Arc<Mutex<usize>>) -> usize {
     *writes.lock().expect("write count lock")
+}
+
+fn read_count(reads: &Arc<Mutex<usize>>) -> usize {
+    *reads.lock().expect("read count lock")
+}
+
+fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
+    raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
+        .expect("raw policy")
+        .with_reply_shape(reply_shape)
+}
+
+fn raw_applied_only(reply_shape: RawReplyShape) -> raw::AppliedOnly {
+    raw::AppliedOnly::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+        .expect("raw applied-only operation")
+}
+
+fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
+    raw::Targeted::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+        .expect("raw targeted operation")
 }
 
 /// The core defect: a typed `Urgent` stop submitted behind a live, un-awaited
@@ -197,6 +234,57 @@ fn two_unawaited_operation_handles_both_win_their_first_write() {
     second.applied().expect("second operation settles");
 
     session.shutdown().expect("owner shutdown");
+}
+
+/// The #673 drain is valid only when the submitting operation can become
+/// eligible from the peer ACK alone. CompletionOnly still requires total
+/// target idleness after that ACK, so the architecture's "sole obstacle"
+/// contract requires a fail-fast `TransportBusy` with no peer read.
+#[test]
+fn completion_only_raw_operations_do_not_drain_an_unacknowledged_peer() {
+    macro_rules! assert_completion_only_busy {
+        ($kind:ty, $operation:expr, $label:literal) => {{
+            let (session, writes, reads) =
+                session_with_counters(vec![vec![ACK_SOCKET_ONE.to_vec()]]);
+            let camera = session
+                .camera::<NonDefaultCompileTimeProfile>()
+                .expect("camera view");
+            let predecessor = raw_applied_only(RawReplyShape::AckThenCompletion);
+            let _predecessor = camera
+                .submit::<AppliedOnly, _>(&predecessor)
+                .expect("raw predecessor is written and awaits its ACK");
+            assert_eq!(write_count(&writes), 1);
+            assert_eq!(read_count(&reads), 0);
+
+            let operation = $operation;
+            let error = camera
+                .submit::<$kind, _>(&operation)
+                .expect_err("completion-only successor cannot reach first write");
+            assert!(matches!(error, Error::TransportBusy), "{error:?}");
+            assert_eq!(
+                read_count(&reads),
+                0,
+                concat!($label, " must not drain the predecessor ACK")
+            );
+            assert_eq!(
+                write_count(&writes),
+                1,
+                concat!($label, " must fail before its first write")
+            );
+            session.shutdown().expect("owner shutdown");
+        }};
+    }
+
+    assert_completion_only_busy!(
+        Targeted,
+        raw_targeted(RawReplyShape::CompletionOnly),
+        "targeted completion-only operation"
+    );
+    assert_completion_only_busy!(
+        AppliedOnly,
+        raw_applied_only(RawReplyShape::CompletionOnly),
+        "applied-only completion-only operation"
+    );
 }
 
 /// The issue's exact scenario: `motion().stop_all_motion()` reaches the wire

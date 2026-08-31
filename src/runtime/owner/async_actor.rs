@@ -6,7 +6,7 @@ use std::{
     marker::PhantomData,
     pin::Pin,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicU64, AtomicU8, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant},
@@ -18,17 +18,19 @@ use crate::{
     completion, executor::Executor, AffectedAxes, CancellationOutcome, Error, ResponseDecoder,
 };
 
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+use super::DiagnosticEvent;
+#[cfg(all(test, feature = "runtime-tokio"))]
+use super::OwnerMetrics;
 use super::ReceiptObservation;
 use super::{
     cancellation_receipt_for, completion_pair, normalize_cancellation_observation,
     normalize_command_outcome, normalize_inquiry_outcome, observation_outcome, prepend_effects,
     AdmissionPermit, AppliedEffect, CancellationCore, CompletionObserver, DecodedFrame,
     DiagnosticSubscription, Input, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore,
-    RejectedCancellation, RequestId, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason,
-    TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
+    RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, SessionState,
+    ShutdownReason, TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
 };
-#[cfg(all(test, feature = "runtime-tokio"))]
-use super::{DiagnosticEvent, OwnerMetrics};
 use crate::runtime::engine::{Effect, IgnoreReason, TransportKind};
 
 /// Pause applied after the first transient receive fault so a transport that
@@ -289,6 +291,17 @@ enum AdmissionValidityState {
     Expired,
 }
 
+/// The actor's linearized answer when it reaches a deadline-constrained
+/// boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdmissionClaim {
+    Claimed,
+    /// This actor observed the deadline first and rejected the boundary.
+    ExpiredHere,
+    /// The caller had already rejected the boundary before this actor turn.
+    ExpiredElsewhere,
+}
+
 impl AdmissionValidity {
     const PENDING: u8 = AdmissionValidityState::Pending as u8;
     const CLAIMED: u8 = AdmissionValidityState::Claimed as u8;
@@ -303,22 +316,31 @@ impl AdmissionValidity {
 
     /// Claim the boundary immediately before engine admission.
     ///
-    /// A caller that has already won expiry leaves this false. Conversely,
-    /// claiming before expiry means the admission is authoritative, so the
-    /// caller must observe its reply rather than turn that admitted work into
-    /// a pre-admission timeout.
-    fn claim_for_admission(&self, now: Instant) -> bool {
+    /// A caller that has already won expiry returns
+    /// [`AdmissionClaim::ExpiredElsewhere`]. Conversely, claiming before
+    /// expiry means the admission is authoritative, so the caller must observe
+    /// its reply rather than turn that admitted work into a pre-admission
+    /// timeout.
+    fn claim_for_admission(&self, now: Instant) -> AdmissionClaim {
         if now >= self.deadline {
-            let _ = self.state.compare_exchange(
-                Self::PENDING,
-                Self::EXPIRED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
-            return false;
+            return if self
+                .state
+                .compare_exchange(
+                    Self::PENDING,
+                    Self::EXPIRED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .is_ok()
+            {
+                AdmissionClaim::ExpiredHere
+            } else {
+                AdmissionClaim::ExpiredElsewhere
+            };
         }
 
-        self.state
+        if self
+            .state
             .compare_exchange(
                 Self::PENDING,
                 Self::CLAIMED,
@@ -326,6 +348,11 @@ impl AdmissionValidity {
                 Ordering::Acquire,
             )
             .is_ok()
+        {
+            AdmissionClaim::Claimed
+        } else {
+            AdmissionClaim::ExpiredElsewhere
+        }
     }
 
     /// Mark the boundary expired if no actor has already claimed admission.
@@ -355,6 +382,111 @@ struct AdmissionBoundary {
     validity: Option<AdmissionValidity>,
 }
 
+/// A rejection that happened before the async handle could allocate any
+/// owner-owned admission state.
+#[derive(Debug, Clone, Copy)]
+struct PreAdmissionRejection {
+    target: crate::CameraId,
+    lane: RequestLane,
+    error: crate::ErrorKind,
+}
+
+#[derive(Debug)]
+struct PendingAdmissionRejections {
+    events: VecDeque<PreAdmissionRejection>,
+    /// Events evicted before the actor could enter them into its public ring.
+    /// The actor folds this into the existing `dropped_diagnostics` metric.
+    dropped: u64,
+    /// A one-slot wake-up is already queued or being handled by the actor.
+    /// This is protected by the same mutex as `events`, so a concurrent
+    /// reporter can never lose the wake-up between an actor drain and its next
+    /// empty receive.
+    wake_pending: bool,
+}
+
+/// Bounded, coalescing ingress for failures that occur on cloneable async
+/// handles before an `AdmissionBoundary` exists.
+///
+/// The actor remains the only diagnostic delivery and owner-metric writer.
+/// Handles merely record a compact event and wake it. The scalar total is
+/// atomic so a diagnostic ingress burst cannot undercount rejections when its
+/// bounded event queue coalesces before the actor gets a turn.
+#[derive(Debug)]
+struct AdmissionRejectionIngress {
+    total: AtomicU64,
+    pending: Mutex<PendingAdmissionRejections>,
+    capacity: usize,
+}
+
+impl AdmissionRejectionIngress {
+    fn new(capacity: usize) -> Self {
+        Self {
+            total: AtomicU64::new(0),
+            pending: Mutex::new(PendingAdmissionRejections {
+                events: VecDeque::with_capacity(capacity),
+                dropped: 0,
+                wake_pending: false,
+            }),
+            capacity,
+        }
+    }
+
+    /// Records one rejection and reports whether this caller must enqueue the
+    /// one coalesced actor wake-up.
+    fn record(&self, event: PreAdmissionRejection) -> bool {
+        let _ = self
+            .total
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+                Some(value.saturating_add(1))
+            });
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if pending.events.len() == self.capacity {
+            // The owner diagnostic ring is bounded too. Preserve the newest
+            // rejection facts, which are the useful ones during saturation,
+            // while the atomic total remains exact. The actor reports the
+            // bounded loss through its existing diagnostics-drop metric.
+            pending.events.pop_front();
+            pending.dropped = pending.dropped.saturating_add(1);
+        }
+        pending.events.push_back(event);
+        if pending.wake_pending {
+            false
+        } else {
+            pending.wake_pending = true;
+            true
+        }
+    }
+
+    fn total(&self) -> u64 {
+        self.total.load(Ordering::Acquire)
+    }
+
+    /// Moves pending bounded diagnostics into the actor's preallocated scratch
+    /// queue. When `consumed_wake` is true, clearing the wake marker occurs
+    /// under this same lock, closing the report/drain race.
+    fn drain_into(
+        &self,
+        scratch: &mut VecDeque<PreAdmissionRejection>,
+        consumed_wake: bool,
+    ) -> u64 {
+        let mut pending = self
+            .pending
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        debug_assert!(scratch.is_empty());
+        scratch.extend(pending.events.drain(..));
+        if consumed_wake {
+            pending.wake_pending = false;
+        }
+        let dropped = pending.dropped;
+        pending.dropped = 0;
+        dropped
+    }
+}
+
 #[derive(Debug)]
 enum AdmissionWait {
     Reply(Result<Result<RequestId, Error>, Error>),
@@ -372,6 +504,10 @@ struct CancellationBoundary {
 
 #[derive(Debug)]
 enum ControlBoundary {
+    /// Internal coalesced wake-up for a handle-side rejection that happened
+    /// before an admission boundary existed. It uses the existing bounded
+    /// control lane so source arbitration remains unchanged.
+    FlushAdmissionRejections,
     // Built only by `AsyncOwnerHandle::snapshot`, called only from this module's tests (#636).
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     Snapshot(flume::Sender<OwnerSnapshot>),
@@ -908,6 +1044,11 @@ fn test_cancellation_observation(
     observation: ReceiptObservation,
 ) -> crate::runtime::engine::CancellationObservation {
     match observation {
+        ReceiptObservation::Terminal(RuntimeOutcome::Written) => {
+            crate::runtime::engine::CancellationObservation::Failed(Error::InvalidState(
+                "a local write outcome cannot authorize cancellation".into(),
+            ))
+        }
         ReceiptObservation::Terminal(RuntimeOutcome::Applied) => {
             crate::runtime::engine::CancellationObservation::Completed
         }
@@ -943,6 +1084,7 @@ fn async_observer_deadline(clock: &BoundClock, timeout: Duration) -> Result<Inst
 pub(crate) struct AsyncOwnerHandle {
     permits: super::AdmissionPermitPool,
     admissions: flume::Sender<AdmissionBoundary>,
+    admission_rejections: Arc<AdmissionRejectionIngress>,
     cancellations: flume::Sender<CancellationBoundary>,
     control: flume::Sender<ControlBoundary>,
     shutdown: flume::Sender<()>,
@@ -1148,8 +1290,15 @@ impl AsyncOwnerHandle {
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
+        let lane = if request.is_inquiry() {
+            RequestLane::Inquiry
+        } else {
+            RequestLane::Command
+        };
         if self.now() >= deadline {
-            return Err(Error::Timeout);
+            let error = Error::Timeout;
+            self.record_pre_admission_rejection(target, lane, &error);
+            return Err(error);
         }
         let validity = AdmissionValidity::until(deadline);
         let (completion, admission) = self.enqueue_admission(request, Some(validity.clone()))?;
@@ -1166,7 +1315,14 @@ impl AsyncOwnerHandle {
             AdmissionWait::Reply(Ok(Err(error)) | Err(error)) => return Err(error),
             AdmissionWait::Deadline {
                 expired_before_admission: true,
-            } => return Err(Error::Timeout),
+            } => {
+                let error = Error::Timeout;
+                // Winning `expire_before_admission` is the sole caller-side
+                // linearization point for this rejection. The actor observes
+                // `ExpiredElsewhere` and deliberately does not record it again.
+                self.record_pre_admission_rejection(target, lane, &error);
+                return Err(error);
+            }
             // The actor claimed this boundary before the caller could expire
             // it. Its reply is now authoritative; waiting for it preserves
             // normal post-admission observer-detach semantics instead of
@@ -1391,29 +1547,34 @@ impl AsyncOwnerHandle {
         ),
         Error,
     > {
-        if let Some(error) = self.admission_rejection() {
-            return Err(error);
-        }
-        let permit = self.permits.try_acquire().ok_or(Error::RuntimeQueueFull {
-            capacity: self.permits.capacity(),
-        })?;
-        if let Some(error) = self.admission_rejection() {
-            return Err(error);
-        }
-        let (observer, completion) = completion_pair();
-        let (reply, admission) = flume::bounded(1);
-        let boundary = AdmissionBoundary {
-            request,
-            permit,
-            observer,
-            reply,
-            validity,
+        let target = request.context().target;
+        let lane = if request.is_inquiry() {
+            RequestLane::Inquiry
+        } else {
+            RequestLane::Command
         };
-
+        if let Some(error) = self.admission_rejection() {
+            self.record_pre_admission_rejection(target, lane, &error);
+            return Err(error);
+        }
+        let Some(permit) = self.permits.try_acquire() else {
+            let error = Error::RuntimeQueueFull {
+                capacity: self.permits.capacity(),
+            };
+            self.record_pre_admission_rejection(target, lane, &error);
+            return Err(error);
+        };
+        if let Some(error) = self.admission_rejection() {
+            self.record_pre_admission_rejection(target, lane, &error);
+            return Err(error);
+        }
         // Keep the terminal check and enqueue in one lifecycle critical
         // section. Otherwise a caller can pass the second check, the actor can
         // publish/drop and drain all boundaries, and this send can strand the
-        // permit in a queue whose receiver will never poll it (#542 §4).
+        // permit in a queue whose receiver will never poll it (#542 §4). Keep
+        // the observer/reply/boundary construction after that check too: a
+        // terminal pre-admission rejection must not allocate transient request
+        // state before it returns.
         let signal = self
             .shutdown_signal
             .lock()
@@ -1427,14 +1588,55 @@ impl AsyncOwnerHandle {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone(),
         } {
+            self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
+        let (observer, completion) = completion_pair();
+        let (reply, admission) = flume::bounded(1);
+        let boundary = AdmissionBoundary {
+            request,
+            permit,
+            observer,
+            reply,
+            validity,
+        };
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
-            Err(flume::TrySendError::Disconnected(_)) => Err(self.disconnected_error()),
-            Err(flume::TrySendError::Full(_)) => Err(Error::InvalidState(
-                "admission channel full after permit reservation".into(),
-            )),
+            Err(flume::TrySendError::Disconnected(_)) => {
+                let error = self.disconnected_error();
+                self.record_pre_admission_rejection(target, lane, &error);
+                Err(error)
+            }
+            Err(flume::TrySendError::Full(_)) => {
+                let error =
+                    Error::InvalidState("admission channel full after permit reservation".into());
+                self.record_pre_admission_rejection(target, lane, &error);
+                Err(error)
+            }
+        }
+    }
+
+    /// Reports a compact rejection without creating any admission-owned state.
+    ///
+    /// A full bounded control lane already has an actor turn reserved; a
+    /// closed lane means teardown won and no live owner remains to deliver a
+    /// diagnostic. The bounded ingress still retains the exact scalar total
+    /// until that actor drops.
+    fn record_pre_admission_rejection(
+        &self,
+        target: crate::CameraId,
+        lane: RequestLane,
+        error: &Error,
+    ) {
+        let wake = self.admission_rejections.record(PreAdmissionRejection {
+            target,
+            lane,
+            error: error.kind(),
+        });
+        if wake {
+            let _ = self
+                .control
+                .try_send(ControlBoundary::FlushAdmissionRejections);
         }
     }
 
@@ -1484,6 +1686,12 @@ where
 {
     state: OwnerState,
     admissions: flume::Receiver<AdmissionBoundary>,
+    admission_rejections: Arc<AdmissionRejectionIngress>,
+    /// Preallocated actor-owned scratch keeps ingress draining bounded without
+    /// allocating on a rejected submission path.
+    admission_rejection_scratch: VecDeque<PreAdmissionRejection>,
+    /// Monotonic total already merged into `OwnerState` metrics.
+    observed_pre_admission_rejections: u64,
     cancellations: flume::Receiver<CancellationBoundary>,
     control: flume::Receiver<ControlBoundary>,
     shutdown: flume::Receiver<()>,
@@ -1525,6 +1733,7 @@ where
         // lossy `try_send` path.
         let cancellation_capacity = 1;
         let control_capacity = state.policy().limits.applied_subscribers.max(1);
+        let rejection_capacity = state.policy().limits.diagnostics;
         let (admission_tx, admissions) = flume::bounded(boundary_capacity);
         let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
         let (control_tx, control) = flume::bounded(control_capacity);
@@ -1532,10 +1741,12 @@ where
         let (alive, actor_alive) = flume::bounded(1);
         let shutdown_signal = Arc::new(Mutex::new(ShutdownSignalState::Open));
         let terminal_error = Arc::new(Mutex::new(None));
+        let admission_rejections = Arc::new(AdmissionRejectionIngress::new(rejection_capacity));
         Ok((
             AsyncOwnerHandle {
                 permits,
                 admissions: admission_tx,
+                admission_rejections: Arc::clone(&admission_rejections),
                 cancellations: cancellation_tx,
                 control: control_tx,
                 shutdown: shutdown_tx,
@@ -1550,6 +1761,9 @@ where
             Self {
                 state,
                 admissions,
+                admission_rejections,
+                admission_rejection_scratch: VecDeque::with_capacity(rejection_capacity),
+                observed_pre_admission_rejections: 0,
                 cancellations,
                 control,
                 shutdown,
@@ -1733,6 +1947,7 @@ where
             .boundary_error()
             .unwrap_or(Error::RuntimeShutdown);
         self.publish_terminal_error(boundary_error.clone());
+        self.flush_pre_admission_rejections(true);
         self.drain_boundaries(boundary_error);
         #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
         let snapshot = self.snapshot_now();
@@ -1936,6 +2151,15 @@ where
         D: AsyncOwnerDriver,
     {
         if self.state.policy().protocol.transport != TransportKind::Stream {
+            // The adapter reached this path only after consuming one complete
+            // datagram (including an oversized datagram whose copied prefix was
+            // rejected). That successful read proves the transport is live even
+            // though its payload is unusable, so it clears both consecutive
+            // receive-fault accounting and the idle no-data pacing run before
+            // the discard becomes observable. A stream takes the terminal path
+            // below and deliberately retains its existing framing semantics.
+            self.faults.reset();
+            self.idle_receive_run = 0;
             let _ = self
                 .state
                 .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
@@ -1986,14 +2210,30 @@ where
         // A deadline that wins before this exact boundary is admitted is not
         // observer detachment: no engine entry exists yet. Drop the boundary
         // (and therefore its permit and observer) before staging any engine
-        // input, so a stale admission can never become a later write.
-        if admission
-            .validity
-            .as_ref()
-            .is_some_and(|validity| !validity.claim_for_admission(Executor::now(runtime)))
-        {
-            let _ = admission.reply.try_send(Err(Error::Timeout));
-            return;
+        // input, so a stale admission can never become a later write. The
+        // winner records the rejection exactly once: caller-expiry already
+        // entered the handle-side ingress, while actor-expiry records directly
+        // into the serialized owner state.
+        let target = admission.request.context().target;
+        let lane = if admission.request.is_inquiry() {
+            RequestLane::Inquiry
+        } else {
+            RequestLane::Command
+        };
+        if let Some(validity) = admission.validity.as_ref() {
+            match validity.claim_for_admission(Executor::now(runtime)) {
+                AdmissionClaim::Claimed => {}
+                AdmissionClaim::ExpiredHere => {
+                    let error = Error::Timeout;
+                    self.state.record_admission_rejection(target, lane, &error);
+                    let _ = admission.reply.try_send(Err(error));
+                    return;
+                }
+                AdmissionClaim::ExpiredElsewhere => {
+                    let _ = admission.reply.try_send(Err(Error::Timeout));
+                    return;
+                }
+            }
         }
         let input = self.state.stage_admission_with(
             admission.request,
@@ -2039,8 +2279,43 @@ where
         let _ = cancellation.reply.try_send(result);
     }
 
+    /// Merges handle-side, pre-boundary rejection telemetry into actor-owned
+    /// metrics and diagnostic delivery.
+    ///
+    /// A control request flushes opportunistically as well as an explicit
+    /// ingress wake. That makes a `metrics()` or diagnostics subscription
+    /// issued immediately after a fail-fast rejection observe that rejection
+    /// without relying on scheduler timing.
+    fn flush_pre_admission_rejections(&mut self, consumed_wake: bool) {
+        let dropped_diagnostics = self
+            .admission_rejections
+            .drain_into(&mut self.admission_rejection_scratch, consumed_wake);
+        // Load after the ingress lock is released. A reporter that raced this
+        // drain either contributed an event to this batch or observed the
+        // cleared wake marker and reserved the next actor wake, so its scalar
+        // count cannot be stranded behind an already-consumed notification.
+        let total = self.admission_rejections.total();
+        let new_rejections = total.saturating_sub(self.observed_pre_admission_rejections);
+        if new_rejections != 0 {
+            self.state.record_pre_admission_rejections(new_rejections);
+            self.observed_pre_admission_rejections = total;
+        }
+        if dropped_diagnostics != 0 {
+            self.state.record_dropped_diagnostics(dropped_diagnostics);
+        }
+        while let Some(rejection) = self.admission_rejection_scratch.pop_front() {
+            self.state.record_admission_rejection_diagnostic(
+                rejection.target,
+                rejection.lane,
+                rejection.error,
+            );
+        }
+    }
+
     fn handle_control(&mut self, control: ControlBoundary) {
+        self.flush_pre_admission_rejections(true);
         match control {
+            ControlBoundary::FlushAdmissionRejections => {}
             #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
             ControlBoundary::Snapshot(reply) => {
                 let _ = reply.try_send(self.snapshot_now());
@@ -2214,6 +2489,10 @@ where
     /// between the last pass and the actor dropping its receivers is closed by
     /// the liveness lane, not here.
     fn drain_boundaries(&mut self, error: Error) {
+        // A reporter may have coalesced behind the actor while it was handling
+        // its terminal transition. Merge all compact facts the owner can still
+        // deliver before answering/dropping ordinary boundary work.
+        self.flush_pre_admission_rejections(true);
         let mut dropped = 0usize;
         loop {
             let before = dropped;
@@ -2238,6 +2517,10 @@ where
             }
             while let Ok(control) = self.control.try_recv() {
                 match control {
+                    ControlBoundary::FlushAdmissionRejections => {
+                        self.flush_pre_admission_rejections(true);
+                        continue;
+                    }
                     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
                     ControlBoundary::Snapshot(reply) => {
                         let _ = reply.try_send(self.snapshot_now());
@@ -2254,6 +2537,7 @@ where
                 }
                 dropped = dropped.saturating_add(1);
             }
+            self.flush_pre_admission_rejections(true);
             if dropped == before {
                 break;
             }
@@ -3127,7 +3411,18 @@ mod tests {
         let actor_task = tokio::spawn(actor.run(harness.driver));
         let snapshot = handle.snapshot().await.unwrap();
         assert_eq!(snapshot.metrics.admitted, 0);
+        assert_eq!(snapshot.metrics.admission_rejected, 1);
+        assert_eq!(snapshot.metrics.writes, 0);
         assert_eq!(snapshot.active, 0);
+        assert_eq!(
+            snapshot.diagnostics,
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Inquiry,
+                error: crate::ErrorKind::Timeout,
+            }],
+            "the caller-expiry winner records exactly one pre-admission rejection"
+        );
         assert!(
             writes.lock().unwrap().is_empty(),
             "expired work was not written"
@@ -3151,6 +3446,82 @@ mod tests {
         handle.shutdown().await.unwrap();
         let terminal = actor_task.await.unwrap();
         assert_eq!(terminal.state, SessionState::Shutdown);
+    }
+
+    /// A deadline already reached before a boundary exists is still a rejected
+    /// submission. It must use the same bounded handle-side telemetry path as
+    /// a capacity rejection without allocating admission state.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn immediate_pre_admission_deadline_is_telemetrized() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let error = handle
+            .submit_with_timeout_until(inquiry(), Duration::from_secs(1), handle.now())
+            .await
+            .unwrap_err();
+        assert!(matches!(error, Error::Timeout));
+
+        actor.flush_pre_admission_rejections(true);
+        let metrics = actor.state.metrics_snapshot();
+        assert_eq!(metrics.admission_rejected, 1);
+        assert_eq!(metrics.admitted, 0);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        assert_eq!(metrics.writes, 0);
+        assert_eq!(
+            actor.state.diagnostics().copied().collect::<Vec<_>>(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Inquiry,
+                error: crate::ErrorKind::Timeout,
+            }]
+        );
+    }
+
+    /// If the actor sees an expired boundary before its caller polls the
+    /// deadline, it is the one authoritative telemetry writer. The caller
+    /// observes the reply and must not create a second rejection event.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+        let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
+        let validity = AdmissionValidity::until(deadline);
+        let (completion, reply) = handle
+            .enqueue_admission(inquiry(), Some(validity))
+            .expect("a future deadline can enter the bounded admission lane");
+        drop(completion);
+        tokio::time::advance(Duration::from_millis(1)).await;
+
+        let boundary = actor
+            .admissions
+            .try_recv()
+            .expect("the actor owns the queued boundary");
+        let harness = harness();
+        let writes = Arc::clone(&harness.writes);
+        let mut driver = harness.driver;
+        actor
+            .handle_admission(boundary, &mut driver, &runtime)
+            .await;
+
+        assert!(matches!(reply.recv_async().await, Ok(Err(Error::Timeout))));
+        let metrics = actor.state.metrics_snapshot();
+        assert_eq!(metrics.admission_rejected, 1);
+        assert_eq!(metrics.admitted, 0);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        assert_eq!(metrics.writes, 0);
+        assert!(writes.lock().unwrap().is_empty());
+        assert_eq!(
+            actor.state.diagnostics().copied().collect::<Vec<_>>(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Inquiry,
+                error: crate::ErrorKind::Timeout,
+            }]
+        );
     }
 
     /// The owner task follows `TokioRuntime::from_handle`, even when both the
@@ -3373,6 +3744,191 @@ mod tests {
         handle.shutdown().await.unwrap();
         let snapshot = actor_task.await.unwrap();
         assert_eq!(snapshot.metrics.admitted, 1);
+    }
+
+    /// A handle-side capacity rejection happens before an admission boundary
+    /// can allocate an observer, request ID, or pending slot. It still belongs
+    /// to the stable pre-admission telemetry contract, so the actor receives a
+    /// compact bounded ingress event without turning the fail-fast call into a
+    /// wait for the owner.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let writes = Arc::clone(&harness.writes);
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+        let diagnostics = handle.subscribe_diagnostics(16).await.unwrap();
+
+        let first = handle.submit(command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), first.id);
+        assert_eq!(writes.lock().unwrap().len(), 1);
+
+        let error = tokio::time::timeout(Duration::from_millis(20), handle.submit(command()))
+            .await
+            .expect("capacity failure must not register an admission waiter")
+            .unwrap_err();
+        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
+
+        // The first write is deliberately held so the rejected work cannot be
+        // confused with a newly admitted request. Release it only after the
+        // fail-fast result, then query the actor-owned metric snapshot.
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+        let metrics = handle.metrics().await.unwrap();
+        assert_eq!(metrics.admitted, 1);
+        assert_eq!(metrics.admission_rejected, 1);
+        assert_eq!(metrics.active, 1);
+        assert_eq!(metrics.pending, 0);
+        assert_eq!(metrics.writes, 1);
+        assert_eq!(
+            writes.lock().unwrap().len(),
+            1,
+            "a rejected admission must not reach transport I/O"
+        );
+
+        let rejected = tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                let event = diagnostics.recv_async().await.unwrap();
+                if matches!(event, DiagnosticEvent::AdmissionRejected { .. }) {
+                    break event;
+                }
+            }
+        })
+        .await
+        .expect("the bounded ingress must emit one rejection diagnostic");
+        assert_eq!(
+            rejected,
+            DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Command,
+                error: crate::ErrorKind::BufferFull,
+            }
+        );
+
+        drop(first);
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// The handle-side ingress is runtime-neutral. Exercise the same
+    /// fail-fast capacity path under smol without requiring a transport task:
+    /// the actor remains the sole writer when it drains the compact event.
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_fail_fast_capacity_rejection_records_telemetry() {
+        let (handle, mut actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new()).unwrap();
+        let held = handle
+            .permits
+            .try_acquire()
+            .expect("the test reserves the only admission slot");
+
+        let error = match handle.enqueue_admission(inquiry(), None) {
+            Ok(_) => panic!("a full admission pool must fail fast"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
+
+        actor.flush_pre_admission_rejections(true);
+        let metrics = actor.state.metrics_snapshot();
+        assert_eq!(metrics.admission_rejected, 1);
+        assert_eq!(metrics.admitted, 0);
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        assert_eq!(metrics.writes, 0);
+        assert_eq!(
+            actor.state.diagnostics().copied().collect::<Vec<_>>(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Inquiry,
+                error: crate::ErrorKind::BufferFull,
+            }]
+        );
+        drop(held);
+    }
+
+    /// The ingress is deliberately bounded. If a burst outruns its one-slot
+    /// diagnostic staging queue, metrics keep the exact rejection total and
+    /// the already-public dropped-diagnostics counter makes the evicted event
+    /// visible instead of silently inventing another loss class.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let mut owner_policy = policy(1);
+        owner_policy.limits.diagnostics = 1;
+        let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
+        let first = PreAdmissionRejection {
+            target: CameraId::CAMERA_1,
+            lane: super::super::RequestLane::Command,
+            error: crate::ErrorKind::BufferFull,
+        };
+        let second = PreAdmissionRejection {
+            target: CameraId::CAMERA_1,
+            lane: super::super::RequestLane::Inquiry,
+            error: crate::ErrorKind::IoClosed,
+        };
+
+        assert!(actor.admission_rejections.record(first));
+        assert!(
+            !actor.admission_rejections.record(second),
+            "one bounded actor wake coalesces the burst"
+        );
+        actor.flush_pre_admission_rejections(true);
+
+        let metrics = actor.state.metrics();
+        assert_eq!(metrics.admission_rejected, 2);
+        assert_eq!(metrics.dropped_diagnostics, 1);
+        assert_eq!(
+            actor.state.diagnostics().copied().collect::<Vec<_>>(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Inquiry,
+                error: crate::ErrorKind::IoClosed,
+            }],
+            "the bounded queue retains the newest rejection fact"
+        );
+    }
+
+    /// A receiver can disappear in the narrow interval after the handle passes
+    /// its lifecycle check but before its boundary send. That is still a
+    /// rejection before authoritative admission, so it must use the same
+    /// metric/diagnostic ingress as fail-fast capacity exhaustion.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn disconnected_pre_boundary_admission_is_telemetrized() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let (replacement_sender, replacement_receiver) = flume::bounded(1);
+        drop(replacement_sender);
+        let original_receiver = std::mem::replace(&mut actor.admissions, replacement_receiver);
+        drop(original_receiver);
+
+        let error = match handle.try_submit(command()) {
+            Ok(_) => panic!("a disconnected admission receiver must reject"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error,
+            Error::InvalidState(message)
+                if message.contains("without publishing a terminal result")
+        ));
+
+        actor.flush_pre_admission_rejections(true);
+        assert_eq!(actor.state.metrics().admission_rejected, 1);
+        assert_eq!(
+            actor.state.diagnostics().copied().collect::<Vec<_>>(),
+            vec![DiagnosticEvent::AdmissionRejected {
+                target: CameraId::CAMERA_1,
+                lane: super::super::RequestLane::Command,
+                error: crate::ErrorKind::NotExecutable,
+            }]
+        );
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -4705,6 +5261,140 @@ mod tests {
         fn send_semantics(&self) -> crate::transport::SendSemantics {
             crate::transport::SendSemantics::Datagram
         }
+    }
+
+    /// Production-adapter fixture that alternates a failed read with an
+    /// oversized datagram whose copied prefix happens to be a valid ACK. The
+    /// adapter must classify the latter as a consumed bad datagram, not a
+    /// transient transport fault.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct AlternatingFaultAndTruncatedDatagrams {
+        config: crate::transport::builder::TransportConfig,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+        faults: Arc<std::sync::atomic::AtomicUsize>,
+        truncated: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AlternatingFaultAndTruncatedDatagrams {
+        fn next_receive(&self, dst: &mut [u8]) -> Result<crate::transport::ReceiveOutcome, Error> {
+            if self.reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
+                self.faults.fetch_add(1, Ordering::Relaxed);
+                return Err(Error::TransportError(
+                    "simulated intermittent datagram adapter fault".into(),
+                ));
+            }
+            let prefix = [0x90, 0x41, 0xff];
+            dst[..prefix.len()].copy_from_slice(&prefix);
+            self.truncated.fetch_add(1, Ordering::Relaxed);
+            Ok(crate::transport::ReceiveOutcome::Truncated {
+                copied: prefix.len(),
+            })
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::HasTransportConfig for AlternatingFaultAndTruncatedDatagrams {
+        fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
+            &self.config
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams {
+        async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+            Ok(())
+        }
+
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            self.next_receive(dst).map(|outcome| outcome.copied_len())
+        }
+
+        async fn recv_into_with_outcome(
+            &mut self,
+            dst: &mut [u8],
+        ) -> Result<crate::transport::ReceiveOutcome, Error> {
+            self.next_receive(dst)
+        }
+
+        fn send_semantics(&self) -> crate::transport::SendSemantics {
+            crate::transport::SendSemantics::Datagram
+        }
+    }
+
+    /// A discarded, consumed UDP datagram is successful transport activity,
+    /// even though its VISCA content is malformed. Alternating it with enough
+    /// transient read faults to otherwise cross the permanent-fault threshold
+    /// must leave the production adapter's owner Running.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("the generic profile is valid");
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let faults = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let truncated = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let config = crate::transport::builder::TransportConfig {
+            buffer_config: crate::transport::buffer::BufferConfig {
+                recv_buffer_size: 3,
+                ..crate::transport::buffer::BufferConfig::default()
+            },
+            ..crate::transport::builder::TransportConfig::default()
+        };
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            AlternatingFaultAndTruncatedDatagrams {
+                config,
+                reads,
+                faults: Arc::clone(&faults),
+                truncated: Arc::clone(&truncated),
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
+        let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+        let started_at = tokio::time::Instant::now();
+
+        // Advancing in steps lets each transient-fault pause complete before
+        // the next consumed oversized datagram, so the old accounting would
+        // accumulate twelve faults over more than the one-second terminal span.
+        for _ in 0..20 {
+            tokio::time::advance(Duration::from_millis(100)).await;
+            tokio::task::yield_now().await;
+            if faults.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap()
+                && truncated.load(Ordering::Relaxed)
+                    >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap()
+            {
+                break;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now().duration_since(started_at) >= Duration::from_secs(1),
+            "the regression must cross the permanent-fault time threshold"
+        );
+        assert!(
+            faults.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap(),
+            "the fixture must issue the whole transient-fault threshold"
+        );
+        assert!(
+            truncated.load(Ordering::Relaxed)
+                >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap(),
+            "every intervening oversized datagram must be consumed and discarded"
+        );
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running,
+            "a consumed malformed datagram resets the fault run rather than closing the session"
+        );
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
     /// Issue #637. One malformed datagram — the review's probe is `01 41 ff`,

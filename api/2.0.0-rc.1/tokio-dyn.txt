@@ -460,6 +460,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
@@ -627,6 +632,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -793,6 +803,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -939,6 +954,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -1095,6 +1111,7 @@ impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::came
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
@@ -1243,6 +1260,7 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -1406,6 +1424,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
@@ -3070,18 +3089,25 @@ pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction3D
 pub grafton_visca::capabilities::TypedSupportSurface::OnePushFocus
 pub grafton_visca::capabilities::TypedSupportSurface::OnePushWhiteBalance
 pub grafton_visca::capabilities::TypedSupportSurface::PictureEffect
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsNdiQuality
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsSettingsSave
 pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
 pub grafton_visca::capabilities::TypedSupportSurface::PushAutoFocus
 pub grafton_visca::capabilities::TypedSupportSurface::RgbGain
 pub grafton_visca::capabilities::TypedSupportSurface::RgbTuning
 pub grafton_visca::capabilities::TypedSupportSurface::SaturationControl
 pub grafton_visca::capabilities::TypedSupportSurface::SharpnessControl
+pub grafton_visca::capabilities::TypedSupportSurface::SonyAutoSlowShutter
+pub grafton_visca::capabilities::TypedSupportSurface::SonySpotlight
 pub grafton_visca::capabilities::TypedSupportSurface::Tally
 pub grafton_visca::capabilities::TypedSupportSurface::UsbAudio
 pub grafton_visca::capabilities::TypedSupportSurface::VariableSpeed
 pub grafton_visca::capabilities::TypedSupportSurface::WideDynamicRange
 impl grafton_visca::capabilities::TypedSupportSurface
-pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 41]
+pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 48]
 impl core::clone::Clone for grafton_visca::capabilities::TypedSupportSurface
 pub fn grafton_visca::capabilities::TypedSupportSurface::clone(&self) -> grafton_visca::capabilities::TypedSupportSurface
 impl core::cmp::Eq for grafton_visca::capabilities::TypedSupportSurface
@@ -3741,6 +3767,26 @@ pub trait grafton_visca::capabilities::HasPower
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::power::Power> grafton_visca::capabilities::HasPower for T
 pub trait grafton_visca::capabilities::HasPresets
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::presets::Presets> grafton_visca::capabilities::HasPresets for T
+pub trait grafton_visca::capabilities::HasPtzOpticsAntiFlicker
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
+pub trait grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG3
+pub trait grafton_visca::capabilities::HasPtzOpticsNdiQuality
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG3
+pub trait grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG3
+pub trait grafton_visca::capabilities::HasPtzOpticsSettingsSave
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG3
 pub trait grafton_visca::capabilities::HasPtzOpticsSnapFocus
 pub trait grafton_visca::capabilities::HasPushAutoFocus
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
@@ -3769,6 +3815,12 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasSonyAutoSlowShutter
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
+pub trait grafton_visca::capabilities::HasSonySpotlight
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasTally
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
@@ -4772,9 +4824,9 @@ impl core::marker::UnsafeUnpin for grafton_visca::command::AntiFlickerMode
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::AntiFlickerMode
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AntiFlickerMode
 pub enum grafton_visca::command::AutoFocusSensitivity
-pub grafton_visca::command::AutoFocusSensitivity::High = 2
-pub grafton_visca::command::AutoFocusSensitivity::Low = 0
-pub grafton_visca::command::AutoFocusSensitivity::Normal = 1
+pub grafton_visca::command::AutoFocusSensitivity::High = 1
+pub grafton_visca::command::AutoFocusSensitivity::Low = 3
+pub grafton_visca::command::AutoFocusSensitivity::Normal = 2
 impl grafton_visca::command::AutoFocusSensitivity
 pub const fn grafton_visca::command::AutoFocusSensitivity::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::AutoFocusSensitivity
@@ -6987,16 +7039,20 @@ impl core::marker::UnsafeUnpin for grafton_visca::command::DigitalZoom
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::DigitalZoom
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::DigitalZoom
 pub struct grafton_visca::command::DirectMenuControl
-pub grafton_visca::command::DirectMenuControl::control1: u8
-pub grafton_visca::command::DirectMenuControl::control2: u8
 impl grafton_visca::command::DirectMenuControl
-pub fn grafton_visca::command::DirectMenuControl::new(u8, u8) -> Self
+pub const fn grafton_visca::command::DirectMenuControl::control1(self) -> u8
+pub const fn grafton_visca::command::DirectMenuControl::control2(self) -> u8
+pub fn grafton_visca::command::DirectMenuControl::new(u8, u8) -> core::result::Result<Self, grafton_visca::Error>
 pub fn grafton_visca::command::DirectMenuControl::open_close() -> Self
 impl core::clone::Clone for grafton_visca::command::DirectMenuControl
 pub fn grafton_visca::command::DirectMenuControl::clone(&self) -> grafton_visca::command::DirectMenuControl
+impl core::cmp::Eq for grafton_visca::command::DirectMenuControl
+impl core::cmp::PartialEq for grafton_visca::command::DirectMenuControl
+pub fn grafton_visca::command::DirectMenuControl::eq(&self, &grafton_visca::command::DirectMenuControl) -> bool
 impl core::fmt::Debug for grafton_visca::command::DirectMenuControl
 pub fn grafton_visca::command::DirectMenuControl::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::DirectMenuControl
+impl core::marker::StructuralPartialEq for grafton_visca::command::DirectMenuControl
 impl grafton_visca::Request for grafton_visca::command::DirectMenuControl
 pub type grafton_visca::command::DirectMenuControl::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::DirectMenuControl::CONTROL_CLASS: grafton_visca::ControlClass
@@ -11731,6 +11787,7 @@ pub grafton_visca::observability::DiagnosticOutcome::Applied
 pub grafton_visca::observability::DiagnosticOutcome::Cancelled
 pub grafton_visca::observability::DiagnosticOutcome::Failed(grafton_visca::ErrorKind)
 pub grafton_visca::observability::DiagnosticOutcome::Reply
+pub grafton_visca::observability::DiagnosticOutcome::Written
 impl core::clone::Clone for grafton_visca::observability::DiagnosticOutcome
 pub fn grafton_visca::observability::DiagnosticOutcome::clone(&self) -> grafton_visca::observability::DiagnosticOutcome
 impl core::cmp::Eq for grafton_visca::observability::DiagnosticOutcome
@@ -12330,10 +12387,10 @@ pub async fn grafton_visca::AdvancedAccessor<'a, P>::broadcast_domain(&self) -> 
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_mode_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_ptz_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::focus_unlock(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::night_day_mode(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsNdiQuality
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_variable_speed_mode(&self, grafton_visca::command::VariableSpeedMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasVariableSpeed
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::standby_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::two_tone_mode_enabled(&self) -> grafton_visca::Result<bool>
@@ -12879,8 +12936,8 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOper
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
 pub struct grafton_visca::prelude::async::ExposureAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ExposureAccessor<'a, P>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness(&self) -> grafton_visca::Result<grafton_visca::types::BrightnessLevel> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_direct(&self, grafton_visca::types::BrightnessLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_down(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
@@ -12897,7 +12954,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_position(&self
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_reset(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_up(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::dynamic_range(&self) -> grafton_visca::Result<grafton_visca::types::DynamicRangeLevel> where P: grafton_visca::capabilities::HasWideDynamicRange
-pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain(&self) -> grafton_visca::Result<grafton_visca::types::GainLevel>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_direct(&self, grafton_visca::types::GainLevel) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_down(&self) -> grafton_visca::Result<()>
@@ -12911,7 +12968,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_down(&self) -> grafton
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_dynamic_range(&self, grafton_visca::types::DynamicRangeLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasWideDynamicRange
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_gain_limit(&self, grafton_visca::types::GainLimit) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()>
@@ -12920,8 +12977,8 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_direct(&self, graft
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_down(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_reset(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_up(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::ExposureAccessor<'a, P>
 pub fn grafton_visca::ExposureAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::ExposureAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -13699,7 +13756,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PresetsAc
 pub async fn grafton_visca::PresetsAccessor<'a, P>::recall(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::reset(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::set(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
-pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()>
+pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PresetsAccessor<'a, P>
 pub fn grafton_visca::PresetsAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PresetsAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -13740,6 +13797,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
@@ -13907,6 +13969,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -14073,6 +14140,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -14343,6 +14415,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -14499,6 +14572,7 @@ impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::came
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
@@ -14647,6 +14721,7 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -14810,6 +14885,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
@@ -14997,7 +15073,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::Sta
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateValue
 pub struct grafton_visca::prelude::async::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
-pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
 pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -15179,7 +15255,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAcces
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
-pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
@@ -17366,6 +17442,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOptics30X
@@ -17533,6 +17614,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -17699,6 +17785,11 @@ impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera:
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsMulticastStreaming for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsNdiQuality for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -17845,6 +17936,7 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -18001,6 +18093,7 @@ impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::came
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
@@ -18149,6 +18242,7 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -18312,6 +18406,7 @@ impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
@@ -20027,6 +20122,7 @@ pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+pub async fn grafton_visca::TransportHandle<R>::recv_into_with_outcome(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
@@ -20094,10 +20190,10 @@ pub async fn grafton_visca::AdvancedAccessor<'a, P>::broadcast_domain(&self) -> 
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_mode_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_ptz_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::focus_unlock(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::night_day_mode(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsNdiQuality
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_variable_speed_mode(&self, grafton_visca::command::VariableSpeedMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasVariableSpeed
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::standby_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::two_tone_mode_enabled(&self) -> grafton_visca::Result<bool>
@@ -20262,8 +20358,8 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ConnectBuilder
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::ConnectBuilder
 pub struct grafton_visca::session::ExposureAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ExposureAccessor<'a, P>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness(&self) -> grafton_visca::Result<grafton_visca::types::BrightnessLevel> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_direct(&self, grafton_visca::types::BrightnessLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_down(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
@@ -20280,7 +20376,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_position(&self
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_reset(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_up(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::dynamic_range(&self) -> grafton_visca::Result<grafton_visca::types::DynamicRangeLevel> where P: grafton_visca::capabilities::HasWideDynamicRange
-pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain(&self) -> grafton_visca::Result<grafton_visca::types::GainLevel>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_direct(&self, grafton_visca::types::GainLevel) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_down(&self) -> grafton_visca::Result<()>
@@ -20294,7 +20390,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_down(&self) -> grafton
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_dynamic_range(&self, grafton_visca::types::DynamicRangeLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasWideDynamicRange
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_gain_limit(&self, grafton_visca::types::GainLimit) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()>
@@ -20303,8 +20399,8 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_direct(&self, graft
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_down(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_reset(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_up(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::ExposureAccessor<'a, P>
 pub fn grafton_visca::ExposureAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::ExposureAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -20512,7 +20608,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PresetsAc
 pub async fn grafton_visca::PresetsAccessor<'a, P>::recall(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::reset(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::set(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
-pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()>
+pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PresetsAccessor<'a, P>
 pub fn grafton_visca::PresetsAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PresetsAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -20574,7 +20670,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SessionConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SessionConfig
 pub struct grafton_visca::session::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
-pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
 pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -20685,7 +20781,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAcces
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
-pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
@@ -20883,6 +20979,32 @@ impl core::marker::Unpin for grafton_visca::transport::FrameSequence
 impl core::marker::UnsafeUnpin for grafton_visca::transport::FrameSequence
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::FrameSequence
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::FrameSequence
+pub enum grafton_visca::transport::ReceiveOutcome
+pub grafton_visca::transport::ReceiveOutcome::Complete
+pub grafton_visca::transport::ReceiveOutcome::Complete::bytes: usize
+pub grafton_visca::transport::ReceiveOutcome::PossiblyTruncated
+pub grafton_visca::transport::ReceiveOutcome::PossiblyTruncated::copied: usize
+pub grafton_visca::transport::ReceiveOutcome::Truncated
+pub grafton_visca::transport::ReceiveOutcome::Truncated::copied: usize
+impl grafton_visca::transport::ReceiveOutcome
+pub const fn grafton_visca::transport::ReceiveOutcome::copied_len(self) -> usize
+pub const fn grafton_visca::transport::ReceiveOutcome::is_complete(self) -> bool
+impl core::clone::Clone for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::clone(&self) -> grafton_visca::transport::ReceiveOutcome
+impl core::cmp::Eq for grafton_visca::transport::ReceiveOutcome
+impl core::cmp::PartialEq for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::eq(&self, &grafton_visca::transport::ReceiveOutcome) -> bool
+impl core::fmt::Debug for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::transport::ReceiveOutcome
+impl core::marker::StructuralPartialEq for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Freeze for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Send for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Sync for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Unpin for grafton_visca::transport::ReceiveOutcome
+impl core::marker::UnsafeUnpin for grafton_visca::transport::ReceiveOutcome
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::ReceiveOutcome
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::ReceiveOutcome
 #[non_exhaustive] pub enum grafton_visca::transport::SendSemantics
 pub grafton_visca::transport::SendSemantics::Datagram
 pub grafton_visca::transport::SendSemantics::Stream
@@ -21037,11 +21159,13 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::Transpor
 pub trait grafton_visca::transport::AsyncTransport: core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub fn grafton_visca::transport::AsyncTransport::recv_into<'a>(&'a mut self, &'a mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<usize, grafton_visca::Error>> + core::marker::Send
+pub fn grafton_visca::transport::AsyncTransport::recv_into_with_outcome<'a>(&'a mut self, &'a mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>> + core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::send(&mut self, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), grafton_visca::Error>> + core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+pub async fn grafton_visca::TransportHandle<R>::recv_into_with_outcome(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub trait grafton_visca::transport::BlockingTransport: core::marker::Send
@@ -22591,9 +22715,9 @@ impl core::marker::UnsafeUnpin for grafton_visca::AffectedAxis
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::AffectedAxis
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::AffectedAxis
 pub enum grafton_visca::AutoFocusSensitivity
-pub grafton_visca::AutoFocusSensitivity::High = 2
-pub grafton_visca::AutoFocusSensitivity::Low = 0
-pub grafton_visca::AutoFocusSensitivity::Normal = 1
+pub grafton_visca::AutoFocusSensitivity::High = 1
+pub grafton_visca::AutoFocusSensitivity::Low = 3
+pub grafton_visca::AutoFocusSensitivity::Normal = 2
 impl grafton_visca::command::AutoFocusSensitivity
 pub const fn grafton_visca::command::AutoFocusSensitivity::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::AutoFocusSensitivity
@@ -22853,6 +22977,7 @@ pub grafton_visca::DiagnosticOutcome::Applied
 pub grafton_visca::DiagnosticOutcome::Cancelled
 pub grafton_visca::DiagnosticOutcome::Failed(grafton_visca::ErrorKind)
 pub grafton_visca::DiagnosticOutcome::Reply
+pub grafton_visca::DiagnosticOutcome::Written
 impl core::clone::Clone for grafton_visca::observability::DiagnosticOutcome
 pub fn grafton_visca::observability::DiagnosticOutcome::clone(&self) -> grafton_visca::observability::DiagnosticOutcome
 impl core::cmp::Eq for grafton_visca::observability::DiagnosticOutcome
@@ -23561,6 +23686,7 @@ pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
 pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+pub async fn grafton_visca::TransportHandle<R>::recv_into_with_outcome(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
@@ -23663,10 +23789,10 @@ pub async fn grafton_visca::AdvancedAccessor<'a, P>::broadcast_domain(&self) -> 
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_mode_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::digital_ptz_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::focus_unlock(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::multicast_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsMulticastStreaming
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::night_day_mode(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()>
+pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_ndi_quality(&self, grafton_visca::types::NdiQuality) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsNdiQuality
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::set_variable_speed_mode(&self, grafton_visca::command::VariableSpeedMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasVariableSpeed
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::standby_enabled(&self) -> grafton_visca::Result<bool>
 pub async fn grafton_visca::AdvancedAccessor<'a, P>::two_tone_mode_enabled(&self) -> grafton_visca::Result<bool>
@@ -24392,8 +24518,8 @@ impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOper
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
 pub struct grafton_visca::ExposureAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ExposureAccessor<'a, P>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
+pub async fn grafton_visca::ExposureAccessor<'a, P>::auto_slow_shutter_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness(&self) -> grafton_visca::Result<grafton_visca::types::BrightnessLevel> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_direct(&self, grafton_visca::types::BrightnessLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::brightness_down(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasBrightnessControl
@@ -24410,7 +24536,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_position(&self
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_reset(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::compensation_up(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureCompensation
 pub async fn grafton_visca::ExposureAccessor<'a, P>::dynamic_range(&self) -> grafton_visca::Result<grafton_visca::types::DynamicRangeLevel> where P: grafton_visca::capabilities::HasWideDynamicRange
-pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::flicker_mode(&self) -> grafton_visca::Result<grafton_visca::command::AntiFlickerMode> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain(&self) -> grafton_visca::Result<grafton_visca::types::GainLevel>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_direct(&self, grafton_visca::types::GainLevel) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::gain_down(&self) -> grafton_visca::Result<()>
@@ -24424,7 +24550,7 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_down(&self) -> grafton
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_reset(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::iris_up(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub async fn grafton_visca::ExposureAccessor<'a, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_dynamic_range(&self, grafton_visca::types::DynamicRangeLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasWideDynamicRange
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_gain_limit(&self, grafton_visca::types::GainLimit) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()>
@@ -24433,8 +24559,8 @@ pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_direct(&self, graft
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_down(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_reset(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::ExposureAccessor<'a, P>::shutter_up(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
+pub async fn grafton_visca::ExposureAccessor<'a, P>::spotlight_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonySpotlight
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::ExposureAccessor<'a, P>
 pub fn grafton_visca::ExposureAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::ExposureAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -25016,7 +25142,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::PresetsAc
 pub async fn grafton_visca::PresetsAccessor<'a, P>::recall(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::reset(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
 pub async fn grafton_visca::PresetsAccessor<'a, P>::set(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<()>
-pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()>
+pub async fn grafton_visca::PresetsAccessor<'a, P>::set_recall_speed(&self, grafton_visca::command::PresetRecallSpeed) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsPresetRecallSpeed
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::PresetsAccessor<'a, P>
 pub fn grafton_visca::PresetsAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::PresetsAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -25263,7 +25389,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::state_cache::Sta
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateValue
 pub struct grafton_visca::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
-pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
 pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -25484,7 +25610,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ZoomAcces
 pub async fn grafton_visca::ZoomAccessor<'a, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
-pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom + grafton_visca::capabilities::HasDigitalZoomRange
+pub async fn grafton_visca::ZoomAccessor<'a, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub async fn grafton_visca::ZoomAccessor<'a, P>::stop(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>
 pub async fn grafton_visca::ZoomAccessor<'a, P>::tele(&self) -> grafton_visca::Result<grafton_visca::Operation<grafton_visca::completion::AppliedOnly>>

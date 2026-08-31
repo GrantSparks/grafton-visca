@@ -23,7 +23,7 @@ use grafton_visca::{
         PanTiltLimitCorner, PresetRecallSpeed, VariableSpeedMode,
     },
     profile::ProfileSpec,
-    profiles::{PtzOpticsG2, SonyFR7},
+    profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     types::{MotionSyncSpeed, NdiQuality, PanSpeed, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
@@ -162,6 +162,13 @@ fn ptz_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
 
 fn fr7_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
     let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+    let (transport, writes) = RecordingTransport::new();
+    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
+    (session, writes)
+}
+
+fn evi_h100_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
+    let profile = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI-H100 profile");
     let (transport, writes) = RecordingTransport::new();
     let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
     (session, writes)
@@ -731,12 +738,18 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
     let cache = camera.state_cache();
 
     assert_eq!(cache.spotlight(), None);
-    assert_eq!(cache.auto_slow_shutter(), None);
-
     camera.exposure().spotlight_on().expect("spotlight on");
     assert_eq!(cache.spotlight(), Some(true));
     camera.exposure().spotlight_off().expect("spotlight off");
     assert_eq!(cache.spotlight(), Some(false));
+
+    session.shutdown().expect("shutdown");
+
+    let (session, _writes) = evi_h100_session();
+    let camera = session.camera::<SonyEVIH100>().expect("camera");
+    let cache = camera.state_cache();
+
+    assert_eq!(cache.auto_slow_shutter(), None);
 
     camera
         .exposure()

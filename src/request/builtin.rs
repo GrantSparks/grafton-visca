@@ -4799,6 +4799,7 @@ mod tests {
 
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
 
         macro_rules! row {
             ($name:literal, $command:expr, $profile:expr, $semantic:expr, $requirement:expr, $expected:expr) => {{
@@ -4899,7 +4900,7 @@ mod tests {
         row!(
             "auto slow shutter on",
             AutoSlowShutterOn::new(),
-            &fr7,
+            &evi,
             B::AutoSlowShutterOn,
             Set(S::AutoSlowShutter),
             crate::runtime::engine::AppliedStateProjection::set(S::AutoSlowShutter, &[1])
@@ -4908,7 +4909,7 @@ mod tests {
         row!(
             "auto slow shutter off",
             AutoSlowShutterOff::new(),
-            &fr7,
+            &evi,
             B::AutoSlowShutterOff,
             Set(S::AutoSlowShutter),
             crate::runtime::engine::AppliedStateProjection::set(S::AutoSlowShutter, &[0])
@@ -5653,8 +5654,8 @@ mod tests {
     /// A normalized combined-domain target and an explicit target can encode
     /// to the same raw position, but they do not have the same permission
     /// contract. The explicit target is governed by its numeric range;
-    /// normalized combined-domain input also requires the typed digital-range
-    /// surface that the static noun row carries.
+    /// normalized combined-domain input also passes runtime typed
+    /// digital-range validation against a documented digital maximum.
     #[test]
     fn normalized_combined_zoom_retains_its_permission_beyond_raw_overlap() {
         let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");

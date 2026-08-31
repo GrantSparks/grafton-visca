@@ -70,11 +70,11 @@ custom integrations.
 | Variable speed mode controls | `SonyFR7` |
 | Tally controls and inquiries | `SonyFR7`, `SonyBRCH900` |
 | Direct menu controls | `SonyFR7` |
-| PTZOptics anti-flicker control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics anti-flicker control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Sony spotlight controls | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| Sony automatic slow-shutter controls | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Sony spotlight controls | `SonyFR7`, `SonyBRCH900` |
+| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300` |
 | PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
@@ -185,12 +185,14 @@ The quickstart snippets are read-only. They connect to a camera, query state,
 and close the session. Movement and configuration changes are shown in focused
 examples that opt in to hardware changes explicitly.
 
-For one camera, `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` return
-an owner-backed `CameraSession<P>`: the profile is named once and bound at
-compile time, and `session.camera()` hands out the typed `Camera` view that
-carries the noun accessors. For two or more cameras, `Connect::open_tcp` /
-`open_udp` return a `Session` that owns the transport and the target registry,
-and `session.camera_for::<P>(target)` selects each view.
+Standard TCP and UDP sessions support one camera. `Connect::open_tcp_camera::<P>`
+/ `open_udp_camera::<P>` return an owner-backed `CameraSession<P>`: the profile
+is named once and bound at compile time, and `session.camera()` hands out the
+typed `Camera` view that carries the noun accessors. `Connect::open_tcp` /
+`open_udp` also open one camera, returning a `Session` whose view is selected
+with `session.camera::<P>()`. Multi-target sessions require a raw-VISCA
+serial-addressed or compatible custom transport, and select each view with
+`session.camera_for::<P>(target)`.
 
 Every Rust snippet in this README is compiled by the crate's own test suite, so
 the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
@@ -350,7 +352,8 @@ fn half_zoom() -> Result<(), grafton_visca::Error> {
     session.close()
 }
 
-// `set_normalized_in_domain` additionally requires `HasDigitalZoomRange`.
+// `set_normalized_in_domain` requires `HasDirectZoom`; only
+// `OpticalPlusDigital` additionally requires `HasDigitalZoomRange` at runtime.
 fn full_range_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
     let camera = session.camera::<SonyFR7>()?;
@@ -368,12 +371,14 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
 ## Public API Boundaries
 
-- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction. For one
-  camera, `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` (or
-  `CameraConfig::<P>::open_camera` / `open_camera_async`) return a
-  `CameraSession<P>` whose `camera()` view is bound to `P` at compile time. For
-  several, select a target view with `Session::camera::<P>()` or
-  `camera_for::<P>(target)`.
+- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction. Standard
+  TCP and UDP sessions have one target: `Connect::open_tcp_camera::<P>` /
+  `open_udp_camera::<P>` (or `CameraConfig::<P>::open_camera` /
+  `open_camera_async`) return a `CameraSession<P>` whose `camera()` view is
+  bound to `P` at compile time, while `Connect::open_tcp` / `open_udp` return a
+  one-target `Session` accessed with `Session::camera::<P>()`. Multi-target
+  `Session::camera_for::<P>(target)` is for raw-VISCA serial-addressed or
+  compatible custom transports.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
   checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the

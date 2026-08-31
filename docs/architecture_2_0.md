@@ -160,6 +160,27 @@ A stray ACK to such a command is ignored; it never assigns a socket. Raw ACK and
 routing never uses command FIFO or temporal recency. Sony-encapsulated requests
 may pipeline before ACK because their envelope sequence provides an exact
 correlation key. An unsequenced ACK is never attributed by a guess.
+
+A raw `NoReply` command likewise has no response identity while its local
+write is in flight. It starts only when its target has no live command or
+inquiry, and its `Sending` phase excludes same-target work until the write
+either fails or leaves the bounded terminal hold below. Sony sequence
+correlation does not need this raw-only exclusion.
+
+Successful raw terminals that never earned a response identity retain bounded
+evidence rather than disappearing from correlation immediately. A `NoReply` or
+`CompletionOnly` command holds the target's response/correlation lane through
+its ambiguity deadline; any late ACK, completion, or error for that target is
+ignored before it can bind to later response-bearing work. Another `NoReply`
+can safely write during that hold because it expects no response and extends
+the same fixed deadline. The tombstone is one fixed slot per target, expires
+through the ordinary next-wake path, and never grows with command history. A
+normal ACK-then-completion command deliberately does
+not retain a terminal socket hold: the camera may immediately reuse its freed
+socket, and unsequenced raw traffic cannot distinguish that legitimate next
+response from a duplicate predecessor response. This preserves established raw
+throughput and immediate socket reuse; the target quarantine is reserved for
+the uncorrelatable reply shapes.
 When a raw ACK names a free socket, that socket is exact evidence. When the
 named socket is instead held by another request — the classic cause is a lost
 completion frame that made the camera reuse the socket — the ACK falls back to
@@ -241,7 +262,9 @@ though a command socket is free the instant the prior command's ACK lands. When
 that pre-ACK gate is the *sole* obstacle and socket capacity would be available
 once it clears, the blocking owner pumps the peer's ACK — bounded by the
 submitting request's own ACK budget — so the first write wins and an emergency
-`stop_all_motion`/`Urgent` stop still reaches a moving camera (#673). Genuine
+`stop_all_motion`/`Urgent` stop still reaches a moving camera (#673). A
+`CompletionOnly` successor still requires target idleness after that ACK, so it
+does not meet the sole-obstacle rule and is rejected without a drain. Genuine
 socket-capacity contention (every command socket already occupied) and losing
 the global dispatch race are *not* drained: the newly admitted request is
 terminalized as `Error::TransportBusy` immediately and no handle escapes, since
@@ -252,12 +275,14 @@ never exhibited the raw first-write stall.
 
 This is the ratified #673 exception to issue #542 §4's older blanket sentence
 that blocking submission “never waits for ACK.” The local post-review rule is
-narrow: only a sole raw ACK-capable predecessor may be drained, and the drain
-is bounded by the submitting request's ACK budget. `CompletionOnly`, `NoReply`,
-and the #671 `AwaitingLateAck` quarantine with `CancelState::None` never arm it;
-a cancellation-driven late-ACK state remains eligible when its ACK is still
-accepted. This repository records the superseding design decision; the GitHub
-issue body remains historical and is not claimed to have changed.
+narrow: only a sole raw ACK-capable predecessor may be drained for an
+`AckThenCompletion` successor, and the drain is bounded by the submitting
+request's ACK budget. `CompletionOnly` and `NoReply` are never draining
+successors; the #671 `AwaitingLateAck` quarantine with `CancelState::None` also
+never arms it, while a cancellation-driven late-ACK state remains eligible when
+its ACK is still accepted. This repository records the superseding design
+decision; the GitHub issue body remains historical and is not claimed to have
+changed.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
@@ -306,7 +331,7 @@ post-#671 behavior, not an aspirational one.
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
-| Successful command send (`NoReply`, issue #700) | `finish` with `RuntimeOutcome::Applied` — the write is the terminal; hold nothing waiting for a frame. |
+| Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain a bounded target tombstone before same-target raw response-bearing command or inquiry work may start. Another `NoReply` may write and extend that fixed hold. |
 | Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. |
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
@@ -314,7 +339,7 @@ post-#671 behavior, not an aspirational one.
 | ACK naming a busy socket | Fall back to the target's other free socket when it has more than one (issues #620/#682); when none is free the ACK stays inert as `Ignored(SocketConflict)`. |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
-| Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. |
+| Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. Retain the bounded target tombstone before same-target raw response-bearing command or inquiry work starts; a later `NoReply` may only extend that fixed hold. |
 | Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. |
 | Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
 | Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
@@ -449,8 +474,9 @@ by the same escalating, next-wake-clamped pause the transient-fault path uses
 
 ## Request and motion semantics
 
-Plain commands complete when the owner has protocol-applied them. Typed
-inquiries return their decoded response. Targeted operations have a meaningful
+Plain commands normally complete when the owner has protocol-applied them; a raw
+`NoReply` plain command instead reports only a successful local transport write.
+Typed inquiries return their decoded response. Targeted operations have a meaningful
 physical end state and expose applied plus settled completion. Applied-only
 operations represent actuation without a meaningful physical target and expose
 applied completion only. Dynamic handles preserve this distinction:

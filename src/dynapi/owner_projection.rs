@@ -290,6 +290,10 @@ impl DynSessionCamera {
     }
 
     /// Executes a plain command through the shared owner.
+    ///
+    /// Ordinary commands wait for their terminal protocol application. A raw
+    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
+    /// local transport write succeeds; it does not claim camera application.
     pub async fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,

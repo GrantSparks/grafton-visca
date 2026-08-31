@@ -552,6 +552,20 @@ fn prepare_inquiry_with_policy<Q>(
 where
     Q: Inquiry + ?Sized,
 {
+    // An inquiry has exactly one protocol lifecycle: its reply is the
+    // terminal evidence. Do not merely ignore a downstream override here;
+    // doing so would let an erased/custom inquiry advertise a reply shape the
+    // engine never honors. This is deliberately shared by every preparation
+    // entry point, not just raw::Inquiry's constructor.
+    if !matches!(
+        inquiry.reply_shape(),
+        crate::raw::RawReplyShape::AckThenCompletion
+    ) {
+        return Err(Error::InvalidRequest(
+            "inquiry reply shape must be RawReplyShape::AckThenCompletion; an inquiry always awaits its reply"
+                .into(),
+        ));
+    }
     if target.is_broadcast() {
         return Err(Error::InvalidRequest(
             "inquiries require an individual camera target".into(),
@@ -638,6 +652,16 @@ where
     if target.is_broadcast() {
         return Err(Error::InvalidRequest(
             "observable operations require an individual camera target".into(),
+        ));
+    }
+    // An operation handle's `applied()` is a protocol-evidence promise. A
+    // no-reply command can prove only a successful local write, so keep that
+    // fire-and-forget shape on the plain-command path even for downstream or
+    // dynamically erased operation implementations that bypass raw wrappers.
+    if matches!(operation.reply_shape(), crate::raw::RawReplyShape::NoReply) {
+        return Err(Error::InvalidRequest(
+            "operations cannot use RawReplyShape::NoReply; operation application requires a terminal camera response"
+                .into(),
         ));
     }
     validate_timeout_class(operation.timeout_class(), false)?;
@@ -783,9 +807,10 @@ where
             CancellationPolicy::Unsupported
         },
         // The reply shape is a caller-declared protocol fact, lowered here from
-        // the request rather than inferred from the wire bytes. Inquiries always
-        // await a reply, so their (validated) default lowers to
-        // `AckThenCompletion` and the engine's inquiry path ignores it.
+        // the request rather than inferred from the wire bytes. Inquiry
+        // preparation has already rejected every non-default shape, so an
+        // inquiry's value is the protocol it actually awaits rather than an
+        // override the engine silently ignores.
         reply_shape: lower_reply_shape(request.reply_shape()),
     })
 }
@@ -985,14 +1010,29 @@ impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
 {
-    /// The target and the ACK budget the blocking owner uses to drain the raw
-    /// single-candidate pre-ACK gate before this operation's first-write submit
-    /// (issue #673), read without consuming the prepared operation. The budget
-    /// is this request's own ACK deadline, so the drain waits no longer for a
-    /// prior command's ACK than the request itself would wait for its own.
+    /// Returns the target selected during preparation without consuming the
+    /// operation.
     #[cfg(feature = "blocking")]
-    pub(crate) fn preack_drain_hint(&self) -> (CameraId, Duration) {
-        (self.context.target, self.context.timeout.ack)
+    pub(crate) const fn target(&self) -> CameraId {
+        self.context.target
+    }
+
+    /// Returns the optional ACK budget the blocking owner may use to drain the
+    /// raw single-candidate pre-ACK gate before this operation's first-write
+    /// submit (issue #673), without consuming the prepared operation.
+    ///
+    /// Only an ACK-then-completion successor can become dispatch-eligible when
+    /// the predecessor's ACK arrives. A completion-only successor still
+    /// requires target idleness after that ACK, so the pre-ACK gate is not its
+    /// sole obstacle and blocking submission must fail fast rather than pump a
+    /// peer frame. `NoReply` operations are rejected before preparation. The
+    /// returned budget is this request's own ACK deadline, so the drain waits
+    /// no longer for a prior command's ACK than the request itself would wait
+    /// for its own.
+    #[cfg(feature = "blocking")]
+    pub(crate) fn preack_drain_hint(&self) -> Option<Duration> {
+        (self.context.reply_shape == ReplyShape::AckThenCompletion)
+            .then_some(self.context.timeout.ack)
     }
 
     pub(crate) fn admit_with<T>(
@@ -1201,6 +1241,42 @@ mod tests {
         }
     }
 
+    /// A downstream inquiry can override `Request::reply_shape` without
+    /// passing through `raw::Inquiry`; shared preparation must reject both
+    /// non-default command lifecycles rather than lower a declaration that an
+    /// inquiry cannot honor.
+    struct NonDefaultReplyShapeInquiry(crate::raw::RawReplyShape);
+
+    impl Request for NonDefaultReplyShapeInquiry {
+        type Class = crate::request::Inquiry;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+        const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn reply_shape(&self) -> crate::raw::RawReplyShape {
+            self.0
+        }
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    impl Inquiry for NonDefaultReplyShapeInquiry {
+        type Response = Vec<u8>;
+
+        fn route(&self) -> InquiryRoute {
+            InquiryRoute::RAW
+        }
+
+        fn decoder(&self) -> ResponseDecoder<Self::Response> {
+            ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
+        }
+    }
+
     struct CountingAppliedOnly;
 
     impl Request for CountingAppliedOnly {
@@ -1221,6 +1297,36 @@ mod tests {
     impl OperationCommand<completion::AppliedOnly> for CountingAppliedOnly {
         fn affected_axes(&self) -> AffectedAxes {
             AffectedAxes::ND_FILTER
+        }
+    }
+
+    /// A downstream operation can override `Request::reply_shape` without
+    /// passing through `raw::AppliedOnly`; preparation must still refuse the
+    /// no-reply lifecycle because it would otherwise manufacture an
+    /// `applied()` handle without terminal camera evidence.
+    struct NoReplyAppliedOnly;
+
+    impl Request for NoReplyAppliedOnly {
+        type Class = crate::request::Operation<completion::AppliedOnly>;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn reply_shape(&self) -> crate::raw::RawReplyShape {
+            crate::raw::RawReplyShape::NoReply
+        }
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    impl OperationCommand<completion::AppliedOnly> for NoReplyAppliedOnly {
+        fn affected_axes(&self) -> AffectedAxes {
+            AffectedAxes::ZOOM
         }
     }
 
@@ -2014,6 +2120,26 @@ mod tests {
     }
 
     #[test]
+    fn generic_inquiry_preparation_rejects_non_default_reply_shapes() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        for reply_shape in [
+            crate::raw::RawReplyShape::CompletionOnly,
+            crate::raw::RawReplyShape::NoReply,
+        ] {
+            let error = prepare_inquiry(
+                &NonDefaultReplyShapeInquiry(reply_shape),
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("an inquiry cannot lower a command-only reply shape");
+            assert!(matches!(error, Error::InvalidRequest(_)));
+        }
+    }
+
+    #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
         let tuning = OperationalTuning::new().retry_limit(7);
         let never = retry_policy(
@@ -2791,5 +2917,20 @@ mod tests {
         )
         .expect("prepares");
         assert_eq!(prepared.context.reply_shape, ReplyShape::AckThenCompletion);
+    }
+
+    #[test]
+    fn no_reply_operation_is_rejected_during_generic_preparation() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        let error = prepare_operation::<completion::AppliedOnly, _>(
+            &NoReplyAppliedOnly,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect_err("a no-reply operation must not create an applied handle");
+        assert!(matches!(error, Error::InvalidRequest(_)));
     }
 }

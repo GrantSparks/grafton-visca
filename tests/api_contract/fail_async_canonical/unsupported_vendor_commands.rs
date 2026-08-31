@@ -7,6 +7,7 @@ fn main() {
     let _ = camera
         .exposure()
         .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50);
+    let _ = camera.exposure().flicker_mode();
     let _ = camera.system().save_settings();
     let _ = camera.presets().set_recall_speed(
         grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),

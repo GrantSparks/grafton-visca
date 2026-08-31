@@ -106,8 +106,10 @@
 //! **Completion**
 //!
 //! - **Applied** — the exact submitted command reached its successful VISCA
-//!   terminal response. Plain commands finish at applied; typed operations
-//!   expose it through `applied()`.
+//!   terminal response. Plain commands normally finish at applied; a raw plain
+//!   `NoReply` command instead reports only a successful local transport write
+//!   and cannot create an operation handle. Typed operations expose applied
+//!   through `applied()`.
 //! - **Targeted operation** — an operation with a meaningful physical end state
 //!   (home, absolute/relative move, target position, preset recall). It can be
 //!   observed as applied and as settled.

@@ -1,9 +1,15 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
 use std::{
+    io,
     net::UdpSocket,
     time::{Duration, Instant},
 };
+
+#[cfg(unix)]
+use std::io::IoSliceMut;
+#[cfg(any(unix, windows))]
+use std::io::Read;
 
 use crate::{
     command::CommandKind,
@@ -24,6 +30,18 @@ use crate::{
 pub struct Udp {
     socket: UdpSocket,
     config: TransportConfig,
+}
+
+/// One UDP receive together with whether the caller's buffer held the entire
+/// datagram.
+///
+/// A valid-looking prefix is not a valid VISCA response.  Keep this detail at
+/// the transport boundary so neither the public `BlockingTransport` trait nor
+/// the owner has to guess whether an exact-fill UDP read was truncated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DatagramReceive {
+    Complete(usize),
+    Truncated,
 }
 
 impl Udp {
@@ -70,6 +88,58 @@ impl Udp {
 
         Ok(Self { socket, config })
     }
+
+    /// Receive one UDP datagram, retaining truncation information where the
+    /// operating system exposes it.
+    ///
+    /// On Unix, a one-byte sentinel extends `dst`, so a packet that reaches it
+    /// is known to exceed the caller's buffer.  On Windows, Winsock reports
+    /// `WSAEMSGSIZE` for the same condition.  Other targets conservatively
+    /// reject an exact-fill receive because their standard UDP API exposes no
+    /// portable way to distinguish it from truncation.
+    fn recv_datagram(&self, dst: &mut [u8]) -> io::Result<DatagramReceive> {
+        #[cfg(unix)]
+        {
+            let socket = socket2::SockRef::from(&self.socket);
+            let capacity = dst.len();
+            let mut sentinel = [0_u8; 1];
+            let mut buffers = [IoSliceMut::new(dst), IoSliceMut::new(&mut sentinel)];
+            let mut socket = &*socket;
+            let received = socket.read_vectored(&mut buffers)?;
+            Ok(if received > capacity {
+                DatagramReceive::Truncated
+            } else {
+                DatagramReceive::Complete(received)
+            })
+        }
+
+        #[cfg(windows)]
+        {
+            let socket = socket2::SockRef::from(&self.socket);
+            let mut socket = &*socket;
+            // `Socket2` preserves WSAEMSGSIZE from `recv`, unlike its vectored
+            // compatibility adapter.  The datagram has already been consumed,
+            // so report it as a discarded oversized packet.
+            const WSAEMSGSIZE: i32 = 10_040;
+            return match socket.read(dst) {
+                Ok(received) => Ok(DatagramReceive::Complete(received)),
+                Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
+                    Ok(DatagramReceive::Truncated)
+                }
+                Err(error) => Err(error),
+            };
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let received = self.socket.recv(dst)?;
+            return Ok(if received == dst.len() {
+                DatagramReceive::Truncated
+            } else {
+                DatagramReceive::Complete(received)
+            });
+        }
+    }
 }
 
 impl HasTransportConfig for Udp {
@@ -92,16 +162,21 @@ impl BlockingTransport for Udp {
 
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
         loop {
-            match self.socket.recv(dst) {
-                Ok(0) => continue,
-                Ok(n) => return Ok(n),
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::TimedOut
-                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+            match self.recv_datagram(dst) {
+                Ok(DatagramReceive::Complete(0)) => continue,
+                Ok(DatagramReceive::Complete(received)) => return Ok(received),
+                Ok(DatagramReceive::Truncated) => {
+                    return Err(Error::ResponseTooLarge {
+                        max_size: dst.len(),
+                    });
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::TimedOut
+                        || error.kind() == io::ErrorKind::WouldBlock =>
                 {
                     return Err(Error::Timeout);
                 }
-                Err(e) => return Err(e.into()),
+                Err(error) => return Err(error.into()),
             }
         }
     }
@@ -129,16 +204,21 @@ impl BlockingTransport for Udp {
                 break Err(error.into());
             }
 
-            match self.socket.recv(dst) {
-                Ok(0) => continue,
-                Ok(n) => break Ok(n),
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::TimedOut
-                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+            match self.recv_datagram(dst) {
+                Ok(DatagramReceive::Complete(0)) => continue,
+                Ok(DatagramReceive::Complete(received)) => break Ok(received),
+                Ok(DatagramReceive::Truncated) => {
+                    break Err(Error::ResponseTooLarge {
+                        max_size: dst.len(),
+                    });
+                }
+                Err(error)
+                    if error.kind() == io::ErrorKind::TimedOut
+                        || error.kind() == io::ErrorKind::WouldBlock =>
                 {
                     break Err(Error::Timeout);
                 }
-                Err(e) => break Err(e.into()),
+                Err(error) => break Err(error.into()),
             }
         };
 
@@ -199,6 +279,38 @@ mod tests {
 
         assert_eq!(received, 5);
         assert_eq!(&dst[..received], b"valid");
+    }
+
+    #[test]
+    fn recv_rejects_truncated_valid_ack_prefix_and_preserves_next_datagram() {
+        let (receiver, sender) = connected_socket_pair();
+        // The first three bytes form a valid VISCA ACK.  The trailing byte
+        // makes the actual UDP datagram over-size for `dst`, so decoding that
+        // copied prefix would incorrectly acknowledge a request.
+        sender
+            .send(&[0x90, 0x41, 0xff, 0x00])
+            .expect("send oversized datagram");
+
+        let mut transport = Udp {
+            socket: receiver,
+            config: TransportConfig::default(),
+        };
+        let mut dst = [0; 3];
+        let error = transport
+            .recv_into(&mut dst)
+            .expect_err("an oversized datagram must not return its valid prefix");
+        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+
+        // The rejected packet is one atomic datagram; the next exact-fit ACK
+        // must remain available and valid.
+        sender
+            .send(&[0x90, 0x41, 0xff])
+            .expect("send exact-fit datagram");
+        let received = transport
+            .recv_into(&mut dst)
+            .expect("next exact-fit datagram remains readable");
+        assert_eq!(received, 3);
+        assert_eq!(&dst[..received], &[0x90, 0x41, 0xff]);
     }
 
     #[test]

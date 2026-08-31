@@ -874,7 +874,11 @@ impl<'session> BlockingCameraCore<'session> {
         self.class = ClassSelection::from_handle_default(class);
     }
 
-    /// Executes a plain command and waits for exact application.
+    /// Executes a plain command through the shared owner.
+    ///
+    /// Ordinary commands wait for their terminal protocol application. A raw
+    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
+    /// local transport write succeeds; it does not claim camera application.
     pub fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
@@ -1201,6 +1205,10 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
     }
 
     /// Executes a plain command through this camera's shared owner.
+    ///
+    /// Ordinary commands wait for their terminal protocol application. A raw
+    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
+    /// local transport write succeeds; it does not claim camera application.
     pub fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,

@@ -43,6 +43,10 @@ The PTZOptics Gen‑2 NDI®\|HX scope covers:
 
 The command set is substantially shared across these models. Optical limits, lens ranges, field of view, and a few path-specific capabilities are model-dependent.
 
+The `PtzOpticsG3` profile has a separate, narrow command-source exception in
+R10 for its retained vendor controls. It does not expand this Gen-2 scope or
+generalize other G3 behavior without model-specific evidence.
+
 ### 2.2 Validated Axis scope
 
 The Axis VISCA Interface API values are **Axis profile values**. They must not be generalized to PTZOptics unless PTZOptics primary documentation or live calibration confirms the same behavior.
@@ -693,14 +697,26 @@ Sony’s command manual confirms the same basic VISCA behavior used throughout t
 - The camera has two command sockets.
 - Common error packets include Syntax Error, Command Buffer Full, Command Canceled, No Socket, and Command Not Executable.
 
-### 9.3 Bright, Gamma, and slow shutter
+### 9.3 Bright, Gamma, spotlight, and automatic slow shutter
 
 Sony’s EVI-H100S/H100V technical manual confirms:
 
 - Bright up/down use `04 0D`.
 - Bright direct uses `04 4D`.
 - Gamma set uses `04 5B`; Gamma inquiry uses `09 04 5B`.
-- Sony EVI-H100 has a slow-shutter command/inquiry family, so “no VISCA slow-shutter inquiry exists” is not a valid universal statement. For PTZOptics Gen‑2, the checked PTZOptics sources do not establish the same slow-shutter inquiry.
+
+The fixed typed serializers are model-specific and use this narrow matrix:
+
+| Model | Source | Retained fixed command family | Deliberately absent family |
+| --- | --- | --- | --- |
+| Sony FR7 | R7 | Spotlight `04 3A` | Automatic slow shutter `04 5A` |
+| Sony BRC-H900 | R11 | Spotlight `04 3A` | Automatic slow shutter `04 5A` |
+| Sony EVI-H100 | R8 | Automatic slow shutter `04 5A` | Spotlight `04 3A` |
+| Sony BRC-300 | R12 | Automatic slow shutter `04 5A` | Spotlight `04 3A` |
+| Nearus BRC-300 | No independent model source | None | Both families |
+
+For PTZOptics Gen-2, the checked sources do not establish the same
+automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
 
 ## 10. Resolved inconsistencies and final treatments
 
@@ -976,8 +992,9 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 **Current treatment:** Background only. Do not present those profiles as fully validated in this PTZOptics/Axis document.
 
 **Narrow registry exception:** The built-in Sony FR7 entry uses the primary
-FR7 command-list evidence in R7 only for its explicitly modeled iris and
-variable-ND controls/inquiries. That narrow exception does not generalize
+FR7 command-list evidence in R7 only for its explicitly modeled iris
+control/inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight
+controls. That narrow exception does not generalize
 typed iris or ND support to the other Sony, EVI, Nearus, or generic profiles,
 and it does not make the broader FR7 profile fully validated here.
 
@@ -1099,6 +1116,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R3 | PT30X‑NDI‑xx Data Sheet | https://f.hubspotusercontent20.net/hubfs/418770/PTZOptics%20Documentation/PT30X-NDI-xx/PT30X-NDI-xx%20Data%20Sheet.pdf | PT30X focal length, FOV, presets, dimensions, simultaneous-output limitation. |
 | R4 | PTZOptics Firmware Changelog | https://ptzoptics.com/firmware-changelog/ | Sony VISCA-over-IP firmware support, SRT, image freeze, OnePush AF, Motion Sync, Snap Focus. |
 | R5 | PTZOptics SuperJoy G1 User Manual | https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf | Port separation: PTZOptics UDP `1259`, TCP `5678`, Sony VISCA UDP `52381`. |
+| R10 | PTZOptics Move 4K G3 User Manual (manufacturer manual, reseller-hosted copy) | https://www.rcblogic.co.uk/images/product/PDFDocs/Product-Documentation-PT-4K-xx-G3-User-Manual.pdf | G3-specific anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained by `PtzOpticsG3`. |
 
 ## C.2 Official Axis source
 
@@ -1110,15 +1128,17 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance. |
-| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, slow shutter profile note, 240 ms post-preset caveat. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 iris control/inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. |
+| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, 240 ms post-preset caveat. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
+| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 fixed `04 3A` spotlight commands; it does not establish the fixed `04 5A` automatic-slow-shutter family. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 fixed `04 5A` automatic-slow-shutter commands; it does not establish the fixed `04 3A` spotlight family. |
 
 ## C.4 Supplemental explanatory source
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R10 | Jon Skeet, “Variations in the VISCA protocol” | https://codeblog.jonskeet.uk/2023/11/25/variations-in-the-visca-protocol/ | Secondary explanatory context for raw vs encapsulated VISCA-over-IP differences. Not used as a primary authority where manufacturer manuals exist. |
+| R13 | Jon Skeet, “Variations in the VISCA protocol” | https://codeblog.jonskeet.uk/2023/11/25/variations-in-the-visca-protocol/ | Secondary explanatory context for raw vs encapsulated VISCA-over-IP differences. Not used as a primary authority where manufacturer manuals exist. |
 
 ## C.5 Uploaded source bundle
 

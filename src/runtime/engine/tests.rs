@@ -3025,6 +3025,10 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
 
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     for (offset, projection) in projections.into_iter().enumerate() {
+        // Each terminal raw command retains its socket evidence briefly. This
+        // cache-projection test is not exercising stale-frame handling, so
+        // advance past that bounded hold before reusing S1.
+        let now = start + Duration::from_millis(offset as u64 * 51);
         let effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(offset as u64 + 1),
@@ -3034,10 +3038,10 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                     applied_state: Some(projection),
                 },
             },
-            start,
+            now,
         );
         let id = admitted(&effects);
-        send_ok(&mut engine, &effects, None, start);
+        send_ok(&mut engine, &effects, None, now);
         engine.handle(
             frame(
                 1,
@@ -3046,7 +3050,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                     socket: Some(ViscaSocket::S1),
                 },
             ),
-            start,
+            now,
         );
         let completion = engine.handle(
             frame(
@@ -3056,7 +3060,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                     socket: Some(ViscaSocket::S1),
                 },
             ),
-            start,
+            now,
         );
         assert!(completion.iter().any(|effect| matches!(
             effect,
@@ -3083,7 +3087,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                 ),
             },
         },
-        start,
+        start + Duration::from_millis(153),
     );
     let (transmission, id, _) = request_transmit(&failed);
     let failed = engine.handle(
@@ -3091,7 +3095,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
             transmission,
             result: Err(Error::TransportError("request write".into())),
         },
-        start,
+        start + Duration::from_millis(153),
     );
     assert!(failed.iter().any(|effect| matches!(
         effect,
@@ -3809,6 +3813,7 @@ fn fixture_observation(
     }) {
         let name = names.get(&id).unwrap();
         let outcome = match outcome {
+            RuntimeOutcome::Written => "written".to_owned(),
             RuntimeOutcome::Applied => "applied".to_owned(),
             RuntimeOutcome::Reply { route, payload } => format!(
                 "reply:{}:{}",
@@ -7544,6 +7549,40 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
     engine.assert_invariants().unwrap();
 }
 
+/// A completion-only terminal may carry a socket nibble even though this shape
+/// never established socket ownership. The target was exclusive while it was
+/// live, so the sole completion-only candidate is still exact evidence.
+#[test]
+fn completion_only_accepts_socket_bearing_terminal_completion() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admitted_effects, None, start);
+
+    let completed = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert!(phase_of(&engine, id).is_none());
+    assert_eq!(engine.next_wake(), Some(start + Duration::from_millis(50)));
+    engine.assert_invariants().unwrap();
+}
+
 /// #700: a completion-only command has no ACK-timeout path, so passing the ACK
 /// time neither fails nor — even in the strict opt-in mode — poisons it. Before
 /// the fix it sat in AwaitingAck, where the strict mode poisons the whole
@@ -7621,9 +7660,9 @@ fn completion_only_command_without_completion_fails_per_request_not_the_session(
     engine.assert_invariants().unwrap();
 }
 
-/// #700: a no-reply command reaches its terminal on a successful transport
-/// write; the owner never holds it waiting for a frame, and any reply the camera
-/// nonetheless sends finds no entry and is ignored.
+/// #700: a no-reply command reaches its local-write terminal on a successful
+/// transport write. It does not claim protocol application, and its bounded
+/// target tombstone keeps any later command response inert until expiry.
 #[test]
 fn no_reply_command_terminates_on_send() {
     let start = Instant::now();
@@ -7636,8 +7675,8 @@ fn no_reply_command_terminates_on_send() {
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
     assert!(
-        matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Applied)),
-        "a no-reply command terminates Applied on send",
+        matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Written)),
+        "a no-reply command reports only a local write on send",
     );
     assert!(
         phase_of(&engine, id).is_none(),
@@ -7651,6 +7690,60 @@ fn no_reply_command_terminates_on_send() {
     assert!(stray
         .iter()
         .any(|effect| matches!(effect, Effect::Ignored(_))));
+    engine.assert_invariants().unwrap();
+}
+
+/// A no-reply command has no response lifecycle at all. Raw frames that race
+/// its write cannot latch an ACK, spend its retry budget, or otherwise change
+/// its local-write-only terminal outcome.
+#[test]
+fn no_reply_ignores_every_raced_raw_terminal_frame_before_write_result() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admitted_effects, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let (transmission, _, _) = request_transmit(&admitted_effects);
+    for response in [
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Error {
+            socket: None,
+            code: 0x01,
+        },
+        DecodedResponse::Error {
+            socket: Some(ViscaSocket::S1),
+            code: 0x01,
+        },
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::Completion {
+            socket: Some(ViscaSocket::S1),
+        },
+    ] {
+        let raced = engine.handle(frame(1, None, response), start);
+        assert_eq!(ignored_reasons(&raced), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(terminal_outcome(&raced, id).is_none());
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
+        assert!(engine.entry(id).is_some_and(|entry| {
+            entry.deferred_ack.is_none() && entry.deferred_completion.is_none()
+        }));
+    }
+
+    let written = engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&written, id),
+        Some(RuntimeOutcome::Written)
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -7691,6 +7784,530 @@ fn late_reply_to_completed_completion_only_is_ignored() {
             .iter()
             .any(|effect| matches!(effect, Effect::Ignored(_))));
     }
+    engine.assert_invariants().unwrap();
+}
+
+/// A successful raw no-reply command owns no response identity. Its bounded
+/// target tombstone must therefore hold a same-target response-bearing
+/// successor until expiry, including when stale ACK/completion/error frames are
+/// delivered in the intervening turns. The tombstone itself has no entry, so
+/// `next_wake` must keep the owner alive long enough to release queued work.
+#[test]
+fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let (transmission, _, _) = request_transmit(&first);
+
+    // Queue B while A's write is still in flight. Completing that write inside
+    // an ordered owner turn must install A's target tombstone before
+    // `finish_input_turn` considers B for dispatch.
+    let (second, second_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&second).is_none());
+    let turn = engine.begin_input_turn(start);
+    let sent = engine.handle_in_turn(
+        &turn,
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+    );
+    assert!(matches!(
+        terminal_outcome(&sent, first_id),
+        Some(RuntimeOutcome::Written)
+    ));
+    assert!(
+        request_transmit_optional(&engine.finish_input_turn(turn)).is_none(),
+        "the target tombstone is installed before input-turn dispatch"
+    );
+    assert!(matches!(
+        phase_of(&engine, second_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let (other_target, other_target_id) = admit(
+        &mut engine,
+        3,
+        command(2, CancellationPolicy::Supported),
+        start,
+    );
+    assert_eq!(
+        request_transmit(&other_target).1,
+        other_target_id,
+        "the target-local tombstone does not hold a different camera"
+    );
+
+    for response in [
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::Error {
+            socket: None,
+            code: 0x05,
+        },
+    ] {
+        let late = engine.handle(frame(1, None, response), start);
+        assert!(late
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(_))));
+        assert!(
+            terminal_outcome(&late, second_id).is_none(),
+            "a late no-reply response must not mutate the queued successor"
+        );
+        assert!(matches!(
+            phase_of(&engine, second_id),
+            Some(Phase::Ready { .. })
+        ));
+    }
+
+    let deadline = start + Duration::from_millis(50);
+    assert_eq!(engine.next_wake(), Some(deadline));
+    let released = engine.advance(deadline);
+    assert_eq!(
+        request_transmit(&released).1,
+        second_id,
+        "expiry releases the fixed target tombstone and dispatches queued work"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// An input at the tombstone deadline wins over expiry in the same owner turn.
+/// The stale terminal frame is still inert, then due work releases the fixed
+/// slot and dispatches the queued successor without another wake.
+#[test]
+fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor() {
+    let start = Instant::now();
+    let deadline = start + Duration::from_millis(50);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let written = send_ok(&mut engine, &first, None, start);
+    assert!(matches!(
+        terminal_outcome(&written, first_id),
+        Some(RuntimeOutcome::Written)
+    ));
+    let (successor, successor_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&successor).is_none());
+
+    let at_deadline = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        deadline,
+    );
+    assert_eq!(
+        ignored_reasons(&at_deadline),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(terminal_outcome(&at_deadline, successor_id).is_none());
+    let ignored = at_deadline
+        .iter()
+        .position(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame)))
+        .expect("stale frame is ignored before due work");
+    let transmit = at_deadline
+        .iter()
+        .position(|effect| {
+            matches!(
+                effect,
+                Effect::Transmit {
+                    request,
+                    kind: Transmission::Request { .. },
+                    ..
+                } if *request == successor_id
+            )
+        })
+        .expect("expiry dispatches the queued successor in the same turn");
+    assert!(ignored < transmit);
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Sending { .. })
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A completion-only command likewise has no socket identity after it finishes.
+/// Its duplicate terminal/error frames must remain inert until the bounded
+/// target hold expires; a later ordinary command must never become its owner.
+#[test]
+fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &first, None, start);
+
+    // B is already ready when A's uncorrelated terminal arrives. The target
+    // tombstone must be present before `finish_input_turn` can dispatch it.
+    let (second, second_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&second).is_none());
+    let turn = engine.begin_input_turn(start);
+    let completed = engine.handle_in_turn(
+        &turn,
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, first_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert!(request_transmit_optional(&engine.finish_input_turn(turn)).is_none());
+    assert!(matches!(
+        phase_of(&engine, second_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    for response in [
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::Error {
+            socket: None,
+            code: 0x01,
+        },
+    ] {
+        let late = engine.handle(frame(1, None, response), start);
+        assert!(late
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(_))));
+        assert!(terminal_outcome(&late, second_id).is_none());
+        assert!(matches!(
+            phase_of(&engine, second_id),
+            Some(Phase::Ready { .. })
+        ));
+    }
+
+    let released = engine.advance(start + Duration::from_millis(50));
+    assert_eq!(request_transmit(&released).1, second_id);
+    engine.assert_invariants().unwrap();
+}
+
+/// A target tombstone also holds same-target inquiries. A raw socketless error
+/// has no command/inquiry discriminator, so allowing an inquiry to start would
+/// either bind a stale fire-and-forget error to it or force the owner's real
+/// inquiry error to be silently discarded.
+#[test]
+fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let written = send_ok(&mut engine, &first, None, start);
+    assert!(matches!(
+        terminal_outcome(&written, first_id),
+        Some(RuntimeOutcome::Written)
+    ));
+
+    let (inquiry, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
+    assert!(request_transmit_optional(&inquiry).is_none());
+    assert!(matches!(
+        phase_of(&engine, inquiry_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let stale = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        start,
+    );
+    assert_eq!(
+        ignored_reasons(&stale),
+        vec![IgnoreReason::UnmatchedFrame],
+        "a delayed no-reply error cannot bind to the queued inquiry"
+    );
+    assert!(engine.entry(inquiry_id).is_some());
+
+    let deadline = start + Duration::from_millis(50);
+    let released = engine.advance(deadline);
+    assert_eq!(request_transmit(&released).1, inquiry_id);
+    send_ok(&mut engine, &released, None, deadline);
+    let legitimate = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x01,
+            },
+        ),
+        deadline,
+    );
+    assert!(
+        matches!(
+            terminal_failure(&legitimate, inquiry_id),
+            Some(Error::MessageLengthError)
+        ),
+        "after expiry, an inquiry's own raw error remains attributable"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// The no-reply write itself is uncorrelatable. It therefore may not begin
+/// beside already live same-target command or inquiry work, and no inquiry may
+/// slip in between its transmit effect and its successful write result.
+#[test]
+fn no_reply_raw_exclusivity_is_bidirectional_during_its_write() {
+    let start = Instant::now();
+
+    // An executing socket-owning command makes a no-reply write wait rather
+    // than letting its later target tombstone swallow this command's terminal.
+    let mut command_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (command_effects, command_id) = admit(
+        &mut command_engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut command_engine, &command_effects, None, start);
+    command_engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        phase_of(&command_engine, command_id),
+        Some(Phase::Executing { .. })
+    ));
+    let (no_reply_after_command, _) = admit(
+        &mut command_engine,
+        2,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    assert!(request_transmit_optional(&no_reply_after_command).is_none());
+
+    // An inquiry is equally unsafe: a socketless raw error has no
+    // command/inquiry discriminator.
+    let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (inquiry_effects, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1, POWER), start);
+    send_ok(&mut inquiry_engine, &inquiry_effects, None, start);
+    assert!(matches!(
+        phase_of(&inquiry_engine, inquiry_id),
+        Some(Phase::AwaitingReply { .. })
+    ));
+    let (no_reply_after_inquiry, _) = admit(
+        &mut inquiry_engine,
+        2,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    assert!(request_transmit_optional(&no_reply_after_inquiry).is_none());
+
+    // Conversely, once the no-reply write is already Sending, an inquiry must
+    // remain queued until that write turns into the target tombstone.
+    let mut sending_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (no_reply_sending, no_reply_id) = admit(
+        &mut sending_engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    assert_eq!(request_transmit(&no_reply_sending).1, no_reply_id);
+    assert!(matches!(
+        phase_of(&sending_engine, no_reply_id),
+        Some(Phase::Sending { .. })
+    ));
+    let (raced_inquiry, raced_inquiry_id) = admit(&mut sending_engine, 2, inquiry(1, POWER), start);
+    assert!(request_transmit_optional(&raced_inquiry).is_none());
+    assert!(matches!(
+        phase_of(&sending_engine, raced_inquiry_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    command_engine.assert_invariants().unwrap();
+    inquiry_engine.assert_invariants().unwrap();
+    sending_engine.assert_invariants().unwrap();
+}
+
+/// A terminal tombstone excludes response-bearing successors, not another
+/// fire-and-forget write. A no-reply successor consumes no response identity,
+/// so it can safely extend the same fixed target hold.
+#[test]
+fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
+    let start = Instant::now();
+    for reply_shape in [ReplyShape::NoReply, ReplyShape::CompletionOnly] {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (first, first_id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, reply_shape),
+            start,
+        );
+        let first_terminal = match reply_shape {
+            ReplyShape::NoReply => send_ok(&mut engine, &first, None, start),
+            ReplyShape::CompletionOnly => {
+                send_ok(&mut engine, &first, None, start);
+                engine.handle(
+                    frame(1, None, DecodedResponse::Completion { socket: None }),
+                    start,
+                )
+            }
+            ReplyShape::AckThenCompletion => {
+                unreachable!("loop contains only uncorrelatable shapes")
+            }
+        };
+        assert!(terminal_outcome(&first_terminal, first_id).is_some());
+
+        let successor_at = start + Duration::from_millis(1);
+        let (second, second_id) = admit(
+            &mut engine,
+            2,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+            successor_at,
+        );
+        assert_eq!(request_transmit(&second).1, second_id);
+        let second_terminal = send_ok(&mut engine, &second, None, successor_at);
+        assert!(matches!(
+            terminal_outcome(&second_terminal, second_id),
+            Some(RuntimeOutcome::Written)
+        ));
+
+        let extended_deadline = successor_at + Duration::from_millis(50);
+        assert_eq!(engine.next_wake(), Some(extended_deadline));
+        let still_held = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x01,
+                },
+            ),
+            start + Duration::from_millis(50),
+        );
+        assert_eq!(
+            ignored_reasons(&still_held),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(engine.advance(extended_deadline).is_empty());
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A normal raw command releases its camera socket at completion. Raw VISCA
+/// carries no terminal frame identity, so this engine must not reserve that
+/// socket in software and reject the camera's legitimate immediate reuse.
+#[test]
+fn completed_raw_command_allows_immediate_same_socket_reuse() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let complete_first = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&complete_first, first_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    let (second, second_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert_eq!(request_transmit(&second).1, second_id);
+    send_ok(&mut engine, &second, None, start);
+    let ack = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(terminal_outcome(&ack, second_id).is_none());
+    assert!(matches!(
+        phase_of(&engine, second_id),
+        Some(Phase::Executing { .. })
+    ));
+    let complete_second = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&complete_second, second_id),
+        Some(RuntimeOutcome::Applied)
+    ));
     engine.assert_invariants().unwrap();
 }
 

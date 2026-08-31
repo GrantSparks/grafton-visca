@@ -24,8 +24,8 @@ without granting control over the protocol engine.
 | `protocol_errors` | Every other error frame, excluding the cancellation reply. |
 | `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
-| `ignored_malformed_frames` | Delimited frames discarded because they did not classify as a valid VISCA response. |
-| `dropped_diagnostics` | Events evicted from the owner diagnostic ring. |
+| `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
+| `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Completion-observer events dropped after receiver loss. |
 | `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |

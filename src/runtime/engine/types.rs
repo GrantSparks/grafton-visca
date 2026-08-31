@@ -174,7 +174,9 @@ pub(crate) enum ReplyShape {
     /// the command owns no socket and never enters the unacknowledged-ACK gate.
     CompletionOnly,
     /// The command expects nothing back and reaches its terminal on a successful
-    /// transport write.
+    /// local transport write. Public raw operations reject this shape because
+    /// that write is not protocol application; it is reserved for plain
+    /// fire-and-forget execution.
     NoReply,
 }
 
@@ -241,8 +243,9 @@ pub(crate) struct RequestContext {
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
     pub(crate) cancellation: CancellationPolicy,
-    /// The reply protocol this command declared. Inquiries ignore it (they
-    /// always await a reply); commands honor it in the lifecycle state machine.
+    /// The reply protocol this command declared. Inquiry preparation admits
+    /// only the default shape because inquiries always await a reply; commands
+    /// honor their declared shape in the lifecycle state machine.
     pub(crate) reply_shape: ReplyShape,
 }
 
@@ -548,6 +551,11 @@ pub(crate) enum DeadlineKind {
 /// Public-observer-independent terminal engine result.
 #[derive(Debug, Clone)]
 pub(crate) enum RuntimeOutcome {
+    /// A raw plain `NoReply` command was accepted by the local transport.
+    ///
+    /// This deliberately differs from [`Self::Applied`]: the camera did not
+    /// supply protocol evidence that it accepted or applied the command.
+    Written,
     Applied,
     Reply {
         // Reported to the owner's inquiry decoder; the blocking-only legs never read

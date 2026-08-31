@@ -234,6 +234,11 @@ pub trait BlockingTransport: Send {
     ///   [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
     ///   normalized to the same meaning.
+    /// - `Err(Error::ResponseTooLarge)` from a datagram transport — one
+    ///   oversized datagram was consumed and its copied prefix must be
+    ///   discarded before framing. The owner keeps the session running and
+    ///   accepts the next datagram. Custom datagram transports should use this
+    ///   spelling only for an already-consumed packet.
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`

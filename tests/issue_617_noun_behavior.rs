@@ -641,6 +641,35 @@ mod async_surface {
         session.shutdown().await.expect("shutdown");
     }
 
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_flicker_inquiry_requires_its_vendor_marker_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        let error = camera
+            .exposure()
+            .flicker_mode()
+            .await
+            .expect_err("Generic VISCA has no source-backed PTZOptics flicker inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "typed inquiry FlickerModeInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "a rejected flicker inquiry must not reach the transport"
+        );
+        session.shutdown().await.expect("shutdown");
+    }
+
     /// `image()` is absent from the static facade for these profiles, and the
     /// erased facade must refuse every base image row before it reaches the
     /// transport. The registry's `image.base_support` fact drives both sides.

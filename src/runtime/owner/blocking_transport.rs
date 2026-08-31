@@ -759,6 +759,58 @@ mod tests {
     }
 
     #[test]
+    fn oversized_datagram_is_discarded_before_framing_and_later_ack_completes() {
+        let transport = ScriptedTransport::new(
+            config(),
+            [
+                // Built-in UDP uses this established spelling only after it
+                // has consumed an over-size datagram.  Its copied prefix must
+                // not enter the raw VISCA decoder as an ACK.
+                Err(Error::ResponseTooLarge { max_size: 3 }),
+                Ok(vec![0x90, 0x41, 0xff]),
+                Ok(vec![0x90, 0x51, 0xff]),
+            ],
+        );
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+        let receipt = owner
+            .submit(&mut writer, serial_request(CameraId::CAMERA_1))
+            .unwrap();
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            0,
+            "the consumed oversized datagram is discarded before framing"
+        );
+        assert!(try_terminal(&receipt).is_none());
+        assert_eq!(owner.state().metrics().ignored_malformed_frames, 1);
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1,
+            "a later exact ACK remains a valid frame"
+        );
+        assert!(try_terminal(&receipt).is_none());
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1,
+            "the following completion is still attributed normally"
+        );
+        assert!(matches!(
+            try_terminal(&receipt),
+            Some(RuntimeOutcome::Applied)
+        ));
+    }
+
+    #[test]
     fn decoder_extracts_basic_frames_and_reuses_one_transport_state() {
         let transport =
             ScriptedTransport::new(config(), [Ok(vec![0x90, 0x41, 0xff, 0x90, 0x51, 0xff])]);

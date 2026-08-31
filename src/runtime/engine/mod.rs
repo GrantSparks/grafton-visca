@@ -85,6 +85,23 @@ struct DeferredCompletion {
     socket: Option<ViscaSocket>,
 }
 
+/// A bounded raw-VISCA correlation hold left behind by a successfully terminal
+/// command that never earned a response identity.
+///
+/// Raw frames carry no request identity. Once a `NoReply` or `CompletionOnly`
+/// entry is terminal, a delayed response cannot safely be distinguished from a
+/// response to later work on the same target. The engine therefore reserves
+/// that target's raw response/correlation lane until the request's bounded
+/// ambiguity deadline.
+///
+/// This is deliberately not an `Entry`: the caller has already received its
+/// terminal outcome, and these holds have no observer, retry, or cancellation
+/// lifecycle of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawTerminalTombstone {
+    deadline: Instant,
+}
+
 /// The one authoritative lifecycle record for an admitted request.
 #[derive(Debug)]
 pub(crate) struct Entry {
@@ -229,6 +246,10 @@ pub(crate) struct ProtocolEngine {
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
     socket_owners: [[Option<SocketOwner>; 2]; 9],
     raw_inquiries: [VecDeque<CorrelationOwner>; 9],
+    /// A no-socket terminal (`NoReply` or `CompletionOnly`) can have emitted
+    /// any command response. Hold later raw response-bearing work on that
+    /// target until its ambiguity deadline.
+    raw_target_tombstones: [Option<RawTerminalTombstone>; 9],
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
     next_generation: IdAllocator,
@@ -261,6 +282,7 @@ impl ProtocolEngine {
             lower_sequences: BTreeMap::new(),
             socket_owners: [[None; 2]; 9],
             raw_inquiries: array::from_fn(|_| VecDeque::new()),
+            raw_target_tombstones: [None; 9],
             next_request_id: IdAllocator::new(),
             next_transmission_id: IdAllocator::new(),
             next_generation: IdAllocator::new(),
@@ -385,17 +407,19 @@ impl ProtocolEngine {
         }
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
-            if self.inquiries_inflight() >= self.policy.inquiry_capacity
-                || self.completion_only_blocked(entry, target)
+            if self.raw_tombstone_blocks_dispatch(entry, target)
+                || self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return None;
             }
         } else {
             let target = entry.request.context().target;
             let policy = self.targets[target.id() as usize]?;
-            if self.raw_command_unacknowledged(target)
+            if self.raw_tombstone_blocks_dispatch(entry, target)
+                || self.raw_command_unacknowledged(target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
-                || self.completion_only_blocked(entry, target)
+                || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return None;
             }
@@ -1041,8 +1065,9 @@ impl ProtocolEngine {
         };
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
-            if self.inquiries_inflight() >= self.policy.inquiry_capacity
-                || self.completion_only_blocked(entry, target)
+            if self.raw_tombstone_blocks_dispatch(entry, target)
+                || self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return false;
             }
@@ -1054,9 +1079,10 @@ impl ProtocolEngine {
             let Some(policy) = self.targets[target.id() as usize] else {
                 return false;
             };
-            if self.raw_command_unacknowledged(target)
+            if self.raw_tombstone_blocks_dispatch(entry, target)
+                || self.raw_command_unacknowledged(target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
-                || self.completion_only_blocked(entry, target)
+                || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return false;
             }
@@ -1124,6 +1150,44 @@ impl ProtocolEngine {
             .count()
     }
 
+    /// Whether a terminal no-socket raw command still prevents a later
+    /// raw response-bearing work from starting on `target`.
+    ///
+    /// `NoReply` and `CompletionOnly` never establish a socket identity.  A
+    /// late ACK, completion, or socketless error from either is therefore
+    /// indistinguishable from that same frame for a new command.  The only
+    /// evidence-safe action is to hold that target's correlation lane for the
+    /// bounded tombstone interval.
+    fn raw_target_correlation_quarantined(&self, target: CameraId) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && self.raw_target_tombstones[target.id() as usize].is_some()
+    }
+
+    /// Whether a target terminal tombstone prevents this ready request from
+    /// dispatching.
+    ///
+    /// A successor that expects a response would make delayed terminal traffic
+    /// ambiguous, including an inquiry whose socketless error has no
+    /// command/inquiry discriminator. A second `NoReply` consumes no response
+    /// at all, so it can safely write and extend the same fixed hold.
+    fn raw_tombstone_blocks_dispatch(&self, entry: &Entry, target: CameraId) -> bool {
+        self.raw_target_correlation_quarantined(target)
+            && (entry.request.is_inquiry()
+                || entry.request.context().reply_shape != ReplyShape::NoReply)
+    }
+
+    /// Whether a raw completion-only command can be made the target's sole
+    /// response-bearing command.  Besides live commands/inquiries, a terminal
+    /// tombstone is incompatible: a socketless completion from the older
+    /// command would otherwise be indistinguishable from this new command's
+    /// terminal frame.
+    fn raw_terminal_tombstone_active(&self, target: CameraId) -> bool {
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return false;
+        }
+        self.raw_target_tombstones[target.id() as usize].is_some()
+    }
+
     /// Raw VISCA has no request identity before the camera assigns a socket.
     /// Keep one command per target in that unacknowledged window so a later
     /// ACK can never require temporal guessing between multiple candidates.
@@ -1148,47 +1212,58 @@ impl ProtocolEngine {
             })
     }
 
-    /// Whether a raw completion-only command is still occupying `target`.
+    /// Whether an uncorrelatable raw command is still occupying `target`.
     ///
-    /// Its normal live phases have no socket, and an ambiguity quarantine keeps
-    /// the same uncorrelated target slot until its deadline. Both must keep a
-    /// same-target inquiry from starting: a socketless error received during
-    /// either phase otherwise has two possible owners.
-    fn raw_completion_only_inflight(&self, target: CameraId) -> bool {
+    /// `CompletionOnly` has no socket through its whole lifecycle; `NoReply`
+    /// has none during its local write. Both must keep same-target work from
+    /// starting: a socketless error received during either phase otherwise has
+    /// two possible owners.
+    fn raw_uncorrelated_command_inflight(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 !entry.request.is_inquiry()
                     && entry.request.context().target == target
-                    && entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                    && matches!(
-                        entry.phase,
-                        Phase::Sending { .. }
-                            | Phase::AwaitingCompletion { .. }
-                            | Phase::AwaitingLateAck { .. }
-                    )
+                    && match entry.request.context().reply_shape {
+                        ReplyShape::NoReply => matches!(entry.phase, Phase::Sending { .. }),
+                        ReplyShape::CompletionOnly => matches!(
+                            entry.phase,
+                            Phase::Sending { .. }
+                                | Phase::AwaitingCompletion { .. }
+                                | Phase::AwaitingLateAck { .. }
+                        ),
+                        ReplyShape::AckThenCompletion => false,
+                    }
             })
     }
 
-    /// Whether `entry` is barred by raw completion-only exclusivity (issue
-    /// #700).
+    /// Whether `entry` is barred by raw uncorrelatable-shape exclusivity
+    /// (issue #700).
     ///
-    /// A completion-only command earns no socket, so its completion (or a
-    /// socketless error) can be attributed to it only while it is the sole
-    /// in-flight request on the target. It may therefore start only when no
-    /// command or inquiry is live, and a same-target inquiry may not start while
-    /// it occupies the target. Other commands are already stopped by
-    /// [`Self::raw_command_unacknowledged`]. The rule is raw-only: Sony
-    /// correlates by sequence, so a completion-only command there needs no
-    /// exclusivity.
-    fn completion_only_blocked(&self, entry: &Entry, target: CameraId) -> bool {
+    /// `CompletionOnly` earns no socket, and `NoReply` has no response identity
+    /// during its write. Their completion/error traffic can be attributed only
+    /// while they are the sole in-flight request on the target. They may start
+    /// only when no command or inquiry is live, and same-target work may not
+    /// start while either occupies the target. Other commands are already
+    /// stopped by [`Self::raw_command_unacknowledged`]. The rule is raw-only:
+    /// Sony correlates by sequence, so these shapes need no exclusivity there.
+    fn uncorrelated_raw_shape_blocked(&self, entry: &Entry, target: CameraId) -> bool {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
         if entry.request.is_inquiry() {
-            return self.raw_completion_only_inflight(target);
+            return self.raw_uncorrelated_command_inflight(target);
         }
-        entry.request.context().reply_shape == ReplyShape::CompletionOnly
-            && (self.commands_inflight(target) > 0 || self.raw_inquiry_inflight(target))
+        match entry.request.context().reply_shape {
+            ReplyShape::NoReply => {
+                self.commands_inflight(target) > 0 || self.raw_inquiry_inflight(target)
+            }
+            ReplyShape::CompletionOnly => {
+                self.commands_inflight(target) > 0
+                    || self.raw_inquiry_inflight(target)
+                    || self.raw_terminal_tombstone_active(target)
+            }
+            ReplyShape::AckThenCompletion => false,
+        }
     }
 
     /// Whether the raw single-candidate pre-ACK gate — and not genuine
@@ -1215,7 +1290,8 @@ impl ProtocolEngine {
     /// the blocking operation-submit path (issue #673).
     #[cfg(feature = "blocking")]
     pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
-        self.raw_ack_capable_candidate(target).is_some()
+        !self.raw_target_correlation_quarantined(target)
+            && self.raw_ack_capable_candidate(target).is_some()
             && self.targets[target.id() as usize].is_some_and(|policy| {
                 self.commands_inflight(target) < usize::from(policy.command_sockets)
             })
@@ -1430,15 +1506,17 @@ impl ProtocolEngine {
                                 entry.deferred_completion.take()
                             });
                             if let Some(deferred) = deferred {
-                                self.completion(owner.request, deferred.socket, effects);
+                                self.completion(owner.request, deferred.socket, now, effects);
                             }
                         }
                         ReplyShape::NoReply => {
-                            // Issue #700: a fire-and-forget command expects
-                            // nothing back and reaches its terminal the instant
-                            // the transport write succeeds. Any reply the camera
-                            // nonetheless sends finds no entry and is ignored.
-                            self.finish(owner.request, RuntimeOutcome::Applied, effects);
+                            // A fire-and-forget command reaches its local-write
+                            // terminal here. It owns no response identity, so
+                            // retain a bounded target tombstone before releasing
+                            // the entry: a late command frame must not bind to a
+                            // later response-bearing raw work.
+                            self.quarantine_raw_terminal(owner.request, now);
+                            self.finish(owner.request, RuntimeOutcome::Written, effects);
                         }
                     }
                 }
@@ -1767,6 +1845,19 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
+        // An unsequenced raw terminal response cannot identify which command it
+        // answers after a successful predecessor has released its entry.  Check
+        // the fixed-size terminal tombstones before the ordinary raw resolver:
+        // letting the resolver see it could otherwise latch an ACK on a
+        // successor that is still Sending, advance a successor awaiting its
+        // ACK, or fail/retry it on a socketless error.
+        if self.policy.envelope == EnvelopeKind::Raw
+            && frame.sequence.is_none()
+            && self.raw_terminal_response_quarantined(&frame)
+        {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
         let resolved = if let Some(sequence) = frame.sequence {
             match self.resolve_sequence(frame.target, sequence) {
                 Ok(owner) => Some(owner),
@@ -1811,7 +1902,7 @@ impl ProtocolEngine {
                 if correlation_kind == CorrelationKind::Cancellation {
                     self.confirm_cancelled(id, effects);
                 } else {
-                    self.completion(id, socket, effects);
+                    self.completion(id, socket, now, effects);
                 }
             }
             DecodedResponse::InquiryReply { route, payload } => {
@@ -1828,6 +1919,21 @@ impl ProtocolEngine {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             }
         }
+    }
+
+    /// Whether an unsequenced raw command response must be ignored because an
+    /// uncorrelatable successful terminal predecessor still owns the target's
+    /// available correlation evidence.
+    fn raw_terminal_response_quarantined(&self, frame: &DecodedFrame) -> bool {
+        let target = frame.target;
+        let target_index = target.id() as usize;
+        self.raw_target_tombstones[target_index].is_some()
+            && matches!(
+                &frame.response,
+                DecodedResponse::Ack { .. }
+                    | DecodedResponse::Completion { .. }
+                    | DecodedResponse::Error { .. }
+            )
     }
 
     fn resolve_raw(&self, frame: &DecodedFrame) -> Option<RequestId> {
@@ -1956,13 +2062,16 @@ impl ProtocolEngine {
     /// first place. Keep this resolver exact regardless: if an invariant
     /// regression ever produced a second candidate it returns `None` (fails
     /// closed) rather than turning admission order into an ACK/error guess. The
-    /// `Sending` phase is included for the deferred-ACK latch.
+    /// `Sending` phase is included for the deferred-ACK latch. A `NoReply`
+    /// command is deliberately excluded: it has no response lifecycle, so any
+    /// frame racing its local write must remain inert.
     fn unique_raw_command_candidate(&self, target: CameraId) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
                 || entry.request.is_inquiry()
                 || entry.request.context().target != target
+                || entry.request.context().reply_shape == ReplyShape::NoReply
                 || !matches!(
                     entry.phase,
                     Phase::Sending { .. }
@@ -2015,10 +2124,10 @@ impl ProtocolEngine {
     /// The unique raw command that may own a socketless camera error on
     /// `target`, if exactly one exists.
     ///
-    /// ACK routing deliberately uses [`Self::unique_raw_command_candidate`],
-    /// which must never include a completion-only command: that shape ignores
-    /// ACKs and never earns a socket.  Error routing has one additional valid
-    /// candidate, though — a completion-only command in
+    /// ACK routing deliberately uses [`Self::unique_raw_command_candidate`].
+    /// `NoReply` must never be an error candidate because its local-write
+    /// terminal ignores every camera response. Error routing has one additional
+    /// valid candidate — a completion-only command in
     /// [`Phase::AwaitingCompletion`].  Keep this extension local to errors so
     /// the ordinary ACK candidate and its exclusivity rules remain unchanged.
     /// As with the ACK candidate, a second possible owner fails closed rather
@@ -2032,12 +2141,14 @@ impl ProtocolEngine {
             {
                 continue;
             }
-            let is_candidate = matches!(
-                entry.phase,
-                Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. }
-            ) || (entry.request.context().reply_shape
-                == ReplyShape::CompletionOnly
-                && matches!(entry.phase, Phase::AwaitingCompletion { .. }));
+            let is_candidate = entry.request.context().reply_shape != ReplyShape::NoReply
+                && (matches!(
+                    entry.phase,
+                    Phase::Sending { .. }
+                        | Phase::AwaitingAck { .. }
+                        | Phase::AwaitingLateAck { .. }
+                ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
+                    && matches!(entry.phase, Phase::AwaitingCompletion { .. })));
             if !is_candidate {
                 continue;
             }
@@ -2193,6 +2304,7 @@ impl ProtocolEngine {
         &mut self,
         id: RequestId,
         socket: Option<ViscaSocket>,
+        now: Instant,
         effects: &mut Vec<Effect>,
     ) {
         let Some(entry) = self.entries.get(&id) else {
@@ -2241,7 +2353,39 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
+        self.quarantine_raw_terminal(id, now);
         self.finish(id, RuntimeOutcome::Applied, effects);
+    }
+
+    /// Retains bounded raw-correlation evidence after an uncorrelatable
+    /// successful terminal.
+    ///
+    /// `NoReply` and `CompletionOnly` earned no response identity, so a later
+    /// response-bearing command on that target must wait through the ambiguity
+    /// window. Ordinary ACK-then-completion commands deliberately do not add a
+    /// terminal hold: the camera may immediately reuse their released socket,
+    /// and this protocol surface has no frame identity with which to distinguish
+    /// a duplicate from that legitimate next response.
+    fn quarantine_raw_terminal(&mut self, id: RequestId, now: Instant) {
+        let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
+            (self.policy.envelope == EnvelopeKind::Raw
+                && !entry.request.is_inquiry()
+                && matches!(
+                    entry.request.context().reply_shape,
+                    ReplyShape::NoReply | ReplyShape::CompletionOnly
+                ))
+            .then_some((
+                entry.request.context().target,
+                entry.request.context().timeout.ambiguity,
+            ))
+        }) else {
+            return;
+        };
+        let tombstone = RawTerminalTombstone {
+            deadline: add_duration(now, ambiguity),
+        };
+        let target_index = target.id() as usize;
+        extend_tombstone(&mut self.raw_target_tombstones[target_index], tombstone);
     }
 
     fn inquiry_reply(
@@ -2635,6 +2779,11 @@ impl ProtocolEngine {
     }
 
     fn run_due(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+        // A frame delivered at the exact deadline is still processed before
+        // this function by an input turn, so it is conservatively ignored by
+        // the tombstone. Once the turn reaches due work, release every expired
+        // fixed slot before dispatching a queued successor.
+        self.expire_raw_terminal_tombstones(now);
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
             let valid = self.entries.get(&due.request).is_some_and(|entry| {
                 entry.generation == due.generation
@@ -3133,7 +3282,12 @@ impl ProtocolEngine {
         if self.state != SessionState::Running {
             return None;
         }
-        let mut wake = self.next_due().map(|due| due.at);
+        let mut wake = self
+            .next_due()
+            .map(|due| due.at)
+            .into_iter()
+            .chain(self.raw_terminal_tombstone_wake())
+            .min();
         for entry in self.entries.values() {
             let candidate = if include_ready
                 && matches!(entry.phase, Phase::Ready { .. })
@@ -3152,16 +3306,44 @@ impl ProtocolEngine {
         wake
     }
 
+    /// Earliest expiry across the fixed raw target tombstone slots.
+    fn raw_terminal_tombstone_wake(&self) -> Option<Instant> {
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return None;
+        }
+        self.raw_target_tombstones
+            .iter()
+            .flatten()
+            .map(|tombstone| tombstone.deadline)
+            .min()
+    }
+
+    /// Releases every terminal tombstone whose bounded ambiguity window has
+    /// elapsed.  This runs before ordinary dispatch, so a queued successor can
+    /// make progress in the same wake that restores the target lane.
+    fn expire_raw_terminal_tombstones(&mut self, now: Instant) {
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return;
+        }
+        for tombstone in &mut self.raw_target_tombstones {
+            if tombstone.is_some_and(|value| value.deadline <= now) {
+                *tombstone = None;
+            }
+        }
+    }
+
     fn capacity_available_for(&self, entry: &Entry) -> bool {
         if entry.request.is_inquiry() {
-            self.inquiries_inflight() < self.policy.inquiry_capacity
-                && !self.completion_only_blocked(entry, entry.request.context().target)
+            !self.raw_tombstone_blocks_dispatch(entry, entry.request.context().target)
+                && self.inquiries_inflight() < self.policy.inquiry_capacity
+                && !self.uncorrelated_raw_shape_blocked(entry, entry.request.context().target)
         } else {
             let target = entry.request.context().target;
             self.targets[target.id() as usize].is_some_and(|policy| {
-                !self.raw_command_unacknowledged(target)
+                !self.raw_tombstone_blocks_dispatch(entry, target)
+                    && !self.raw_command_unacknowledged(target)
                     && self.commands_inflight(target) < usize::from(policy.command_sockets)
-                    && !self.completion_only_blocked(entry, target)
+                    && !self.uncorrelated_raw_shape_blocked(entry, target)
             })
         }
     }
@@ -3211,7 +3393,7 @@ impl ProtocolEngine {
                 RuntimeOutcome::Failed(error) => {
                     Some(CancellationObservation::Failed(error.clone()))
                 }
-                RuntimeOutcome::Reply { .. } => None,
+                RuntimeOutcome::Written | RuntimeOutcome::Reply { .. } => None,
             };
             if let Some(observation) = observation {
                 effects.push(Effect::CancellationObservation { id, observation });
@@ -3369,6 +3551,13 @@ impl ProtocolEngine {
                     return Err("raw inquiry FIFO owner is stale".into());
                 }
             }
+        }
+        // Successful-terminal raw tombstones are fixed by protocol topology:
+        // one slot per target. They must never exist for a sequenced envelope.
+        if self.policy.envelope != EnvelopeKind::Raw
+            && self.raw_target_tombstones.iter().any(Option::is_some)
+        {
+            return Err("raw terminal tombstone on a sequenced session".into());
         }
         for (id, entry) in &self.entries {
             if entry.sequence_history.len() > MAX_SEQUENCE_HISTORY {
@@ -3530,6 +3719,15 @@ impl ProtocolEngine {
 
 fn add_duration(at: Instant, duration: Duration) -> Instant {
     at.checked_add(duration).unwrap_or(at)
+}
+
+/// Extends one bounded terminal tombstone without replacing a newer hold for
+/// the same fixed target slot.
+fn extend_tombstone(slot: &mut Option<RawTerminalTombstone>, tombstone: RawTerminalTombstone) {
+    *slot = Some(match *slot {
+        Some(existing) if existing.deadline >= tombstone.deadline => existing,
+        _ => tombstone,
+    });
 }
 
 fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {

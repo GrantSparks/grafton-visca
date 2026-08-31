@@ -957,28 +957,81 @@ const fn noun_marker(noun: StaticNoun) -> Option<&'static str> {
     }
 }
 
+/// Default markers on every static noun accessor.
+///
+/// These bounds exist even when a noun's particular command row is narrowed
+/// by an optional support marker, and inquiries can be the only row that uses
+/// one of them.
+const STATIC_NOUN_DEFAULTS: &[StaticNoun] = &[
+    StaticNoun::Power,
+    StaticNoun::Zoom,
+    StaticNoun::System,
+    StaticNoun::PanTilt,
+    StaticNoun::Focus,
+    StaticNoun::Presets,
+    StaticNoun::Exposure,
+    StaticNoun::WhiteBalance,
+    StaticNoun::Image,
+    StaticNoun::Tally,
+    StaticNoun::NdFilter,
+    StaticNoun::MotionSync,
+    StaticNoun::Menu,
+    StaticNoun::Advanced,
+];
+
 /// All marker names that a static facade must resolve directly.
-fn required_markers() -> BTreeSet<&'static str> {
-    let mut markers: BTreeSet<&'static str> = TypedSupportSurface::ALL
-        .iter()
-        .copied()
-        .map(typed_marker)
-        .collect();
+///
+/// This is projected from actual static noun defaults, command rows, and
+/// generated inquiry accessors. It must not start from every possible typed
+/// support surface: a runtime-only support bit does not require a static
+/// facade import.
+fn required_markers() -> BTreeSet<String> {
+    let mut markers = BTreeSet::new();
+
+    for noun in STATIC_NOUN_DEFAULTS {
+        if let Some(marker) = noun_marker(*noun) {
+            markers.insert(marker.to_owned());
+        }
+    }
+
     for command in BuiltinCommand::ALL {
-        if let StaticSurfaceDisposition::Noun { noun, marker, .. } =
-            surface_entry(*command).disposition
-        {
-            let marker = match marker {
-                StaticMarkerRequirement::None => noun_marker(noun),
-                StaticMarkerRequirement::Profile(name) => Some(name),
-                StaticMarkerRequirement::Typed(surface) => Some(typed_marker(surface)),
-            };
-            if let Some(marker) = marker {
-                markers.insert(marker);
+        let StaticSurfaceDisposition::Noun { marker, .. } = surface_entry(*command).disposition
+        else {
+            continue;
+        };
+        match marker {
+            StaticMarkerRequirement::None => {}
+            StaticMarkerRequirement::Profile(marker) => {
+                markers.insert(marker.to_owned());
+            }
+            StaticMarkerRequirement::Typed(surface) => {
+                markers.insert(typed_marker(surface).to_owned());
             }
         }
     }
+
+    for accessor in BUILTIN_INQUIRY_ACCESSORS {
+        if let BuiltinInquiryProfileGate::Capability { marker } = accessor.profile_gate {
+            markers.insert(bare_marker(marker));
+        }
+    }
+
     markers
+}
+
+#[test]
+fn direct_import_markers_follow_static_noun_and_inquiry_gates() {
+    let markers = required_markers();
+
+    assert!(markers.contains("HasDirectZoom"));
+    assert!(
+        markers.contains("HasFocusZoneInquiry"),
+        "inquiry-only static gates still require their direct imports"
+    );
+    assert!(
+        !markers.contains("HasDigitalZoomRange"),
+        "DigitalZoomRange is runtime-only after the normalized optical zoom gate was narrowed"
+    );
 }
 
 /// Splits the body of a capability import, rejecting aliases and globs.
@@ -1085,7 +1138,7 @@ fn assert_real_capability_imports(source: &str, label: &str) {
     let imported = imported_capability_names(source, label);
     for marker in expected {
         assert!(
-            imported.contains(marker),
+            imported.contains(&marker),
             "{label}: capability marker {marker} is not imported directly from crate::capabilities",
         );
     }

@@ -77,8 +77,9 @@ pub struct MetricsSnapshot {
     /// Expected for stale or duplicated datagrams; a rising count means the
     /// sequence-correlation safety net is doing its job.
     pub ignored_unmatched_sequenced_replies: u64,
-    /// Delimited frames discarded because they did not classify as a valid VISCA
-    /// response (#672).
+    /// Delimited frames, and consumed oversized/malformed datagrams rejected before
+    /// framing, discarded because they did not classify as a valid VISCA response
+    /// (#672).
     ///
     /// A frame the framer delimited at an `FF` boundary but that the strict
     /// decoder rejected — a padded ACK, a vendor socket nibble, an RS-485 echo, a
@@ -88,7 +89,7 @@ pub struct MetricsSnapshot {
     /// counts. A steady trickle is normal on noisy serial/RS-485 links; a rising
     /// count points at a mis-wired or misconfigured device.
     pub ignored_malformed_frames: u64,
-    /// Events evicted from the bounded diagnostic ring.
+    /// Diagnostic observations evicted before or from the bounded owner ring.
     pub dropped_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
     pub dropped_diagnostic_events: u64,
@@ -198,6 +199,9 @@ pub enum DiagnosticDeadline {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DiagnosticOutcome {
+    /// A raw plain fire-and-forget write reached the local transport. This is
+    /// not evidence that the camera accepted or applied the command.
+    Written,
     /// A command's applied-state effect was committed.
     Applied,
     /// An inquiry reply was delivered.
@@ -461,6 +465,7 @@ impl DiagnosticEvent {
             CancellationDiagnostic::Failed(error) => DiagnosticCancellation::Failed(error),
         };
         let outcome = |value: OutcomeDiagnostic| match value {
+            OutcomeDiagnostic::Written => DiagnosticOutcome::Written,
             OutcomeDiagnostic::Applied => DiagnosticOutcome::Applied,
             OutcomeDiagnostic::Reply => DiagnosticOutcome::Reply,
             OutcomeDiagnostic::Cancelled => DiagnosticOutcome::Cancelled,

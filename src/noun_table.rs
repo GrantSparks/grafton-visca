@@ -147,7 +147,7 @@ macro_rules! noun_table {
             /// [`ZoomDomain::OpticalPlusDigital`] requires the profile to document a
             /// digital maximum and never falls back to the optical range.
             targeted [] set_normalized_in_domain(position: UnitInterval, domain: ZoomDomain)
-                -> builtin::ZoomTarget where HasDirectZoom + HasDigitalZoomRange
+                -> builtin::ZoomTarget where HasDirectZoom
                 = with_profile |profile| builtin::ZoomTarget::from_normalized(
                     position,
                     domain,
@@ -504,6 +504,7 @@ macro_rules! noun_table {
                 = command::AntiFlickerCommand::new(mode);
             /// Returns the configured anti-flicker mode.
             inquiry command::FlickerModeInquiry flicker_mode() -> command::AntiFlickerMode
+                where HasPtzOpticsAntiFlicker
                 = command::FlickerModeInquiry;
             /// Enables spotlight mode.
             plain [SpotlightOn] spotlight_on() -> command::SpotlightOn

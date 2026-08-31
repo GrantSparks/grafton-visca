@@ -12,8 +12,7 @@ use grafton_visca::{
     },
     completion::{AppliedOnly, Targeted},
     profiles::{
-        NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100,
-        SonyFR7,
+        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
     },
     Camera, CompileTimeProfile, Error, Operation, Result,
 };
@@ -55,7 +54,6 @@ fn baseline_surface<P: CompileTimeProfile>(camera: &Camera<P>) {
     );
     plain(camera.white_balance().auto());
     plain(camera.menu().display(true));
-    inquiry(camera.exposure().flicker_mode());
     targeted(camera.pan_tilt().home());
     applied(camera.pan_tilt().stop());
     applied(camera.zoom().stop());
@@ -126,6 +124,7 @@ where
             .exposure()
             .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50),
     );
+    inquiry(camera.exposure().flicker_mode());
     plain(camera.system().save_settings());
     plain(camera.presets().set_recall_speed(
         grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),
@@ -140,12 +139,19 @@ where
 }
 
 #[allow(dead_code)]
-fn sony_vendor_command_gates<P>(camera: &Camera<P>)
+fn sony_spotlight_command_gates<P>(camera: &Camera<P>)
 where
-    P: CompileTimeProfile + HasSonySpotlight + HasSonyAutoSlowShutter,
+    P: CompileTimeProfile + HasSonySpotlight,
 {
     plain(camera.exposure().spotlight_on());
     plain(camera.exposure().spotlight_off());
+}
+
+#[allow(dead_code)]
+fn sony_auto_slow_shutter_command_gates<P>(camera: &Camera<P>)
+where
+    P: CompileTimeProfile + HasSonyAutoSlowShutter,
+{
     plain(camera.exposure().auto_slow_shutter_on());
     plain(camera.exposure().auto_slow_shutter_off());
 }
@@ -172,11 +178,10 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_command_gates::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_vendor_command_gates::<PtzOpticsG3>;
     let _: fn(&Camera<PtzOptics30X>) = ptzoptics_vendor_command_gates::<PtzOptics30X>;
-    let _: fn(&Camera<SonyFR7>) = sony_vendor_command_gates::<SonyFR7>;
-    let _: fn(&Camera<SonyBRCH900>) = sony_vendor_command_gates::<SonyBRCH900>;
-    let _: fn(&Camera<SonyEVIH100>) = sony_vendor_command_gates::<SonyEVIH100>;
-    let _: fn(&Camera<SonyBRC300>) = sony_vendor_command_gates::<SonyBRC300>;
-    let _: fn(&Camera<NearusBRC300>) = sony_vendor_command_gates::<NearusBRC300>;
+    let _: fn(&Camera<SonyFR7>) = sony_spotlight_command_gates::<SonyFR7>;
+    let _: fn(&Camera<SonyBRCH900>) = sony_spotlight_command_gates::<SonyBRCH900>;
+    let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
+    let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
 }
 
 #[allow(dead_code)]

@@ -273,8 +273,8 @@ where
         "rejected dynamic nouns must not reach the transport"
     );
 
-    // Explicit raw positions and ordinary optical normalization remain direct
-    // zoom controls, so the partial profile still admits both of them.
+    // Explicit raw positions and both optical-normalization entry points remain
+    // direct zoom controls, so the partial profile still admits all of them.
     partial_camera
         .zoom()
         .set_position(ZoomPosition::new(0x3800).expect("optical raw target"))
@@ -291,10 +291,18 @@ where
         .applied()
         .await
         .expect("ordinary optical target applied");
+    partial_camera
+        .zoom()
+        .set_normalized_in_domain(midpoint, ZoomDomain::Optical)
+        .await
+        .expect("explicit optical-domain normalization")
+        .applied()
+        .await
+        .expect("explicit optical-domain target applied");
     assert_eq!(
         partial_writes.lock().expect("partial writes lock").len(),
-        2,
-        "only the two direct/optical positive controls reach the transport"
+        3,
+        "only the three direct/optical positive controls reach the transport"
     );
     partial_session
         .shutdown()

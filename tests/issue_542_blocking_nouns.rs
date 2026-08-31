@@ -23,8 +23,7 @@ use grafton_visca::{
     command::MotionSyncMode,
     completion::{AppliedOnly, Targeted},
     profiles::{
-        NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100,
-        SonyFR7,
+        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
     },
     CompileTimeProfile, Result,
 };
@@ -90,7 +89,6 @@ fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session,
     let _ = camera.exposure().shutter();
     let _ = camera.exposure().gain();
     let _ = camera.exposure().gain_limit();
-    let _ = camera.exposure().flicker_mode();
     let _ = camera.white_balance().mode();
     let _ = camera.menu().status();
     let _ = camera.advanced().night_day_mode();
@@ -188,7 +186,6 @@ fn sony_optional<'session>(camera: &Camera<'session, SonyFR7>) {
     targeted(camera.nd_filter().set_value(1));
     targeted(camera.nd_filter().step_up());
     applied(camera.zoom().tele());
-    plain(camera.exposure().flicker_mode().map(|_| ())); // typed inquiry is blocking
 }
 
 #[allow(dead_code)]
@@ -244,6 +241,7 @@ where
             .exposure()
             .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50),
     );
+    let _ = camera.exposure().flicker_mode();
     plain(camera.system().save_settings());
     plain(camera.presets().set_recall_speed(
         grafton_visca::command::PresetRecallSpeed::new(12).expect("valid recall speed"),
@@ -258,12 +256,19 @@ where
 }
 
 #[allow(dead_code)]
-fn sony_vendor_command_gates<'session, P>(camera: &Camera<'session, P>)
+fn sony_spotlight_command_gates<'session, P>(camera: &Camera<'session, P>)
 where
-    P: CompileTimeProfile + HasSonySpotlight + HasSonyAutoSlowShutter,
+    P: CompileTimeProfile + HasSonySpotlight,
 {
     plain(camera.exposure().spotlight_on());
     plain(camera.exposure().spotlight_off());
+}
+
+#[allow(dead_code)]
+fn sony_auto_slow_shutter_command_gates<'session, P>(camera: &Camera<'session, P>)
+where
+    P: CompileTimeProfile + HasSonyAutoSlowShutter,
+{
     plain(camera.exposure().auto_slow_shutter_on());
     plain(camera.exposure().auto_slow_shutter_off());
 }
@@ -292,15 +297,13 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
         ptzoptics_vendor_command_gates::<PtzOptics30X>;
     let _: for<'session> fn(&'session Camera<'session, SonyFR7>) =
-        sony_vendor_command_gates::<SonyFR7>;
+        sony_spotlight_command_gates::<SonyFR7>;
     let _: for<'session> fn(&'session Camera<'session, SonyBRCH900>) =
-        sony_vendor_command_gates::<SonyBRCH900>;
+        sony_spotlight_command_gates::<SonyBRCH900>;
     let _: for<'session> fn(&'session Camera<'session, SonyEVIH100>) =
-        sony_vendor_command_gates::<SonyEVIH100>;
+        sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
     let _: for<'session> fn(&'session Camera<'session, SonyBRC300>) =
-        sony_vendor_command_gates::<SonyBRC300>;
-    let _: for<'session> fn(&'session Camera<'session, NearusBRC300>) =
-        sony_vendor_command_gates::<NearusBRC300>;
+        sony_auto_slow_shutter_command_gates::<SonyBRC300>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
         focus_zone_inquiry_gate::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =

@@ -1828,7 +1828,7 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "PTZOptics anti-flicker control",
+                    "PTZOptics anti-flicker control and inquiry",
                     $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
                 );
                 assert_row(
@@ -2504,6 +2504,7 @@ macro_rules! define_builtin_profiles {
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                         ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("vendor_controls", "The PTZOptics Move 4K G3 command manual (R10 in docs/visca_reference.md) documents the anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained for G3."),
                         ("focus_zone_inquiry", "The G3 command list establishes focus-zone selection, but its query table does not establish the matching 81 09 04 AA response; keep the inquiry untyped."),
                         ("usb_audio", "The UAC command/query table is source-backed for the Gen-2 entries, not G3; keep USB audio conservative pending a G3-specific source."),
                         ("picture_effect", "PTZOptics' official Developer Portal identifies its current VISCA list for G2 and G3 and documents the 04 63 picture-effect command and inquiry there."),
@@ -2843,7 +2844,6 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: true },
                     typed_support: [
                         SonySpotlight,
-                        SonyAutoSlowShutter,
                         ExposureCompensation,
                         PushAutoFocus,
                         DirectZoom,
@@ -2874,6 +2874,7 @@ macro_rules! define_builtin_profiles {
                         VariableSpeed,
                     ],
                     evidence: [
+                        ("sony_spotlight", "The FR7 command list (R7 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
                         ("iris", "The FR7 registry retains the standard iris control and exact 0x4B position inquiry documented in the Sony command table; this evidence is not generalized to the other Sony/EVI/Nearus profiles."),
@@ -3031,7 +3032,6 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         SonySpotlight,
-                        SonyAutoSlowShutter,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
@@ -3053,6 +3053,7 @@ macro_rules! define_builtin_profiles {
                         Tally,
                     ],
                     evidence: [
+                        ("sony_spotlight", "The BRC-H900 command list (R11 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for BRC-H900."),
                         ("iris", "BRC-H900 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
                         ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
@@ -3202,7 +3203,6 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
-                        SonySpotlight,
                         SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
@@ -3216,6 +3216,7 @@ macro_rules! define_builtin_profiles {
                         NoiseReduction,
                     ],
                     evidence: [
+                        ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("iris", "EVI-H100 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
                     ],
                 }
@@ -3362,13 +3363,13 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
-                        SonySpotlight,
                         SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                     ],
                     evidence: [
+                        ("sony_auto_slow_shutter", "The BRC-300 technical manual (R12 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("iris", "BRC-300 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
                     ],
                 }
@@ -3515,14 +3516,13 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
-                        SonySpotlight,
-                        SonyAutoSlowShutter,
                         DirectZoom,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         SaturationControl,
                     ],
                     evidence: [
+                        ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
                         ("iris", "Nearus BRC-300 inherits general iris metadata only; the registry has no independent model-specific evidence for enabling the typed iris control or targeted inquiry."),
                     ],
                 }

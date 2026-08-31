@@ -113,13 +113,25 @@ not assume every command follows the ACK-then-completion shape. The axis is
   can never be socket-correlated, a completion-only command holds the target's
   command channel exclusively for its lifetime: nothing else dispatches to the
   target while it is in flight, and it does not start until the target is idle.
-- `NoReply` — a fire-and-forget command that terminates successfully the instant
-  its transport write succeeds. Any reply the camera nonetheless sends finds no
-  in-flight request and is ignored.
+  Its successful terminal leaves a bounded target response/correlation
+  quarantine before same-target response-bearing raw command or inquiry work
+  may start, so a duplicate completion or error cannot bind to that successor.
+- `NoReply` — a plain-command-only fire-and-forget shape. Its `execute()`
+  result proves only that the local transport write succeeded; it does **not**
+  prove camera acceptance or protocol application, so raw targeted and
+  applied-only operations reject this shape. To make that later quarantine
+  attributable, its write starts only when the target has no live command or
+  inquiry and excludes same-target work until the write result lands. A
+  successful write leaves the same bounded target response/correlation
+  quarantine before same-target
+  response-bearing raw command or inquiry work may start. Another `NoReply`
+  may write during that hold because it consumes no response identity; a
+  successful write extends the same fixed bound. Any delayed command response
+  during that interval is ignored rather than guessed onto later work.
 
 The shape is a command axis only. An inquiry always awaits its reply, so
-`raw::Inquiry` rejects any non-default shape at construction rather than silently
-ignore it. When a command's completion cannot be confirmed (no completion within
+`raw::Inquiry` and shared inquiry preparation reject any non-default shape rather
+than silently ignoring it. When a command's completion cannot be confirmed (no completion within
 the deadline), the default per-request recovery applies (issue #671): that one
 request fails `UnsequencedCommandUnconfirmed` while its slot is quarantined
 against a late reply, and the session keeps running; the strict

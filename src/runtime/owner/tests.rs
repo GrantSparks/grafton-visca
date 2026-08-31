@@ -4622,6 +4622,7 @@ mod lifecycle_trace {
 
     fn outcome_text(outcome: &RuntimeOutcome) -> String {
         match outcome {
+            RuntimeOutcome::Written => "Written".to_owned(),
             RuntimeOutcome::Applied => "Applied".to_owned(),
             RuntimeOutcome::Cancelled => "Cancelled".to_owned(),
             RuntimeOutcome::Failed(error) => format!("Error::{}", error_label(error)),

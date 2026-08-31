@@ -354,6 +354,9 @@ pub(crate) enum ResponseDiagnostic {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutcomeDiagnostic {
+    /// The local transport accepted a raw plain fire-and-forget write. This
+    /// carries no camera protocol-application claim.
+    Written,
     Applied,
     Reply,
     Cancelled,
@@ -819,7 +822,7 @@ pub(crate) enum WaitSelection {
 
 fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
     match outcome {
-        RuntimeOutcome::Applied => Ok(()),
+        RuntimeOutcome::Written | RuntimeOutcome::Applied => Ok(()),
         RuntimeOutcome::Cancelled => Err(Error::CommandCanceled),
         RuntimeOutcome::Failed(error) => Err(error),
         RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
@@ -843,7 +846,7 @@ fn normalize_inquiry_outcome<R>(
         RuntimeOutcome::Reply { payload, .. } => decoder.decode(&payload),
         RuntimeOutcome::Failed(error) => Err(error),
         RuntimeOutcome::Cancelled => Err(Error::CommandCanceled),
-        RuntimeOutcome::Applied => Err(Error::InvalidState(
+        RuntimeOutcome::Written | RuntimeOutcome::Applied => Err(Error::InvalidState(
             "an inquiry observer received a command outcome".into(),
         )),
     }
@@ -930,6 +933,9 @@ fn normalize_cancellation_observation(
         ReceiptObservation::Terminal(RuntimeOutcome::Applied) => Ok(CancellationOutcome::Completed),
         ReceiptObservation::Terminal(RuntimeOutcome::Failed(error))
         | ReceiptObservation::CancellationFailed(error) => Err(error),
+        ReceiptObservation::Terminal(RuntimeOutcome::Written) => Err(Error::InvalidState(
+            "a local write outcome cannot authorize cancellation".into(),
+        )),
         ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => Err(Error::InvalidState(
             "an inquiry outcome cannot authorize cancellation".into(),
         )),
@@ -1387,12 +1393,43 @@ impl OwnerState {
         lane: RequestLane,
         error: &Error,
     ) {
-        self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(1);
+        self.record_pre_admission_rejections(1);
+        self.record_admission_rejection_diagnostic(target, lane, error.kind());
+    }
+
+    /// Records rejected work that never reached the serialized owner.
+    ///
+    /// Async handles can reject a submission while acquiring the shared
+    /// admission permit, before an observer, ticket, or boundary item exists.
+    /// Their bounded ingress is drained by the actor, which uses this method to
+    /// merge the exact counter total into owner-owned metrics.
+    pub(crate) fn record_pre_admission_rejections(&mut self, count: u64) {
+        self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(count);
+    }
+
+    /// Delivers the bounded diagnostic half of a pre-admission rejection.
+    ///
+    /// Keeping this separate from [`Self::record_pre_admission_rejections`]
+    /// lets the async ingress account exactly even when several concurrent
+    /// callers coalesce their wake-up into one bounded actor notification.
+    pub(crate) fn record_admission_rejection_diagnostic(
+        &mut self,
+        target: CameraId,
+        lane: RequestLane,
+        error: ErrorKind,
+    ) {
         self.record(DiagnosticEvent::AdmissionRejected {
             target,
             lane,
-            error: error.kind(),
+            error,
         });
+    }
+
+    /// Accounts for a bounded diagnostic ingress evicting an older event before
+    /// the owner can place it in its public diagnostic ring.
+    #[cfg(feature = "async")]
+    pub(crate) fn record_dropped_diagnostics(&mut self, count: u64) {
+        self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
     }
 
     pub(crate) fn state_cache_registry(&self) -> Arc<[Mutex<TargetStateCache>; 9]> {
@@ -2189,6 +2226,7 @@ fn response_diagnostic(response: &DecodedResponse) -> ResponseDiagnostic {
 
 fn outcome_diagnostic(outcome: &RuntimeOutcome) -> OutcomeDiagnostic {
     match outcome {
+        RuntimeOutcome::Written => OutcomeDiagnostic::Written,
         RuntimeOutcome::Applied => OutcomeDiagnostic::Applied,
         RuntimeOutcome::Reply { .. } => OutcomeDiagnostic::Reply,
         RuntimeOutcome::Cancelled => OutcomeDiagnostic::Cancelled,

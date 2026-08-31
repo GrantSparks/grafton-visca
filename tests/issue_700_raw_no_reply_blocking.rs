@@ -1,5 +1,6 @@
-//! Issue #700: a no-reply raw operation is terminal exactly when its first
-//! blocking transport write succeeds.
+//! A no-reply raw plain command succeeds exactly when its first blocking
+//! transport write succeeds. It deliberately does not create an operation
+//! handle or claim protocol application.
 
 #![cfg(feature = "blocking")]
 
@@ -11,10 +12,9 @@ use std::{
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     command::CommandKind,
-    completion,
     raw::{self, RawReplyShape},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, ControlClass, Error, ProfileSpec, RetryClass, TimeoutClass,
+    ControlClass, DiagnosticEvent, DiagnosticOutcome, Error, ProfileSpec, RetryClass, TimeoutClass,
 };
 
 #[derive(Debug)]
@@ -66,7 +66,7 @@ impl BlockingTransport for NoReplyTransport {
 }
 
 #[test]
-fn no_reply_operation_returns_an_applied_handle_after_one_write() {
+fn no_reply_plain_command_returns_after_one_write() {
     let transport = NoReplyTransport::new();
     let writes = Arc::clone(&transport.writes);
     let receives = Arc::clone(&transport.receives);
@@ -81,24 +81,35 @@ fn no_reply_operation_returns_an_applied_handle_after_one_write() {
     let policy = raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
         .expect("raw policy")
         .with_reply_shape(RawReplyShape::NoReply);
-    let command = raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, policy)
-        .expect("no-reply raw operation");
+    let command = raw::Plain::with_policy(wire, policy).expect("no-reply raw command");
 
     camera
-        .submit::<completion::AppliedOnly, _>(&command)
-        .expect("a successful first write returns a blocking operation handle")
-        .applied()
-        .expect("the immediate no-reply terminal remains available to the handle");
+        .execute(&command)
+        .expect("a successful first write returns plain fire-and-forget success");
 
     assert_eq!(
         *writes.lock().expect("write lock"),
         vec![wire.to_vec()],
-        "the no-reply operation is written exactly once"
+        "the no-reply command is locally written exactly once"
     );
     assert_eq!(
         *receives.lock().expect("receive lock"),
         0,
-        "no-reply application does not pump for a response"
+        "a successful local no-reply write does not pump for a response"
+    );
+    assert!(
+        session
+            .drain_diagnostics()
+            .expect("diagnostics")
+            .iter()
+            .any(|event| matches!(
+                event,
+                DiagnosticEvent::Terminal {
+                    outcome: DiagnosticOutcome::Written,
+                    ..
+                }
+            )),
+        "the public diagnostic reports a local write, never Applied"
     );
 
     session.shutdown().expect("owner shutdown");

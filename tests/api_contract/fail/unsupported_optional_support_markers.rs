@@ -2,11 +2,11 @@ use grafton_visca::{
     capabilities::{
         HasBrightnessControl, HasColorTemperature, HasContrastControl, HasFocusZone,
         HasFocusZoneInquiry, HasMotionSync, HasNdFilter, HasPictureEffect, HasSharpnessControl,
-        HasTally, HasUsbAudio, HasVariableSpeed,
+        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed,
     },
     profiles::{
-        GenericVisca, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100,
-        SonyFR7,
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
     },
 };
 
@@ -22,6 +22,8 @@ fn requires_focus_zone<P: HasFocusZone>() {}
 fn requires_focus_zone_inquiry<P: HasFocusZoneInquiry>() {}
 fn requires_picture_effect<P: HasPictureEffect>() {}
 fn requires_usb_audio<P: HasUsbAudio>() {}
+fn requires_spotlight<P: HasSonySpotlight>() {}
+fn requires_auto_slow_shutter<P: HasSonyAutoSlowShutter>() {}
 
 fn main() {
     requires_color_temperature::<SonyFR7>();
@@ -53,12 +55,16 @@ fn main() {
     requires_sharpness::<GenericVisca>();
     requires_sharpness::<SonyEVIH100>();
     requires_sharpness::<SonyBRC300>();
+    requires_auto_slow_shutter::<SonyFR7>();
+    requires_auto_slow_shutter::<SonyBRCH900>();
+    requires_spotlight::<SonyEVIH100>();
+    requires_spotlight::<SonyBRC300>();
+    requires_spotlight::<NearusBRC300>();
+    requires_auto_slow_shutter::<NearusBRC300>();
 }
 
-// `SonyEVIH100` and `SonyBRC300` were named here without being imported, so
-// six of these twenty-one lines were rejected as unresolved names (E0425)
-// rather than as unsatisfied capability bounds. The imports are now present
-// and every line fails on the bound it is here to pin.
+// Keep every profile named below imported. This fixture pins unsatisfied
+// capability bounds, so an unresolved profile name would test only a typo.
 
 //~ E0277
 //~ "profile `SonyEVIH100` does not declare exposure brightness support"
@@ -72,3 +78,9 @@ fn main() {
 //~ "profile `SonyFR7` does not declare picture-effect support"
 //~ "profile `SonyBRCH900` does not declare picture-effect support"
 //~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare USB audio support"
+//~ "profile `SonyFR7` does not declare Sony auto slow-shutter support"
+//~ "profile `SonyBRCH900` does not declare Sony auto slow-shutter support"
+//~ "profile `SonyEVIH100` does not declare Sony spotlight support"
+//~ "profile `SonyBRC300` does not declare Sony spotlight support"
+//~ "profile `NearusBRC300` does not declare Sony spotlight support"
+//~ "profile `NearusBRC300` does not declare Sony auto slow-shutter support"

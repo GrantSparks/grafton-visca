@@ -3064,6 +3064,9 @@ macro_rules! builtin_inquiry_table {
             ShutterInquiry => shutter: crate::types::ShutterSpeed;
             GainInquiry => gain: crate::types::GainLevel;
             GainLimitInquiry => gain_limit: crate::types::GainLimit;
+        }
+        PtzOpticsAntiFlickerInquiryControl {
+            gate: crate::capabilities::HasPtzOpticsAntiFlicker;
             FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
         }
         WhiteBalanceInquiryControl {

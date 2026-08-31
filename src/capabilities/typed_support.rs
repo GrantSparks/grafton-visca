@@ -99,7 +99,7 @@ pub enum TypedSupportSurface {
     FocusZoneInquiry,
     /// USB audio control and inquiry.
     UsbAudio,
-    /// PTZOptics anti-flicker control.
+    /// PTZOptics anti-flicker control and inquiry.
     PtzOpticsAntiFlicker,
     /// PTZOptics persistent-settings save command.
     PtzOpticsSettingsSave,

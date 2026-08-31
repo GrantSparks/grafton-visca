@@ -38,12 +38,14 @@
 //! ordinary ACK-then-completion protocol, while
 //! [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) and
 //! [`NoReply`](crate::raw::RawReplyShape::NoReply) describe legitimate vendor
-//! frames that answer with a completion and no ACK, or with nothing at all. The
-//! shape is set on the [`crate::raw::Policy`] with
+//! frames that answer with a completion and no ACK, or with nothing at all.
+//! `NoReply` is deliberately plain-command-only: a successful fire-and-forget
+//! write proves local transport submission, not the protocol application that
+//! an operation handle promises. The shape is set on the [`crate::raw::Policy`] with
 //! [`Policy::with_reply_shape`](crate::raw::Policy::with_reply_shape) and lowered into the
 //! owner's correlation so a completion-only frame is not held waiting for an ACK
-//! it will never receive. It is a command axis only: [`Inquiry`] rejects any
-//! non-default shape. Reply shape never re-admits the owner-only wire primitives
+//! it will never receive. It is a command axis only: [`Inquiry`] and shared
+//! preparation reject any non-default shape. Reply shape never re-admits the owner-only wire primitives
 //! rejected above — a socket cancel or interface clear stays refused at
 //! construction whatever shape is declared, because those act on another
 //! operation's socket or the shared command buffer.
@@ -90,10 +92,13 @@ const VISCA_TERMINATOR: u8 = 0xff;
 /// rejects at construction regardless of reply shape: those remain owner-only
 /// because they act on another operation's socket or the shared command buffer.
 ///
-/// The shape is meaningful only for commands
-/// ([`Plain`], [`Targeted`], [`AppliedOnly`]). An [`Inquiry`] always awaits its
-/// reply, so its constructors reject any non-default reply shape rather than
-/// silently ignore it.
+/// `AckThenCompletion` and `CompletionOnly` are meaningful for all command
+/// classes ([`Plain`], [`Targeted`], [`AppliedOnly`]). [`NoReply`](Self::NoReply)
+/// is plain-command-only: it proves only that the local transport write
+/// succeeded, whereas an operation's `applied()` promise requires a terminal
+/// camera response. An [`Inquiry`] always awaits its reply, so its constructors
+/// and shared preparation reject any non-default reply shape rather than
+/// silently ignoring it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RawReplyShape {
     /// The camera acknowledges the command, the owner assigns it a socket, and
@@ -108,9 +113,15 @@ pub enum RawReplyShape {
     /// fail or poison it. It terminates on the completion frame or, failing
     /// that, on a bounded completion deadline.
     CompletionOnly,
-    /// The command expects nothing back. It terminates successfully the instant
-    /// its transport write succeeds; the owner never holds it waiting for a
-    /// frame, and any later reply the camera nonetheless sends is ignored.
+    /// A plain fire-and-forget command expects nothing back. Its `execute()`
+    /// call succeeds once the local transport write succeeds; that result does
+    /// not claim camera acceptance or protocol application. The owner never
+    /// holds it waiting for a frame. To keep its later raw-correlation
+    /// quarantine attributable, the owner starts it only when the target has
+    /// no live command or inquiry and excludes same-target work while the
+    /// write is in flight; any later command response is then ignored through
+    /// the bounded quarantine. Raw targeted and applied-only operation
+    /// constructors/preparation reject this shape.
     NoReply,
 }
 
@@ -783,14 +794,20 @@ impl Targeted {
     }
 
     /// Creates a raw targeted operation from an explicit policy value.
+    ///
+    /// [`RawReplyShape::NoReply`] is rejected because a targeted operation's
+    /// `applied()`/`settled()` lifecycle requires terminal camera evidence, not
+    /// merely a successful local write.
     pub fn with_policy<P>(bytes: impl AsRef<[u8]>, axes: AffectedAxes, policy: P) -> Result<Self>
     where
         P: Into<Policy>,
     {
+        let policy = policy.into();
+        validate_operation_reply_shape(policy.reply_shape())?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             axes,
-            policy: policy.into(),
+            policy,
         })
     }
 
@@ -908,14 +925,20 @@ impl AppliedOnly {
     }
 
     /// Creates a raw applied-only operation from an explicit policy value.
+    ///
+    /// [`RawReplyShape::NoReply`] is rejected because an applied-only
+    /// operation's `applied()` lifecycle requires terminal camera evidence, not
+    /// merely a successful local write.
     pub fn with_policy<P>(bytes: impl AsRef<[u8]>, axes: AffectedAxes, policy: P) -> Result<Self>
     where
         P: Into<Policy>,
     {
+        let policy = policy.into();
+        validate_operation_reply_shape(policy.reply_shape())?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             axes,
-            policy: policy.into(),
+            policy,
         })
     }
 
@@ -1021,6 +1044,16 @@ fn validate_inquiry_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
         Err(Error::InvalidRequest(Cow::Borrowed(
             "raw inquiry reply shape must be RawReplyShape::AckThenCompletion; an inquiry always awaits its reply",
         )))
+    }
+}
+
+fn validate_operation_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
+    if matches!(reply_shape, RawReplyShape::NoReply) {
+        Err(Error::InvalidRequest(Cow::Borrowed(
+            "raw targeted and applied-only operations cannot use RawReplyShape::NoReply; operation application requires a terminal camera response",
+        )))
+    } else {
+        Ok(())
     }
 }
 
@@ -1517,8 +1550,9 @@ mod tests {
         .is_ok());
     }
 
-    /// #700: the reply-shape axis defaults to `AckThenCompletion` and threads
-    /// through the policy, the spec, and every raw command's `Request` hook.
+    /// The reply-shape axis defaults to `AckThenCompletion` and threads through
+    /// policy/spec plus every compatible raw command's `Request` hook. NoReply
+    /// remains intentionally plain-command-only.
     #[test]
     fn reply_shape_defaults_and_threads_through_policy_and_commands() {
         // The default keeps existing raw code unchanged.
@@ -1567,22 +1601,50 @@ mod tests {
             assert_eq!(plain.reply_shape(), shape);
             assert_eq!(Request::reply_shape(&plain), shape);
 
-            let targeted =
-                Targeted::with_policy([0x81, 0x01, 0x06, 0xff], AffectedAxes::PAN_TILT, policy)
+            match shape {
+                RawReplyShape::NoReply => {
+                    assert!(matches!(
+                        Targeted::with_policy(
+                            [0x81, 0x01, 0x06, 0xff],
+                            AffectedAxes::PAN_TILT,
+                            policy,
+                        ),
+                        Err(Error::InvalidRequest(_))
+                    ));
+                    assert!(matches!(
+                        AppliedOnly::with_policy(
+                            [0x81, 0x01, 0x07, 0xff],
+                            AffectedAxes::ZOOM,
+                            policy,
+                        ),
+                        Err(Error::InvalidRequest(_))
+                    ));
+                }
+                RawReplyShape::AckThenCompletion | RawReplyShape::CompletionOnly => {
+                    let targeted = Targeted::with_policy(
+                        [0x81, 0x01, 0x06, 0xff],
+                        AffectedAxes::PAN_TILT,
+                        policy,
+                    )
                     .expect("targeted");
-            assert_eq!(targeted.reply_shape(), shape);
-            assert_eq!(Request::reply_shape(&targeted), shape);
+                    assert_eq!(targeted.reply_shape(), shape);
+                    assert_eq!(Request::reply_shape(&targeted), shape);
 
-            let applied =
-                AppliedOnly::with_policy([0x81, 0x01, 0x07, 0xff], AffectedAxes::ZOOM, policy)
+                    let applied = AppliedOnly::with_policy(
+                        [0x81, 0x01, 0x07, 0xff],
+                        AffectedAxes::ZOOM,
+                        policy,
+                    )
                     .expect("applied");
-            assert_eq!(applied.reply_shape(), shape);
-            assert_eq!(Request::reply_shape(&applied), shape);
+                    assert_eq!(applied.reply_shape(), shape);
+                    assert_eq!(Request::reply_shape(&applied), shape);
+                }
+            }
         }
     }
 
     /// #700: an inquiry always awaits its reply, so a raw inquiry rejects any
-    /// non-default reply shape at construction rather than silently ignore it.
+    /// non-default reply shape at construction rather than silently ignoring it.
     #[test]
     fn raw_inquiry_rejects_non_default_reply_shape() {
         let ackthen = Policy::new(

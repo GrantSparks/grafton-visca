@@ -1195,7 +1195,56 @@ mod tests {
         assert!(!fr7.supports_typed(TypedSupportSurface::PictureEffect));
         assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
         assert!(fr7.supports_typed(TypedSupportSurface::SonySpotlight));
-        assert!(fr7.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
+        assert!(!fr7.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
+    }
+
+    #[test]
+    fn sony_vendor_exposure_typed_support_matches_the_model_command_lists() {
+        let expected = [
+            (
+                "Sony FR7",
+                Capabilities::from_profile::<SonyFR7>(),
+                true,
+                false,
+            ),
+            (
+                "Sony BRC-H900",
+                Capabilities::from_profile::<SonyBRCH900>(),
+                true,
+                false,
+            ),
+            (
+                "Sony EVI-H100",
+                Capabilities::from_profile::<SonyEVIH100>(),
+                false,
+                true,
+            ),
+            (
+                "Sony BRC-300",
+                Capabilities::from_profile::<SonyBRC300>(),
+                false,
+                true,
+            ),
+            (
+                "Nearus BRC-300",
+                Capabilities::from_profile::<NearusBRC300>(),
+                false,
+                false,
+            ),
+        ];
+
+        for (model, caps, spotlight, auto_slow_shutter) in expected {
+            assert_eq!(
+                caps.supports_typed(TypedSupportSurface::SonySpotlight),
+                spotlight,
+                "{model} spotlight support"
+            );
+            assert_eq!(
+                caps.supports_typed(TypedSupportSurface::SonyAutoSlowShutter),
+                auto_slow_shutter,
+                "{model} auto slow-shutter support"
+            );
+        }
     }
 
     #[test]

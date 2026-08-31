@@ -399,8 +399,8 @@ visca_command! {
         /// Turn auto slow shutter on.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
-    /// in low light conditions to maintain proper exposure. This feature is supported
-    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
+    /// in low light conditions to maintain proper exposure. The typed surface is
+    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOn;
     bytes = [0x01, 0x04, 0x5A, 0x02];
 }
@@ -422,8 +422,8 @@ visca_command! {
         /// Turn auto slow shutter off.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
-    /// in low light conditions to maintain proper exposure. This feature is supported
-    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
+    /// in low light conditions to maintain proper exposure. The typed surface is
+    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOff;
     bytes = [0x01, 0x04, 0x5A, 0x03];
 }

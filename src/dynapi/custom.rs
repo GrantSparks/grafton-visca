@@ -568,7 +568,7 @@ mod tests {
     );
 
     #[test]
-    fn erased_custom_reply_shapes_reach_preparation() {
+    fn erased_custom_reply_shapes_preserve_operation_lifecycle_contract() {
         let Some(profile) = profile() else {
             return;
         };
@@ -595,22 +595,19 @@ mod tests {
         let applied = NoReplyApplied;
         let applied: &dyn DynAppliedRequest = &applied;
         let applied_adapter = AppliedRequestAdapter(applied);
-        let applied_prepared = crate::prepared::prepare_operation::<AppliedOnly, _>(
-            &applied_adapter,
-            CameraId::CAMERA_1,
-            &profile,
-            OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        );
         assert!(
-            applied_prepared.is_ok(),
-            "no-reply custom request prepares through erasure"
+            matches!(
+                crate::prepared::prepare_operation::<AppliedOnly, _>(
+                    &applied_adapter,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    crate::prepared::ClassSelection::Request,
+                ),
+                Err(Error::InvalidRequest(_))
+            ),
+            "no-reply custom operation must be rejected through erasure"
         );
-        let Ok(applied_prepared) = applied_prepared else {
-            return;
-        };
-        let applied_context = applied_prepared.admit_with(|request, _, _, _| *request.context());
-        assert_eq!(applied_context.reply_shape, ReplyShape::NoReply);
     }
 
     #[test]

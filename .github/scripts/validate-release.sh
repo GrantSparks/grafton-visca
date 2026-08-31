@@ -256,10 +256,14 @@ if requires_hardware_evidence:
     nonpassing = []
     ambiguous_headers = []
     required_table_structure_errors = []
+    pass_claim_structure_errors = []
+    claim_row_width_errors = []
     table_evidence_errors = []
     required_status_errors = []
     required_field_errors = []
     checked_required_table_headers = set()
+    checked_pass_claim_table_headers = set()
+    pass_claim_field_errors = []
     status_rows = 0
     def without_html_comments(document):
         """Remove comments and report every source line they occupied."""
@@ -494,17 +498,44 @@ if requires_hardware_evidence:
     checklist_text, html_comment_lines = visible_document(checklist.read_text())
 
     def markdown_table_cells(line):
-        """Return normalized and raw cells for a nonempty pipe-table row."""
+        """Return normalized and raw cells for a nonempty GFM pipe-table row."""
         stripped = line.strip()
-        if "|" not in stripped:
+
+        # GFM permits a literal pipe in a cell when it is escaped as `\|`.
+        # Splitting naively on every pipe makes that valid row appear wider
+        # than its header, after which the old parser stopped scanning it and
+        # silently lost a Pass claim. A pipe is a separator only when preceded
+        # by an even-length run of backslashes.
+        raw_cells = []
+        cell_start = 0
+        backslashes = 0
+        has_trailing_separator = False
+        for index, character in enumerate(stripped):
+            if character == "\\":
+                backslashes += 1
+                continue
+            if character == "|":
+                escaped = backslashes % 2 == 1
+                if not escaped:
+                    raw_cells.append(stripped[cell_start:index])
+                    cell_start = index + 1
+                if index == len(stripped) - 1:
+                    has_trailing_separator = not escaped
+            backslashes = 0
+        raw_cells.append(stripped[cell_start:])
+
+        if len(raw_cells) == 1:
             return None
-        raw_cells = stripped.split("|")
         if stripped.startswith("|"):
             raw_cells = raw_cells[1:]
-        if stripped.endswith("|"):
+        if has_trailing_separator:
             raw_cells = raw_cells[:-1]
-        if not raw_cells or not any(cell.strip() for cell in raw_cells):
-            return None
+        # A pipe row whose cells are all empty is still a GFM table row. A
+        # bare pipe represents one empty cell. Both must reach the
+        # Status/provenance checks rather than terminating the table and
+        # hiding a later claim.
+        if not raw_cells:
+            raw_cells = [""]
         return [normalise(cell) for cell in raw_cells], raw_cells
 
     def is_table_delimiter(raw_cells, header_width, has_html_comment):
@@ -549,7 +580,10 @@ if requires_hardware_evidence:
 
         header_line = line_index + 1
         header_cells = header_row[0]
-        folded = [cell.casefold() for cell in header_cells]
+        # Header labels are Markdown-visible text too. Without this projection,
+        # `I**D**`, `[ID](...)`, or a zero-width character can hide a claim
+        # identity or Status header while rendering identically to readers.
+        folded = [visible_markdown_text(cell).casefold() for cell in header_cells]
 
         # The checked-in matrix tables use `ID`, `Owner`, `Status`,
         # `Firmware / bench`, and `Evidence artifact / notes`. Remember their
@@ -557,6 +591,7 @@ if requires_hardware_evidence:
         # changing this contract.
         status_columns = [index for index, cell in enumerate(folded) if cell == "status"]
         id_columns = [index for index, cell in enumerate(folded) if cell == "id"]
+        gate_columns = [index for index, cell in enumerate(folded) if cell == "gate"]
         owner_columns = [index for index, cell in enumerate(folded) if cell == "owner"]
         firmware_bench_columns = [
             index
@@ -590,6 +625,14 @@ if requires_hardware_evidence:
                 ambiguous_headers.append(
                     f"line {header_line}: {len(id_columns)} ID columns"
                 )
+            if status_columns and len(gate_columns) > 1:
+                ambiguous_headers.append(
+                    f"line {header_line}: {len(gate_columns)} Gate columns"
+                )
+            if status_columns and id_columns and gate_columns:
+                ambiguous_headers.append(
+                    f"line {header_line}: mixed ID and Gate claim columns"
+                )
             if len(owner_columns) > 1:
                 ambiguous_headers.append(
                     f"line {header_line}: {len(owner_columns)} Owner columns"
@@ -601,6 +644,7 @@ if requires_hardware_evidence:
 
         status_column = status_columns[0] if len(status_columns) == 1 else None
         id_column = id_columns[0] if len(id_columns) == 1 else None
+        gate_column = gate_columns[0] if len(gate_columns) == 1 else None
         owner_column = owner_columns[0] if len(owner_columns) == 1 else None
         firmware_bench_column = (
             firmware_bench_columns[0] if len(firmware_bench_columns) == 1 else None
@@ -613,11 +657,36 @@ if requires_hardware_evidence:
             if len(required_evidence_columns) == 1
             else None
         )
+        # A visible `Status` table is a release claim only when it uses one of
+        # the checklist's row identities: `ID` for physical hardware work or
+        # `Gate` for release sign-off. This catches future rows and the gate
+        # table without treating arbitrary prose tables as hardware evidence.
+        is_id_status_table = status_column is not None and id_column is not None
+        is_gate_status_table = (
+            status_column is not None
+            and id_column is None
+            and gate_column is not None
+        )
+        is_claim_status_table = is_id_status_table or is_gate_status_table
 
         data_index = line_index + 2
         while data_index < len(checklist_lines):
             table_row = markdown_table_cells(checklist_lines[data_index])
-            if table_row is None or len(table_row[0]) != len(header_cells):
+            if table_row is None:
+                break
+            if len(table_row[0]) != len(header_cells):
+                # GFM permits short body rows (missing cells render blank) and
+                # ignores extra cells. Either shape is unsafe as a release
+                # claim: silently stopping here used to hide this row and all
+                # following rows. Keep scanning so a malformed row cannot
+                # hide its successors, but reject it on stable publication.
+                if is_claim_status_table:
+                    claim_row_width_errors.append(
+                        f"line {data_index + 1}: {len(table_row[0])} cells; "
+                        f"expected {len(header_cells)}"
+                    )
+                    data_index += 1
+                    continue
                 break
             cells = table_row[0]
             line_number = data_index + 1
@@ -645,6 +714,58 @@ if requires_hardware_evidence:
                     table_evidence_errors.append(
                         f"line {line_number}: {evidence or '<empty>'}"
                     )
+
+            # Current IDs are checked below, but a future `ID` row can also
+            # make a hardware Pass claim. Give every such row the same
+            # provenance contract. Release gates are not camera runs, so they
+            # require an owner and their evidence/blocker field, but no
+            # firmware/bench column.
+            if status_column is not None and cells[status_column] == "Pass":
+                # Current matrix IDs retain their dedicated validation below,
+                # including its established diagnostics. This generic branch
+                # extends that identical requirement to future IDs instead of
+                # validating the same current row twice.
+                is_future_id_pass_claim = (
+                    is_id_status_table and cells[id_column] not in required_id_set
+                )
+                if is_future_id_pass_claim:
+                    claim_label = (
+                        visible_markdown_text(cells[id_column]) or "<empty ID>"
+                    )
+                    claim_fields = (
+                        ("ID", id_column),
+                        ("Owner", owner_column),
+                        ("Firmware / bench", firmware_bench_column),
+                        ("Evidence artifact / notes", required_evidence_column),
+                    )
+                elif is_gate_status_table:
+                    claim_label = (
+                        visible_markdown_text(cells[gate_column]) or "<empty Gate>"
+                    )
+                    claim_fields = (
+                        ("Gate", gate_column),
+                        ("Owner", owner_column),
+                        ("Evidence / notes", evidence_column),
+                    )
+                else:
+                    claim_fields = ()
+
+                if claim_fields:
+                    if header_line not in checked_pass_claim_table_headers:
+                        checked_pass_claim_table_headers.add(header_line)
+                        missing_columns = [
+                            label for label, column in claim_fields if column is None
+                        ]
+                        if missing_columns:
+                            pass_claim_structure_errors.append(
+                                f"line {header_line}: missing {', '.join(missing_columns)}"
+                            )
+                    for label, column in claim_fields:
+                        if column is not None and not recorded_evidence(cells[column]):
+                            value = visible_markdown_text(cells[column]) or "<empty>"
+                            pass_claim_field_errors.append(
+                                f"{claim_label} (line {line_number}: {label} is {value})"
+                            )
 
             if id_column is not None:
                 identifier = cells[id_column]
@@ -699,6 +820,18 @@ if requires_hardware_evidence:
             f"{sample}{suffix}"
         )
 
+    if claim_row_width_errors:
+        sample = "; ".join(claim_row_width_errors[:5])
+        suffix = (
+            ""
+            if len(claim_row_width_errors) <= 5
+            else f"; ... ({len(claim_row_width_errors)} total)"
+        )
+        raise SystemExit(
+            "stable 2.0+ publication rejects inconsistent row widths in "
+            f"ID/Gate Status tables: {sample}{suffix}"
+        )
+
     # Required hardware rows belong to the five checked-in matrix tables. A
     # smaller ID/Status/Evidence table can list every ID while omitting the
     # owner and exact firmware/bench provenance that the checklist requires,
@@ -717,6 +850,19 @@ if requires_hardware_evidence:
             f"{sample}{suffix}"
         )
 
+    if pass_claim_structure_errors:
+        sample = "; ".join(pass_claim_structure_errors[:5])
+        suffix = (
+            ""
+            if len(pass_claim_structure_errors) <= 5
+            else f"; ... ({len(pass_claim_structure_errors)} total)"
+        )
+        raise SystemExit(
+            "stable 2.0+ publication requires every Pass claim in a checklist "
+            "table to include its required provenance columns; incomplete "
+            f"Pass-claim tables: {sample}{suffix}"
+        )
+
     if table_evidence_errors:
         sample = "; ".join(table_evidence_errors[:5])
         suffix = (
@@ -732,6 +878,19 @@ if requires_hardware_evidence:
         if incomplete:
             message += f"; incomplete rows: {'; '.join(incomplete[:5])}"
         raise SystemExit(message)
+
+    if pass_claim_field_errors:
+        sample = "; ".join(pass_claim_field_errors[:5])
+        suffix = (
+            ""
+            if len(pass_claim_field_errors) <= 5
+            else f"; ... ({len(pass_claim_field_errors)} total)"
+        )
+        raise SystemExit(
+            "stable 2.0+ publication requires every Pass claim in a checklist "
+            "table to record non-placeholder provenance values: "
+            f"{sample}{suffix}"
+        )
 
     if incomplete:
         sample = "; ".join(incomplete[:5])

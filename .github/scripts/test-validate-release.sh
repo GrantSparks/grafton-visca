@@ -389,6 +389,43 @@ print(checklist)
 PY
 }
 
+# Append one visible table to the otherwise complete checklist. These fixtures
+# exercise future checklist rows and release gates without weakening the
+# required-ID matrix that the rest of this suite verifies.
+make_extra_pass_claim_checklist() {
+    local header="$1"
+    local row="$2"
+    python3 - "${header}" "${row}" "$(make_checklist complete)" <<'PY'
+import sys
+
+header, row, checklist = sys.argv[1:]
+width = len(header.strip().strip("|").split("|"))
+delimiter = "| " + " | ".join("---" for _ in range(width)) + " |"
+print(checklist + "\n\n" + header + "\n" + delimiter + "\n" + row)
+PY
+}
+
+expect_extra_pass_claim_failure() {
+    local name="$1"
+    local expected_text="$2"
+    local header="$3"
+    local row="$4"
+    local claim_root="${root_temp}/${name}"
+    make_fixture "${claim_root}" "2.0.0" \
+        "$(make_extra_pass_claim_checklist "${header}" "${row}")"
+    expect_failure "${expected_text}" run_validator "${claim_root}" v2.0.0
+}
+
+expect_extra_pass_claim_success() {
+    local name="$1"
+    local header="$2"
+    local row="$3"
+    local claim_root="${root_temp}/${name}"
+    make_fixture "${claim_root}" "2.0.0" \
+        "$(make_extra_pass_claim_checklist "${header}" "${row}")"
+    run_validator "${claim_root}" v2.0.0
+}
+
 # Build checklists that exercise the document-level visibility projection. The
 # matrix and top-level records deliberately use the same complete fixture so a
 # hidden table cannot accidentally be replaced by a smaller one-row control.
@@ -927,6 +964,126 @@ expect_failure "Status+Evidence table" run_validator "${future_blank_evidence_ro
 future_placeholder_evidence_root="${root_temp}/future-placeholder-evidence"
 make_fixture "${future_placeholder_evidence_root}" "2.0.0" "$(make_checklist future-placeholder)"
 expect_failure "Status+Evidence table" run_validator "${future_placeholder_evidence_root}" v2.0.0
+
+# Future IDs have no hard-coded validator entry, but they still make physical
+# hardware claims. A complete future table remains valid; every required
+# provenance column and value is mandatory once it says Pass.
+future_header="| ID | Owner | Status | Firmware / bench | Evidence artifact / notes |"
+future_row="| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_success future-pass-claim "${future_header}" "${future_row}"
+expect_extra_pass_claim_failure future-missing-owner-column "missing Owner" \
+    "| ID | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-missing-firmware-bench-column "missing Firmware / bench" \
+    "| ID | Owner | Status | Evidence artifact / notes |" \
+    "| FUTURE-01 | Future QA | Pass | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-missing-evidence-column "missing Evidence artifact / notes" \
+    "| ID | Owner | Status | Firmware / bench |" \
+    "| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z |"
+expect_extra_pass_claim_failure future-blank-owner "Owner is <empty>" "${future_header}" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-placeholder-firmware "Firmware / bench is N/A" "${future_header}" \
+    "| FUTURE-01 | Future QA | Pass | N/A | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-blank-evidence "Status+Evidence table" "${future_header}" \
+    "| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | |"
+expect_extra_pass_claim_failure future-placeholder-evidence "Status+Evidence table" "${future_header}" \
+    "| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | N/A |"
+
+# Release-signoff gates are not camera runs, so their existing Gate/Owner/
+# Status/Evidence schema remains valid. A Gate/Owner/Status Pass row without
+# evidence cannot bypass the same rule, and blank/placeholder fields are not
+# records of the claim.
+gate_header="| Gate | Owner | Status | Evidence / blocker |"
+gate_row="| Future release gate | Release QA | Pass | docs/evidence/2.0.0/release-gate.md |"
+expect_extra_pass_claim_success gate-pass-claim "${gate_header}" "${gate_row}"
+expect_extra_pass_claim_failure gate-missing-evidence-column "missing Evidence / notes" \
+    "| Gate | Owner | Status |" "| Future release gate | Release QA | Pass |"
+expect_extra_pass_claim_failure gate-blank-owner "Owner is <empty>" "${gate_header}" \
+    "| Future release gate | | Pass | docs/evidence/2.0.0/release-gate.md |"
+expect_extra_pass_claim_failure gate-placeholder-evidence "Status+Evidence table" "${gate_header}" \
+    "| Future release gate | Release QA | Pass | N/A |"
+
+# The identity cell is provenance too: an unnamed future row or sign-off gate
+# cannot make a stable Pass claim, including when Markdown formatting hides a
+# placeholder.
+zero_width=$'\u200b'
+expect_extra_pass_claim_failure future-blank-id "ID is <empty>" "${future_header}" \
+    "| | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-placeholder-id "ID is N/A" "${future_header}" \
+    "| N/A | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure future-zero-width-id "ID is <empty>" "${future_header}" \
+    "| ${zero_width} | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure gate-blank-identity "Gate is <empty>" "${gate_header}" \
+    "| | Release QA | Pass | docs/evidence/2.0.0/release-gate.md |"
+expect_extra_pass_claim_failure gate-placeholder-identity "Gate is N/A" "${gate_header}" \
+    "| N/A | Release QA | Pass | docs/evidence/2.0.0/release-gate.md |"
+expect_extra_pass_claim_failure gate-zero-width-identity "Gate is <empty>" "${gate_header}" \
+    "| ${zero_width} | Release QA | Pass | docs/evidence/2.0.0/release-gate.md |"
+
+# A literal, escaped pipe is valid GFM cell content, not a cell boundary. The
+# incomplete rows below must remain visible to the stable provenance checks.
+escaped_future_id='FUTURE\|01'
+escaped_gate='Future\|release gate'
+expect_extra_pass_claim_failure escaped-pipe-id "Owner is <empty>" "${future_header}" \
+    "| ${escaped_future_id} | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure escaped-pipe-gate "Owner is <empty>" "${gate_header}" \
+    "| ${escaped_gate} | | Pass | docs/evidence/2.0.0/release-gate.md |"
+
+# Header recognition follows the visible Markdown label. Styling, links, HTML,
+# and zero-width formatting cannot turn an ID or Status table into prose.
+expect_extra_pass_claim_failure styled-id-header "Owner is <empty>" \
+    "| I**D** | Owner | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure linked-id-header "Owner is <empty>" \
+    "| [ID](https://example.test/id) | Owner | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure html-id-header "Owner is <empty>" \
+    "| <span>ID</span> | Owner | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure zero-width-id-header "Owner is <empty>" \
+    "| I${zero_width}D | Owner | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure styled-status-header "Owner is <empty>" \
+    "| ID | Owner | Sta**tus** | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+expect_extra_pass_claim_failure mixed-id-gate-header "ambiguous checklist table headers" \
+    "| I**D** | Gate | Owner | Status | Firmware / bench | Evidence artifact / notes |" \
+    "| FUTURE-01 | Future release gate | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
+
+# GFM accepts short body rows as blank-padded and ignores excess cells. Reject
+# either shape in a claim table, and keep scanning after it so it cannot hide
+# a following row. A blank line still terminates the table before prose.
+expect_extra_pass_claim_failure short-id-claim-row "inconsistent row widths" "${future_header}" \
+    "| FUTURE-01 | | Pass |"
+expect_extra_pass_claim_failure extra-id-claim-row "inconsistent row widths" "${future_header}" \
+    "| FUTURE-01 | | Pass | | | extra |"
+expect_extra_pass_claim_failure short-gate-claim-row "inconsistent row widths" "${gate_header}" \
+    "| Future release gate | | Pass |"
+expect_extra_pass_claim_failure extra-gate-claim-row "inconsistent row widths" "${gate_header}" \
+    "| Future release gate | | Pass | | extra |"
+short_then_followed=$'| FUTURE-01 | | Pass |\n| FUTURE-02 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-02.md |'
+expect_extra_pass_claim_failure short-row-followed-by-claim "inconsistent row widths" "${future_header}" \
+    "${short_then_followed}"
+empty_then_followed=$'| | | | | |\n| FUTURE-02 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-02.md |'
+expect_extra_pass_claim_failure empty-row-followed-by-claim "FUTURE-02" "${future_header}" \
+    "${empty_then_followed}"
+bare_pipe_then_followed=$'|\n| FUTURE-02 | | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-02.md |'
+expect_extra_pass_claim_failure bare-pipe-followed-by-claim "inconsistent row widths" "${future_header}" \
+    "${bare_pipe_then_followed}"
+prose_after_table="${future_row}"$'\n\nNarrative prose may contain | a pipe after the table.'
+expect_extra_pass_claim_success prose-after-claim-table "${future_header}" \
+    "${prose_after_table}"
+
+# Candidate releases retain the existing exemption, including for a future
+# table whose stable Pass schema would be incomplete.
+candidate_pass_claim_root="${root_temp}/candidate-pass-claim"
+make_fixture "${candidate_pass_claim_root}" "2.0.0-rc.1" \
+    "$(make_extra_pass_claim_checklist "| ID | Owner | Status | Firmware / bench |" "| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z |")"
+run_validator "${candidate_pass_claim_root}" v2.0.0-rc.1
+
+# A visible prose/result table is not a Status-based checklist claim.
+expect_extra_pass_claim_success unrelated-result "| Topic | Owner | Result |" \
+    "| Documentation wording | Docs QA | Pass |"
 
 # Issue #632: build metadata has the same semver precedence as the base
 # version, so `v2.0.0+meta` used to be a stable 2.0 publication that skipped

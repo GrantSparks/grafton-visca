@@ -355,7 +355,7 @@ profile_capability_marker! {
 }
 
 profile_capability_marker! {
-    /// Marker trait indicating support for PTZOptics anti-flicker control.
+    /// Marker trait indicating support for PTZOptics anti-flicker control and inquiry.
     pub trait HasPtzOpticsAntiFlicker {
         message: "profile `{Self}` does not declare PTZOptics anti-flicker support",
         label: "profile `{Self}` does not implement `HasPtzOpticsAntiFlicker`",

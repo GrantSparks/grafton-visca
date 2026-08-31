@@ -654,10 +654,13 @@ pub trait Request: Send + Sync {
     /// [`crate::raw::RawReplyShape::AckThenCompletion`] — the camera
     /// acknowledges, is assigned a socket, then completes. A custom command
     /// whose vendor frame is answered by a completion with no acknowledgement,
-    /// or by nothing at all, overrides this so preparation can lower the fact
-    /// into the engine's lifecycle; the engine never infers it from the wire
-    /// bytes. It is meaningful only for commands: an inquiry always awaits its
-    /// reply and ignores this value.
+    /// or (for a plain fire-and-forget command only) by nothing at all,
+    /// overrides this so preparation can lower the fact into the engine's
+    /// lifecycle; the engine never infers it from the wire bytes. Operation
+    /// preparation rejects `NoReply` because `applied()` requires a terminal
+    /// camera response. It is meaningful only for commands: an inquiry always
+    /// awaits its reply, and shared preparation rejects any non-default value
+    /// rather than silently ignoring it.
     #[must_use]
     fn reply_shape(&self) -> crate::raw::RawReplyShape {
         crate::raw::RawReplyShape::AckThenCompletion
