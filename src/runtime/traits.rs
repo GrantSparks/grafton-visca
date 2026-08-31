@@ -292,6 +292,27 @@ mod tokio_impl {
                 executor: TokioExecutor::from_handle(handle),
             }
         }
+
+        /// Run endpoint parsing and runtime-bound UDP setup only after buffer preflight.
+        async fn preflight_udp_setup<T, F, Fut>(
+            &self,
+            addr: &str,
+            cfg: TransportConfig,
+            setup: F,
+        ) -> Result<T, Error>
+        where
+            F: FnOnce(tokio::runtime::Handle, String, UdpSocketConfig) -> Fut,
+            Fut: Future<Output = Result<T, Error>>,
+        {
+            cfg.validate_buffer_bounds()?;
+            let address = canonicalize_endpoint(addr, None)?;
+            setup(
+                self.executor.handle().clone(),
+                address,
+                UdpSocketConfig::from(cfg),
+            )
+            .await
+        }
     }
 
     // Implement Executor trait by delegating to inner executor
@@ -347,6 +368,7 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
+            cfg.validate_buffer_bounds()?;
             // Run the connector on this runtime's handle rather than the
             // ambient task's Tokio context. The resulting stream is then
             // owned by the actor this same runtime spawns.
@@ -367,13 +389,14 @@ mod tokio_impl {
         ) -> Result<Self::UdpTransport, Error> {
             // As with TCP, DNS, timer and socket work belongs to the selected
             // runtime even when this future is polled by another Tokio runtime.
-            let address = canonicalize_endpoint(addr, None)?;
-            let socket = crate::transport::tokio::connectors::connect_udp_on(
-                self.executor.handle(),
-                address,
-                UdpSocketConfig::from(cfg),
-            )
-            .await?;
+            let socket = self
+                .preflight_udp_setup(addr, cfg, |handle, address, udp_config| async move {
+                    crate::transport::tokio::connectors::connect_udp_on(
+                        &handle, address, udp_config,
+                    )
+                    .await
+                })
+                .await?;
             Ok(UdpTransport::new(socket, cfg))
         }
     }
@@ -390,9 +413,111 @@ mod tokio_impl {
     }
 
     #[cfg(test)]
+    #[allow(clippy::expect_used)]
     mod tests {
         use super::*;
-        use std::{future, time::Duration};
+        use crate::transport::BufferConfig;
+        use std::{
+            future,
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc,
+            },
+            time::Duration,
+        };
+
+        fn invalid_buffer_config() -> TransportConfig {
+            TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                ..TransportConfig::default()
+            }
+        }
+
+        fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
+            assert!(matches!(
+                result,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+        }
+
+        #[tokio::test]
+        #[cfg_attr(miri, ignore = "requires a real TCP listener")]
+        async fn invalid_runtime_config_returns_before_connector_io() {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind listener");
+            let address = listener.local_addr().expect("listener address").to_string();
+            let runtime = TokioRuntime::from_current().expect("runtime");
+
+            let tcp = runtime.connect_tcp(&address, invalid_buffer_config()).await;
+            let accepted =
+                tokio::time::timeout(Duration::from_millis(100), listener.accept()).await;
+
+            assert!(matches!(
+                tcp,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+            assert!(
+                accepted.is_err(),
+                "invalid configuration must be rejected before runtime TCP connect"
+            );
+
+            // This is the selected-runtime production connector seam. The
+            // spy replaces its resolver/task/socket work without I/O.
+            let setup_calls = Arc::new(AtomicUsize::new(0));
+            let spy_calls = Arc::clone(&setup_calls);
+            let udp = runtime
+                .preflight_udp_setup("127.0.0.1:9", invalid_buffer_config(), move |_, _, _| {
+                    spy_calls.fetch_add(1, Ordering::SeqCst);
+                    future::ready(Ok(()))
+                })
+                .await;
+            assert_invalid_buffer_error(udp);
+            assert_eq!(
+                setup_calls.load(Ordering::SeqCst),
+                0,
+                "invalid buffer configuration must not reach runtime UDP setup"
+            );
+
+            // The malformed endpoint makes the buffer error's precedence over
+            // runtime address parsing explicit.
+            assert_invalid_buffer_error(
+                runtime
+                    .preflight_udp_setup("[::1", invalid_buffer_config(), |_, _, _| {
+                        future::ready(Ok(()))
+                    })
+                    .await,
+            );
+        }
+
+        #[cfg(feature = "transport-serial-tokio")]
+        #[tokio::test]
+        async fn invalid_runtime_serial_config_returns_before_device_open() {
+            let runtime = TokioRuntime::from_current().expect("runtime");
+            let config = crate::transport::serial::Config::new(
+                "grafton-visca-invalid-buffer-bounds-serial-device",
+            )
+            .if_clear_on_connect(false)
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            });
+
+            let result = RuntimeSerial::connect_serial(&runtime, config).await;
+
+            assert!(matches!(
+                result,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+        }
 
         /// `from_handle` is allowed to be constructed and awaited while a
         /// different Tokio runtime is current. The ambient runtime below has a
@@ -564,6 +689,7 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
+            cfg.validate_buffer_bounds()?;
             // Timeout is enforced at the connector layer (single source of truth)
             TcpTransport::connect_with_config(addr, cfg).await
         }
@@ -573,8 +699,55 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
+            cfg.validate_buffer_bounds()?;
             // Timeout is enforced at the connector layer (single source of truth)
             UdpTransport::connect_with_config(addr, cfg).await
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::transport::BufferConfig;
+
+        fn invalid_buffer_config() -> TransportConfig {
+            TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 65,
+                    send_buffer_size: 64,
+                    max_buffer_size: 64,
+                },
+                ..TransportConfig::default()
+            }
+        }
+
+        #[test]
+        fn invalid_runtime_config_is_rejected_before_connector_io() {
+            smol::block_on(async {
+                let runtime = SmolRuntime::new();
+
+                let tcp = runtime
+                    .connect_tcp("127.0.0.1:9", invalid_buffer_config())
+                    .await;
+                assert!(matches!(
+                    tcp,
+                    Err(Error::InvalidRequest(actual))
+                        if actual.as_ref()
+                            == "transport receive buffer cannot exceed maximum buffer"
+                ));
+
+                // SmolRuntime forwards UDP construction to UdpTransport; the
+                // transport's connector-spy test owns that shared setup seam.
+                let udp = runtime
+                    .connect_udp("127.0.0.1:9", invalid_buffer_config())
+                    .await;
+                assert!(matches!(
+                    udp,
+                    Err(Error::InvalidRequest(actual))
+                        if actual.as_ref()
+                            == "transport receive buffer cannot exceed maximum buffer"
+                ));
+            });
         }
     }
 }

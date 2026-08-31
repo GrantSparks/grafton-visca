@@ -30,6 +30,12 @@ const TALLY_OFF: &[u8] = &[0x81, 0x0a, 0x02, 0x02, 0x03, 0xff];
 
 const PAN_TILT_UP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0a, 0x05, 0x03, 0x01, 0xff];
 const PAN_TILT_DOWN: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0a, 0x05, 0x03, 0x02, 0xff];
+const BRC300_ABSOLUTE_FASTEST: &[u8] = &[
+    0x81, 0x01, 0x06, 0x02, 0x18, 0x00, 0x0f, 0x0d, 0x0b, 0x07, 0x00, 0x00, 0x0c, 0x03, 0x00, 0xff,
+];
+const BRC300_RELATIVE_FASTEST: &[u8] = &[
+    0x81, 0x01, 0x06, 0x03, 0x18, 0x00, 0x0f, 0x0d, 0x0b, 0x07, 0x00, 0x00, 0x0c, 0x03, 0x00, 0xff,
+];
 
 // Sony FR7 documents optical max 0x4000 and combined optical+digital max
 // 0x7000.  At 0.5 these become 0x2000 and 0x3800 respectively, encoded as
@@ -88,18 +94,19 @@ mod blocking_surface {
         camera::TransportKind,
         command::CommandKind,
         profile::ProfileSpec,
-        profiles::SonyFR7,
+        profiles::{SonyBRC300, SonyFR7},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        types::{PanSpeed, TiltSpeed},
-        units::UnitInterval,
+        types::{PanSpeed, SpeedLevel, TiltSpeed},
+        units::{Degrees, UnitInterval},
         Error, ZoomDomain,
     };
 
     use super::{
-        envelope, visca_payload, FOCUS_FAR, FOCUS_NEAR, MENU_CANCEL, MENU_SELECT,
-        MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP, POWER_INQUIRY, POWER_OFF, POWER_ON,
-        TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON, TALLY_RED_OFF, TALLY_RED_ON,
-        ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE, ZOOM_WIDE,
+        envelope, visca_payload, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,
+        FOCUS_NEAR, MENU_CANCEL, MENU_SELECT, MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP,
+        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON,
+        TALLY_RED_OFF, TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF,
+        ZOOM_TELE, ZOOM_WIDE,
     };
 
     /// A small in-memory Sony VISCA-over-IP camera.  It records raw VISCA
@@ -186,6 +193,18 @@ mod blocking_surface {
         let session = Session::open(
             transport,
             SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile")),
+        )
+        .expect("session");
+        (session, writes)
+    }
+
+    fn open_brc300() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
+        let (transport, writes) = ProbeTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+            ),
         )
         .expect("session");
         (session, writes)
@@ -309,6 +328,30 @@ mod blocking_surface {
     }
 
     #[test]
+    fn blocking_brc300_speed_level_noun_mirrors_its_one_position_speed() {
+        let (session, writes) = open_brc300();
+        let camera = session.camera::<SonyBRC300>().expect("camera");
+
+        camera
+            .pan_tilt()
+            .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .expect("BRC-300 absolute noun")
+            .applied()
+            .expect("BRC-300 absolute applied");
+        assert_eq!(one_frame(&writes), BRC300_ABSOLUTE_FASTEST);
+
+        camera
+            .pan_tilt()
+            .relative(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .expect("BRC-300 relative noun")
+            .applied()
+            .expect("BRC-300 relative applied");
+        assert_eq!(one_frame(&writes), BRC300_RELATIVE_FASTEST);
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
     fn blocking_same_response_type_inquiries_use_their_own_wire_queries() {
         let (session, writes) = open();
         let camera = session.camera::<SonyFR7>().expect("camera");
@@ -331,25 +374,26 @@ mod async_surface {
 
     use grafton_visca::{
         profile::ProfileSpec,
-        profiles::SonyFR7,
+        profiles::{SonyBRC300, SonyFR7},
         transport::{
             AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
         },
-        types::{PanSpeed, TiltSpeed},
-        units::UnitInterval,
+        types::{PanSpeed, SpeedLevel, TiltSpeed},
+        units::{Degrees, UnitInterval},
         Error, Result, Session, SessionConfig, TokioRuntime, ZoomDomain,
     };
 
     #[cfg(feature = "dyn-api")]
     use grafton_visca::dynapi::DynSessionCamera;
     #[cfg(feature = "dyn-api")]
-    use grafton_visca::profiles::{GenericVisca, PtzOpticsG2, SonyBRC300};
+    use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
 
     use super::{
-        envelope, visca_payload, FOCUS_FAR, FOCUS_NEAR, MENU_CANCEL, MENU_SELECT,
-        MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP, POWER_INQUIRY, POWER_OFF, POWER_ON,
-        TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON, TALLY_RED_OFF, TALLY_RED_ON,
-        ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE, ZOOM_WIDE,
+        envelope, visca_payload, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,
+        FOCUS_NEAR, MENU_CANCEL, MENU_SELECT, MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP,
+        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON,
+        TALLY_RED_OFF, TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF,
+        ZOOM_TELE, ZOOM_WIDE,
     };
 
     #[derive(Debug)]
@@ -594,6 +638,39 @@ mod async_surface {
             .await
             .expect("combined target applied");
         assert_eq!(one_frame(&writes), ZOOM_NORMALIZED_COMBINED_HALF);
+
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn async_brc300_speed_level_noun_mirrors_its_one_position_speed() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+        )
+        .await;
+        let camera = session.camera::<SonyBRC300>().expect("camera");
+
+        camera
+            .pan_tilt()
+            .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .await
+            .expect("BRC-300 absolute noun")
+            .applied()
+            .await
+            .expect("BRC-300 absolute applied");
+        assert_eq!(one_frame(&writes), BRC300_ABSOLUTE_FASTEST);
+
+        camera
+            .pan_tilt()
+            .relative(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .await
+            .expect("BRC-300 relative noun")
+            .applied()
+            .await
+            .expect("BRC-300 relative applied");
+        assert_eq!(one_frame(&writes), BRC300_RELATIVE_FASTEST);
 
         session.shutdown().await.expect("shutdown");
     }

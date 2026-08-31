@@ -381,8 +381,8 @@ impl StateCache {
                 position: None,
             });
         }
-        let pan = i16::try_from(value.get(1)?).ok()?;
-        let tilt = i16::try_from(value.get(2)?).ok()?;
+        let pan = i32::try_from(value.get(1)?).ok()?;
+        let tilt = i32::try_from(value.get(2)?).ok()?;
         Some(PanTiltLimitUpdate {
             corner,
             position: Some(crate::camera::PanTiltPosition::new(pan, tilt)),

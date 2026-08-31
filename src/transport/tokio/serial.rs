@@ -70,6 +70,21 @@ impl Serial {
     /// This method opens the serial port, configures it, and optionally performs
     /// I/F Clear and Address Set initialization.
     pub async fn connect(config: SerialConfig) -> Result<Self> {
+        // Construct and validate before opening the descriptor. Canonical
+        // CameraConfig already preflights this, but direct serial connectors
+        // must provide the same no-I/O guarantee.
+        let transport_config = TransportConfig {
+            connect_timeout: Duration::from_secs(5), // Not used for serial
+            read_timeout: config.read_timeout,
+            write_timeout: config.write_timeout,
+            buffer_config: config.buffer_config,
+            addressing: crate::transport::builder::AddressingMode::Serial,
+            tcp_nodelay: None,
+            ttl: None,
+            tcp_keepalive: None,
+        };
+        transport_config.validate_buffer_bounds()?;
+
         // Open serial port
         #[cfg(unix)]
         let mut port = tokio_serial::new(&config.port, config.baud_rate)
@@ -99,18 +114,6 @@ impl Serial {
             .map_err(|e| Error::Io(Arc::new(std::io::Error::other(e))))?;
 
         let mut adapter = TokioSerialAdapter::new(port);
-
-        // Create TransportConfig from SerialConfig
-        let transport_config = TransportConfig {
-            connect_timeout: Duration::from_secs(5), // Not used for serial
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            buffer_config: config.buffer_config,
-            addressing: crate::transport::builder::AddressingMode::Serial, // Serial uses Serial addressing
-            tcp_nodelay: None,
-            ttl: None,
-            tcp_keepalive: None,
-        };
 
         // Create executor for handshake operations
         let executor = TokioExecutor::from_current()?;
@@ -146,5 +149,31 @@ impl Serial {
     pub async fn connect_default(port: &str) -> Result<Self> {
         let config = SerialConfig::new(port);
         Self::connect(config).await
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+    use crate::transport::BufferConfig;
+
+    #[tokio::test]
+    async fn invalid_buffer_bounds_fail_before_serial_device_open() {
+        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
+            .if_clear_on_connect(false)
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            });
+
+        let result = Serial::connect(config).await;
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidRequest(actual))
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
     }
 }

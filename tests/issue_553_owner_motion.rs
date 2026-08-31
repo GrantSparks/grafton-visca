@@ -24,7 +24,7 @@ use grafton_visca::{
     AffectedAxes, Error, Executor, Session, SessionConfig,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::MotionOwnerCompileTimeProfile;
 
 #[derive(Debug, Clone, Copy)]
 enum InquiryAxis {
@@ -164,7 +164,7 @@ fn runtime_profile(
     supports_operation_complete: bool,
 ) -> ProfileSpec {
     let _ = supports_operation_complete;
-    ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+    ProfileSpec::from_compile_time::<MotionOwnerCompileTimeProfile>()
         .expect("non-default runtime profile")
 }
 
@@ -182,7 +182,7 @@ where
         .await
         .expect("session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera");
     assert!(!camera
         .motion()
@@ -211,7 +211,7 @@ where
         .await
         .expect("unsupported-axis session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera");
     assert!(matches!(
         camera
@@ -249,7 +249,7 @@ where
     .await
     .expect("moving session");
     session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera")
         .motion()
         .wait_until_idle(
@@ -276,7 +276,7 @@ where
     .await
     .expect("deadline session");
     let result = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera")
         .motion()
         .wait_until_idle(
@@ -301,7 +301,7 @@ where
     .expect("stop session");
     assert!(matches!(
         session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<MotionOwnerCompileTimeProfile>()
             .expect("camera")
             .motion()
             .stop_all_motion()

@@ -172,6 +172,14 @@ which requires a replacement session). This rule deliberately covers
 non-idempotent relative motion and presets rather than asking a retry class to
 guess whether a particular payload is harmless.
 
+Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
+inquiry per target, so a reply, terminal error/timeout, or retry release/requeue
+holds that target's response correlation for the profile ambiguity timeout
+before same-target response-bearing successor work can send. Frames received
+during the hold are ignored; at the exact deadline they are still processed
+before the due pass releases a successor. This bounded single-flight policy
+does not claim that a wider raw FIFO can identify duplicate replies.
+
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
 inquiry's exact syntax inconsistently enough that one replay is worth having.
@@ -212,6 +220,12 @@ unsequenced rule above governs it: the one command fails
 `UnsequencedCommandUnconfirmed` and quarantines its correlation (or, under the
 strict opt-in, poisons the session) rather than finishing with the retained
 last error.
+
+The default observer attached to a prepared typed inquiry lasts for the larger
+of its reply deadline and its admission-to-terminal retry budget. That keeps a
+crate-authorized replay — including its bounded raw correlation hold —
+observable by default. An explicit observation or settlement deadline remains
+the caller's exact bound and is not widened.
 
 Backoff doubles from the initial delay (50 ms by default) up to
 `maximum_backoff` (500 ms by default, raised to the profile's busy timeout

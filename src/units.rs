@@ -382,7 +382,7 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
                 max: 100,
             });
         }
-        let value = (percentage.0 / 100.0 * 20.0) as u8;
+        let value = (percentage.0 / 100.0 * f32::from(TiltSpeed::MAX.value())) as u8;
         TiltSpeed::new(value)
     }
 }
@@ -573,5 +573,12 @@ mod tests {
         let fraction = Fraction::new(1, 1000);
         let shutter = ShutterSpeed::try_from(fraction).unwrap();
         assert_eq!(shutter.value(), 0x0C);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn tilt_speed_percentage_uses_the_syntactic_union_maximum() {
+        let speed = TiltSpeed::try_from(Percentage(100.0)).unwrap();
+        assert_eq!(speed.value(), 0x18);
     }
 }

@@ -23,10 +23,7 @@ use tracing::warn;
 ))]
 use tracing::{debug, trace};
 
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial")
-))]
+#[cfg(feature = "transport-serial-tokio")]
 use std::time::Duration;
 
 #[cfg(any(
@@ -46,7 +43,7 @@ use crate::{
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
-    protocol::framer::ProtocolFramer,
+    protocol::framer::{FramingMode, ProtocolFramer},
     transport::buffer::BufferConfig,
 };
 
@@ -358,7 +355,12 @@ pub mod async_handshake {
         S: AsyncReadExt + Send + ?Sized,
     {
         // Use ProtocolFramer for robust frame handling
-        let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_serial());
+        // Serial VISCA has no Sony envelope; raw framing remains authoritative
+        // even when noise begins with Sony payload-type bytes.
+        let mut framer = ProtocolFramer::new_with_config_and_mode(
+            BufferConfig::for_serial(),
+            FramingMode::RawVisca,
+        );
         let mut state = AddressSetState::default();
 
         loop {
@@ -525,17 +527,200 @@ pub mod async_handshake {
 #[cfg(all(feature = "blocking", feature = "transport-serial"))]
 pub mod blocking_handshake {
     use std::{
-        io::{Read, Write},
-        time::Instant,
+        io::ErrorKind,
+        time::{Duration, Instant},
     };
 
     use super::*;
 
+    // Keep the blocking path aligned with the async handshake: Address Set has
+    // one fixed budget per attempt, while I/F Clear has a bounded startup
+    // operation including its required settle delay.
+    const IF_CLEAR_OPERATION_TIMEOUT: Duration = Duration::from_secs(2);
+    const IF_CLEAR_SETTLE_DELAY: Duration = Duration::from_millis(100);
+    const ADDRESS_SET_RETRY_DELAY: Duration = Duration::from_millis(100);
+    const ADDRESS_SET_IDLE_PAUSE: Duration = Duration::from_millis(10);
+
+    /// A scoped serial-port timeout change for one blocking handshake I/O
+    /// operation.
+    ///
+    /// `serialport` exposes one timeout setting for both reads and writes. A
+    /// guard lets Address Set temporarily cap a read to its remaining attempt
+    /// budget, or apply the configured write timeout, without leaving either
+    /// setting behind for the transport's normal operation.
+    struct HandshakeTimeoutGuard<'a> {
+        port: &'a mut dyn serialport::SerialPort,
+        original_timeout: Duration,
+        restored: bool,
+    }
+
+    impl<'a> HandshakeTimeoutGuard<'a> {
+        fn new(port: &'a mut dyn serialport::SerialPort, timeout: Duration) -> Result<Self> {
+            let original_timeout = port.timeout();
+            port.set_timeout(timeout).map_err(|error| {
+                Error::TransportError(
+                    format!("Failed to set serial handshake timeout: {error}").into(),
+                )
+            })?;
+
+            Ok(Self {
+                port,
+                original_timeout,
+                restored: false,
+            })
+        }
+
+        fn port_mut(&mut self) -> &mut dyn serialport::SerialPort {
+            self.port
+        }
+
+        /// Restore the caller's timeout and report a failure to do so.
+        ///
+        /// A normal, completed operation must not silently leave the port in
+        /// its temporary handshake configuration. Drop remains a fallback for
+        /// unwinding and error paths that cannot return a second error.
+        fn restore(&mut self) -> Result<()> {
+            if self.restored {
+                return Ok(());
+            }
+
+            self.port
+                .set_timeout(self.original_timeout)
+                .map_err(|error| {
+                    Error::TransportError(
+                        format!("Failed to restore serial handshake timeout: {error}").into(),
+                    )
+                })?;
+            self.restored = true;
+            Ok(())
+        }
+    }
+
+    impl Drop for HandshakeTimeoutGuard<'_> {
+        fn drop(&mut self) {
+            // Successful operations restore explicitly. This is only the
+            // fallback for unwinding or another error path, where a second
+            // restoration failure cannot replace the primary error.
+            if !self.restored {
+                if let Err(error) = self.port.set_timeout(self.original_timeout) {
+                    trace!("Failed to restore serial handshake timeout: {error}");
+                }
+            }
+        }
+    }
+
+    /// Run one serial I/O operation under a scoped timeout.
+    ///
+    /// The result deliberately remains an `io::Result` inside the crate
+    /// result: a read timeout still needs its normal no-data classification,
+    /// while a successful restoration failure is surfaced as a transport
+    /// error. If the operation itself returns an error, restoration is still
+    /// explicitly attempted before that raw result is returned.
+    fn with_scoped_timeout<T>(
+        port: &mut dyn serialport::SerialPort,
+        timeout: Duration,
+        operation: impl FnOnce(&mut dyn serialport::SerialPort) -> std::io::Result<T>,
+    ) -> Result<std::io::Result<T>> {
+        let mut guard = HandshakeTimeoutGuard::new(port, timeout)?;
+        let operation_result = operation(guard.port_mut());
+        guard.restore()?;
+        Ok(operation_result)
+    }
+
+    /// Return the unspent portion of one fixed attempt budget.
+    fn remaining_attempt_budget(
+        attempt_started: Instant,
+        attempt_budget: Duration,
+    ) -> Result<Duration> {
+        let remaining = attempt_budget.saturating_sub(attempt_started.elapsed());
+
+        if remaining.is_zero() {
+            Err(Error::Timeout)
+        } else {
+            Ok(remaining)
+        }
+    }
+
+    /// Queue a complete serial write without allowing a low-level write to
+    /// start after the current handshake attempt has expired.
+    ///
+    /// `serialport::SerialPort::flush` maps to `tcdrain` on POSIX and
+    /// `FlushFileBuffers` on Windows, neither of which can be reliably
+    /// bounded after it has begun. The handshake does not need to wait for the
+    /// transmit queue to drain: Address Set naturally waits for the resulting
+    /// reply, and I/F Clear has its protocol settle interval after submission.
+    /// Avoiding that drain keeps the supplied attempt deadline authoritative.
+    fn write_within_attempt(
+        io: &mut dyn serialport::SerialPort,
+        bytes: &[u8],
+        attempt_started: Instant,
+        attempt_budget: Duration,
+        configured_write_timeout: Duration,
+    ) -> Result<()> {
+        let mut written = 0;
+
+        while written < bytes.len() {
+            // A `Write::write` may make partial progress. Re-sample before
+            // every follow-up syscall so one slow partial write cannot grant a
+            // fresh configured timeout to the next one.
+            let remaining = remaining_attempt_budget(attempt_started, attempt_budget)?;
+            let write_result =
+                with_scoped_timeout(io, configured_write_timeout.min(remaining), |port| {
+                    port.write(&bytes[written..])
+                })?;
+
+            match write_result {
+                Ok(0) => {
+                    return Err(Error::TransportError(
+                        "Serial write made no progress".into(),
+                    ));
+                }
+                Ok(count) if count <= bytes.len() - written => {
+                    written += count;
+                }
+                Ok(count) => {
+                    return Err(Error::TransportError(
+                        format!(
+                            "Serial write reported {count} bytes for a {}-byte buffer",
+                            bytes.len() - written
+                        )
+                        .into(),
+                    ));
+                }
+                Err(error) => {
+                    return Err(Error::TransportError(
+                        format!("Serial write error: {error}").into(),
+                    ));
+                }
+            }
+        }
+
+        // A final low-level write may have consumed the whole budget. Do not
+        // let a later receive begin with a fresh deadline.
+        remaining_attempt_budget(attempt_started, attempt_budget)?;
+        Ok(())
+    }
+
+    /// Pause between no-data reads without granting the attempt extra time.
+    fn pause_before_next_read(attempt_started: Instant, attempt_budget: Duration) -> Result<()> {
+        let remaining = remaining_attempt_budget(attempt_started, attempt_budget)?;
+        std::thread::sleep(ADDRESS_SET_IDLE_PAUSE.min(remaining));
+        Ok(())
+    }
+
+    /// Whether a serial read simply had no bytes to offer.
+    fn read_reported_no_data(error: &std::io::Error) -> bool {
+        matches!(
+            error.kind(),
+            ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
+        )
+    }
+
     /// Send I/F Clear command to reset all devices on the bus (blocking).
-    pub fn if_clear_blocking<S>(io: &mut S) -> Result<()>
-    where
-        S: Write + ?Sized,
-    {
+    pub fn if_clear_blocking(
+        io: &mut dyn serialport::SerialPort,
+        configured_write_timeout: Duration,
+    ) -> Result<()> {
         debug!("Sending I/F Clear command");
         let cmd = InterfaceClearCommand::new();
         let mut buffer = [0u8; 16];
@@ -545,27 +730,39 @@ pub mod blocking_handshake {
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
 
-        io.write_all(&buffer[..len])
-            .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
-        io.flush()
-            .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
+        let attempt_started = Instant::now();
+        write_within_attempt(
+            io,
+            &buffer[..len],
+            attempt_started,
+            IF_CLEAR_OPERATION_TIMEOUT,
+            configured_write_timeout,
+        )?;
 
-        // Wait for I/F Clear to complete
-        std::thread::sleep(Duration::from_millis(100));
+        // Keep the required settle delay within the same bounded startup
+        // operation rather than allowing a stalled write to consume it all.
+        if remaining_attempt_budget(attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?
+            < IF_CLEAR_SETTLE_DELAY
+        {
+            return Err(Error::Timeout);
+        }
+        std::thread::sleep(IF_CLEAR_SETTLE_DELAY);
         Ok(())
     }
 
     /// Send Address Set command to assign addresses to devices (blocking).
     ///
     /// Returns the number of cameras detected.
-    pub fn address_set_blocking<S>(io: &mut S, timeout: Duration) -> Result<u8>
-    where
-        S: Read + Write + ?Sized,
-    {
+    pub fn address_set_blocking(
+        io: &mut dyn serialport::SerialPort,
+        timeout: Duration,
+        configured_write_timeout: Duration,
+    ) -> Result<u8> {
         let max_attempts = 3;
 
         for attempt in 0..max_attempts {
             debug!("Address Set attempt {}", attempt + 1);
+            let attempt_started = Instant::now();
             let cmd = AddressSetCommand::new();
             let mut buffer = [0u8; 16];
 
@@ -576,20 +773,25 @@ pub mod blocking_handshake {
                     Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
 
-            io.write_all(&buffer[..len])
-                .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
-            io.flush()
-                .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
+            // A timed-out write is a send failure, not an absent reply: the
+            // stream may have advanced, so preserve the error rather than
+            // retrying it as an Address Set receive timeout.
+            write_within_attempt(
+                io,
+                &buffer[..len],
+                attempt_started,
+                timeout,
+                configured_write_timeout,
+            )?;
 
-            // Parse response properly
-            match recv_address_set_response_blocking(io, timeout) {
+            match recv_address_set_response_blocking(io, attempt_started, timeout) {
                 Ok(camera_count) => {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
                 Err(Error::Timeout) if attempt < max_attempts - 1 => {
                     warn!("Address Set timeout, retrying...");
-                    std::thread::sleep(Duration::from_millis(100));
+                    std::thread::sleep(ADDRESS_SET_RETRY_DELAY);
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -600,19 +802,37 @@ pub mod blocking_handshake {
     }
 
     /// Receive and parse Address Set response (blocking).
-    fn recv_address_set_response_blocking<S>(stream: &mut S, timeout: Duration) -> Result<u8>
-    where
-        S: Read + ?Sized,
-    {
+    fn recv_address_set_response_blocking(
+        stream: &mut dyn serialport::SerialPort,
+        attempt_started: Instant,
+        timeout: Duration,
+    ) -> Result<u8> {
         // Use ProtocolFramer for robust frame handling
-        let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_serial());
+        // Serial VISCA has no Sony envelope; raw framing remains authoritative
+        // even when noise begins with Sony payload-type bytes.
+        let mut framer = ProtocolFramer::new_with_config_and_mode(
+            BufferConfig::for_serial(),
+            FramingMode::RawVisca,
+        );
         let mut state = AddressSetState::default();
         let mut temp_buf = [0u8; SERIAL_HANDSHAKE_READ_SIZE];
 
-        let start = Instant::now();
+        loop {
+            let remaining = match remaining_attempt_budget(attempt_started, timeout) {
+                Ok(remaining) => remaining,
+                Err(Error::Timeout) => break,
+                Err(error) => return Err(error),
+            };
 
-        while start.elapsed() < timeout {
-            match stream.read(&mut temp_buf) {
+            // The port's normal timeout can be shorter than an attempt (in
+            // which case its early timeout is just idle no-data), or longer
+            // than the remaining budget. Cap each read to both bounds and
+            // restore the user's setting before processing the result.
+            let read_timeout = stream.timeout().min(remaining);
+            let read_result =
+                with_scoped_timeout(stream, read_timeout, |port| port.read(&mut temp_buf))?;
+
+            match read_result {
                 Ok(n) if n > 0 => {
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
 
@@ -621,29 +841,30 @@ pub mod blocking_handshake {
                     {
                         return Ok(camera_count);
                     }
-                }
-                Ok(_) => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
-                    // Check if we got any cameras before timeout
-                    match state.camera_count() {
-                        camera_count if camera_count > 0 => {
-                            debug!(
-                                "Address Set timeout reached, but {} cameras were found",
-                                camera_count
-                            );
-                            return Ok(camera_count);
-                        }
-                        _ => {
-                            debug!("Address Set timeout - no cameras found");
-                            return Err(Error::Timeout);
-                        }
+
+                    match pause_before_next_read(attempt_started, timeout) {
+                        Ok(()) => {}
+                        Err(Error::Timeout) => break,
+                        Err(error) => return Err(error),
                     }
                 }
-                Err(e) => {
+                Ok(_) => match pause_before_next_read(attempt_started, timeout) {
+                    Ok(()) => {}
+                    Err(Error::Timeout) => break,
+                    Err(error) => return Err(error),
+                },
+                Err(error) if read_reported_no_data(&error) => {
+                    // A per-read timeout means no frame was consumed. Keep
+                    // the one attempt deadline active and try again.
+                    match pause_before_next_read(attempt_started, timeout) {
+                        Ok(()) => {}
+                        Err(Error::Timeout) => break,
+                        Err(error) => return Err(error),
+                    }
+                }
+                Err(error) => {
                     return Err(Error::TransportError(
-                        format!("Error reading Address Set response: {e}").into(),
+                        format!("Error reading Address Set response: {error}").into(),
                     ));
                 }
             }
@@ -788,7 +1009,7 @@ mod tests {
 
     #[test]
     fn address_set_chunk_processing_bounds_noise_and_preserves_fragments() {
-        let mut framer = ProtocolFramer::new_with_limits(8, 64, 64);
+        let mut framer = ProtocolFramer::new_with_limits_and_mode(8, 64, 64, FramingMode::RawVisca);
         let mut state = AddressSetState::default();
 
         assert!(matches!(

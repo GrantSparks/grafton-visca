@@ -189,9 +189,9 @@ pub enum Error {
     #[error("Camera is still moving, position: pan={pan}, tilt={tilt}")]
     CameraMoving {
         /// Current pan position.
-        pan: i16,
+        pan: i32,
         /// Current tilt position.
-        tilt: i16,
+        tilt: i32,
     },
 
     /// Camera has not been properly initialized or powered on.

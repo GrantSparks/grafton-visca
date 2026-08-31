@@ -994,11 +994,12 @@ pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::POWER_ON_TIME: core::time::Duration
@@ -1137,11 +1138,12 @@ pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::POWER_ON_TIME: core::time::Duration
@@ -1309,11 +1311,12 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::POWER_ON_TIME: core::time::Duration
@@ -1481,11 +1484,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POWER_ON_TIME: core::time::Duration
@@ -1651,11 +1655,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POWER_ON_TIME: core::time::Duration
@@ -1793,11 +1798,12 @@ pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafto
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::POWER_ON_TIME: core::time::Duration
@@ -1949,11 +1955,12 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::POWER_ON_TIME: core::time::Duration
@@ -2099,11 +2106,12 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::POWER_ON_TIME: core::time::Duration
@@ -2264,11 +2272,12 @@ pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_v
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::POWER_ON_TIME: core::time::Duration
@@ -2560,7 +2569,7 @@ pub struct grafton_visca::camera::MovementTolerance
 pub grafton_visca::camera::MovementTolerance::focus: u16
 pub grafton_visca::camera::MovementTolerance::iris: u16
 pub grafton_visca::camera::MovementTolerance::nd_filter: u16
-pub grafton_visca::camera::MovementTolerance::pan_tilt: i16
+pub grafton_visca::camera::MovementTolerance::pan_tilt: i32
 pub grafton_visca::camera::MovementTolerance::zoom: u16
 impl core::clone::Clone for grafton_visca::camera::MovementTolerance
 pub fn grafton_visca::camera::MovementTolerance::clone(&self) -> grafton_visca::camera::MovementTolerance
@@ -2581,12 +2590,13 @@ impl core::marker::UnsafeUnpin for grafton_visca::camera::MovementTolerance
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::MovementTolerance
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::MovementTolerance
 pub struct grafton_visca::camera::PanTiltPosition
-pub grafton_visca::camera::PanTiltPosition::pan: i16
-pub grafton_visca::camera::PanTiltPosition::tilt: i16
+pub grafton_visca::camera::PanTiltPosition::pan: i32
+pub grafton_visca::camera::PanTiltPosition::tilt: i32
 impl grafton_visca::camera::PanTiltPosition
 pub fn grafton_visca::camera::PanTiltPosition::as_degrees(&self) -> (f64, f64)
-pub const fn grafton_visca::camera::PanTiltPosition::new(i16, i16) -> Self
-pub const fn grafton_visca::camera::PanTiltPosition::raw_values(&self) -> (i16, i16)
+pub fn grafton_visca::camera::PanTiltPosition::as_degrees_with_profile<P: grafton_visca::capabilities::Profile>(&self, &P) -> (f64, f64)
+pub const fn grafton_visca::camera::PanTiltPosition::new(i32, i32) -> Self
+pub const fn grafton_visca::camera::PanTiltPosition::raw_values(&self) -> (i32, i32)
 impl core::clone::Clone for grafton_visca::camera::PanTiltPosition
 pub fn grafton_visca::camera::PanTiltPosition::clone(&self) -> grafton_visca::camera::PanTiltPosition
 impl core::cmp::Eq for grafton_visca::camera::PanTiltPosition
@@ -3246,123 +3256,165 @@ pub fn T::nd_filter_description(&self) -> &'static str
 pub fn T::nd_step_count(&self) -> core::option::Option<u8>
 pub fn T::validate_nd_filter(&self, u8) -> core::result::Result<u8, grafton_visca::capabilities::ValidationError>
 pub mod grafton_visca::capabilities::pan_tilt
+#[non_exhaustive] pub enum grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::SonyBrc300
+pub grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::StandardVisca
+impl core::clone::Clone for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::clone(&self) -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::cmp::Eq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::cmp::PartialEq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::eq(&self, &grafton_visca::capabilities::pan_tilt::PanTiltWireCodec) -> bool
+impl core::default::Default for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::default() -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::fmt::Debug for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::StructuralPartialEq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl schemars::JsonSchema for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::inline_schema() -> bool
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::schema_id() -> alloc::borrow::Cow<'static, str>
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::schema_name() -> alloc::borrow::Cow<'static, str>
+impl serde_core::ser::Serialize for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Send for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Sync for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Unpin for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::UnsafeUnpin for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub trait grafton_visca::capabilities::pan_tilt::PanTilt
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::MAX_PAN_SPEED: u8
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::MAX_TILT_SPEED: u8
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::capabilities::pan_tilt::PanTilt::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::capabilities::pan_tilt::PanTilt::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::capabilities::pan_tilt::PanTilt::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::capabilities::pan_tilt::PanTilt::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::capabilities::pan_tilt::PanTilt::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::capabilities::pan_tilt::PanTilt::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub trait grafton_visca::capabilities::pan_tilt::PanTiltExt: grafton_visca::capabilities::pan_tilt::PanTilt
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::degrees_to_pan_units(&self, f32) -> i16
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::degrees_to_tilt_units(&self, f32) -> i16
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::pan_units_to_degrees(&self, i16) -> f32
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::tilt_units_to_degrees(&self, i16) -> f32
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_pan(&self, i16) -> core::result::Result<i16, grafton_visca::capabilities::ValidationError>
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::degrees_to_pan_units(&self, f32) -> i32
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::degrees_to_tilt_units(&self, f32) -> i32
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::pan_units_to_degrees(&self, i32) -> f32
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::tilt_units_to_degrees(&self, i32) -> f32
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_pan(&self, i32) -> core::result::Result<i32, grafton_visca::capabilities::ValidationError>
 pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_pan_speed(&self, u8) -> u8
-pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_tilt(&self, i16) -> core::result::Result<i16, grafton_visca::capabilities::ValidationError>
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_tilt(&self, i32) -> core::result::Result<i32, grafton_visca::capabilities::ValidationError>
 pub fn grafton_visca::capabilities::pan_tilt::PanTiltExt::validate_tilt_speed(&self, u8) -> u8
 impl<T: grafton_visca::capabilities::pan_tilt::PanTilt> grafton_visca::capabilities::pan_tilt::PanTiltExt for T
-pub fn T::degrees_to_pan_units(&self, f32) -> i16
-pub fn T::degrees_to_tilt_units(&self, f32) -> i16
-pub fn T::pan_units_to_degrees(&self, i16) -> f32
-pub fn T::tilt_units_to_degrees(&self, i16) -> f32
-pub fn T::validate_pan(&self, i16) -> core::result::Result<i16, grafton_visca::capabilities::ValidationError>
+pub fn T::degrees_to_pan_units(&self, f32) -> i32
+pub fn T::degrees_to_tilt_units(&self, f32) -> i32
+pub fn T::pan_units_to_degrees(&self, i32) -> f32
+pub fn T::tilt_units_to_degrees(&self, i32) -> f32
+pub fn T::validate_pan(&self, i32) -> core::result::Result<i32, grafton_visca::capabilities::ValidationError>
 pub fn T::validate_pan_speed(&self, u8) -> u8
-pub fn T::validate_tilt(&self, i16) -> core::result::Result<i16, grafton_visca::capabilities::ValidationError>
+pub fn T::validate_tilt(&self, i32) -> core::result::Result<i32, grafton_visca::capabilities::ValidationError>
 pub fn T::validate_tilt_speed(&self, u8) -> u8
 pub mod grafton_visca::capabilities::power
 pub enum grafton_visca::capabilities::power::PowerState
@@ -3938,6 +3990,38 @@ impl core::marker::Unpin for grafton_visca::capabilities::nd_filter::NdFilterMod
 impl core::marker::UnsafeUnpin for grafton_visca::capabilities::nd_filter::NdFilterMode
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::capabilities::nd_filter::NdFilterMode
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::capabilities::nd_filter::NdFilterMode
+#[non_exhaustive] pub enum grafton_visca::capabilities::PanTiltWireCodec
+pub grafton_visca::capabilities::PanTiltWireCodec::SonyBrc300
+pub grafton_visca::capabilities::PanTiltWireCodec::StandardVisca
+impl core::clone::Clone for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::clone(&self) -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::cmp::Eq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::cmp::PartialEq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::eq(&self, &grafton_visca::capabilities::pan_tilt::PanTiltWireCodec) -> bool
+impl core::default::Default for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::default() -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::fmt::Debug for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::StructuralPartialEq for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl schemars::JsonSchema for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::inline_schema() -> bool
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::json_schema(&mut schemars::generate::SchemaGenerator) -> schemars::schema::Schema
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::schema_id() -> alloc::borrow::Cow<'static, str>
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::schema_name() -> alloc::borrow::Cow<'static, str>
+impl serde_core::ser::Serialize for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+impl<'de> serde_core::de::Deserialize<'de> for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+pub fn grafton_visca::capabilities::pan_tilt::PanTiltWireCodec::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+impl core::marker::Freeze for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Send for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Sync for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::Unpin for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::marker::UnsafeUnpin for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 #[non_exhaustive] pub enum grafton_visca::capabilities::TypedSupportSurface
 pub grafton_visca::capabilities::TypedSupportSurface::AutoFocusSensitivity
 pub grafton_visca::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance
@@ -4107,7 +4191,7 @@ pub grafton_visca::capabilities::Capabilities::max_presets: u8
 pub grafton_visca::capabilities::Capabilities::model_name: alloc::string::String
 pub grafton_visca::capabilities::Capabilities::nd_filter_mode: grafton_visca::capabilities::nd_filter::NdFilterMode
 pub grafton_visca::capabilities::Capabilities::nd_filter_steps: core::option::Option<u8>
-pub grafton_visca::capabilities::Capabilities::pan_range: core::ops::range::RangeInclusive<i16>
+pub grafton_visca::capabilities::Capabilities::pan_range: core::ops::range::RangeInclusive<i32>
 pub grafton_visca::capabilities::Capabilities::pan_range_degrees: core::ops::range::RangeInclusive<f32>
 pub grafton_visca::capabilities::Capabilities::pan_speed: core::ops::range::RangeInclusive<u8>
 pub grafton_visca::capabilities::Capabilities::pan_tilt_simultaneous: bool
@@ -4135,7 +4219,7 @@ pub grafton_visca::capabilities::Capabilities::supports_preset_tour: bool
 pub grafton_visca::capabilities::Capabilities::supports_standby: bool
 pub grafton_visca::capabilities::Capabilities::supports_variable_zoom: bool
 pub grafton_visca::capabilities::Capabilities::supports_wake_on_lan: bool
-pub grafton_visca::capabilities::Capabilities::tilt_range: core::ops::range::RangeInclusive<i16>
+pub grafton_visca::capabilities::Capabilities::tilt_range: core::ops::range::RangeInclusive<i32>
 pub grafton_visca::capabilities::Capabilities::tilt_range_degrees: core::ops::range::RangeInclusive<f32>
 pub grafton_visca::capabilities::Capabilities::tilt_speed: core::ops::range::RangeInclusive<u8>
 pub grafton_visca::capabilities::Capabilities::typed_support: grafton_visca::capabilities::TypedSupportSet
@@ -4189,6 +4273,13 @@ pub const fn grafton_visca::capabilities::CapabilityRange<i16>::contains(self, i
 pub const fn grafton_visca::capabilities::CapabilityRange<i16>::max(self) -> i16
 pub const fn grafton_visca::capabilities::CapabilityRange<i16>::min(self) -> i16
 pub const fn grafton_visca::capabilities::CapabilityRange<i16>::new(i16, i16) -> Self
+impl grafton_visca::capabilities::CapabilityRange<i32>
+pub fn grafton_visca::capabilities::CapabilityRange<i32>::as_inclusive(self) -> core::ops::range::RangeInclusive<i32>
+pub const fn grafton_visca::capabilities::CapabilityRange<i32>::clamp(self, i32) -> i32
+pub const fn grafton_visca::capabilities::CapabilityRange<i32>::contains(self, i32) -> bool
+pub const fn grafton_visca::capabilities::CapabilityRange<i32>::max(self) -> i32
+pub const fn grafton_visca::capabilities::CapabilityRange<i32>::min(self) -> i32
+pub const fn grafton_visca::capabilities::CapabilityRange<i32>::new(i32, i32) -> Self
 impl grafton_visca::capabilities::CapabilityRange<i8>
 pub fn grafton_visca::capabilities::CapabilityRange<i8>::as_inclusive(self) -> core::ops::range::RangeInclusive<i8>
 pub const fn grafton_visca::capabilities::CapabilityRange<i8>::clamp(self, i8) -> i8
@@ -5045,101 +5136,111 @@ pub const grafton_visca::capabilities::PanTilt::COORDINATE_SYSTEM: grafton_visca
 pub const grafton_visca::capabilities::PanTilt::MAX_PAN_SPEED: u8
 pub const grafton_visca::capabilities::PanTilt::MAX_TILT_SPEED: u8
 pub const grafton_visca::capabilities::PanTilt::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::capabilities::PanTilt::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::capabilities::PanTilt::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::capabilities::PanTilt::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::capabilities::PanTilt::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::capabilities::PanTilt::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::capabilities::PanTilt::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::capabilities::PanTilt::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::capabilities::PanTilt::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::pan_tilt::PanTilt for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_visca::capabilities::CoordinateSystem
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub trait grafton_visca::capabilities::Power
 pub const grafton_visca::capabilities::Power::HOME_ON_POWER_UP: bool
 pub const grafton_visca::capabilities::Power::POWER_ON_TIME: core::time::Duration
@@ -6574,8 +6675,8 @@ pub grafton_visca::command::InquiryData::NoiseReductionMode::mode: grafton_visca
 pub grafton_visca::command::InquiryData::NoiseReductionSpeed
 pub grafton_visca::command::InquiryData::NoiseReductionSpeed::speed: grafton_visca::command::NoiseReductionSpeed
 pub grafton_visca::command::InquiryData::PanTiltPosition
-pub grafton_visca::command::InquiryData::PanTiltPosition::pan: i16
-pub grafton_visca::command::InquiryData::PanTiltPosition::tilt: i16
+pub grafton_visca::command::InquiryData::PanTiltPosition::pan: i32
+pub grafton_visca::command::InquiryData::PanTiltPosition::tilt: i32
 pub grafton_visca::command::InquiryData::PictureEffect
 pub grafton_visca::command::InquiryData::PictureEffect::effect: grafton_visca::PictureEffectMode
 pub grafton_visca::command::InquiryData::Power
@@ -13333,6 +13434,7 @@ pub grafton_visca::inquiry_conversions::PanTiltPositionDeg::tilt: grafton_visca:
 impl grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub const fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::new(grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> Self
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::to_raw(&self) -> core::result::Result<grafton_visca::inquiry_conversions::PanTiltPositionRaw, grafton_visca::Error>
+pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::to_raw_with_profile<P: grafton_visca::capabilities::Profile>(&self, &P) -> core::result::Result<grafton_visca::inquiry_conversions::PanTiltPositionRaw, grafton_visca::Error>
 impl core::clone::Clone for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::clone(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
 impl core::cmp::PartialEq for grafton_visca::inquiry_conversions::PanTiltPositionDeg
@@ -13358,12 +13460,12 @@ impl core::marker::UnsafeUnpin for grafton_visca::inquiry_conversions::PanTiltPo
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub struct grafton_visca::inquiry_conversions::PanTiltPositionRaw
-pub grafton_visca::inquiry_conversions::PanTiltPositionRaw::pan: i16
-pub grafton_visca::inquiry_conversions::PanTiltPositionRaw::tilt: i16
+pub grafton_visca::inquiry_conversions::PanTiltPositionRaw::pan: i32
+pub grafton_visca::inquiry_conversions::PanTiltPositionRaw::tilt: i32
 impl grafton_visca::inquiry_conversions::PanTiltPositionRaw
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::as_degrees(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::as_degrees_with_profile<P: grafton_visca::capabilities::Profile>(&self, &P) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
-pub const fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::new(i16, i16) -> Self
+pub const fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::new(i32, i32) -> Self
 impl core::clone::Clone for grafton_visca::inquiry_conversions::PanTiltPositionRaw
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::clone(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionRaw
 impl core::cmp::Eq for grafton_visca::inquiry_conversions::PanTiltPositionRaw
@@ -13792,8 +13894,8 @@ pub grafton_visca::prelude::async::Error::BufferTooSmall::actual: usize
 pub grafton_visca::prelude::async::Error::BufferTooSmall::required: usize
 pub grafton_visca::prelude::async::Error::CameraBusy
 pub grafton_visca::prelude::async::Error::CameraMoving
-pub grafton_visca::prelude::async::Error::CameraMoving::pan: i16
-pub grafton_visca::prelude::async::Error::CameraMoving::tilt: i16
+pub grafton_visca::prelude::async::Error::CameraMoving::pan: i32
+pub grafton_visca::prelude::async::Error::CameraMoving::tilt: i32
 pub grafton_visca::prelude::async::Error::CameraNotReady
 pub grafton_visca::prelude::async::Error::CancellationUnconfirmed
 pub grafton_visca::prelude::async::Error::CommandBufferFull
@@ -15085,11 +15187,12 @@ pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::POWER_ON_TIME: core::time::Duration
@@ -15467,11 +15570,12 @@ pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::POWER_ON_TIME: core::time::Duration
@@ -15926,11 +16030,12 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::POWER_ON_TIME: core::time::Duration
@@ -16098,11 +16203,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POWER_ON_TIME: core::time::Duration
@@ -16268,11 +16374,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POWER_ON_TIME: core::time::Duration
@@ -16590,11 +16697,12 @@ pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafto
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::POWER_ON_TIME: core::time::Duration
@@ -16746,11 +16854,12 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::POWER_ON_TIME: core::time::Duration
@@ -16896,11 +17005,12 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::POWER_ON_TIME: core::time::Duration
@@ -17061,11 +17171,12 @@ pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_v
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::POWER_ON_TIME: core::time::Duration
@@ -18005,8 +18116,8 @@ pub grafton_visca::prelude::blocking::Error::BufferTooSmall::actual: usize
 pub grafton_visca::prelude::blocking::Error::BufferTooSmall::required: usize
 pub grafton_visca::prelude::blocking::Error::CameraBusy
 pub grafton_visca::prelude::blocking::Error::CameraMoving
-pub grafton_visca::prelude::blocking::Error::CameraMoving::pan: i16
-pub grafton_visca::prelude::blocking::Error::CameraMoving::tilt: i16
+pub grafton_visca::prelude::blocking::Error::CameraMoving::pan: i32
+pub grafton_visca::prelude::blocking::Error::CameraMoving::tilt: i32
 pub grafton_visca::prelude::blocking::Error::CameraNotReady
 pub grafton_visca::prelude::blocking::Error::CancellationUnconfirmed
 pub grafton_visca::prelude::blocking::Error::CommandBufferFull
@@ -19030,11 +19141,12 @@ pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::POWER_ON_TIME: core::time::Duration
@@ -19454,11 +19566,12 @@ pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::POWER_ON_TIME: core::time::Duration
@@ -19913,11 +20026,12 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::POWER_ON_TIME: core::time::Duration
@@ -20085,11 +20199,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POWER_ON_TIME: core::time::Duration
@@ -20255,11 +20370,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POWER_ON_TIME: core::time::Duration
@@ -20555,11 +20671,12 @@ pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafto
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::POWER_ON_TIME: core::time::Duration
@@ -20711,11 +20828,12 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::POWER_ON_TIME: core::time::Duration
@@ -20861,11 +20979,12 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::POWER_ON_TIME: core::time::Duration
@@ -21026,11 +21145,12 @@ pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_v
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::POWER_ON_TIME: core::time::Duration
@@ -22365,6 +22485,7 @@ impl grafton_visca::profile::PanTiltCoordinateConversion
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::coordinate_system(self) -> grafton_visca::capabilities::CoordinateSystem
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::pan_degrees_to_units(self) -> f32
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::tilt_degrees_to_units(self) -> f32
+pub const fn grafton_visca::profile::PanTiltCoordinateConversion::wire_codec(self) -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 impl core::clone::Clone for grafton_visca::profile::PanTiltCoordinateConversion
 pub fn grafton_visca::profile::PanTiltCoordinateConversion::clone(&self) -> grafton_visca::profile::PanTiltCoordinateConversion
 impl core::cmp::PartialEq for grafton_visca::profile::PanTiltCoordinateConversion
@@ -22489,8 +22610,9 @@ pub fn grafton_visca::profile::ProfileSpecBuilder::envelope(self, grafton_visca:
 pub fn grafton_visca::profile::ProfileSpecBuilder::focus(self, core::ops::range::RangeInclusive<u16>, core::ops::range::RangeInclusive<u8>, bool, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::inquiry_support(self, grafton_visca::capabilities::InquirySupport) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::maximum_command_sockets(self, u8) -> Self
-pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt(self, core::ops::range::RangeInclusive<i16>, core::ops::range::RangeInclusive<i16>, u8, u8, f32, f32, grafton_visca::capabilities::CoordinateSystem, bool) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt(self, core::ops::range::RangeInclusive<i32>, core::ops::range::RangeInclusive<i32>, u8, u8, f32, f32, grafton_visca::capabilities::CoordinateSystem, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt_coordinates(self, grafton_visca::capabilities::CoordinateSystem, f32, f32) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt_wire_codec(self, grafton_visca::capabilities::pan_tilt::PanTiltWireCodec) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::position_inquiries(self, grafton_visca::profile::PositionInquirySupport) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::preset_recall_axes(self, core::option::Option<grafton_visca::AffectedAxes>) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_command_cancel(self, bool) -> Self
@@ -22952,11 +23074,12 @@ pub const grafton_visca::camera::profiles::GenericVisca::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::GenericVisca::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::GenericVisca::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::GenericVisca::POWER_ON_TIME: core::time::Duration
@@ -23095,11 +23218,12 @@ pub const grafton_visca::camera::profiles::NearusBRC300::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::NearusBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::NearusBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::POWER_ON_TIME: core::time::Duration
@@ -23267,11 +23391,12 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::COORDINATE_SYSTEM: graf
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOptics30X::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOptics30X::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::POWER_ON_TIME: core::time::Duration
@@ -23439,11 +23564,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG2::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POWER_ON_TIME: core::time::Duration
@@ -23609,11 +23735,12 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::PtzOpticsG3::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POWER_ON_TIME: core::time::Duration
@@ -23751,11 +23878,12 @@ pub const grafton_visca::camera::profiles::SonyBRC300::COORDINATE_SYSTEM: grafto
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRC300::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRC300::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::POWER_ON_TIME: core::time::Duration
@@ -23907,11 +24035,12 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyBRCH900::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyBRCH900::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::POWER_ON_TIME: core::time::Duration
@@ -24057,11 +24186,12 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::COORDINATE_SYSTEM: graft
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyEVIH100::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyEVIH100::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::POWER_ON_TIME: core::time::Duration
@@ -24222,11 +24352,12 @@ pub const grafton_visca::camera::profiles::SonyFR7::COORDINATE_SYSTEM: grafton_v
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_PAN_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_TILT_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_SIMULTANEOUS: bool
+pub const grafton_visca::camera::profiles::SonyFR7::PAN_TILT_WIRE_CODEC: grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECOVERY_TIME: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TILT_DEGREES_TO_UNITS: f32
-pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i16>
+pub const grafton_visca::camera::profiles::SonyFR7::TILT_RANGE: grafton_visca::capabilities::CapabilityRange<i32>
 impl grafton_visca::capabilities::power::Power for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::HOME_ON_POWER_UP: bool
 pub const grafton_visca::camera::profiles::SonyFR7::POWER_ON_TIME: core::time::Duration
@@ -25460,6 +25591,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::request::builtin
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::request::builtin::PanTiltHome
 pub struct grafton_visca::request::builtin::PanTiltLimitClear
 impl grafton_visca::request::builtin::PanTiltLimitClear
+pub fn grafton_visca::request::builtin::PanTiltLimitClear::for_profile(grafton_visca::command::PanTiltLimitCorner, &grafton_visca::profile::ProfileSpec) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::request::builtin::PanTiltLimitClear::new(grafton_visca::command::PanTiltLimitCorner) -> Self
 impl core::clone::Clone for grafton_visca::request::builtin::PanTiltLimitClear
 pub fn grafton_visca::request::builtin::PanTiltLimitClear::clone(&self) -> grafton_visca::request::builtin::PanTiltLimitClear
@@ -30684,8 +30816,8 @@ pub grafton_visca::Error::BufferTooSmall::actual: usize
 pub grafton_visca::Error::BufferTooSmall::required: usize
 pub grafton_visca::Error::CameraBusy
 pub grafton_visca::Error::CameraMoving
-pub grafton_visca::Error::CameraMoving::pan: i16
-pub grafton_visca::Error::CameraMoving::tilt: i16
+pub grafton_visca::Error::CameraMoving::pan: i32
+pub grafton_visca::Error::CameraMoving::tilt: i32
 pub grafton_visca::Error::CameraNotReady
 pub grafton_visca::Error::CancellationUnconfirmed
 pub grafton_visca::Error::CommandBufferFull
@@ -33021,6 +33153,7 @@ impl grafton_visca::profile::PanTiltCoordinateConversion
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::coordinate_system(self) -> grafton_visca::capabilities::CoordinateSystem
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::pan_degrees_to_units(self) -> f32
 pub const fn grafton_visca::profile::PanTiltCoordinateConversion::tilt_degrees_to_units(self) -> f32
+pub const fn grafton_visca::profile::PanTiltCoordinateConversion::wire_codec(self) -> grafton_visca::capabilities::pan_tilt::PanTiltWireCodec
 impl core::clone::Clone for grafton_visca::profile::PanTiltCoordinateConversion
 pub fn grafton_visca::profile::PanTiltCoordinateConversion::clone(&self) -> grafton_visca::profile::PanTiltCoordinateConversion
 impl core::cmp::PartialEq for grafton_visca::profile::PanTiltCoordinateConversion
@@ -33072,6 +33205,7 @@ pub grafton_visca::PanTiltPositionDeg::tilt: grafton_visca::units::Degrees<f32>
 impl grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub const fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::new(grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> Self
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::to_raw(&self) -> core::result::Result<grafton_visca::inquiry_conversions::PanTiltPositionRaw, grafton_visca::Error>
+pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::to_raw_with_profile<P: grafton_visca::capabilities::Profile>(&self, &P) -> core::result::Result<grafton_visca::inquiry_conversions::PanTiltPositionRaw, grafton_visca::Error>
 impl core::clone::Clone for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionDeg::clone(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
 impl core::cmp::PartialEq for grafton_visca::inquiry_conversions::PanTiltPositionDeg
@@ -33097,12 +33231,12 @@ impl core::marker::UnsafeUnpin for grafton_visca::inquiry_conversions::PanTiltPo
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub struct grafton_visca::PanTiltPositionRaw
-pub grafton_visca::PanTiltPositionRaw::pan: i16
-pub grafton_visca::PanTiltPositionRaw::tilt: i16
+pub grafton_visca::PanTiltPositionRaw::pan: i32
+pub grafton_visca::PanTiltPositionRaw::tilt: i32
 impl grafton_visca::inquiry_conversions::PanTiltPositionRaw
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::as_degrees(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::as_degrees_with_profile<P: grafton_visca::capabilities::Profile>(&self, &P) -> grafton_visca::inquiry_conversions::PanTiltPositionDeg
-pub const fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::new(i16, i16) -> Self
+pub const fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::new(i32, i32) -> Self
 impl core::clone::Clone for grafton_visca::inquiry_conversions::PanTiltPositionRaw
 pub fn grafton_visca::inquiry_conversions::PanTiltPositionRaw::clone(&self) -> grafton_visca::inquiry_conversions::PanTiltPositionRaw
 impl core::cmp::Eq for grafton_visca::inquiry_conversions::PanTiltPositionRaw
@@ -33312,8 +33446,9 @@ pub fn grafton_visca::profile::ProfileSpecBuilder::envelope(self, grafton_visca:
 pub fn grafton_visca::profile::ProfileSpecBuilder::focus(self, core::ops::range::RangeInclusive<u16>, core::ops::range::RangeInclusive<u8>, bool, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::inquiry_support(self, grafton_visca::capabilities::InquirySupport) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::maximum_command_sockets(self, u8) -> Self
-pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt(self, core::ops::range::RangeInclusive<i16>, core::ops::range::RangeInclusive<i16>, u8, u8, f32, f32, grafton_visca::capabilities::CoordinateSystem, bool) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt(self, core::ops::range::RangeInclusive<i32>, core::ops::range::RangeInclusive<i32>, u8, u8, f32, f32, grafton_visca::capabilities::CoordinateSystem, bool) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt_coordinates(self, grafton_visca::capabilities::CoordinateSystem, f32, f32) -> Self
+pub fn grafton_visca::profile::ProfileSpecBuilder::pan_tilt_wire_codec(self, grafton_visca::capabilities::pan_tilt::PanTiltWireCodec) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::position_inquiries(self, grafton_visca::profile::PositionInquirySupport) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::preset_recall_axes(self, core::option::Option<grafton_visca::AffectedAxes>) -> Self
 pub fn grafton_visca::profile::ProfileSpecBuilder::supports_command_cancel(self, bool) -> Self

@@ -102,6 +102,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    config.validate_buffer_bounds()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -224,12 +225,33 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    let socket = Self::preflight_udp_setup(
+                        address,
+                        config,
+                        |canonical_addr, udp_config| async move {
+                            $udp_connect(&canonical_addr, udp_config).await
+                        },
+                    )
+                    .await?;
+
+                    Ok(Self::new(socket, config))
+                }
+
+                /// Run endpoint parsing and connector setup only after buffer preflight.
+                pub(super) async fn preflight_udp_setup<T, F, Fut>(
+                    address: &str,
+                    config: TransportConfig,
+                    setup: F,
+                ) -> Result<T, Error>
+                where
+                    F: FnOnce(String, UdpSocketConfig) -> Fut,
+                    Fut: std::future::Future<Output = Result<T, Error>>,
+                {
+                    config.validate_buffer_bounds()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
-                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
-
-                    Ok(Self::new(socket, config))
+                    setup(canonical_addr, udp_config).await
                 }
             }
         }
@@ -296,6 +318,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    config.validate_buffer_bounds()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -418,12 +441,33 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    let socket = Self::preflight_udp_setup(
+                        address,
+                        config,
+                        |canonical_addr, udp_config| async move {
+                            $udp_connect(&canonical_addr, udp_config).await
+                        },
+                    )
+                    .await?;
+
+                    Ok(Self::new(socket, config))
+                }
+
+                /// Run endpoint parsing and connector setup only after buffer preflight.
+                pub(super) async fn preflight_udp_setup<T, F, Fut>(
+                    address: &str,
+                    config: TransportConfig,
+                    setup: F,
+                ) -> Result<T, Error>
+                where
+                    F: FnOnce(String, UdpSocketConfig) -> Fut,
+                    Fut: std::future::Future<Output = Result<T, Error>>,
+                {
+                    config.validate_buffer_bounds()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
-                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
-
-                    Ok(Self::new(socket, config))
+                    setup(canonical_addr, udp_config).await
                 }
             }
         }

@@ -67,26 +67,39 @@ impl Udp {
     /// This method provides full control over connection and socket parameters.
     /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let canonical_addr = canonicalize_endpoint(address, None)?;
+        let socket = Self::preflight_udp_setup(address, config, |canonical_addr, config| {
+            // Use the common address resolver.
+            let resolver = AddressResolver::new();
+            let target_addr = resolver.resolve_first(canonical_addr)?;
 
-        // Use the common address resolver
-        let resolver = AddressResolver::new();
-        let target_addr = resolver.resolve_first(&canonical_addr)?;
+            // Bind to the appropriate unspecified address based on target family.
+            let bind_addr = resolver.bind_address_for(&target_addr);
 
-        // Bind to the appropriate unspecified address based on target family
-        let bind_addr = resolver.bind_address_for(&target_addr);
+            let socket = UdpSocket::bind(bind_addr)?;
+            socket.connect(target_addr)?;
 
-        let socket = UdpSocket::bind(bind_addr)?;
-        socket.connect(target_addr)?;
+            // Apply socket options from config.
+            socket.set_read_timeout(Some(config.read_timeout))?;
+            socket.set_write_timeout(Some(config.write_timeout))?;
+            if let Some(ttl) = config.ttl {
+                socket.set_ttl(ttl)?;
+            }
 
-        // Apply socket options from config
-        socket.set_read_timeout(Some(config.read_timeout))?;
-        socket.set_write_timeout(Some(config.write_timeout))?;
-        if let Some(ttl) = config.ttl {
-            socket.set_ttl(ttl)?;
-        }
+            Ok(socket)
+        })?;
 
         Ok(Self { socket, config })
+    }
+
+    /// Run endpoint parsing and UDP setup only after buffer preflight succeeds.
+    fn preflight_udp_setup<T>(
+        address: &str,
+        config: TransportConfig,
+        setup: impl FnOnce(&str, TransportConfig) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        config.validate_buffer_bounds()?;
+        let canonical_addr = canonicalize_endpoint(address, None)?;
+        setup(&canonical_addr, config)
     }
 
     /// Receive one UDP datagram, retaining truncation information where the
@@ -244,12 +257,35 @@ impl BlockingTransport for Udp {
 mod tests {
     use std::{
         net::UdpSocket,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
         thread,
         time::{Duration, Instant},
     };
 
     use super::*;
-    use crate::transport::{BlockingTransport, TransportConfig};
+    use crate::transport::{BlockingTransport, BufferConfig, TransportConfig};
+
+    fn invalid_buffer_config() -> TransportConfig {
+        TransportConfig {
+            buffer_config: BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            },
+            ..TransportConfig::default()
+        }
+    }
+
+    fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
+        assert!(matches!(
+            result,
+            Err(Error::InvalidRequest(actual))
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+    }
 
     fn connected_socket_pair() -> (UdpSocket, UdpSocket) {
         let receiver = UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
@@ -261,6 +297,35 @@ mod tests {
             .connect(receiver.local_addr().expect("receiver address"))
             .expect("connect sender");
         (receiver, sender)
+    }
+
+    #[test]
+    fn invalid_config_is_rejected_before_udp_socket_setup() {
+        // This is the real production setup seam: it includes resolver,
+        // bind, connect, and socket options. It must not run for invalid
+        // buffers, independent of network/DNS behavior.
+        let setup_calls = Arc::new(AtomicUsize::new(0));
+        let spy_calls = Arc::clone(&setup_calls);
+        let result =
+            Udp::preflight_udp_setup("127.0.0.1:9", invalid_buffer_config(), move |_, _| {
+                spy_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+
+        assert_invalid_buffer_error(result);
+        assert_eq!(
+            setup_calls.load(Ordering::SeqCst),
+            0,
+            "invalid buffer configuration must not reach UDP resolver/socket setup"
+        );
+
+        // The malformed endpoint makes the buffer error's precedence over
+        // address parsing explicit.
+        assert_invalid_buffer_error(Udp::preflight_udp_setup(
+            "[::1",
+            invalid_buffer_config(),
+            |_, _| Ok(()),
+        ));
     }
 
     #[test]

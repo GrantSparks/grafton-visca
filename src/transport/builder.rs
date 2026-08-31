@@ -402,11 +402,19 @@ impl NetTransportBuilder {
     /// - Async features are enabled without blocking support
     #[cfg(feature = "blocking")]
     pub fn build_blocking(self) -> Result<crate::transport::BlockingTransportHandle, Error> {
+        // Keep the builder's missing-address error ahead of configuration
+        // validation. There is no connector to enter without an address, and
+        // this preserves the established public error precedence.
         let address = self.address.ok_or_else(|| Error::InvalidParameter {
             parameter: "address",
             value: "None".into(),
             reason: "No address specified for transport".into(),
         })?;
+
+        // Direct connectors repeat this check for callers that do not use the
+        // builder. Do it here as well so every builder path rejects invalid
+        // buffer bounds before handing control to a connector.
+        self.config.validate_buffer_bounds()?;
 
         match self.protocol {
             Protocol::Tcp => {
@@ -518,6 +526,24 @@ mod tests {
             is_correct_error,
             "Expected InvalidParameter error with address parameter"
         );
+    }
+
+    #[test]
+    fn missing_address_precedes_invalid_buffer_bounds() {
+        let result = NetTransportBuilder::tcp()
+            .recv_buffer_size(0)
+            .build_blocking();
+
+        // A builder without an address cannot reach a connector. Retaining
+        // this precedence keeps its established argument error rather than
+        // exposing a secondary configuration error first.
+        assert!(matches!(
+            result,
+            Err(Error::InvalidParameter {
+                parameter: "address",
+                ..
+            })
+        ));
     }
 
     #[test]

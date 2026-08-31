@@ -81,14 +81,14 @@ pub struct Capabilities {
     /// Valid pan speed range (typically 1-24).
     pub pan_speed: RangeInclusive<u8>,
 
-    /// Valid tilt speed range (typically 1-20).
+    /// Valid tilt speed range (typically 1-20, up to 24 where documented).
     pub tilt_speed: RangeInclusive<u8>,
 
     /// Pan position range in VISCA units.
-    pub pan_range: RangeInclusive<i16>,
+    pub pan_range: RangeInclusive<i32>,
 
     /// Tilt position range in VISCA units.
-    pub tilt_range: RangeInclusive<i16>,
+    pub tilt_range: RangeInclusive<i32>,
 
     /// Pan position range in degrees.
     pub pan_range_degrees: RangeInclusive<f32>,
@@ -558,10 +558,17 @@ impl Capabilities {
         P: crate::capabilities::Profile,
     {
         // Extract pan/tilt capabilities
-        let pan_min_deg = P::PAN_RANGE.min() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let pan_max_deg = P::PAN_RANGE.max() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let tilt_min_deg = P::TILT_RANGE.min() as f32 / P::TILT_DEGREES_TO_UNITS;
-        let tilt_max_deg = P::TILT_RANGE.max() as f32 / P::TILT_DEGREES_TO_UNITS;
+        let pan_start_deg = P::PAN_RANGE.min() as f32 / P::PAN_DEGREES_TO_UNITS;
+        let pan_end_deg = P::PAN_RANGE.max() as f32 / P::PAN_DEGREES_TO_UNITS;
+        let tilt_start_deg = P::TILT_RANGE.min() as f32 / P::TILT_DEGREES_TO_UNITS;
+        let tilt_end_deg = P::TILT_RANGE.max() as f32 / P::TILT_DEGREES_TO_UNITS;
+        // A profile may use a negative degree-to-unit scale when its raw axis
+        // polarity is opposite the library's degree convention. Capabilities
+        // always expose ordered logical-degree ranges.
+        let pan_min_deg = pan_start_deg.min(pan_end_deg);
+        let pan_max_deg = pan_start_deg.max(pan_end_deg);
+        let tilt_min_deg = tilt_start_deg.min(tilt_end_deg);
+        let tilt_max_deg = tilt_start_deg.max(tilt_end_deg);
 
         let pan_speed = 1..=P::MAX_PAN_SPEED;
         let tilt_speed = 1..=P::MAX_TILT_SPEED;
@@ -970,7 +977,7 @@ mod tests {
     };
     use crate::command::exposure::ExposureMode;
     use crate::transport::RawVisca;
-    use crate::WhiteBalanceMode;
+    use crate::{ProfileSpec, WhiteBalanceMode};
 
     use super::*;
 
@@ -996,8 +1003,8 @@ mod tests {
     }
 
     impl PanTilt for MetadataEnabledNoTypedSupport {
-        const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1700, 1700);
-        const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-300, 900);
+        const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
+        const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-300, 900);
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 20;
         const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -1349,6 +1356,66 @@ mod tests {
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(!caps.has_variable_speed);
         assert!(caps.has_advanced_features());
+    }
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn brc300_static_profile_preserves_documented_preset_metadata() {
+        let profile =
+            ProfileSpec::from_compile_time::<SonyBRC300>().expect("Sony BRC-300 static profile");
+        let caps = profile.capabilities();
+
+        assert_eq!(caps.max_presets, 5, "CAM_Memory p is 0 through 5");
+        assert_eq!(
+            caps.preset_speed_range,
+            1..=24,
+            "Cmd_PT_M_Speed q is 1 through 24"
+        );
+    }
+
+    #[test]
+    fn brc300_discovery_keeps_preset_facts_separate_from_ptzoptics_typed_support() {
+        let caps = Capabilities::from_profile::<SonyBRC300>();
+
+        assert_eq!(caps.max_presets, 5);
+        assert_eq!(caps.preset_speed_range, 1..=24);
+        assert_eq!(
+            caps.typed_support,
+            <SonyBRC300 as ProfileTypedSupport>::TYPED_SUPPORT,
+            "discovery must mirror the static typed-support registry"
+        );
+        assert!(
+            !caps.supports_typed(TypedSupportSurface::PtzOpticsPresetRecallSpeed),
+            "BRC-300 metadata must not grant the distinct PTZOptics typed command"
+        );
+    }
+
+    #[test]
+    fn brc300_capabilities_keep_reverse_axis_degree_ranges_ordered() {
+        let caps = Capabilities::from_profile::<SonyBRC300>();
+
+        assert!(caps.pan_range_degrees.start() <= caps.pan_range_degrees.end());
+        assert!(caps.tilt_range_degrees.start() <= caps.tilt_range_degrees.end());
+        assert_eq!(
+            *caps.pan_range_degrees.start(),
+            0x08A58 as f32 / -208.0,
+            "positive raw pan is the left/negative-degree endpoint"
+        );
+        assert_eq!(
+            *caps.pan_range_degrees.end(),
+            -0x08A58 as f32 / -208.0,
+            "negative raw pan is the right/positive-degree endpoint"
+        );
+        assert_eq!(
+            *caps.tilt_range_degrees.start(),
+            0x493D as f32 / -208.0,
+            "positive raw tilt is the up/negative-degree endpoint"
+        );
+        assert_eq!(
+            *caps.tilt_range_degrees.end(),
+            -0x186A as f32 / -208.0,
+            "negative raw tilt is the down/positive-degree endpoint"
+        );
     }
 
     #[test]

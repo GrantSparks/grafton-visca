@@ -85,14 +85,14 @@ struct DeferredCompletion {
     socket: Option<ViscaSocket>,
 }
 
-/// A bounded raw-VISCA correlation hold left behind by a successfully terminal
-/// command that never earned a response identity.
+/// A bounded raw-VISCA correlation hold left behind by a terminal response
+/// whose wire frame has no request identity.
 ///
-/// Raw frames carry no request identity. Once a `NoReply` or `CompletionOnly`
-/// entry is terminal, a delayed response cannot safely be distinguished from a
-/// response to later work on the same target. The engine therefore reserves
-/// that target's raw response/correlation lane until the request's bounded
-/// ambiguity deadline.
+/// Raw frames carry no request identity. Once a `NoReply`, `CompletionOnly`,
+/// or inquiry response correlation is released, a delayed response cannot
+/// safely be distinguished from a response to later work on the same target.
+/// The engine therefore reserves that target's raw response/correlation lane
+/// until the request's bounded ambiguity deadline.
 ///
 /// This is deliberately not an `Entry`: the caller has already received its
 /// terminal outcome, and these holds have no observer, retry, or cancellation
@@ -211,6 +211,18 @@ pub(crate) struct InputTurn {
     now: Instant,
 }
 
+/// Why an otherwise-ready first dispatch needs an owner-side wait.
+///
+/// A raw correlation hold needs an ordered input turn at its boundary so a
+/// buffered stale frame is made inert before the hold releases. Ordinary
+/// pacing has no such input authority: consuming a peer frame while waiting
+/// for it would violate the blocking first-write admission boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FirstDispatchWait {
+    RawCorrelationTombstone,
+    Pacing,
+}
+
 /// Result of attempting one exact first dispatch without running due work.
 #[derive(Debug)]
 pub(crate) enum FirstDispatch {
@@ -220,7 +232,10 @@ pub(crate) enum FirstDispatch {
     #[allow(dead_code)]
     Effects(Vec<Effect>),
     #[allow(dead_code)]
-    WaitUntil(Instant),
+    WaitUntil {
+        deadline: Instant,
+        reason: FirstDispatchWait,
+    },
     /// The request stays queued: it is admitted and ready, but some other
     /// request currently owns the capacity it needs. It is never terminal.
     Blocked,
@@ -246,9 +261,9 @@ pub(crate) struct ProtocolEngine {
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
     socket_owners: [[Option<SocketOwner>; 2]; 9],
     raw_inquiries: [VecDeque<CorrelationOwner>; 9],
-    /// A no-socket terminal (`NoReply` or `CompletionOnly`) can have emitted
-    /// any command response. Hold later raw response-bearing work on that
-    /// target until its ambiguity deadline.
+    /// A terminal raw response correlation can have emitted a delayed frame.
+    /// Hold later response-bearing work on that target until its ambiguity
+    /// deadline.
     raw_target_tombstones: [Option<RawTerminalTombstone>; 9],
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
@@ -455,11 +470,11 @@ impl ProtocolEngine {
     }
 
     /// Applies one ordered external input and its due/cancellation consequences
-    /// without ordinary dispatch.  The blocking owner uses this only while it
-    /// drains the raw pre-ACK gate for a submitting operation: the ACK must be
-    /// applied, but a queued ordinary request must not consume the newly free
-    /// socket before the submitting operation is admitted and can win the
-    /// scheduler race (issue #673).
+    /// without ordinary dispatch. The blocking owner uses this for raw
+    /// submission-side input waits (the pre-ACK gate and correlation
+    /// tombstones): the frame must be applied, but a queued ordinary request
+    /// must not consume a newly free socket before the exact submitting
+    /// request is reconsidered (issue #673).
     #[cfg(feature = "blocking")]
     pub(crate) fn handle_without_dispatch(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         let turn = self.begin_input_turn(now);
@@ -508,9 +523,10 @@ impl ProtocolEngine {
     }
 
     /// Ends an ordered input turn after running due work and pending
-    /// cancellations, but leaves ordinary ready work queued.  This is the
-    /// pre-ACK submission seam for issue #673; the submitting operation must be
-    /// admitted before a freed socket is offered to the ordinary scheduler.
+    /// cancellations, but leaves ordinary ready work queued. This covers the
+    /// blocking pre-ACK and raw-correlation submission seams; the exact
+    /// submitting request must be reconsidered before a freed socket is
+    /// offered to the ordinary scheduler.
     #[cfg(feature = "blocking")]
     pub(crate) fn finish_input_turn_without_dispatch(&mut self, turn: InputTurn) -> Vec<Effect> {
         let mut effects = Vec::new();
@@ -578,8 +594,12 @@ impl ProtocolEngine {
     }
 
     /// Runs due work and pending cancellations without ordinary dispatch.
-    /// Used by the blocking pre-ACK drain when an idle read reaches a scheduler
-    /// deadline before the predecessor ACK arrives.
+    ///
+    /// Used by blocking submission-side waits: the raw pre-ACK drain and raw
+    /// correlation tombstone hold need their ordered input turns, while an
+    /// ordinary pacing wait must service an earlier deadline without consuming
+    /// a peer reply. In all cases, only the exact submitting request may be
+    /// reconsidered after this seam returns.
     #[cfg(feature = "blocking")]
     pub(crate) fn advance_without_dispatch(&mut self, now: Instant) -> Vec<Effect> {
         let mut effects = Vec::new();
@@ -668,6 +688,14 @@ impl ProtocolEngine {
         if self.state != SessionState::Running {
             return FirstDispatch::Missing;
         }
+        // Admission has already been applied at this sampled instant. This
+        // exact-dispatch seam deliberately does *not* run any due work: a raw
+        // target tombstone can only be released by the ordered owner turn
+        // after that turn has given already-sampled frames at its boundary a
+        // chance to be attributed. In particular, locally expiring it here
+        // would let a same-target successor write before a stale reply at the
+        // exact hold deadline is made inert, and would bypass an earlier total
+        // retry budget on the ready successor.
         let Some(entry) = self.entries.get(&id) else {
             return FirstDispatch::Missing;
         };
@@ -676,6 +704,12 @@ impl ProtocolEngine {
         }
         if self.has_pending_cancellation() {
             return FirstDispatch::Blocked;
+        }
+        if let Some(deadline) = self.raw_tombstone_dispatch_deadline(entry) {
+            return FirstDispatch::WaitUntil {
+                deadline,
+                reason: FirstDispatchWait::RawCorrelationTombstone,
+            };
         }
         if !self.capacity_available_for(entry) {
             return FirstDispatch::Blocked;
@@ -688,7 +722,10 @@ impl ProtocolEngine {
                 self.dispatch_selected(selected, now, &mut effects);
                 FirstDispatch::Effects(effects)
             }
-            None if ready_at > now => FirstDispatch::WaitUntil(ready_at),
+            None if ready_at > now => FirstDispatch::WaitUntil {
+                deadline: ready_at,
+                reason: FirstDispatchWait::Pacing,
+            },
             None => FirstDispatch::Blocked,
         }
     }
@@ -1150,12 +1187,12 @@ impl ProtocolEngine {
             .count()
     }
 
-    /// Whether a terminal no-socket raw command still prevents a later
-    /// raw response-bearing work from starting on `target`.
+    /// Whether a released raw response correlation still prevents later
+    /// response-bearing work from starting on `target`.
     ///
-    /// `NoReply` and `CompletionOnly` never establish a socket identity.  A
-    /// late ACK, completion, or socketless error from either is therefore
-    /// indistinguishable from that same frame for a new command.  The only
+    /// `NoReply` and `CompletionOnly` never establish a socket identity, and
+    /// raw inquiry replies carry no request identity. A delayed raw frame is
+    /// therefore indistinguishable from the same frame for new work. The only
     /// evidence-safe action is to hold that target's correlation lane for the
     /// bounded tombstone interval.
     fn raw_target_correlation_quarantined(&self, target: CameraId) -> bool {
@@ -1174,6 +1211,19 @@ impl ProtocolEngine {
         self.raw_target_correlation_quarantined(target)
             && (entry.request.is_inquiry()
                 || entry.request.context().reply_shape != ReplyShape::NoReply)
+    }
+
+    /// The deterministic release time for a ready request blocked only by a
+    /// fixed raw target tombstone. Blocking first-write submission uses this
+    /// to classify a caller deadline as a time-bound wait rather than generic
+    /// queue backpressure.
+    fn raw_tombstone_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
+        let target = entry.request.context().target;
+        self.raw_tombstone_blocks_dispatch(entry, target)
+            .then(|| {
+                self.raw_target_tombstones[target.id() as usize].map(|tombstone| tombstone.deadline)
+            })
+            .flatten()
     }
 
     /// Whether a raw completion-only command can be made the target's sole
@@ -1362,7 +1412,7 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Vec<Effect>,
     ) {
-        let Some(owner) = self.transmissions.remove(&transmission) else {
+        let Some(owner) = self.transmissions.get(&transmission).copied() else {
             effects.push(Effect::Ignored(IgnoreReason::StaleTransmission));
             return;
         };
@@ -1379,15 +1429,98 @@ impl ProtocolEngine {
                 }
         });
         if !compatible {
+            self.transmissions.remove(&transmission);
             effects.push(Effect::Ignored(
                 IgnoreReason::IncompatibleTransmissionResult,
             ));
             return;
         }
         match result {
-            Ok(meta) => self.successful_transmission(owner, meta, now, effects),
-            Err(error) => self.failed_transmission(owner, error, effects),
+            // A stream write error is a session verdict even when the owner
+            // samples it after this request's total budget. The transport seam
+            // cannot prove that no byte reached the wire, so the authoritative
+            // failed-transmission path must poison before any per-request
+            // late-result policy can classify it.
+            Err(error) if self.policy.transport == TransportKind::Stream => {
+                self.failed_transmission(owner, error, effects);
+            }
+            result => {
+                if self.write_result_after_total_budget(owner, now, effects) {
+                    return;
+                }
+                self.transmissions.remove(&transmission);
+                match result {
+                    Ok(meta) => self.successful_transmission(owner, meta, now, effects),
+                    Err(error) => self.failed_transmission(owner, error, effects),
+                }
+            }
         }
+    }
+
+    /// Applies the admission-to-terminal budget before an active request write
+    /// result may mutate protocol state.
+    ///
+    /// An input sampled exactly at the deadline remains input-first, but a
+    /// result sampled strictly later is outside the request's total budget.
+    /// This ordering covers `Ok` and datagram `Err`: once the result is late, a
+    /// raw command write can no longer prove whether the camera observed the
+    /// frame, while a Sony write must not register a sequence or consume a
+    /// deferred response. A compatible stream `Err` is handled first by
+    /// [`Self::failed_transmission`], because no per-request boundary can make
+    /// an unknowable stream position safe. Cancellation writes deliberately
+    /// bypass this guard because their ambiguity window, rather than the
+    /// request retry budget, owns the active cancellation lifecycle.
+    ///
+    /// Keeping this at the engine's one transmission-result ingress also makes
+    /// [`Self::finish_write_without_due`] obey the same boundary as ordinary
+    /// [`Self::handle`] turns.
+    fn write_result_after_total_budget(
+        &mut self,
+        owner: TransmissionOwner,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) -> bool {
+        let Some((deadline, raw_active_command, last_error)) =
+            self.entries.get(&owner.request).and_then(|entry| {
+                retry_budget_deadline(entry).map(|deadline| {
+                    (
+                        deadline,
+                        self.policy.envelope == EnvelopeKind::Raw
+                            && !entry.request.is_inquiry()
+                            && matches!(entry.phase, Phase::Sending { .. }),
+                        entry.last_error.clone(),
+                    )
+                })
+            })
+        else {
+            return false;
+        };
+        if owner.kind != CorrelationKind::Request || deadline >= now {
+            return false;
+        }
+
+        if raw_active_command {
+            // This also removes the active transmission and clears any ACK or
+            // completion latch that raced the write, then retains raw
+            // correlation through its ambiguity window (or poisons in strict
+            // recovery mode).
+            self.terminate_unconfirmed_raw(owner.request, now, effects);
+        } else {
+            // A raw single-flight inquiry can be physically uncertain while
+            // its write result is still pending too. Retain the same bounded
+            // target hold before normal terminal cleanup so a delayed reply
+            // cannot bind to its same-target successor.
+            self.quarantine_raw_inquiry_correlation(owner.request, now);
+            // A late Sony result — including a late transport error — cannot
+            // extend the budget or mutate correlation. Preserve the prior
+            // retry cause when there is one, matching ordinary budget expiry.
+            self.finish(
+                owner.request,
+                RuntimeOutcome::Failed(last_error.unwrap_or(Error::Timeout)),
+                effects,
+            );
+        }
+        true
     }
 
     fn successful_transmission(
@@ -1845,12 +1978,12 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
-        // An unsequenced raw terminal response cannot identify which command it
-        // answers after a successful predecessor has released its entry.  Check
-        // the fixed-size terminal tombstones before the ordinary raw resolver:
-        // letting the resolver see it could otherwise latch an ACK on a
-        // successor that is still Sending, advance a successor awaiting its
-        // ACK, or fail/retry it on a socketless error.
+        // An unsequenced raw terminal response cannot identify which released
+        // correlation it answers. Check the fixed-size tombstones before the
+        // ordinary raw resolver: letting the resolver see it could otherwise
+        // latch an ACK on a successor that is still Sending, advance a
+        // successor awaiting its ACK, finish a successor inquiry with stale
+        // payload, or fail/retry either on a socketless error.
         if self.policy.envelope == EnvelopeKind::Raw
             && frame.sequence.is_none()
             && self.raw_terminal_response_quarantined(&frame)
@@ -1885,6 +2018,17 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
+        // An external frame at the exact response deadline wins, but a frame
+        // received strictly later must not revive or mutate the expired phase.
+        // Resolve it first: a deadline on one request must never make an
+        // unrelated frame inert. `finish_input_turn` will then apply the normal
+        // due transition for this still-active entry.
+        if self.entries.get(&id).is_some_and(|entry| {
+            correlated_response_deadline(entry).is_some_and(|deadline| deadline < now)
+        }) {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
         // Issue #671: a raw command that has already failed
         // `UnsequencedCommandUnconfirmed` is only holding its correlation slot
         // (its socket, or its place as the sole unacknowledged command) until
@@ -1909,7 +2053,7 @@ impl ProtocolEngine {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    self.inquiry_reply(id, route, payload, effects);
+                    self.inquiry_reply(id, route, payload, now, effects);
                 }
             }
             DecodedResponse::Error { socket, code } => {
@@ -1921,9 +2065,9 @@ impl ProtocolEngine {
         }
     }
 
-    /// Whether an unsequenced raw command response must be ignored because an
-    /// uncorrelatable successful terminal predecessor still owns the target's
-    /// available correlation evidence.
+    /// Whether an unsequenced raw response must be ignored because a released
+    /// terminal predecessor still owns the target's available correlation
+    /// evidence.
     fn raw_terminal_response_quarantined(&self, frame: &DecodedFrame) -> bool {
         let target = frame.target;
         let target_index = target.id() as usize;
@@ -1932,6 +2076,7 @@ impl ProtocolEngine {
                 &frame.response,
                 DecodedResponse::Ack { .. }
                     | DecodedResponse::Completion { .. }
+                    | DecodedResponse::InquiryReply { .. }
                     | DecodedResponse::Error { .. }
             )
     }
@@ -2358,7 +2503,7 @@ impl ProtocolEngine {
     }
 
     /// Retains bounded raw-correlation evidence after an uncorrelatable
-    /// successful terminal.
+    /// successful command terminal.
     ///
     /// `NoReply` and `CompletionOnly` earned no response identity, so a later
     /// response-bearing command on that target must wait through the ambiguity
@@ -2368,13 +2513,12 @@ impl ProtocolEngine {
     /// a duplicate from that legitimate next response.
     fn quarantine_raw_terminal(&mut self, id: RequestId, now: Instant) {
         let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
-            (self.policy.envelope == EnvelopeKind::Raw
-                && !entry.request.is_inquiry()
+            let uncorrelatable_command = !entry.request.is_inquiry()
                 && matches!(
                     entry.request.context().reply_shape,
                     ReplyShape::NoReply | ReplyShape::CompletionOnly
-                ))
-            .then_some((
+                );
+            (self.policy.envelope == EnvelopeKind::Raw && uncorrelatable_command).then_some((
                 entry.request.context().target,
                 entry.request.context().timeout.ambiguity,
             ))
@@ -2388,11 +2532,46 @@ impl ProtocolEngine {
         extend_tombstone(&mut self.raw_target_tombstones[target_index], tombstone);
     }
 
+    /// Retains one bounded raw inquiry hold before its target-only reply
+    /// correlation is released or becomes uncertain while its write is still
+    /// pending in the raw single-flight topology. A raw reply has no request
+    /// identity, so the hold is deliberately a bounded ambiguity policy rather
+    /// than a claim of permanent identity: stale or duplicate frames are inert
+    /// until expiry, then a queued successor may acquire the lane. This
+    /// helper's single-flight precondition is intentional: a wider raw FIFO is
+    /// *not* protected by this hold, because it cannot distinguish a duplicate
+    /// from an already-live next inquiry. Production raw owners enter this
+    /// engine through the adapter with `inquiry_capacity == 1`.
+    fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
+        let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
+            (self.policy.envelope == EnvelopeKind::Raw
+                && self.policy.inquiry_capacity == 1
+                && entry.request.is_inquiry()
+                && matches!(
+                    entry.phase,
+                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                ))
+            .then_some((
+                entry.request.context().target,
+                entry.request.context().timeout.ambiguity,
+            ))
+        }) else {
+            return;
+        };
+        extend_tombstone(
+            &mut self.raw_target_tombstones[target.id() as usize],
+            RawTerminalTombstone {
+                deadline: add_duration(now, ambiguity),
+            },
+        );
+    }
+
     fn inquiry_reply(
         &mut self,
         id: RequestId,
         route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
+        now: Instant,
         effects: &mut Vec<Effect>,
     ) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
@@ -2402,6 +2581,7 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
+        self.quarantine_raw_inquiry_correlation(id, now);
         self.finish(id, RuntimeOutcome::Reply { route, payload }, effects);
     }
 
@@ -2467,6 +2647,10 @@ impl ProtocolEngine {
         let retryable = correlation_kind == CorrelationKind::Request
             && self.camera_error_retryable(entry, code);
         let error = Error::from_code(code);
+        // A raw inquiry error releases the same target-only reply evidence as
+        // a successful reply. Retain the bounded hold before a retry or a
+        // terminal failure can expose a successor to that stale frame class.
+        self.quarantine_raw_inquiry_correlation(id, now);
         if retryable {
             if cancellation_active {
                 self.finish(id, RuntimeOutcome::Cancelled, effects);
@@ -2699,24 +2883,35 @@ impl ProtocolEngine {
         backoff: Backoff,
         effects: &mut Vec<Effect>,
     ) {
-        let Some(entry) = self.entries.get(&id) else {
+        let Some((cancellation, policy, submitted_at, attempt)) =
+            self.entries.get(&id).map(|entry| {
+                (
+                    entry.cancellation,
+                    entry.request.context().retry,
+                    entry.submitted_at,
+                    entry.attempt,
+                )
+            })
+        else {
             return;
         };
-        if !matches!(entry.cancellation, CancelState::None) {
+        if !matches!(cancellation, CancelState::None) {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
-        let policy = entry.request.context().retry;
-        let submitted_at = entry.submitted_at;
-        let next_attempt = entry.attempt.saturating_add(1);
-        let elapsed = now.saturating_duration_since(entry.submitted_at);
+        // Releasing a raw inquiry FIFO owner for a retry would otherwise let a
+        // delayed attempt-N reply bind to the requeued attempt or its next
+        // same-target inquiry. The target tombstone is the bounded policy; it
+        // intentionally cannot make unidentifiable raw traffic safe forever.
+        self.quarantine_raw_inquiry_correlation(id, now);
+        let next_attempt = attempt.saturating_add(1);
+        let elapsed = now.saturating_duration_since(submitted_at);
         let within_duration =
             policy.total_budget == Duration::ZERO || elapsed < policy.total_budget;
         if next_attempt > policy.max_retries || !within_duration {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
-        self.release_attempt_ownership(id);
         let delay = retry_delay(
             policy,
             next_attempt,
@@ -2730,6 +2925,7 @@ impl ProtocolEngine {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
+        self.release_attempt_ownership(id);
         let Some(entry) = self.entries.get_mut(&id) else {
             return;
         };
@@ -2820,26 +3016,19 @@ impl ProtocolEngine {
                     | Phase::AwaitingLateAck { deadline } => Some((deadline, 0, 0)),
                     Phase::Ready { .. } | Phase::Sending { .. } => None,
                 };
-                let retry_budget = entry.request.context().retry.total_budget;
-                let retry_budget_due = (entry.attempt > 0
-                    && retry_budget != Duration::ZERO
-                    && matches!(entry.cancellation, CancelState::None)
-                    && !is_quarantine_phase(entry.phase))
-                .then(|| add_duration(entry.submitted_at, retry_budget));
+                let retry_budget_due = retry_budget_deadline(entry);
                 let mut selected = phase_due;
                 if let Some(budget) = retry_budget_due {
                     if selected.is_none_or(|(at, _, _)| budget <= at) {
                         selected = Some((budget, 1, 0));
                     }
                 }
-                let (mut at, mut kind_order, mut queue_generation) = selected?;
                 if let Some(ambiguity) = cancellation_ambiguity(entry.cancellation) {
-                    if ambiguity <= at {
-                        at = ambiguity;
-                        kind_order = 0;
-                        queue_generation = 0;
+                    if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
+                        selected = Some((ambiguity, 0, 0));
                     }
                 }
+                let (mut at, mut kind_order, mut queue_generation) = selected?;
                 if entry.cancellation_observation_open {
                     if let CancelState::AwaitingTerminal {
                         observation_deadline,
@@ -3046,12 +3235,7 @@ impl ProtocolEngine {
             });
             return;
         }
-        let retry = entry.request.context().retry;
-        let retry_budget_at = (entry.attempt > 0
-            && retry.total_budget != Duration::ZERO
-            && matches!(entry.cancellation, CancelState::None)
-            && !is_quarantine_phase(entry.phase))
-        .then(|| add_duration(entry.submitted_at, retry.total_budget));
+        let retry_budget_at = retry_budget_deadline(entry);
         let retry_budget_due = retry_budget_at.is_some_and(|deadline| deadline <= now);
         if due.kind_order == 1
             && retry_budget_due
@@ -3073,6 +3257,7 @@ impl ProtocolEngine {
                 // request, or poison in strict mode. Issue #671.
                 self.terminate_unconfirmed_raw(due.request, now, effects);
             } else {
+                self.quarantine_raw_inquiry_correlation(due.request, now);
                 self.finish(due.request, RuntimeOutcome::Failed(error), effects);
             }
             return;
@@ -3192,7 +3377,9 @@ impl ProtocolEngine {
             }
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
-                if entry.request.context().retry.inquiry_timeout {
+                let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout;
+                self.quarantine_raw_inquiry_correlation(due.request, now);
+                if retry_inquiry_timeout {
                     self.schedule_retry(
                         due.request,
                         now,
@@ -3552,8 +3739,8 @@ impl ProtocolEngine {
                 }
             }
         }
-        // Successful-terminal raw tombstones are fixed by protocol topology:
-        // one slot per target. They must never exist for a sequenced envelope.
+        // Released raw-response tombstones are fixed by protocol topology: one
+        // slot per target. They must never exist for a sequenced envelope.
         if self.policy.envelope != EnvelopeKind::Raw
             && self.raw_target_tombstones.iter().any(Option::is_some)
         {
@@ -3721,6 +3908,18 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
     at.checked_add(duration).unwrap_or(at)
 }
 
+/// The one admission-relative retry-budget deadline while it governs `entry`.
+///
+/// Cancellation and ambiguity/quarantine phases have their own deadline and
+/// intentionally suppress this arm; expiry must never shorten those holds.
+fn retry_budget_deadline(entry: &Entry) -> Option<Instant> {
+    let total_budget = entry.request.context().retry.total_budget;
+    (total_budget != Duration::ZERO
+        && matches!(entry.cancellation, CancelState::None)
+        && !is_quarantine_phase(entry.phase))
+    .then(|| add_duration(entry.submitted_at, total_budget))
+}
+
 /// Extends one bounded terminal tombstone without replacing a newer hold for
 /// the same fixed target slot.
 fn extend_tombstone(slot: &mut Option<RawTerminalTombstone>, tombstone: RawTerminalTombstone) {
@@ -3744,6 +3943,39 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
         } => Some(ambiguity_deadline),
         CancelState::None => None,
     }
+}
+
+/// The effective response deadline for an already-correlated entry.
+///
+/// A response may only mutate the phase that is currently awaiting it. The
+/// cancellation ambiguity window can close that phase earlier, so it bounds the
+/// same response while cancellation is active. The observer-facing cancellation
+/// timeout is deliberately absent: it resolves only the observer and leaves the
+/// original response correlation live through the ambiguity deadline. The active
+/// admission-to-terminal budget also bounds response correlation: otherwise an
+/// input-first frame just after that earlier budget could complete the request
+/// before its due work runs. A `Sending` request has no protocol phase deadline,
+/// but it can latch a frame that raced its write, so the applicable budget or
+/// cancellation ambiguity still bounds that latch.
+fn correlated_response_deadline(entry: &Entry) -> Option<Instant> {
+    let phase_deadline = match entry.phase {
+        Phase::AwaitingAck { deadline, .. }
+        | Phase::AwaitingCompletion { deadline, .. }
+        | Phase::Executing { deadline, .. }
+        | Phase::AwaitingReply { deadline, .. }
+        | Phase::AwaitingCancellationResolution { deadline, .. }
+        | Phase::AwaitingLateAck { deadline } => Some(deadline),
+        Phase::Sending { .. } => None,
+        Phase::Ready { .. } | Phase::Backoff { .. } => return None,
+    };
+    [
+        phase_deadline,
+        cancellation_ambiguity(entry.cancellation),
+        retry_budget_deadline(entry),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 fn pending_cancellation_socket(entry: &Entry) -> Option<ViscaSocket> {

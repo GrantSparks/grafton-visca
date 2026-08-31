@@ -111,7 +111,8 @@ where
         let profile = profiles[0].1;
         let envelope = OwnerEnvelope::from_profile(profile, config.addressing)?;
         let routing = RoutingState::new(config.addressing, registry);
-        let framer = ProtocolFramer::new_with_config(config.buffer_config);
+        let framer =
+            ProtocolFramer::new_with_config_and_mode(config.buffer_config, envelope.framing_mode());
         Ok(Self {
             transport,
             state: AsyncAdapterState {

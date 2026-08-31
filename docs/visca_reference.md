@@ -428,6 +428,11 @@ PTZOptics documented speed ranges in the command table:
 - Pan speed `VV`: `0x01` low to `0x18` high.
 - Tilt speed `WW`: `0x01` low to `0x14` high.
 
+Those are the PTZOptics two-speed limits. The library's `TiltSpeed` syntax
+also accepts `0x18` for profiles that document it, such as Sony BRC-300's
+single-`VV` position framing; every typed request still checks the selected
+profile's advertised tilt-speed range.
+
 ### 7.7 Preset memory
 
 | Function | Packet | Validated note |
@@ -998,6 +1003,13 @@ controls. That narrow exception does not generalize
 typed iris or ND support to the other Sony, EVI, Nearus, or generic profiles,
 and it does not make the broader FR7 profile fully validated here.
 
+**Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
+positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
+(`493D`); the negative endpoints (`F75A8` and `E796`) are right and down. The
+library's BRC-300 profile therefore uses a negative signed degree-to-unit scale
+for both axes while retaining the documented signed wire fields. This
+profile-specific polarity must not be generalized to other VISCA profiles.
+
 **Why it remains open:** The uploaded unified guide explicitly says the non-PTZOptics and non-Axis sections were not re-validated in the prior patch set. This final document used Sony manuals only to resolve transport and opcode semantics, not to validate every model-family capability.
 
 **Validation needed:** For each target model family, validate against the current primary model manual/command list:
@@ -1132,7 +1144,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, 240 ms post-preset caveat. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
 | R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 fixed `04 3A` spotlight commands; it does not establish the fixed `04 5A` automatic-slow-shutter family. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 fixed `04 5A` automatic-slow-shutter commands; it does not establish the fixed `04 3A` spotlight family. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 fixed `04 5A` automatic-slow-shutter commands; its five-nibble signed pan/four-nibble signed tilt position commands, limits, inquiries, and endpoints; it does not establish the fixed `04 3A` spotlight family. |
 
 ## C.4 Supplemental explanatory source
 

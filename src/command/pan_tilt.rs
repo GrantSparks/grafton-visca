@@ -5,7 +5,8 @@
 //!
 //! # Speed Limits
 //! - Pan speed: 0x00 to 0x18 (0-24 decimal)
-//! - Tilt speed: 0x00 to 0x14 (0-20 decimal)
+//! - Tilt speed: 0x00 to 0x18 (0-24 decimal) syntactically; individual
+//!   profiles commonly limit standard two-speed movement to 0x14.
 //!
 //! # VISCA Compliance
 //! All commands in this module are part of the baseline VISCA specification and should be
@@ -29,6 +30,7 @@
 //! ```
 
 use crate::{
+    capabilities::{CoordinateSystem, PanTiltWireCodec},
     command::{bytes::ConstCommandBuilder, encode::WireEncode},
     error::Error,
     types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
@@ -488,6 +490,75 @@ mod tests {
             }
         }
     }
+
+    fn profiled_bytes(command: PanTiltProfiled) -> Vec<u8> {
+        let mut bytes = [0_u8; 16];
+        let written = command
+            .write_into(crate::CameraId::CAMERA_1, &mut bytes)
+            .expect("profiled pan/tilt test command should encode");
+        bytes[..written].to_vec()
+    }
+
+    #[test]
+    fn sony_brc300_profiled_frames_preserve_five_nibble_pan_endpoints() {
+        let speed = PanSpeed::new(0x09).expect("valid BRC-300 speed");
+        let tilt_speed = TiltSpeed::new(0x09).expect("matching paired API speed");
+        assert_eq!(
+            profiled_bytes(PanTiltProfiled::AbsolutePosition {
+                codec: PanTiltWireCodec::SonyBrc300,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                pan: 0x02490,
+                tilt: -0x0C30,
+                pan_speed: speed,
+                tilt_speed,
+            }),
+            [
+                0x81, 0x01, 0x06, 0x02, 0x09, 0x00, 0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D,
+                0x00, 0xFF,
+            ]
+        );
+
+        // Manual p. 22's positive endpoint is `08A58`/`493D`.
+        assert_eq!(
+            profiled_bytes(PanTiltProfiled::LimitSet {
+                codec: PanTiltWireCodec::SonyBrc300,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                corner: PanTiltLimitCorner::UpRight,
+                pan: 0x08A58,
+                tilt: 0x493D,
+            }),
+            [
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03,
+                0x0D, 0xFF,
+            ]
+        );
+
+        // `F75A8` and `E796` are the documented signed negative endpoints.
+        assert_eq!(
+            profiled_bytes(PanTiltProfiled::LimitSet {
+                codec: PanTiltWireCodec::SonyBrc300,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                corner: PanTiltLimitCorner::DownLeft,
+                pan: -0x08A58,
+                tilt: -0x186A,
+            }),
+            [
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09,
+                0x06, 0xFF,
+            ]
+        );
+
+        assert_eq!(
+            profiled_bytes(PanTiltProfiled::LimitClear {
+                codec: PanTiltWireCodec::SonyBrc300,
+                corner: PanTiltLimitCorner::UpRight,
+            }),
+            [
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F,
+                0x0F, 0xFF,
+            ]
+        );
+    }
 }
 
 /// Pan/Tilt movement commands.
@@ -515,7 +586,7 @@ pub enum PanTilt {
         direction: PanTiltDirection,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera to an absolute pan/tilt position.
@@ -528,7 +599,7 @@ pub enum PanTilt {
         tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera relative to its current position.
@@ -541,7 +612,7 @@ pub enum PanTilt {
         tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera to an absolute pan/tilt position using raw camera units.
@@ -556,7 +627,7 @@ pub enum PanTilt {
         tilt_u16: u16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera relative to its current position using raw camera units.
@@ -571,7 +642,7 @@ pub enum PanTilt {
         tilt_u16: u16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
     /// Set pan/tilt movement boundaries.
@@ -605,6 +676,211 @@ pub enum PanTilt {
         /// Which corner to clear (same encoding as LimitSet).
         corner: PanTiltLimitCorner,
     },
+}
+
+/// Profile-dispatched position framing used by the typed request layer.
+///
+/// The public [`PanTilt`] command remains the baseline VISCA representation.
+/// Typed requests retain their profile conversion and lower through this
+/// crate-private discriminator so camera-specific framing never leaks into
+/// the generic command enum.
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum PanTiltProfiled {
+    AbsolutePosition {
+        codec: PanTiltWireCodec,
+        coordinate_system: CoordinateSystem,
+        pan: i32,
+        tilt: i32,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
+    },
+    RelativePosition {
+        codec: PanTiltWireCodec,
+        coordinate_system: CoordinateSystem,
+        pan: i32,
+        tilt: i32,
+        pan_speed: PanSpeed,
+        tilt_speed: TiltSpeed,
+    },
+    LimitSet {
+        codec: PanTiltWireCodec,
+        coordinate_system: CoordinateSystem,
+        corner: PanTiltLimitCorner,
+        pan: i32,
+        tilt: i32,
+    },
+    LimitClear {
+        codec: PanTiltWireCodec,
+        corner: PanTiltLimitCorner,
+    },
+}
+
+impl PanTiltProfiled {
+    fn standard_coordinates(
+        coordinate_system: CoordinateSystem,
+        pan: i32,
+        tilt: i32,
+    ) -> Result<(u16, u16), Error> {
+        let pan = i16::try_from(pan).map_err(|_| {
+            Error::InvalidRequest(
+                format!("standard VISCA pan coordinate {pan} exceeds signed 16-bit framing").into(),
+            )
+        })?;
+        let tilt = i16::try_from(tilt).map_err(|_| {
+            Error::InvalidRequest(
+                format!("standard VISCA tilt coordinate {tilt} exceeds signed 16-bit framing")
+                    .into(),
+            )
+        })?;
+        Ok(coordinate_system.to_camera_coords(pan, tilt))
+    }
+
+    fn validate_brc_coordinates(pan: i32, tilt: i32) -> Result<(), Error> {
+        if !(-0x080000..=0x07_FFFF).contains(&pan) {
+            return Err(Error::InvalidRequest(
+                format!("Sony BRC-300 pan coordinate {pan} exceeds signed 20-bit framing").into(),
+            ));
+        }
+        if i16::try_from(tilt).is_err() {
+            return Err(Error::InvalidRequest(
+                format!("Sony BRC-300 tilt coordinate {tilt} exceeds signed 16-bit framing").into(),
+            ));
+        }
+        Ok(())
+    }
+
+    const fn brc_limit_corner(corner: PanTiltLimitCorner) -> u8 {
+        match corner {
+            PanTiltLimitCorner::DownLeft => 0x00,
+            PanTiltLimitCorner::UpRight => 0x01,
+        }
+    }
+}
+
+impl WireEncode for PanTiltProfiled {
+    fn write_into(
+        &self,
+        camera_id: crate::camera_id::CameraId,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
+        use crate::command::bytes::constants::pan_tilt;
+
+        match self {
+            Self::AbsolutePosition {
+                codec,
+                coordinate_system,
+                pan,
+                tilt,
+                pan_speed,
+                tilt_speed,
+            }
+            | Self::RelativePosition {
+                codec,
+                coordinate_system,
+                pan,
+                tilt,
+                pan_speed,
+                tilt_speed,
+            } => {
+                let prefix = if matches!(self, Self::AbsolutePosition { .. }) {
+                    pan_tilt::ABSOLUTE_PREFIX
+                } else {
+                    pan_tilt::RELATIVE_PREFIX
+                };
+                match codec {
+                    PanTiltWireCodec::StandardVisca => {
+                        let (pan, tilt) =
+                            Self::standard_coordinates(*coordinate_system, *pan, *tilt)?;
+                        ConstCommandBuilder::<15>::from_prefix(prefix)
+                            .with_camera_id(camera_id)
+                            .push(pan_speed.value())
+                            .push(tilt_speed.value())
+                            .push_visca_u16(pan)
+                            .push_visca_u16(tilt)
+                            .terminate()
+                            .build_into(buffer)
+                    }
+                    PanTiltWireCodec::SonyBrc300 => {
+                        if *coordinate_system != CoordinateSystem::SignedCentered {
+                            return Err(Error::InvalidRequest(
+                                "Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+                                    .into(),
+                            ));
+                        }
+                        Self::validate_brc_coordinates(*pan, *tilt)?;
+                        ConstCommandBuilder::<16>::from_prefix(prefix)
+                            .with_camera_id(camera_id)
+                            .push(pan_speed.value())
+                            .push(0x00)
+                            .push_visca_u20(*pan as u32)
+                            .push_visca_u16(*tilt as u16)
+                            .terminate()
+                            .build_into(buffer)
+                    }
+                }
+            }
+            Self::LimitSet {
+                codec,
+                coordinate_system,
+                corner,
+                pan,
+                tilt,
+            } => match codec {
+                PanTiltWireCodec::StandardVisca => {
+                    let (pan, tilt) = Self::standard_coordinates(*coordinate_system, *pan, *tilt)?;
+                    ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
+                        .with_camera_id(camera_id)
+                        .push(corner.to_byte())
+                        .push_visca_u16(pan)
+                        .push_visca_u16(tilt)
+                        .terminate()
+                        .build_into(buffer)
+                }
+                PanTiltWireCodec::SonyBrc300 => {
+                    if *coordinate_system != CoordinateSystem::SignedCentered {
+                        return Err(Error::InvalidRequest(
+                            "Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+                                .into(),
+                        ));
+                    }
+                    Self::validate_brc_coordinates(*pan, *tilt)?;
+                    ConstCommandBuilder::<16>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
+                        .with_camera_id(camera_id)
+                        .push(Self::brc_limit_corner(*corner))
+                        .push_visca_u20(*pan as u32)
+                        .push_visca_u16(*tilt as u16)
+                        .terminate()
+                        .build_into(buffer)
+                }
+            },
+            Self::LimitClear { codec, corner } => match codec {
+                PanTiltWireCodec::StandardVisca => {
+                    ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX)
+                        .with_camera_id(camera_id)
+                        .push(corner.to_byte())
+                        .push(0x07)
+                        .push(0x0F)
+                        .push(0x0F)
+                        .push(0x0F)
+                        .push(0x07)
+                        .push(0x0F)
+                        .push(0x0F)
+                        .push(0x0F)
+                        .terminate()
+                        .build_into(buffer)
+                }
+                PanTiltWireCodec::SonyBrc300 => {
+                    ConstCommandBuilder::<16>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX)
+                        .with_camera_id(camera_id)
+                        .push(Self::brc_limit_corner(*corner))
+                        .push_visca_u20(0x0007_FFFF)
+                        .push_visca_u16(0x7FFF)
+                        .terminate()
+                        .build_into(buffer)
+                }
+            },
+        }
+    }
 }
 
 impl WireEncode for PanTilt {

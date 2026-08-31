@@ -1,7 +1,10 @@
 //! VISCA Camera Simulator for Testing
 //!
-//! This module provides a high-fidelity simulator of VISCA camera behavior
-//! that can be used for integration testing without requiring real hardware.
+//! This module provides a high-fidelity simulator of selected Standard VISCA
+//! camera behavior for integration testing without requiring real hardware.
+//! Pan/tilt position inquiries always emit the standard signed 4+4-nibble reply
+//! form. It is not a profile- or codec-selectable simulator and does not model
+//! Sony BRC-300's profile-owned 5+4 position codec.
 
 #![allow(clippy::expect_used)]
 
@@ -51,7 +54,12 @@ pub enum CommandType {
     Other,
 }
 
-/// VISCA Camera Simulator that accurately models protocol behavior
+/// Simulator for Standard VISCA framing in integration tests.
+///
+/// Pan/tilt position state is modeled as `i16`, and position inquiries always
+/// emit the standard signed 4+4-nibble reply form. This type has no profile or
+/// codec selector and does not model Sony BRC-300's profile-owned 5+4 position
+/// codec.
 pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
@@ -185,7 +193,7 @@ struct SimulatorInner {
     camera_state: RwLock<CameraState>,
 }
 
-/// Configuration for the VISCA camera simulator
+/// Configuration for [`ViscaCameraSimulator`]'s Standard VISCA behavior.
 #[derive(Debug, Clone)]
 pub struct SimulatorConfig {
     // Timing configuration
@@ -856,7 +864,7 @@ impl HasTransportConfig for ViscaCameraSimulator {
     }
 }
 
-/// Builder for configuring ViscaCameraSimulator
+/// Builder for configuring [`ViscaCameraSimulator`]'s Standard VISCA behavior.
 #[derive(Default, Debug)]
 pub struct SimulatorBuilder {
     config: SimulatorConfig,

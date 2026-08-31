@@ -20,7 +20,7 @@ use grafton_visca::{
     AffectedAxes, Error,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::MotionOwnerCompileTimeProfile;
 
 #[derive(Debug, Clone, Copy)]
 enum InquiryAxis {
@@ -160,7 +160,7 @@ fn runtime_profile(
     supports_operation_complete: bool,
 ) -> ProfileSpec {
     let _ = supports_operation_complete;
-    ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+    ProfileSpec::from_compile_time::<MotionOwnerCompileTimeProfile>()
         .expect("non-default runtime profile")
 }
 
@@ -174,7 +174,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     let (transport, writes) = MotionTransport::new(script, false);
     let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera");
     assert!(!camera
         .motion()
@@ -199,7 +199,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     let session =
         Session::open(transport, SessionConfig::new(profile)).expect("unsupported-axis session");
     let camera = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera");
     assert!(matches!(
         camera
@@ -231,7 +231,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     )
     .expect("moving session");
     session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera")
         .motion()
         .wait_until_idle(
@@ -255,7 +255,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     )
     .expect("deadline session");
     let result = session
-        .camera::<NonDefaultCompileTimeProfile>()
+        .camera::<MotionOwnerCompileTimeProfile>()
         .expect("camera")
         .motion()
         .wait_until_idle(
@@ -277,7 +277,7 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
     .expect("stop session");
     assert!(matches!(
         session
-            .camera::<NonDefaultCompileTimeProfile>()
+            .camera::<MotionOwnerCompileTimeProfile>()
             .expect("camera")
             .motion()
             .stop_all_motion(),

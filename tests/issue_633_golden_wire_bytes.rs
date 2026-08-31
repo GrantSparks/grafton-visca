@@ -16,11 +16,12 @@ use grafton_visca::{
     command::{FocusSpeed, PowerOn, PowerStandby},
     request::builtin::{
         FocusDrive, FocusInfinity, FocusModeCommand, FocusStop, FocusTarget, PanTiltAbsolute,
-        PanTiltDrive, PanTiltHome, PanTiltRelative, PanTiltReset, PanTiltStop, PresetRecall,
-        PresetReset, PresetSet, ZoomDrive, ZoomStop, ZoomTarget,
+        PanTiltDrive, PanTiltHome, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
+        PanTiltReset, PanTiltStop, PresetRecall, PresetReset, PresetSet, ZoomDrive, ZoomStop,
+        ZoomTarget,
     },
     types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
-    CameraId, PanTiltDirection, PresetNumber, ProfileSpec, Request,
+    CameraId, Error, PanTiltDirection, PanTiltLimitCorner, PresetNumber, ProfileSpec, Request,
 };
 
 use patterns::{PAN_SPEED_MAX, TILT_SPEED_MAX};
@@ -218,6 +219,133 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         "relative pan/tilt",
         &relative,
         patterns::pan_tilt::RELATIVE_PAN_144_TILT_NEG_72,
+    );
+}
+
+/// Sony BRC-300 uses one speed byte, a fixed `00`, then five pan and four
+/// tilt nibbles. The manual (pp. 12 and 22) gives the endpoint polarity and
+/// approximates one degree as `0xD0`: positive raw pan is left and positive
+/// raw tilt is up. These profile-scale vectors therefore encode +45° right as
+/// negative pan and -15° up as positive tilt; exact endpoint bytes are pinned
+/// separately.
+#[test]
+fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
+    use grafton_visca::{
+        capabilities::{PanTilt, PanTiltWireCodec},
+        profiles::SonyBRC300,
+        units::Degrees,
+    };
+
+    let profile = ProfileSpec::from_compile_time::<SonyBRC300>().expect("Sony BRC-300 profile");
+    let conversion = profile
+        .pan_tilt_coordinates()
+        .expect("Sony BRC-300 pan/tilt conversion");
+    assert_eq!(conversion.wire_codec(), PanTiltWireCodec::SonyBrc300);
+    assert_eq!(SonyBRC300::PAN_DEGREES_TO_UNITS, -208.0);
+    assert_eq!(SonyBRC300::TILT_DEGREES_TO_UNITS, -208.0);
+
+    let absolute_error = PanTiltAbsolute::for_profile(
+        Degrees(45.0),
+        Degrees(-15.0),
+        pan_speed(0x18),
+        tilt_speed(0x14),
+        &profile,
+    )
+    .expect_err("BRC-300 absolute position must reject unequal paired speeds");
+    assert!(matches!(
+        absolute_error,
+        Error::InvalidRequest(message) if message.contains("pan and tilt speeds must match")
+    ));
+
+    let relative_error = PanTiltRelative::for_profile(
+        Degrees(45.0),
+        Degrees(-15.0),
+        pan_speed(0x18),
+        tilt_speed(0x14),
+        &profile,
+    )
+    .expect_err("BRC-300 relative position must reject unequal paired speeds");
+    assert!(matches!(
+        relative_error,
+        Error::InvalidRequest(message) if message.contains("pan and tilt speeds must match")
+    ));
+
+    let absolute = PanTiltAbsolute::for_profile(
+        Degrees(45.0),
+        Degrees(-15.0),
+        pan_speed(0x09),
+        tilt_speed(0x09),
+        &profile,
+    )
+    .expect("BRC-300 absolute position");
+    assert_golden(
+        "Sony BRC-300 absolute position",
+        &absolute,
+        &[
+            0x81, 0x01, 0x06, 0x02, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+            0x00, 0xFF,
+        ],
+    );
+
+    let relative = PanTiltRelative::for_profile(
+        Degrees(45.0),
+        Degrees(-15.0),
+        pan_speed(0x09),
+        tilt_speed(0x09),
+        &profile,
+    )
+    .expect("BRC-300 relative position");
+    assert_golden(
+        "Sony BRC-300 relative position",
+        &relative,
+        &[
+            0x81, 0x01, 0x06, 0x03, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+            0x00, 0xFF,
+        ],
+    );
+
+    let fastest = PanTiltAbsolute::for_profile(
+        Degrees(45.0),
+        Degrees(-15.0),
+        pan_speed(0x18),
+        tilt_speed(0x18),
+        &profile,
+    )
+    .expect("BRC-300 highest documented paired speed");
+    assert_golden(
+        "Sony BRC-300 absolute position at speed 0x18",
+        &fastest,
+        &[
+            0x81, 0x01, 0x06, 0x02, 0x18, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+            0x00, 0xFF,
+        ],
+    );
+
+    let limit = PanTiltLimitSet::for_profile(
+        PanTiltLimitCorner::UpRight,
+        Degrees(45.0),
+        Degrees(-15.0),
+        &profile,
+    )
+    .expect("BRC-300 limit position");
+    assert_golden(
+        "Sony BRC-300 limit set",
+        &limit,
+        &[
+            0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+            0x00, 0xFF,
+        ],
+    );
+
+    let clear = PanTiltLimitClear::for_profile(PanTiltLimitCorner::UpRight, &profile)
+        .expect("BRC-300 limit clear");
+    assert_golden(
+        "Sony BRC-300 limit clear",
+        &clear,
+        &[
+            0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F,
+            0x0F, 0xFF,
+        ],
     );
 }
 

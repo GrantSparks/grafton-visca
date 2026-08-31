@@ -75,12 +75,13 @@ impl_capability_range!(u8);
 impl_capability_range!(u16);
 impl_capability_range!(i8);
 impl_capability_range!(i16);
+impl_capability_range!(i32);
 
 /// Coordinate system used by a camera for pan/tilt positions.
 ///
 /// Different camera models use different coordinate representations:
 /// - Modern cameras use signed coordinates centered at (0,0)
-/// - Legacy cameras (e.g., BRC-300) use unsigned coordinates with (0x8000,0x8000) as center
+/// - Some cameras use unsigned coordinates with (0x8000,0x8000) as center
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -89,7 +90,7 @@ pub enum CoordinateSystem {
     /// Used by most modern cameras.
     SignedCentered,
     /// Unsigned coordinates with (0x8000,0x8000) as the center position.
-    /// Used by legacy cameras like Sony BRC-300.
+    /// Used by cameras whose standard 16-bit fields are offset from center.
     UnsignedCentered,
 }
 

@@ -423,7 +423,8 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
 }
 
 impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> {
-    /// Stops pan/tilt, zoom, and focus through the camera's single owner.
+    /// Stops every profile-supported pan/tilt, zoom, and focus axis through
+    /// the camera's single owner.
     pub fn stop_all_motion(&self) -> Result<()> {
         self.camera.core().stop_all_motion()
     }

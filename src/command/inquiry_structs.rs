@@ -14,7 +14,7 @@ use super::resolution::{NdFilterPosition, PictureEffectMode};
 use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
-use crate::capabilities::{PanTilt, Profile};
+use crate::capabilities::{PanTilt, PanTiltWireCodec, Profile};
 use crate::command::{encode::WireEncode, ResponseParser};
 use crate::error::format_payload_hex;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
@@ -234,24 +234,21 @@ macro_rules! builtin_profile_decoder_method {
             profile: &crate::ProfileSpec,
         ) -> crate::ResponseDecoder<Self::Response> {
             fn decode(
-                coordinate_system: &Option<crate::capabilities::CoordinateSystem>,
+                conversion: &Option<crate::PanTiltCoordinateConversion>,
                 payload: &[u8],
             ) -> Result<$response_ty, crate::Error> {
-                let coordinate_system =
-                    coordinate_system.ok_or(crate::Error::FeatureNotSupported {
-                        feature: "pan/tilt coordinate conversion",
-                    })?;
-                let response = decode_pan_tilt_position_with_coordinate(
+                let conversion = conversion.ok_or(crate::Error::FeatureNotSupported {
+                    feature: "pan/tilt coordinate conversion",
+                })?;
+                let response = decode_pan_tilt_position_with_codec(
                     Payload::new(payload),
-                    coordinate_system,
+                    conversion.wire_codec(),
+                    conversion.coordinate_system(),
                 )?;
                 <$struct as ResponseParser>::from_response(response)
             }
 
-            let coordinate_system = profile
-                .pan_tilt_coordinates()
-                .map(|facts| facts.coordinate_system());
-            crate::ResponseDecoder::with_context(coordinate_system, decode)
+            crate::ResponseDecoder::with_context(profile.pan_tilt_coordinates(), decode)
         }
     };
 }
@@ -432,6 +429,15 @@ macro_rules! impl_builtin_typed_request {
                 }
                 crate::ResponseDecoder::from_fn(decode)
             }
+
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn builtin_inquiry_syntax_retry(
+                &self,
+                _authority: crate::requests::BuiltinInquiryAuthority,
+            ) -> bool {
+                true
+            }
         }
 
         impl crate::prepared::BuiltinInquiryRequest for $struct {}
@@ -475,6 +481,15 @@ macro_rules! impl_builtin_typed_request {
             }
 
             builtin_profile_decoder_method!($profile_decode, $response_ty, $struct);
+
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn builtin_inquiry_syntax_retry(
+                &self,
+                _authority: crate::requests::BuiltinInquiryAuthority,
+            ) -> bool {
+                true
+            }
         }
 
         impl crate::prepared::BuiltinInquiryRequest for $struct {}
@@ -1489,9 +1504,9 @@ macro_rules! builtin_inquiry_table {
             const PAN_TILT_POSITION = [0x81, 0x09, 0x06, 0x12];
             kind: PanTiltPosition {
                 /// Current pan position.
-                pan: i16,
+                pan: i32,
                 /// Current tilt position.
-                tilt: i16,
+                tilt: i32,
             };
             decode: |payload| {
                 decode_pan_tilt_position(payload)
@@ -1709,6 +1724,7 @@ macro_rules! builtin_inquiry_table {
                     0x01 => WhiteBalanceMode::Indoor,
                     0x02 => WhiteBalanceMode::Outdoor,
                     0x03 => WhiteBalanceMode::OnePush,
+                    0x04 => WhiteBalanceMode::ATW,
                     0x05 => WhiteBalanceMode::Manual,
                     0x20 => WhiteBalanceMode::ColorTemperature,
                     v => {
@@ -3277,8 +3293,8 @@ fn decode_flip_state(payload: Payload<'_>) -> Result<Response, Error> {
 fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
     if payload.len() == 8 {
         let nibbles = Nibbles::<8>::try_from(payload)?;
-        let pan = nibbles.i16_quad(0);
-        let tilt = nibbles.i16_quad(4);
+        let pan = i32::from(nibbles.i16_quad(0));
+        let tilt = i32::from(nibbles.i16_quad(4));
         Ok(Response::Inquiry(InquiryData::PanTiltPosition {
             pan,
             tilt,
@@ -3291,14 +3307,14 @@ fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
         let pan = if payload.len() >= 2 {
             #[allow(clippy::cast_possible_wrap)]
             let p = ((payload.as_slice()[0] as i16) << 8) | (payload.as_slice()[1] as i16);
-            p
+            i32::from(p)
         } else {
             0
         };
         let tilt = if payload.len() >= 4 {
             #[allow(clippy::cast_possible_wrap)]
             let t = ((payload.as_slice()[2] as i16) << 8) | (payload.as_slice()[3] as i16);
-            t
+            i32::from(t)
         } else {
             0
         };
@@ -3322,53 +3338,74 @@ fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
 fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
     payload: Payload<'_>,
 ) -> Result<Response, Error> {
-    decode_pan_tilt_position_with_coordinate(payload, P::COORDINATE_SYSTEM)
+    decode_pan_tilt_position_with_codec(payload, P::PAN_TILT_WIRE_CODEC, P::COORDINATE_SYSTEM)
 }
 
-fn decode_pan_tilt_position_with_coordinate(
+fn decode_pan_tilt_position_with_codec(
     payload: Payload<'_>,
+    codec: PanTiltWireCodec,
     coordinate_system: crate::capabilities::CoordinateSystem,
 ) -> Result<Response, Error> {
-    if payload.len() == 8 {
-        let nibbles = Nibbles::<8>::try_from(payload)?;
-        let pan_u16 = nibbles.u16_quad(0);
-        let tilt_u16 = nibbles.u16_quad(4);
-        let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
+    match codec {
+        PanTiltWireCodec::StandardVisca => {
+            if payload.len() == 8 {
+                let nibbles = Nibbles::<8>::try_from(payload)?;
+                let pan_u16 = nibbles.u16_quad(0);
+                let tilt_u16 = nibbles.u16_quad(4);
+                let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
 
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else if payload.len() == 4 {
-        tracing::warn!(
-            "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
-            payload.as_slice()
-        );
-        let pan_u16 = if payload.len() >= 2 {
-            ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16)
-        } else {
-            0x8000
-        };
-        let tilt_u16 = if payload.len() >= 4 {
-            ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16)
-        } else {
-            0x8000
-        };
-        let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
+                Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+                    pan: i32::from(pan),
+                    tilt: i32::from(tilt),
+                }))
+            } else if payload.len() == 4 {
+                tracing::warn!(
+                    "PanTiltPosition: Received compact standard VISCA format (4 bytes). Payload: {:02X?}. Treating as home position.",
+                    payload.as_slice()
+                );
+                let pan_u16 =
+                    ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16);
+                let tilt_u16 =
+                    ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16);
+                let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
 
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else {
-        tracing::debug!(
-            "PanTiltPosition: Payload length {} doesn't match pan/tilt format (expected 8 or 4 bytes)",
-            payload.len()
-        );
-        Err(Error::DecoderNotFound {
-            inquiry_kind: InquiryKind::PanTiltPosition,
-            payload_hex: format_payload_hex(payload.as_slice()),
-        })
+                Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+                    pan: i32::from(pan),
+                    tilt: i32::from(tilt),
+                }))
+            } else {
+                tracing::debug!(
+                    "PanTiltPosition: Payload length {} doesn't match standard VISCA pan/tilt format (expected 8 or 4 bytes)",
+                    payload.len()
+                );
+                Err(Error::DecoderNotFound {
+                    inquiry_kind: InquiryKind::PanTiltPosition,
+                    payload_hex: format_payload_hex(payload.as_slice()),
+                })
+            }
+        }
+        PanTiltWireCodec::SonyBrc300 => {
+            if coordinate_system != crate::capabilities::CoordinateSystem::SignedCentered {
+                return Err(Error::InvalidRequest(
+                    "Sony BRC-300 pan/tilt framing requires signed-centered coordinates".into(),
+                ));
+            }
+            if payload.len() != 9 {
+                tracing::debug!(
+                    "PanTiltPosition: Payload length {} doesn't match Sony BRC-300 pan/tilt format (expected 9 nibbles)",
+                    payload.len()
+                );
+                return Err(Error::DecoderNotFound {
+                    inquiry_kind: InquiryKind::PanTiltPosition,
+                    payload_hex: format_payload_hex(payload.as_slice()),
+                });
+            }
+            let nibbles = Nibbles::<9>::try_from(payload)?;
+            Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+                pan: nibbles.i20_penta(0),
+                tilt: i32::from(nibbles.i16_quad(5)),
+            }))
+        }
     }
 }
 

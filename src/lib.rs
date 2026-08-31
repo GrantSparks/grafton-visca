@@ -121,14 +121,17 @@
 //!   supports one, or by affected-axis position polling otherwise. Settling is a
 //!   caller wait, not an engine phase.
 //!
-//! **Deadline classes** (three independent kinds; none is derived from another)
+//! **Deadline classes** (three independent owners; a default inquiry observer
+//! may be sized from immutable retry policy)
 //!
 //! - **Scheduler deadline** — an engine-owned deadline for ACK, completion,
 //!   inquiry reply, cancellation response, retry eligibility, pacing, cooldown,
 //!   or ambiguity quarantine. It is stamped at preparation and drives the
 //!   protocol state machine.
 //! - **Observer deadline** — the caller's wait bound. `applied()`/`settled()`
-//!   use the request's configured class; the `applied_with_timeout` /
+//!   use the request's configured class. A typed inquiry's default observer is
+//!   the larger of its reply deadline and total retry budget, so an
+//!   crate-authorized retry remains observable. The `applied_with_timeout` /
 //!   `settled_with_timeout` forms replace *only* this deadline. An observer
 //!   timeout returns [`Error::Timeout`], detaches the observer, and never sends
 //!   cancellation or changes a scheduler deadline.

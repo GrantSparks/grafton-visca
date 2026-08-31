@@ -20,11 +20,11 @@ mod parser_templates;
 mod value_macros;
 mod visca_enum;
 
-/// Derive macro for implementing ViscaValue trait for command value types
+/// Derive macro for generating validated value wrappers for command value types.
 ///
-/// This macro automatically generates the `ViscaValue` trait implementation
-/// for types that represent VISCA command values, providing methods for
-/// converting to and from byte representations.
+/// This macro generates a checked `new()` constructor, raw-value conversions,
+/// optional `MIN`/`MAX` constants, and `Display` for a single-field tuple
+/// struct. It does not generate VISCA byte encoding or decoding APIs.
 ///
 /// # Example
 ///
@@ -32,7 +32,7 @@ mod visca_enum;
 /// use grafton_visca_macros::ViscaValue;
 ///
 /// #[derive(ViscaValue, Debug, Copy, Clone)]
-/// #[visca_value(bytes = 2)]
+/// #[visca_value(min = "0x0000", max = "0x4000")]
 /// struct ZoomPosition(u16);
 /// ```
 #[proc_macro_derive(ViscaValue, attributes(visca_value))]
@@ -97,7 +97,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// - `Nibble` / `ExtendedNibble` - Extended nibble encoding
 /// - `Flags` / `BitFlags` - Bit flags (for image flip)
 /// - `Mode` / `ModeEnum` - Enum value parsing
-/// - `PanTilt` - Special parser for pan/tilt positions
+/// - `PanTilt` - Standard VISCA 4+4-nibble parser for signed pan/tilt values,
+///   widened to public `i32` coordinates. It does not parse profile-owned
+///   codecs such as Sony BRC-300's 5+4 form.
 /// - `LastNibble` - Last nibble from a nibble-encoded payload
 /// - `BoolConvention` - Boolean parsing with an explicit `BoolConvention`
 ///
@@ -106,7 +108,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// - The struct must have the `#[visca(...)]` attribute with required fields
 /// - The `response` attribute must reference an existing `InquiryKind` variant,
 ///   or `Raw` for a raw custom inquiry
-/// - Downstream derives use the standard five-byte inquiry form
+/// - Downstream derives use the standard five-byte inquiry form. `PanTilt`
+///   parses only its matching standard eight-nibble (4+4) reply form.
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]
 pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {

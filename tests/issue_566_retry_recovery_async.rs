@@ -26,10 +26,12 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
+    raw,
     request::{self, builtin::ZoomStop},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    CameraId, ControlClass, Error, Executor, Request, RetryClass, Session, SessionConfig,
-    TimeoutClass,
+    types::ZoomPosition,
+    CameraId, ControlClass, Error, Executor, InquiryRoute, Request, RetryClass, Session,
+    SessionConfig, TimeoutClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -40,6 +42,26 @@ const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 const NOT_EXECUTABLE: &[u8] = &[0x90, 0x60, 0x41, 0xff];
 /// `0x05` — the camera has no free command socket.
 const NO_SOCKET: &[u8] = &[0x90, 0x60, 0x05, 0xff];
+/// `0x02` — malformed command syntax, transient only for generated inquiries.
+const SYNTAX_ERROR: &[u8] = &[0x90, 0x60, 0x02, 0xff];
+const ZOOM_POSITION_REPLY: &[u8] = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff];
+const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
+
+fn decode_custom_inquiry(payload: &[u8]) -> Result<Vec<u8>, Error> {
+    Ok(payload.to_vec())
+}
+
+fn custom_zoom_inquiry() -> raw::Inquiry<Vec<u8>> {
+    raw::Inquiry::from_fn(
+        ZOOM_POSITION_INQUIRY,
+        InquiryRoute::RAW,
+        decode_custom_inquiry,
+        TimeoutClass::Inquiry,
+        RetryClass::Inquiry,
+        ControlClass::Normal,
+    )
+    .expect("valid custom inquiry")
+}
 
 /// A plain command in the standard retry class.
 ///
@@ -291,6 +313,64 @@ async fn a_no_socket_answer_is_replayed_for_a_standard_command<E: Executor>(exec
     session.shutdown().await.expect("owner shutdown");
 }
 
+/// Issue #566: the generated async noun path carries closed built-in inquiry
+/// provenance through generic public lowering. A raw/custom inquiry with the
+/// same bytes remains terminal on `0x02`, so the distinction is not inferred
+/// from the request wire.
+async fn a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_terminal<E: Executor>(
+    executor: E,
+) {
+    let transport = ScriptTransport::new(vec![
+        vec![SYNTAX_ERROR.to_vec()],
+        vec![ZOOM_POSITION_REPLY.to_vec()],
+    ]);
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config(), executor.clone())
+        .await
+        .expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let position = camera
+        .zoom()
+        .position()
+        .await
+        .expect("a generated inquiry must retry transient 0x02");
+    assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
+    assert_eq!(
+        probe.writes().len(),
+        2,
+        "the built-in inquiry is reissued once"
+    );
+    session.shutdown().await.expect("owner shutdown");
+
+    let transport = ScriptTransport::new(vec![
+        vec![SYNTAX_ERROR.to_vec()],
+        vec![ZOOM_POSITION_REPLY.to_vec()],
+    ]);
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config(), executor)
+        .await
+        .expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let custom = custom_zoom_inquiry();
+    let error = camera
+        .inquire(&custom)
+        .await
+        .expect_err("a custom inquiry must surface the camera's syntax verdict");
+    assert!(matches!(error, Error::SyntaxError));
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "a custom inquiry must not reach the scripted resend"
+    );
+    session.shutdown().await.expect("owner shutdown");
+}
+
 /// Issue #566: a sequence-correlated Sony movement request survives a lost ACK,
 /// and a command survives a camera that ACKs and then goes silent. Raw VISCA
 /// cannot replay either ambiguity safely because it has no request identity.
@@ -410,6 +490,7 @@ macro_rules! runtime_matrix {
 runtime_matrix!(
     a_camera_refusal_is_replayed_only_for_movement,
     a_no_socket_answer_is_replayed_for_a_standard_command,
+    a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_terminal,
     a_silent_sony_camera_is_retried_before_and_after_its_ack,
     an_unresolvable_cancellation_reaches_the_caller,
 );

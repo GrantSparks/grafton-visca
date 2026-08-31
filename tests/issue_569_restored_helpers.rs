@@ -464,8 +464,8 @@ fn no_argument_is_moving_samples_every_mechanical_movement_axis() {
 
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
-    let (session, writes) = ptz_session();
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let (session, writes) = fr7_session();
+    let camera = session.camera::<SonyFR7>().expect("camera");
 
     camera
         .motion()
@@ -488,6 +488,12 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
     assert!(frames
         .iter()
         .any(|bytes| bytes.as_slice() == [0x81, 0x09, 0x06, 0x12, 0xff]));
+    assert!(
+        frames
+            .iter()
+            .any(|bytes| bytes.as_slice() == [0x81, 0x09, 0x04, 0x47, 0xff]),
+        "duration idle wait must poll zoom",
+    );
     assert!(frames
         .iter()
         .any(|bytes| bytes.as_slice() == [0x81, 0x09, 0x04, 0x48, 0xff]));

@@ -46,7 +46,7 @@ pub use image_processing::ImageProcessing;
 pub use menu_control::{HasDirectMenuControl, MenuCapability};
 pub use motion_sync::MotionSyncMetadata;
 pub use nd_filter::{NdFilterMetadata, NdFilterMetadataExt, NdFilterMode};
-pub use pan_tilt::PanTilt;
+pub use pan_tilt::{PanTilt, PanTiltWireCodec};
 pub use power::Power;
 pub use presets::Presets;
 pub use tally::Tally;

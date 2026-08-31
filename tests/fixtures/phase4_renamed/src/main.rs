@@ -81,8 +81,8 @@ impl ProfileMetadata for DownstreamProfile {
 }
 
 impl PanTilt for DownstreamProfile {
-    const PAN_RANGE: capabilities::CapabilityRange<i16> = <Base as PanTilt>::PAN_RANGE;
-    const TILT_RANGE: capabilities::CapabilityRange<i16> = <Base as PanTilt>::TILT_RANGE;
+    const PAN_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
+    const TILT_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
     const MAX_PAN_SPEED: u8 = 9;
     const MAX_TILT_SPEED: u8 = 7;
     const PAN_DEGREES_TO_UNITS: f32 = 10.0;

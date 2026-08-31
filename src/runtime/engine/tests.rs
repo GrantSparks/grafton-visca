@@ -118,6 +118,20 @@ fn command_with_reply_shape(
     }
 }
 
+fn command_with_reply_shape_and_retry(
+    target: u8,
+    cancellation: CancellationPolicy,
+    reply_shape: ReplyShape,
+    retry: RetryPolicy,
+) -> RuntimeRequest {
+    let mut request = command_with_reply_shape(target, cancellation, reply_shape);
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("reply shapes apply only to commands");
+    };
+    context.retry = retry;
+    request
+}
+
 /// Admits `request` and returns `(effects, id)` after admission.
 fn admit(
     engine: &mut ProtocolEngine,
@@ -175,6 +189,27 @@ fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
             },
         )
         .unwrap();
+    engine
+}
+
+/// The public raw owner uses one inquiry flight. This is the topology in which
+/// a released FIFO owner has a queued successor and therefore needs the bounded
+/// target ambiguity hold.
+fn single_flight_raw_engine() -> ProtocolEngine {
+    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
+    configured.inquiry_capacity = 1;
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    for target in [camera(1), camera(2)] {
+        engine
+            .register_target(
+                target,
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                },
+            )
+            .unwrap();
+    }
     engine
 }
 
@@ -1700,6 +1735,469 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
         .collect();
     assert_eq!(terminals, vec![a_id, b_id]);
     engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
+    for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+        let sequence = (envelope == EnvelopeKind::Sony).then_some((0x1001, SequenceWidth::Full32));
+        let transmission_sequence = sequence.map(|(value, _)| value);
+
+        // Both envelopes correlate an ACK to the one AwaitingAck request, but
+        // raw does so by its target lane while Sony uses the envelope sequence.
+        assert_correlated_frame_deadline_boundary(
+            |start| {
+                let mut engine = engine(envelope, TransportKind::Datagram);
+                let (admission, id) = admit(
+                    &mut engine,
+                    1,
+                    command_with_reply_shape_and_retry(
+                        1,
+                        CancellationPolicy::Supported,
+                        ReplyShape::AckThenCompletion,
+                        RetryPolicy::NEVER,
+                    ),
+                    start,
+                );
+                send_ok(&mut engine, &admission, transmission_sequence, start);
+                let deadline = match phase_of(&engine, id) {
+                    Some(Phase::AwaitingAck { deadline, .. }) => deadline,
+                    phase => panic!("expected AwaitingAck, got {phase:?}"),
+                };
+                (
+                    engine,
+                    id,
+                    deadline,
+                    frame(
+                        1,
+                        sequence,
+                        DecodedResponse::Ack {
+                            socket: Some(ViscaSocket::S1),
+                        },
+                    ),
+                )
+            },
+            DeadlineKind::Ack,
+            |engine, id, _| {
+                assert!(matches!(
+                    phase_of(engine, id),
+                    Some(Phase::Executing { .. })
+                ));
+            },
+        );
+
+        // Inquiry replies use their own route/FIFO or sequence correlation and
+        // must obey the inquiry deadline rather than a command deadline.
+        assert_correlated_frame_deadline_boundary(
+            |start| {
+                let mut engine = engine(envelope, TransportKind::Datagram);
+                let (admission, id) = admit(
+                    &mut engine,
+                    2,
+                    inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+                    start,
+                );
+                send_ok(&mut engine, &admission, transmission_sequence, start);
+                let deadline = match phase_of(&engine, id) {
+                    Some(Phase::AwaitingReply { deadline, .. }) => deadline,
+                    phase => panic!("expected AwaitingReply, got {phase:?}"),
+                };
+                (
+                    engine,
+                    id,
+                    deadline,
+                    frame(
+                        1,
+                        sequence,
+                        DecodedResponse::InquiryReply {
+                            route: Some(POWER),
+                            payload: smallvec![1],
+                        },
+                    ),
+                )
+            },
+            DeadlineKind::InquiryReply,
+            |engine, id, effects| {
+                assert!(engine.entry(id).is_none());
+                assert!(matches!(
+                    terminal_outcome(effects, id),
+                    Some(RuntimeOutcome::Reply { .. })
+                ));
+            },
+        );
+
+        // Socket ownership (raw) and exact sequence correlation (Sony) both
+        // identify an executing command's completion.
+        assert_correlated_frame_deadline_boundary(
+            |start| {
+                let mut engine = engine(envelope, TransportKind::Datagram);
+                let (admission, id) = admit(
+                    &mut engine,
+                    3,
+                    command_with_reply_shape_and_retry(
+                        1,
+                        CancellationPolicy::Supported,
+                        ReplyShape::AckThenCompletion,
+                        RetryPolicy::NEVER,
+                    ),
+                    start,
+                );
+                send_ok(&mut engine, &admission, transmission_sequence, start);
+                engine.handle(
+                    frame(
+                        1,
+                        sequence,
+                        DecodedResponse::Ack {
+                            socket: Some(ViscaSocket::S1),
+                        },
+                    ),
+                    start,
+                );
+                let deadline = match phase_of(&engine, id) {
+                    Some(Phase::Executing { deadline, .. }) => deadline,
+                    phase => panic!("expected Executing, got {phase:?}"),
+                };
+                (
+                    engine,
+                    id,
+                    deadline,
+                    frame(
+                        1,
+                        sequence,
+                        DecodedResponse::Completion {
+                            socket: Some(ViscaSocket::S1),
+                        },
+                    ),
+                )
+            },
+            DeadlineKind::Completion,
+            |engine, id, effects| {
+                assert!(engine.entry(id).is_none());
+                assert!(matches!(
+                    terminal_outcome(effects, id),
+                    Some(RuntimeOutcome::Applied)
+                ));
+            },
+        );
+
+        // A completion-only command has no ACK phase or socket, but its
+        // completion is still a correlated deadline-bound protocol response.
+        assert_correlated_frame_deadline_boundary(
+            |start| {
+                let mut engine = engine(envelope, TransportKind::Datagram);
+                let (admission, id) = admit(
+                    &mut engine,
+                    4,
+                    command_with_reply_shape_and_retry(
+                        1,
+                        CancellationPolicy::Supported,
+                        ReplyShape::CompletionOnly,
+                        RetryPolicy::NEVER,
+                    ),
+                    start,
+                );
+                send_ok(&mut engine, &admission, transmission_sequence, start);
+                let deadline = match phase_of(&engine, id) {
+                    Some(Phase::AwaitingCompletion { deadline, .. }) => deadline,
+                    phase => panic!("expected AwaitingCompletion, got {phase:?}"),
+                };
+                (
+                    engine,
+                    id,
+                    deadline,
+                    frame(1, sequence, DecodedResponse::Completion { socket: None }),
+                )
+            },
+            DeadlineKind::Completion,
+            |engine, id, effects| {
+                assert!(engine.entry(id).is_none());
+                assert!(matches!(
+                    terminal_outcome(effects, id),
+                    Some(RuntimeOutcome::Applied)
+                ));
+            },
+        );
+    }
+
+    // Sony can receive an exact completion before an ACK. It is valid at the
+    // ACK boundary, but no longer after that still-active AwaitingAck deadline.
+    assert_correlated_frame_deadline_boundary(
+        |start| {
+            let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+            let (admission, id) = admit(
+                &mut engine,
+                5,
+                command_with_reply_shape_and_retry(
+                    1,
+                    CancellationPolicy::Supported,
+                    ReplyShape::AckThenCompletion,
+                    RetryPolicy::NEVER,
+                ),
+                start,
+            );
+            let sequence = 0x2001;
+            send_ok(&mut engine, &admission, Some(sequence), start);
+            let deadline = match phase_of(&engine, id) {
+                Some(Phase::AwaitingAck { deadline, .. }) => deadline,
+                phase => panic!("expected AwaitingAck, got {phase:?}"),
+            };
+            (
+                engine,
+                id,
+                deadline,
+                frame(
+                    1,
+                    Some((sequence, SequenceWidth::Full32)),
+                    DecodedResponse::Completion { socket: None },
+                ),
+            )
+        },
+        DeadlineKind::Ack,
+        |engine, id, effects| {
+            assert!(engine.entry(id).is_none());
+            assert!(matches!(
+                terminal_outcome(effects, id),
+                Some(RuntimeOutcome::Applied)
+            ));
+        },
+    );
+}
+
+#[test]
+fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let (overdue_admission, overdue_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::AckThenCompletion,
+            RetryPolicy::NEVER,
+        ),
+        start,
+    );
+    send_ok(&mut engine, &overdue_admission, None, start);
+
+    let (reply_admission, reply_id) = admit(
+        &mut engine,
+        2,
+        inquiry_with_retry(2, POWER, RetryPolicy::NEVER),
+        start,
+    );
+    send_ok(&mut engine, &reply_admission, None, start);
+
+    // The command's ACK deadline was 20ms, but this target-two reply remains
+    // within its own 30ms deadline. The engine must correlate the frame before
+    // deciding whether it is stale, then run the target-one due transition.
+    let effects = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![1],
+            },
+        ),
+        start + Duration::from_millis(20) + Duration::from_nanos(1),
+    );
+    assert!(ignored_reasons(&effects).is_empty());
+    assert!(matches!(
+        terminal_outcome(&effects, reply_id),
+        Some(RuntimeOutcome::Reply { .. })
+    ));
+    assert_eq!(
+        deadline_expiries(&effects, overdue_id),
+        [(DeadlineKind::Ack, false)]
+    );
+    let reply = position_of(
+        &effects,
+        |effect| matches!(effect, Effect::Terminal { id, .. } if *id == reply_id),
+    )
+    .expect("unrelated reply is applied");
+    let expired = position_of(&effects, |effect| {
+        matches!(
+            effect,
+            Effect::DeadlineExpired {
+                id,
+                deadline: DeadlineKind::Ack,
+                ..
+            } if *id == overdue_id
+        )
+    })
+    .expect("overdue command is processed after the reply");
+    assert!(reply < expired);
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward() {
+    for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+        let setup = |start| {
+            let mut engine = engine(envelope, TransportKind::Datagram);
+            let (admission, id) = admit(
+                &mut engine,
+                1,
+                command_with_reply_shape_and_retry(
+                    1,
+                    CancellationPolicy::Supported,
+                    ReplyShape::AckThenCompletion,
+                    RetryPolicy::NEVER,
+                ),
+                start,
+            );
+            let request_sequence = (envelope == EnvelopeKind::Sony).then_some(0x3001);
+            send_ok(&mut engine, &admission, request_sequence, start);
+            engine.handle(
+                frame(
+                    1,
+                    request_sequence.map(|value| (value, SequenceWidth::Full32)),
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                start,
+            );
+            let cancellation = engine.handle(Input::Cancel { id }, start);
+            let (transmission, _, _) = cancel_transmit(&cancellation);
+            let cancellation_sequence = (envelope == EnvelopeKind::Sony).then_some(0x3002);
+            engine.handle(
+                Input::TransmissionFinished {
+                    transmission,
+                    result: Ok(TransmissionMeta {
+                        sequence: cancellation_sequence,
+                    }),
+                },
+                start,
+            );
+            let deadline = match phase_of(&engine, id) {
+                Some(Phase::AwaitingCancellationResolution { deadline, .. }) => deadline,
+                phase => panic!("expected AwaitingCancellationResolution, got {phase:?}"),
+            };
+            (
+                engine,
+                id,
+                deadline,
+                frame(
+                    1,
+                    cancellation_sequence.map(|value| (value, SequenceWidth::Full32)),
+                    DecodedResponse::Error {
+                        socket: Some(ViscaSocket::S1),
+                        code: 0x04,
+                    },
+                ),
+            )
+        };
+
+        let start = Instant::now();
+        let (mut equal_engine, equal_id, deadline, equal_input) = setup(start);
+        let equal = equal_engine.handle(equal_input, deadline);
+        assert!(ignored_reasons(&equal).is_empty());
+        assert!(matches!(
+            terminal_outcome(&equal, equal_id),
+            Some(RuntimeOutcome::Cancelled)
+        ));
+        equal_engine.assert_invariants().unwrap();
+
+        let (mut late_engine, late_id, deadline, late_input) = setup(start);
+        let late = late_engine.handle(late_input, deadline + Duration::from_nanos(1));
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        match envelope {
+            EnvelopeKind::Raw => assert!(matches!(
+                terminal_failure(&late, late_id),
+                Some(Error::UnsequencedCommandUnconfirmed)
+            )),
+            EnvelopeKind::Sony => assert!(matches!(
+                terminal_failure(&late, late_id),
+                Some(Error::CancellationUnconfirmed)
+            )),
+        }
+        let ignored = position_of(&late, |effect| {
+            matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+        })
+        .expect("late terminal frame is ignored");
+        let terminal = position_of(
+            &late,
+            |effect| matches!(effect, Effect::Terminal { id, .. } if *id == late_id),
+        )
+        .expect("ambiguity due transition");
+        assert!(ignored < terminal);
+        late_engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn cancellation_ambiguity_closes_an_executing_response_before_its_completion_deadline() {
+    let setup = |start| {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let mut request = command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::AckThenCompletion,
+            RetryPolicy::NEVER,
+        );
+        let RuntimeRequest::Command { context, .. } = &mut request else {
+            unreachable!("test constructs a command");
+        };
+        context.timeout.completion = Duration::from_secs(1);
+        let (admission, id) = admit(&mut engine, 1, request, start);
+        send_ok(&mut engine, &admission, None, start);
+        engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
+        assert!(cancel_transmit_optional(&cancellation).is_some());
+        let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
+            Some(CancelState::Sending {
+                ambiguity_deadline, ..
+            }) => ambiguity_deadline,
+            cancellation => panic!("expected a sent cancellation, got {cancellation:?}"),
+        };
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::Executing { .. })
+        ));
+        (
+            engine,
+            id,
+            ambiguity_deadline,
+            frame(
+                1,
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+        )
+    };
+
+    let start = Instant::now();
+    let (mut equal_engine, equal_id, deadline, equal_input) = setup(start);
+    let equal = equal_engine.handle(equal_input, deadline);
+    assert!(ignored_reasons(&equal).is_empty());
+    assert!(matches!(
+        terminal_outcome(&equal, equal_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    equal_engine.assert_invariants().unwrap();
+
+    let (mut late_engine, late_id, deadline, late_input) = setup(start);
+    let late = late_engine.handle(late_input, deadline + Duration::from_nanos(1));
+    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(matches!(
+        terminal_failure(&late, late_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    late_engine.assert_invariants().unwrap();
 }
 
 #[test]
@@ -3457,16 +3955,41 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         Effect::RetryScheduled { id, .. } if *id == first_id
     )));
     assert!(request_transmit_optional(&retry).is_none());
-    // The contextual syntax cooldown blocks all inquiries. At release, the
-    // already-queued second inquiry remains ahead of the retried first inquiry.
-    let promoted = engine.advance(start + Duration::from_millis(25));
+
+    // Releasing A's raw inquiry FIFO owner also leaves its target in the
+    // bounded ambiguity hold. A delayed attempt-N payload has no wire identity
+    // and must not finish B while B is queued or after it is requeued.
+    let stale_attempt = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        start + Duration::from_nanos(1),
+    );
+    assert_eq!(
+        ignored_reasons(&stale_attempt),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(terminal_outcome(&stale_attempt, second_id).is_none());
+
+    // The syntax cooldown makes A retry-eligible before the target hold ends,
+    // but neither B nor the requeued A may use the released correlation early.
+    let before_release = engine.advance(start + Duration::from_millis(25));
+    assert!(request_transmit_optional(&before_release).is_none());
+
+    // At A's exact hold expiry, B remains ahead of the retried A in the FIFO.
+    let promoted = engine.advance(start + Duration::from_millis(50));
     let (_, dispatched, _) = request_transmit(&promoted);
     assert_eq!(dispatched, second_id);
     let second_sent = send_ok(
         &mut engine,
         &promoted,
         None,
-        start + Duration::from_millis(25),
+        start + Duration::from_millis(50),
     );
     assert!(request_transmit_optional(&second_sent).is_none());
     let second_reply = engine.handle(
@@ -3478,19 +4001,44 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
                 payload: smallvec![1],
             },
         ),
-        start + Duration::from_millis(25),
+        start + Duration::from_millis(50),
     );
-    let (_, retried, retried_wire) = request_transmit(&second_reply);
-    assert_eq!(retried, first_id);
+    assert!(matches!(
+        terminal_outcome(&second_reply, second_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [1]
+    ));
+    assert!(request_transmit_optional(&second_reply).is_none());
+
+    // B's successful reply takes the same bounded hold. Only at its exact
+    // release may the FIFO-tail retry transmit, and it must retain A's wire.
+    let retried = engine.advance(start + Duration::from_millis(100));
+    let (retry_tx, retried_id, retried_wire) = request_transmit(&retried);
+    assert_eq!(retried_id, first_id);
     assert!(Arc::ptr_eq(&first_wire, &retried_wire));
     engine.handle(
         Input::TransmissionFinished {
-            transmission: request_transmit(&second_reply).0,
+            transmission: retry_tx,
             result: Ok(TransmissionMeta { sequence: None }),
         },
-        start + Duration::from_millis(25),
+        start + Duration::from_millis(100),
     );
     assert_eq!(engine.raw_inquiry_front(camera(1)), Some(first_id));
+
+    let legitimate_retry = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0b],
+            },
+        ),
+        start + Duration::from_millis(100),
+    );
+    assert!(matches!(
+        terminal_outcome(&legitimate_retry, first_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -5992,6 +6540,49 @@ fn deadline_expiries(effects: &[Effect], id: RequestId) -> Vec<(DeadlineKind, bo
         .collect()
 }
 
+/// Pins the strict deadline boundary for a frame already correlated to one
+/// active request. The setup runs twice so the accepted equality case and the
+/// one-nanosecond-late case cannot influence each other.
+fn assert_correlated_frame_deadline_boundary(
+    setup: impl Fn(Instant) -> (ProtocolEngine, RequestId, Instant, Input),
+    deadline_kind: DeadlineKind,
+    exact_assertion: impl Fn(&ProtocolEngine, RequestId, &[Effect]),
+) {
+    let start = Instant::now();
+
+    let (mut equal_engine, equal_id, deadline, equal_input) = setup(start);
+    let equal = equal_engine.handle(equal_input, deadline);
+    assert!(ignored_reasons(&equal).is_empty());
+    assert!(deadline_expiries(&equal, equal_id).is_empty());
+    exact_assertion(&equal_engine, equal_id, &equal);
+    equal_engine.assert_invariants().unwrap();
+
+    let (mut late_engine, late_id, deadline, late_input) = setup(start);
+    let late = late_engine.handle(late_input, deadline + Duration::from_nanos(1));
+    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert_eq!(deadline_expiries(&late, late_id), [(deadline_kind, false)]);
+    let ignored = position_of(&late, |effect| {
+        matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+    })
+    .expect("late frame is ignored");
+    let expired = position_of(&late, |effect| {
+        matches!(
+            effect,
+            Effect::DeadlineExpired {
+                id,
+                deadline,
+                ..
+            } if *id == late_id && *deadline == deadline_kind
+        )
+    })
+    .expect("normal due transition");
+    assert!(
+        ignored < expired,
+        "the late frame precedes its due transition"
+    );
+    late_engine.assert_invariants().unwrap();
+}
+
 fn position_of(effects: &[Effect], predicate: impl Fn(&Effect) -> bool) -> Option<usize> {
     effects.iter().position(predicate)
 }
@@ -6621,6 +7212,1284 @@ fn immediate_retry_budget(total_budget: Duration) -> RetryPolicy {
         total_budget,
         ..retrying()
     }
+}
+
+fn raw_sending_with_reply_shape(
+    reply_shape: ReplyShape,
+    retry: RetryPolicy,
+    start: Instant,
+) -> (ProtocolEngine, RequestId, TransmissionId) {
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_reply_shape_and_retry(
+                1,
+                CancellationPolicy::Supported,
+                reply_shape,
+                retry,
+            ),
+        },
+        start,
+    );
+    let (transmission, id, _) = request_transmit(&admission);
+    (engine, id, transmission)
+}
+
+fn cancel_raw_sending(engine: &mut ProtocolEngine, id: RequestId, at: Instant) -> Instant {
+    let recorded = engine.handle(Input::Cancel { id }, at);
+    assert!(recorded
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)));
+    let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
+        Some(CancelState::Requested { ambiguity_deadline }) => ambiguity_deadline,
+        cancellation => panic!("expected sending cancellation intent, got {cancellation:?}"),
+    };
+    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    ambiguity_deadline
+}
+
+fn assert_initial_attempt_budget_expiry(
+    engine: &mut ProtocolEngine,
+    id: RequestId,
+    budget_deadline: Instant,
+) {
+    assert_eq!(engine.entry(id).map(|entry| entry.attempt), Some(0));
+    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    let expired = engine.advance(budget_deadline);
+    assert!(matches!(
+        terminal_failure(&expired, id),
+        Some(Error::Timeout)
+    ));
+    assert!(
+        deadline_expiries(&expired, id).is_empty(),
+        "the admission budget, not the later phase deadline, must expire first"
+    );
+    assert!(engine.entry(id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// The admission-relative budget must also govern an initial request that has
+/// not yet been dispatched because a target-local raw owner is still active.
+#[test]
+fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let owner = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let owner_id = admitted(&owner);
+    send_ok(&mut engine, &owner, None, start);
+
+    let retry = immediate_retry_budget(Duration::from_millis(10));
+    let queued = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command_with_retry(1, retry),
+        },
+        start,
+    );
+    let queued_id = admitted(&queued);
+    assert!(request_transmit_optional(&queued).is_none());
+    assert!(matches!(
+        phase_of(&engine, queued_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let budget_deadline = start + Duration::from_millis(10);
+    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    let expired = engine.advance(budget_deadline);
+    assert!(matches!(
+        terminal_failure(&expired, queued_id),
+        Some(Error::Timeout)
+    ));
+    assert!(!expired.iter().any(|effect| matches!(
+        effect,
+        Effect::Transmit { request, .. } if *request == queued_id
+    )));
+    assert!(engine.entry(queued_id).is_none());
+    assert!(engine.entry(owner_id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// Every initial response-bearing phase is bounded from admission, even when
+/// its ordinary protocol deadline would arrive later.
+#[test]
+fn initial_active_phases_expire_at_admission_budget() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+
+    // Initial write still in flight.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
+        assert_initial_attempt_budget_expiry(&mut engine, id, budget_deadline);
+    }
+
+    // Initial ACK wait.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        send_ok(&mut engine, &admission, Some(sony_sequence(id)), start);
+        let phase_deadline = match phase_of(&engine, id) {
+            Some(Phase::AwaitingAck { deadline, .. }) => deadline,
+            phase => panic!("expected AwaitingAck, got {phase:?}"),
+        };
+        assert!(phase_deadline > budget_deadline);
+        assert_initial_attempt_budget_expiry(&mut engine, id, budget_deadline);
+    }
+
+    // Initial acknowledged command, waiting for completion.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        let sequence = sony_sequence(id);
+        send_ok(&mut engine, &admission, Some(sequence), start);
+        engine.handle(
+            frame(
+                1,
+                Some((sequence, SequenceWidth::Full32)),
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let phase_deadline = match phase_of(&engine, id) {
+            Some(Phase::Executing { deadline, .. }) => deadline,
+            phase => panic!("expected Executing, got {phase:?}"),
+        };
+        assert!(phase_deadline > budget_deadline);
+        assert_initial_attempt_budget_expiry(&mut engine, id, budget_deadline);
+    }
+
+    // Completion-only commands use their distinct, socketless completion phase.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_reply_shape_and_retry(
+                    1,
+                    CancellationPolicy::Supported,
+                    ReplyShape::CompletionOnly,
+                    immediate_retry_budget(Duration::from_millis(10)),
+                ),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        send_ok(&mut engine, &admission, Some(sony_sequence(id)), start);
+        let phase_deadline = match phase_of(&engine, id) {
+            Some(Phase::AwaitingCompletion { deadline, .. }) => deadline,
+            phase => panic!("expected AwaitingCompletion, got {phase:?}"),
+        };
+        assert!(phase_deadline > budget_deadline);
+        assert_initial_attempt_budget_expiry(&mut engine, id, budget_deadline);
+    }
+
+    // Initial inquiry reply wait.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: inquiry_with_retry(
+                    1,
+                    POWER,
+                    immediate_retry_budget(Duration::from_millis(10)),
+                ),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        send_ok(&mut engine, &admission, Some(sony_sequence(id)), start);
+        let phase_deadline = match phase_of(&engine, id) {
+            Some(Phase::AwaitingReply { deadline, .. }) => deadline,
+            phase => panic!("expected AwaitingReply, got {phase:?}"),
+        };
+        assert!(phase_deadline > budget_deadline);
+        assert_initial_attempt_budget_expiry(&mut engine, id, budget_deadline);
+    }
+}
+
+/// Raw frames that arrive before the write result can be latched, but the
+/// initial total budget is still their strict response boundary while Sending.
+#[test]
+fn initial_raw_sending_latches_respect_total_budget_boundary() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+
+    // A deferred ACK at equality can still complete with its write and
+    // completion in the one input turn before due work runs.
+    {
+        let (mut engine, id, transmission) = raw_sending_with_reply_shape(
+            ReplyShape::AckThenCompletion,
+            immediate_retry_budget(Duration::from_millis(10)),
+            start,
+        );
+        let turn = engine.begin_input_turn(budget_deadline);
+        let mut effects = engine.handle_in_turn(
+            &turn,
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+        );
+        assert!(ignored_reasons(&effects).is_empty());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_ack.is_some()));
+        effects.extend(engine.handle_in_turn(
+            &turn,
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+        ));
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::Executing {
+                socket: ViscaSocket::S1,
+                ..
+            })
+        ));
+        effects.extend(engine.handle_in_turn(
+            &turn,
+            frame(
+                1,
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+        ));
+        effects.extend(engine.finish_input_turn(turn));
+        assert!(matches!(
+            terminal_outcome(&effects, id),
+            Some(RuntimeOutcome::Applied)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // The same ACK one nanosecond after the budget is ignored before due work
+    // drops the still-unwritten transmission into its raw quarantine.
+    {
+        let (mut engine, id, _) = raw_sending_with_reply_shape(
+            ReplyShape::AckThenCompletion,
+            immediate_retry_budget(Duration::from_millis(10)),
+            start,
+        );
+        let late = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_ack.is_none()));
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // Completion-only has the same deferred-write contract, using its distinct
+    // completion latch instead of an ACK/socket path.
+    {
+        let (mut engine, id, transmission) = raw_sending_with_reply_shape(
+            ReplyShape::CompletionOnly,
+            immediate_retry_budget(Duration::from_millis(10)),
+            start,
+        );
+        let turn = engine.begin_input_turn(budget_deadline);
+        let mut effects = engine.handle_in_turn(
+            &turn,
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+        );
+        assert!(ignored_reasons(&effects).is_empty());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_completion.is_some()));
+        effects.extend(engine.handle_in_turn(
+            &turn,
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+        ));
+        effects.extend(engine.finish_input_turn(turn));
+        assert!(matches!(
+            terminal_outcome(&effects, id),
+            Some(RuntimeOutcome::Applied)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // Strictly after the budget, the completion cannot become a deferred latch.
+    {
+        let (mut engine, id, _) = raw_sending_with_reply_shape(
+            ReplyShape::CompletionOnly,
+            immediate_retry_budget(Duration::from_millis(10)),
+            start,
+        );
+        let late = engine.handle(
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_completion.is_none()));
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A write result is an input too: equality remains input-first, while a raw
+/// no-reply write that arrives one nanosecond after its total budget must not
+/// become a local `Written` success.
+#[test]
+fn raw_no_reply_write_result_respects_total_budget_boundary() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+    let retry = immediate_retry_budget(Duration::from_millis(10));
+
+    // At equality the result is still an input in the budget's last valid
+    // turn, so plain raw execution reaches its normal local-write terminal.
+    {
+        let (mut engine, id, transmission) =
+            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+        let equal = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            budget_deadline,
+        );
+        assert!(matches!(
+            terminal_outcome(&equal, id),
+            Some(RuntimeOutcome::Written)
+        ));
+        assert!(!equal.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        assert!(engine.entry(id).is_none());
+        assert_eq!(
+            engine.next_wake(),
+            Some(budget_deadline + Duration::from_millis(50)),
+            "the successful no-reply terminal retains its ordinary raw tombstone"
+        );
+        engine.assert_invariants().unwrap();
+    }
+
+    // Strictly after the budget, a raw write result — even a successful one —
+    // is physically ambiguous. It must clear the active transmission and hold
+    // the unacknowledged slot rather than declaring `Written` or retrying.
+    {
+        let (mut engine, id, transmission) =
+            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+        let late_at = budget_deadline + Duration::from_nanos(1);
+        let late = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            late_at,
+        );
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        let quarantine_deadline = late_at + Duration::from_millis(50);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { deadline }) if deadline == quarantine_deadline
+        ));
+        assert_eq!(engine.entry(id).map(|entry| entry.attempt), Some(0));
+        assert!(engine.transmissions.is_empty());
+        assert_eq!(engine.next_wake(), Some(quarantine_deadline));
+
+        let resolved = engine.advance(quarantine_deadline);
+        assert!(matches!(
+            terminal_failure(&resolved, id),
+            Some(Error::UnsequencedCommandUnconfirmed)
+        ));
+        assert_eq!(engine.state(), SessionState::Running);
+        engine.assert_invariants().unwrap();
+    }
+
+    // The same boundary wins over a late local write error. The result is too
+    // late to prove that raw bytes did not reach the camera, so it follows the
+    // unconfirmed quarantine rather than terminalizing with that transport
+    // error.
+    {
+        let (mut engine, id, transmission) =
+            raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
+        let late_at = budget_deadline + Duration::from_nanos(1);
+        let late = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Err(Error::TransportError("late raw write result".into())),
+            },
+            late_at,
+        );
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        assert!(engine.transmissions.is_empty());
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        assert_eq!(
+            engine.state(),
+            SessionState::Running,
+            "a late datagram write error remains per-request"
+        );
+        let resolved = engine.advance(late_at + Duration::from_millis(50));
+        assert!(matches!(
+            terminal_failure(&resolved, id),
+            Some(Error::UnsequencedCommandUnconfirmed)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // The strict recovery opt-in takes the same late-result branch, but its
+    // existing raw-unconfirmed policy poisons immediately instead of retaining
+    // a per-request ambiguity hold.
+    {
+        let mut engine = strict_poison_engine();
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_reply_shape_and_retry(
+                    1,
+                    CancellationPolicy::Supported,
+                    ReplyShape::NoReply,
+                    retry,
+                ),
+            },
+            start,
+        );
+        let (transmission, id, _) = request_transmit(&admission);
+        let late = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert!(matches!(
+            terminal_failure(&late, id),
+            Some(Error::StreamPoisoned { .. })
+        ));
+        assert_eq!(engine.state(), SessionState::Poisoned);
+        assert!(engine.entry(id).is_none());
+        assert!(engine.transmissions.is_empty());
+        assert_eq!(engine.next_wake(), None);
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A completion latched before the budget cannot be consumed by a late raw
+/// write result. The write-result boundary must clear that latch before it can
+/// become an applied state transition.
+#[test]
+fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
+    use crate::command::semantics::WriteOnlyState;
+
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+    let retry = immediate_retry_budget(Duration::from_millis(10));
+
+    // A completion latched before the deadline is valid when its write result
+    // arrives at equality, including the applied-state consequence.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let mut request = command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            retry,
+        );
+        if let RuntimeRequest::Command { applied_state, .. } = &mut request {
+            *applied_state =
+                Some(AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap());
+        }
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request,
+            },
+            start,
+        );
+        let (transmission, id, _) = request_transmit(&admission);
+        let early = engine.handle(
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+            budget_deadline - Duration::from_nanos(1),
+        );
+        assert!(terminal_outcome(&early, id).is_none());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_completion.is_some()));
+
+        let equal = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            budget_deadline,
+        );
+        assert!(matches!(
+            terminal_outcome(&equal, id),
+            Some(RuntimeOutcome::Applied)
+        ));
+        assert!(equal
+            .iter()
+            .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+        assert!(engine.entry(id).is_none());
+        engine.assert_invariants().unwrap();
+    }
+
+    // One nanosecond later, the same already-latched completion is discarded
+    // with the write correlation. No retry or applied-state effect may escape
+    // the raw ambiguity quarantine.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let mut request = command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            retry,
+        );
+        if let RuntimeRequest::Command { applied_state, .. } = &mut request {
+            *applied_state =
+                Some(AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap());
+        }
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request,
+            },
+            start,
+        );
+        let (transmission, id, _) = request_transmit(&admission);
+        engine.handle(
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+            budget_deadline - Duration::from_nanos(1),
+        );
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_completion.is_some()));
+
+        let late_at = budget_deadline + Duration::from_nanos(1);
+        let late = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            late_at,
+        );
+        assert!(terminal_outcome(&late, id).is_none());
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        assert!(!late
+            .iter()
+            .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+        let quarantine_deadline = late_at + Duration::from_millis(50);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { deadline }) if deadline == quarantine_deadline
+        ));
+        assert!(engine.entries.get(&id).is_some_and(|entry| {
+            entry.deferred_ack.is_none() && entry.deferred_completion.is_none()
+        }));
+        assert!(engine.transmissions.is_empty());
+        assert_eq!(engine.next_wake(), Some(quarantine_deadline));
+
+        let resolved = engine.advance(quarantine_deadline);
+        assert!(matches!(
+            terminal_failure(&resolved, id),
+            Some(Error::UnsequencedCommandUnconfirmed)
+        ));
+        assert!(!resolved
+            .iter()
+            .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// Sony write metadata is valid at equality, but a result after the total
+/// budget cannot register its sequence. The no-due owner seam shares this
+/// engine-authoritative boundary and a late transport error retains a prior
+/// retry cause rather than taking precedence over budget expiry.
+#[test]
+fn sony_write_results_respect_total_budget_before_correlation_mutation() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+    let retry = immediate_retry_budget(Duration::from_millis(10));
+
+    // Equality remains input-first even for Sony metadata. Inspect inside the
+    // turn before due work consumes the now-reached budget.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, retry),
+            },
+            start,
+        );
+        let (transmission, id, _) = request_transmit(&admission);
+        let sequence = 0x1001_beef;
+        let turn = engine.begin_input_turn(budget_deadline);
+        let equal = engine.handle_in_turn(
+            &turn,
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta {
+                    sequence: Some(sequence),
+                }),
+            },
+        );
+        assert!(terminal_outcome(&equal, id).is_none());
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingAck { .. })
+        ));
+        assert_eq!(
+            engine.entry(id).and_then(|entry| entry.current_sequence),
+            Some(sequence)
+        );
+        assert!(engine.sequences.contains_key(&sequence));
+        assert!(engine.lower_sequences.contains_key(&(sequence as u16)));
+
+        let expired = engine.finish_input_turn(turn);
+        assert!(matches!(
+            terminal_failure(&expired, id),
+            Some(Error::Timeout)
+        ));
+        assert!(engine.sequences.is_empty());
+        assert!(engine.lower_sequences.is_empty());
+        engine.assert_invariants().unwrap();
+    }
+
+    // The blocking owner's no-due write-result seam cannot bypass the same
+    // strict boundary: no late Sony metadata reaches the correlation indexes.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, retry),
+            },
+            start,
+        );
+        let (transmission, id, _) = request_transmit(&admission);
+        let late = engine.finish_write_without_due(
+            transmission,
+            Ok(TransmissionMeta {
+                sequence: Some(0xdead_beef),
+            }),
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert!(matches!(terminal_failure(&late, id), Some(Error::Timeout)));
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::Transition {
+                id: transitioned,
+                to: Phase::AwaitingAck { .. },
+                ..
+            } if *transitioned == id
+        )));
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        assert!(engine.entry(id).is_none());
+        assert!(engine.transmissions.is_empty());
+        assert!(engine.sequences.is_empty());
+        assert!(engine.lower_sequences.is_empty());
+        assert_eq!(engine.next_wake(), None);
+        engine.assert_invariants().unwrap();
+    }
+
+    // The late-result ordering applies equally to `Err`: it cannot replace a
+    // retry cause retained by a prior Sony attempt or schedule another retry.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, retry),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        let first_sequence = 0x1001;
+        send_ok(&mut engine, &admission, Some(first_sequence), start);
+        let retried = engine.handle(
+            frame(
+                1,
+                Some((first_sequence, SequenceWidth::Full32)),
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03,
+                },
+            ),
+            start + Duration::from_nanos(1),
+        );
+        let (transmission, retried_id, _) = request_transmit(&retried);
+        assert_eq!(retried_id, id);
+        assert!(matches!(
+            engine.entry(id).and_then(|entry| entry.last_error.clone()),
+            Some(Error::CommandBufferFull)
+        ));
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
+
+        let late = engine.finish_write_without_due(
+            transmission,
+            Err(Error::TransportError("late Sony write result".into())),
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert!(matches!(
+            terminal_failure(&late, id),
+            Some(Error::CommandBufferFull)
+        ));
+        assert!(!late.iter().any(|effect| matches!(
+            effect,
+            Effect::RetryScheduled { id: retried, .. } if *retried == id
+        )));
+        assert!(engine.entry(id).is_none());
+        assert!(engine.transmissions.is_empty());
+        assert!(engine.sequences.is_empty());
+        assert!(engine.lower_sequences.is_empty());
+        assert_eq!(
+            engine.state(),
+            SessionState::Running,
+            "a late datagram write error must not poison the session"
+        );
+        assert_eq!(engine.next_wake(), None);
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A compatible stream write failure is an authoritative session verdict even
+/// if it arrives strictly after the request's total budget. The Raw case uses
+/// the ordinary input ingress; the Sony case exercises the blocking owner's
+/// no-due ingress, which shares that same engine path.
+#[test]
+fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
+    let start = Instant::now();
+    let budget = Duration::from_millis(10);
+    let late_at = start + budget + Duration::from_nanos(1);
+
+    for (envelope, peer_sequence, cause, use_no_due_ingress) in [
+        (EnvelopeKind::Raw, None, "late raw stream write", false),
+        (
+            EnvelopeKind::Sony,
+            Some(0x1001_beef),
+            "late Sony stream write",
+            true,
+        ),
+    ] {
+        let mut engine = engine(envelope, TransportKind::Stream);
+        let peer = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, immediate_retry_budget(budget)),
+            },
+            start,
+        );
+        let peer_id = admitted(&peer);
+        send_ok(&mut engine, &peer, peer_sequence, start);
+
+        let failed = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(2),
+                request: command_with_retry(2, immediate_retry_budget(budget)),
+            },
+            start,
+        );
+        let (transmission, failed_id, _) = request_transmit(&failed);
+        let result = Err(Error::TransportError(cause.into()));
+        let poisoned = if use_no_due_ingress {
+            engine.finish_write_without_due(transmission, result, late_at)
+        } else {
+            engine.handle(
+                Input::TransmissionFinished {
+                    transmission,
+                    result,
+                },
+                late_at,
+            )
+        };
+
+        let expected_reason = format!("Transport error: {cause}");
+        let terminal_ids: Vec<_> = poisoned
+            .iter()
+            .filter_map(|effect| match effect {
+                Effect::Terminal { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(terminal_ids, vec![peer_id, failed_id]);
+        for id in [peer_id, failed_id] {
+            let Some(Error::StreamPoisoned { reason }) = terminal_failure(&poisoned, id) else {
+                panic!("{envelope:?} stream failure must terminalize {id:?} with poison");
+            };
+            assert_eq!(reason.as_ref(), expected_reason.as_str());
+        }
+        assert!(poisoned.iter().any(|effect| matches!(
+            effect,
+            Effect::SessionChanged {
+                to: SessionState::Poisoned,
+                ..
+            }
+        )));
+        assert_eq!(engine.state(), SessionState::Poisoned);
+        let terminal = engine.terminal_error().expect("stream poison verdict");
+        let Error::StreamPoisoned { reason } = &terminal else {
+            panic!("stream failure must retain a stream-poisoned terminal error: {terminal:?}");
+        };
+        assert_eq!(reason.as_ref(), expected_reason.as_str());
+        assert!(terminal.requires_new_session());
+        assert_eq!(engine.active_len(), 0);
+        assert!(engine.entries.is_empty());
+        assert!(engine.transmissions.is_empty());
+        assert!(engine.sequences.is_empty());
+        assert!(engine.lower_sequences.is_empty());
+        assert_eq!(engine.next_wake(), None);
+
+        let rejected = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(3),
+                request: command(1, CancellationPolicy::Supported),
+            },
+            late_at,
+        );
+        assert!(rejected.iter().any(|effect| matches!(
+            effect,
+            Effect::AdmissionRejected {
+                ticket: AdmissionTicket(3),
+                error: Error::StreamPoisoned { reason },
+            } if reason.as_ref() == expected_reason.as_str()
+        )));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A cancellation recorded during an unwritten raw command schedules and owns
+/// its ambiguity boundary; the same deferred-frame equality rule applies there.
+#[test]
+fn cancelled_raw_sending_latches_respect_ambiguity_boundary() {
+    let start = Instant::now();
+
+    // A deferred ACK at the exact ambiguity deadline is applied when its write
+    // result arrives in the same input turn. The emitted cancel starts its own
+    // later ambiguity window rather than being pre-empted by the old one.
+    {
+        let (mut engine, id, transmission) =
+            raw_sending_with_reply_shape(ReplyShape::AckThenCompletion, RetryPolicy::NEVER, start);
+        let ambiguity_deadline = cancel_raw_sending(&mut engine, id, start);
+        let turn = engine.begin_input_turn(ambiguity_deadline);
+        let mut effects = engine.handle_in_turn(
+            &turn,
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+        );
+        assert!(ignored_reasons(&effects).is_empty());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_ack.is_some()));
+        effects.extend(engine.handle_in_turn(
+            &turn,
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+        ));
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::Executing {
+                socket: ViscaSocket::S1,
+                ..
+            })
+        ));
+        effects.extend(engine.finish_input_turn(turn));
+        assert!(terminal_outcome(&effects, id).is_none());
+        let extended_deadline = match engine.entry(id).map(Entry::cancellation) {
+            Some(CancelState::Sending {
+                ambiguity_deadline, ..
+            }) => ambiguity_deadline,
+            cancellation => panic!("expected emitted cancellation, got {cancellation:?}"),
+        };
+        assert_eq!(
+            extended_deadline,
+            ambiguity_deadline + Duration::from_millis(50)
+        );
+        assert!(engine
+            .next_wake()
+            .is_some_and(|next_wake| next_wake > ambiguity_deadline));
+        engine.assert_invariants().unwrap();
+    }
+
+    // At +1ns the ACK cannot latch, and the ambiguity deadline now has a due
+    // wake even though Sending has no protocol phase deadline.
+    {
+        let (mut engine, id, _) =
+            raw_sending_with_reply_shape(ReplyShape::AckThenCompletion, RetryPolicy::NEVER, start);
+        let ambiguity_deadline = cancel_raw_sending(&mut engine, id, start);
+        let late = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            ambiguity_deadline + Duration::from_nanos(1),
+        );
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(matches!(
+            terminal_failure(&late, id),
+            Some(Error::UnsequencedCommandUnconfirmed)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // Completion-only carries the same rule through its separate deferred
+    // completion latch. At equality the write result can still apply it.
+    {
+        let (mut engine, id, transmission) =
+            raw_sending_with_reply_shape(ReplyShape::CompletionOnly, RetryPolicy::NEVER, start);
+        let ambiguity_deadline = cancel_raw_sending(&mut engine, id, start);
+        let turn = engine.begin_input_turn(ambiguity_deadline);
+        let mut effects = engine.handle_in_turn(
+            &turn,
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+        );
+        assert!(ignored_reasons(&effects).is_empty());
+        assert!(engine
+            .entry(id)
+            .is_some_and(|entry| entry.deferred_completion.is_some()));
+        effects.extend(engine.handle_in_turn(
+            &turn,
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+        ));
+        effects.extend(engine.finish_input_turn(turn));
+        assert!(matches!(
+            terminal_outcome(&effects, id),
+            Some(RuntimeOutcome::Applied)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // A late completion is ignored before the cancellation ambiguity expires.
+    {
+        let (mut engine, id, _) =
+            raw_sending_with_reply_shape(ReplyShape::CompletionOnly, RetryPolicy::NEVER, start);
+        let ambiguity_deadline = cancel_raw_sending(&mut engine, id, start);
+        let late = engine.handle(
+            frame(1, None, DecodedResponse::Completion { socket: None }),
+            ambiguity_deadline + Duration::from_nanos(1),
+        );
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(matches!(
+            terminal_failure(&late, id),
+            Some(Error::UnsequencedCommandUnconfirmed)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// Frames delivered at the exact total-budget boundary remain input-first, but
+/// when no frame arrives an equal phase deadline yields to the budget arm.
+#[test]
+fn initial_admission_budget_preserves_exact_boundary_precedence() {
+    let start = Instant::now();
+
+    // An exact input turn wins over the budget work due at the same instant.
+    {
+        let mut equal_engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let admission = equal_engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: inquiry_with_retry(
+                    1,
+                    POWER,
+                    immediate_retry_budget(Duration::from_millis(10)),
+                ),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        let sequence = sony_sequence(id);
+        send_ok(&mut equal_engine, &admission, Some(sequence), start);
+        let budget_deadline = start + Duration::from_millis(10);
+        assert_eq!(equal_engine.next_wake(), Some(budget_deadline));
+
+        let reply = equal_engine.handle(
+            frame(
+                1,
+                Some((sequence, SequenceWidth::Full32)),
+                DecodedResponse::InquiryReply {
+                    route: Some(POWER),
+                    payload: smallvec![1],
+                },
+            ),
+            budget_deadline,
+        );
+        assert!(matches!(
+            terminal_outcome(&reply, id),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        assert!(deadline_expiries(&reply, id).is_empty());
+        equal_engine.assert_invariants().unwrap();
+
+        // One nanosecond later is no longer an equal input turn: reject the
+        // stale reply, then let the already-due budget terminalize the request.
+        let mut late_engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let late_admission = late_engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: inquiry_with_retry(
+                    1,
+                    POWER,
+                    immediate_retry_budget(Duration::from_millis(10)),
+                ),
+            },
+            start,
+        );
+        let late_id = admitted(&late_admission);
+        let late_sequence = sony_sequence(late_id);
+        send_ok(
+            &mut late_engine,
+            &late_admission,
+            Some(late_sequence),
+            start,
+        );
+        let late = late_engine.handle(
+            frame(
+                1,
+                Some((late_sequence, SequenceWidth::Full32)),
+                DecodedResponse::InquiryReply {
+                    route: Some(POWER),
+                    payload: smallvec![1],
+                },
+            ),
+            budget_deadline + Duration::from_nanos(1),
+        );
+        assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+        assert!(matches!(
+            terminal_failure(&late, late_id),
+            Some(Error::Timeout)
+        ));
+        let ignored = position_of(&late, |effect| {
+            matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+        })
+        .expect("late reply is ignored");
+        let terminal = position_of(
+            &late,
+            |effect| matches!(effect, Effect::Terminal { id, .. } if *id == late_id),
+        )
+        .expect("budget expiry follows the input");
+        assert!(ignored < terminal);
+        late_engine.assert_invariants().unwrap();
+    }
+
+    // With no input, the budget takes priority over an equal ACK deadline.
+    {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        let mut retry = retrying();
+        retry.total_budget = Duration::from_millis(20);
+        let admission = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(1),
+                request: command_with_retry(1, retry),
+            },
+            start,
+        );
+        let id = admitted(&admission);
+        send_ok(&mut engine, &admission, Some(sony_sequence(id)), start);
+        let deadline = start + Duration::from_millis(20);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingAck {
+                deadline: phase_deadline,
+                ..
+            }) if phase_deadline == deadline
+        ));
+        let expired = engine.advance(deadline);
+        assert!(matches!(
+            terminal_failure(&expired, id),
+            Some(Error::Timeout)
+        ));
+        assert!(
+            deadline_expiries(&expired, id).is_empty(),
+            "the budget arm wins an equal ordinary deadline"
+        );
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// A cancellation's ambiguity deadline is independent of a first attempt's
+/// total budget.
+#[test]
+fn initial_budget_does_not_shorten_cancellation_ambiguity() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+    let mut request = command_with_retry(1, immediate_retry_budget(Duration::from_millis(10)));
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("test constructs a command");
+    };
+    context.timeout.completion = Duration::from_secs(1);
+
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request,
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    let sequence = sony_sequence(id);
+    send_ok(&mut engine, &admission, Some(sequence), start);
+    engine.handle(
+        frame(
+            1,
+            Some((sequence, SequenceWidth::Full32)),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+
+    let cancellation = engine.handle(Input::Cancel { id }, start);
+    assert!(cancel_transmit_optional(&cancellation).is_some());
+    let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
+        Some(CancelState::Sending {
+            ambiguity_deadline, ..
+        }) => ambiguity_deadline,
+        cancellation => panic!("expected pending cancellation, got {cancellation:?}"),
+    };
+    assert_eq!(ambiguity_deadline, start + Duration::from_millis(50));
+    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+
+    let at_budget = engine.advance(budget_deadline);
+    assert!(terminal_outcome(&at_budget, id).is_none());
+    assert!(engine.entry(id).is_some());
+    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+
+    let resolved = engine.advance(ambiguity_deadline);
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::CancellationUnconfirmed)
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A raw initial attempt caught by the budget starts its own unconfirmed hold;
+/// the already-reached total budget must not collapse that ambiguity window.
+#[test]
+fn initial_budget_does_not_shorten_raw_unconfirmed_quarantine() {
+    let start = Instant::now();
+    let budget_deadline = start + Duration::from_millis(10);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+
+    let expired = engine.advance(budget_deadline);
+    assert!(terminal_outcome(&expired, id).is_none());
+    let quarantine_deadline = match phase_of(&engine, id) {
+        Some(Phase::AwaitingLateAck { deadline }) => deadline,
+        phase => panic!("expected AwaitingLateAck, got {phase:?}"),
+    };
+    assert_eq!(quarantine_deadline, start + Duration::from_millis(60));
+    assert_eq!(engine.next_wake(), Some(quarantine_deadline));
+
+    let still_quarantined = engine.advance(start + Duration::from_millis(59));
+    assert!(terminal_outcome(&still_quarantined, id).is_none());
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+
+    let resolved = engine.advance(quarantine_deadline);
+    assert!(matches!(
+        terminal_failure(&resolved, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    engine.assert_invariants().unwrap();
 }
 
 /// Once a Sony retry has been admitted, the total budget wins over an equal
@@ -7946,6 +9815,754 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
     assert!(matches!(
         phase_of(&engine, successor_id),
         Some(Phase::Sending { .. })
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A raw inquiry reply has no request identity. The production raw policy is
+/// single-flight, so after A succeeds the target tombstone makes an A duplicate
+/// inert until expiry rather than letting it satisfy queued B. Other targets
+/// remain eligible while the fixed target lane is held.
+#[test]
+fn raw_single_flight_inquiry_success_quarantines_duplicate_until_exact_expiry() {
+    let start = Instant::now();
+    let deadline = start + Duration::from_millis(50);
+    let mut engine = single_flight_raw_engine();
+
+    let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    send_ok(&mut engine, &first, None, start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    assert!(request_transmit_optional(&successor).is_none());
+    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), start);
+    assert!(request_transmit_optional(&other_target).is_none());
+
+    let first_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&first_reply, first_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0a]
+    ));
+    assert_eq!(
+        request_transmit(&first_reply).1,
+        other_target_id,
+        "the same-target hold does not block another camera"
+    );
+    let other_sent = send_ok(&mut engine, &first_reply, None, start);
+    assert!(request_transmit_optional(&other_sent).is_none());
+    let other_reply = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(FOCUS),
+                payload: smallvec![0x0c],
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&other_reply, other_target_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0c]
+    ));
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let stale = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        start + Duration::from_nanos(1),
+    );
+    assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(terminal_outcome(&stale, successor_id).is_none());
+
+    // Input wins at the deadline: this last A duplicate is ignored while the
+    // tombstone is live, then due work releases B in the same owner turn.
+    let at_expiry = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        deadline,
+    );
+    assert_eq!(
+        ignored_reasons(&at_expiry),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    let ignored = position_of(&at_expiry, |effect| {
+        matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+    })
+    .expect("stale A reply is ignored before due work");
+    let transmitted = position_of(&at_expiry, |effect| {
+        matches!(
+            effect,
+            Effect::Transmit {
+                request,
+                kind: Transmission::Request { .. },
+                ..
+            } if *request == successor_id
+        )
+    })
+    .expect("expiry dispatches B");
+    assert!(ignored < transmitted);
+    let successor_sent = send_ok(&mut engine, &at_expiry, None, deadline);
+    assert!(request_transmit_optional(&successor_sent).is_none());
+    let successor_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(ZOOM),
+                payload: smallvec![0x0b],
+            },
+        ),
+        deadline + Duration::from_nanos(1),
+    );
+    assert!(matches!(
+        terminal_outcome(&successor_reply, successor_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A raw inquiry timeout releases the FIFO owner just as a reply does. A late
+/// reply from the timed-out request is therefore inert until the target hold
+/// expires, after which B's own reply remains attributable to B.
+#[test]
+fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_release() {
+    let start = Instant::now();
+    let timeout_at = start + Duration::from_millis(30);
+    let release_at = timeout_at + Duration::from_millis(50);
+    let mut engine = single_flight_raw_engine();
+
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+        start,
+    );
+    send_ok(&mut engine, &first, None, start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    assert!(request_transmit_optional(&successor).is_none());
+
+    let timed_out = engine.advance(timeout_at);
+    assert!(matches!(
+        terminal_failure(&timed_out, first_id),
+        Some(Error::Timeout)
+    ));
+    assert!(request_transmit_optional(&timed_out).is_none());
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let late = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        timeout_at + Duration::from_nanos(1),
+    );
+    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(terminal_outcome(&late, successor_id).is_none());
+
+    let released = engine.advance(release_at);
+    assert_eq!(request_transmit(&released).1, successor_id);
+    let successor_sent = send_ok(&mut engine, &released, None, release_at);
+    assert!(request_transmit_optional(&successor_sent).is_none());
+    let successor_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(ZOOM),
+                payload: smallvec![0x0b],
+            },
+        ),
+        release_at,
+    );
+    assert!(matches!(
+        terminal_outcome(&successor_reply, successor_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A raw single-flight inquiry can run out of its admission budget while its
+/// first write is still Sending. That release is physically uncertain just as
+/// an `AwaitingReply` timeout is, so it must retain the target-only hold before
+/// normal terminal cleanup frees the entry for unrelated work.
+#[test]
+fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_release() {
+    let start = Instant::now();
+    let budget_at = start + Duration::from_millis(10);
+    let release_at = budget_at + Duration::from_millis(50);
+    let mut engine = single_flight_raw_engine();
+
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        inquiry_with_retry(1, POWER, immediate_retry_budget(Duration::from_millis(10))),
+        start,
+    );
+    let (first_transmission, transmitted_id, _) = request_transmit(&first);
+    assert_eq!(transmitted_id, first_id);
+    assert!(matches!(
+        phase_of(&engine, first_id),
+        Some(Phase::Sending { .. })
+    ));
+
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    assert!(request_transmit_optional(&successor).is_none());
+    assert_eq!(engine.next_wake(), Some(budget_at));
+
+    let timed_out = engine.advance(budget_at);
+    assert!(matches!(
+        terminal_failure(&timed_out, first_id),
+        Some(Error::Timeout)
+    ));
+    assert!(request_transmit_optional(&timed_out).is_none());
+    assert!(engine.entry(first_id).is_none());
+    assert!(
+        !engine.transmissions.contains_key(&first_transmission),
+        "normal finish removes the Sending write correlation"
+    );
+    assert!(
+        engine.raw_inquiries[1].is_empty(),
+        "a Sending inquiry never leaves a stale FIFO owner"
+    );
+    assert_eq!(
+        engine.raw_target_tombstones[1],
+        Some(RawTerminalTombstone {
+            deadline: release_at
+        })
+    );
+    assert_eq!(engine.next_wake(), Some(release_at));
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    // The hold is target-local: a different camera becomes eligible as soon
+    // as the expired inquiry's normal finish releases global inquiry capacity.
+    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), budget_at);
+    assert_eq!(request_transmit(&other_target).1, other_target_id);
+    let other_sent = send_ok(&mut engine, &other_target, None, budget_at);
+    assert!(request_transmit_optional(&other_sent).is_none());
+    let other_reply = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(FOCUS),
+                payload: smallvec![0x0c],
+            },
+        ),
+        budget_at,
+    );
+    assert!(matches!(
+        terminal_outcome(&other_reply, other_target_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0c]
+    ));
+
+    let stale = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        budget_at + Duration::from_nanos(1),
+    );
+    assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(terminal_outcome(&stale, successor_id).is_none());
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    // Input wins at the exact hold expiry: this last stale reply is inert,
+    // then the due pass releases the lane and dispatches the same-target
+    // successor in that owner turn.
+    let at_expiry = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        release_at,
+    );
+    assert_eq!(
+        ignored_reasons(&at_expiry),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    let ignored = position_of(&at_expiry, |effect| {
+        matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+    })
+    .expect("stale inquiry reply is ignored before the due pass");
+    let transmitted = position_of(&at_expiry, |effect| {
+        matches!(
+            effect,
+            Effect::Transmit {
+                request,
+                kind: Transmission::Request { .. },
+                ..
+            } if *request == successor_id
+        )
+    })
+    .expect("exact tombstone expiry dispatches the same-target successor");
+    assert!(ignored < transmitted);
+
+    let successor_sent = send_ok(&mut engine, &at_expiry, None, release_at);
+    assert!(request_transmit_optional(&successor_sent).is_none());
+    let successor_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(ZOOM),
+                payload: smallvec![0x0b],
+            },
+        ),
+        release_at + Duration::from_nanos(1),
+    );
+    assert!(matches!(
+        terminal_outcome(&successor_reply, successor_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// The exact-first-dispatch seam belongs to the blocking submission owner,
+/// which has not yet run its ordered input/due turn. It must therefore retain
+/// a raw target tombstone even at its nominal deadline: buffered input gets
+/// the boundary first, then dispatch-suppressed due work releases the hold or
+/// terminalizes an earlier ready-budget expiry. A local tombstone expiration
+/// here would write B after its budget or let a stale A reply bind to B.
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
+    let start = Instant::now();
+    let hold = Duration::from_millis(50);
+    let release_at = start + hold;
+
+    let setup = |budget| {
+        let mut engine = single_flight_raw_engine();
+        let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+        send_ok(&mut engine, &first, None, start);
+        let first_reply = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::InquiryReply {
+                    route: Some(POWER),
+                    payload: smallvec![0x0a],
+                },
+            ),
+            start,
+        );
+        assert!(matches!(
+            terminal_outcome(&first_reply, first_id),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        let (successor, successor_id) = admit(
+            &mut engine,
+            2,
+            inquiry_with_retry(1, ZOOM, immediate_retry_budget(budget)),
+            start,
+        );
+        assert!(request_transmit_optional(&successor).is_none());
+        assert_eq!(
+            engine.raw_target_tombstones[1],
+            Some(RawTerminalTombstone {
+                deadline: release_at
+            })
+        );
+        (engine, successor_id)
+    };
+
+    // A ready successor whose total budget is strictly before the target hold
+    // must terminalize while unsent. `first_dispatch_without_due` itself does
+    // not release the hold, and the owner-side no-dispatch turn services the
+    // earlier global due deadline.
+    {
+        let (mut engine, successor_id) = setup(hold - Duration::from_nanos(1));
+        assert!(matches!(
+            engine.first_dispatch_without_due(successor_id, release_at),
+            FirstDispatch::WaitUntil {
+                deadline,
+                reason: FirstDispatchWait::RawCorrelationTombstone,
+            } if deadline == release_at
+        ));
+        assert_eq!(
+            engine.raw_target_tombstones[1],
+            Some(RawTerminalTombstone {
+                deadline: release_at
+            })
+        );
+        let expired = engine.advance_without_dispatch(release_at - Duration::from_nanos(1));
+        assert!(matches!(
+            terminal_failure(&expired, successor_id),
+            Some(Error::Timeout)
+        ));
+        assert!(request_transmit_optional(&expired).is_none());
+        assert!(engine.entry(successor_id).is_none());
+        engine.assert_invariants().unwrap();
+    }
+
+    // Equality is still input-first. The exact first-dispatch query remains a
+    // wait until the ordered turn consumes any boundary frame; with no frame,
+    // that same turn releases the tombstone and terminalizes B's equal budget
+    // before ordinary dispatch is permitted.
+    {
+        let (mut engine, successor_id) = setup(hold);
+        assert!(matches!(
+            engine.first_dispatch_without_due(successor_id, release_at),
+            FirstDispatch::WaitUntil {
+                deadline,
+                reason: FirstDispatchWait::RawCorrelationTombstone,
+            } if deadline == release_at
+        ));
+        let expired = engine.advance_without_dispatch(release_at);
+        assert!(matches!(
+            terminal_failure(&expired, successor_id),
+            Some(Error::Timeout)
+        ));
+        assert!(request_transmit_optional(&expired).is_none());
+        assert!(engine.entry(successor_id).is_none());
+        engine.assert_invariants().unwrap();
+    }
+
+    // One nanosecond beyond the hold/budget tie is a valid release: suppressed
+    // due work frees only the tombstone, and the next exact dispatch may write
+    // B. No peer was dispatched by the no-dispatch turn.
+    let (mut engine, successor_id) = setup(hold + Duration::from_nanos(1));
+    assert!(matches!(
+        engine.first_dispatch_without_due(successor_id, release_at),
+        FirstDispatch::WaitUntil {
+            deadline,
+            reason: FirstDispatchWait::RawCorrelationTombstone,
+        } if deadline == release_at
+    ));
+    let released = engine.advance_without_dispatch(release_at);
+    assert!(request_transmit_optional(&released).is_none());
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+    let dispatch = match engine.first_dispatch_without_due(successor_id, release_at) {
+        FirstDispatch::Effects(effects) => effects,
+        other => panic!("released successor did not win its first dispatch: {other:?}"),
+    };
+    assert_eq!(request_transmit(&dispatch).1, successor_id);
+    engine.assert_invariants().unwrap();
+}
+
+/// Ordinary first-dispatch pacing is a clock-only wait. The blocking owner
+/// must service a ready request's total budget through the no-dispatch seam at
+/// this boundary, but it must not need an input turn (and therefore must not
+/// consume an unrelated peer response) to do so.
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_pacing_wait_services_total_budget_before_first_write() {
+    let start = Instant::now();
+    let spacing = Duration::from_millis(10);
+
+    let setup = |budget| {
+        let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+        engine.policy.command_spacing = spacing;
+
+        let (first, first_id) = admit(
+            &mut engine,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        assert_eq!(request_transmit(&first).1, first_id);
+        let sent = send_ok(&mut engine, &first, Some(1), start);
+        assert!(request_transmit_optional(&sent).is_none());
+
+        let (successor, successor_id) = admit(
+            &mut engine,
+            2,
+            command_with_reply_shape_and_retry(
+                1,
+                CancellationPolicy::Supported,
+                ReplyShape::AckThenCompletion,
+                immediate_retry_budget(budget),
+            ),
+            start,
+        );
+        assert!(request_transmit_optional(&successor).is_none());
+        assert!(matches!(
+            engine.first_dispatch_without_due(successor_id, start),
+            FirstDispatch::WaitUntil {
+                deadline,
+                reason: FirstDispatchWait::Pacing,
+            } if deadline == start + spacing
+        ));
+        (engine, successor_id)
+    };
+
+    // A total budget before the pacing release terminalizes the still-unsent
+    // request. No receive/input turn is involved in this engine seam.
+    let (mut earlier, earlier_id) = setup(spacing - Duration::from_nanos(1));
+    let expired = earlier.advance_without_dispatch(start + spacing - Duration::from_nanos(1));
+    assert!(matches!(
+        terminal_failure(&expired, earlier_id),
+        Some(Error::Timeout)
+    ));
+    assert!(request_transmit_optional(&expired).is_none());
+    assert!(earlier.entry(earlier_id).is_none());
+
+    // Equality is due-before-dispatch as well: the request cannot turn a
+    // pacing wake into a local first-write budget bypass.
+    let (mut equal, equal_id) = setup(spacing);
+    let expired = equal.advance_without_dispatch(start + spacing);
+    assert!(matches!(
+        terminal_failure(&expired, equal_id),
+        Some(Error::Timeout)
+    ));
+    assert!(request_transmit_optional(&expired).is_none());
+    assert!(equal.entry(equal_id).is_none());
+
+    // Once the budget is strictly later, the same no-dispatch wake leaves the
+    // request ready; the exact first-dispatch query can then stage its write.
+    let (mut later, later_id) = setup(spacing + Duration::from_nanos(1));
+    let due = later.advance_without_dispatch(start + spacing);
+    assert!(request_transmit_optional(&due).is_none());
+    let dispatch = match later.first_dispatch_without_due(later_id, start + spacing) {
+        FirstDispatch::Effects(effects) => effects,
+        other => panic!("later paced request did not win first dispatch: {other:?}"),
+    };
+    assert_eq!(request_transmit(&dispatch).1, later_id);
+    later.assert_invariants().unwrap();
+}
+
+/// The identified write-result ingress shares the Sending timeout policy. A
+/// result at equality remains input-first and then reaches the due pass; a
+/// result one nanosecond later must install the same target hold before it
+/// terminalizes the raw inquiry.
+#[test]
+fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_successor_release() {
+    let start = Instant::now();
+    let budget_at = start + Duration::from_millis(10);
+    let retry = immediate_retry_budget(Duration::from_millis(10));
+
+    // Equality is a valid input turn. The write reaches AwaitingReply first,
+    // then the due pass consumes its now-equal admission budget and retains
+    // the same single-flight hold.
+    {
+        let mut engine = single_flight_raw_engine();
+        let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, POWER, retry), start);
+        let (transmission, transmitted_id, _) = request_transmit(&first);
+        assert_eq!(transmitted_id, first_id);
+        let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+        assert!(request_transmit_optional(&successor).is_none());
+
+        let equal = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            budget_at,
+        );
+        assert!(matches!(
+            terminal_failure(&equal, first_id),
+            Some(Error::Timeout)
+        ));
+        let awaiting_reply = position_of(&equal, |effect| {
+            matches!(
+                effect,
+                Effect::Transition {
+                    id,
+                    to: Phase::AwaitingReply { .. },
+                    ..
+                } if *id == first_id
+            )
+        })
+        .expect("equality write result transitions before due work");
+        let terminal = position_of(
+            &equal,
+            |effect| matches!(effect, Effect::Terminal { id, .. } if *id == first_id),
+        )
+        .expect("due work terminalizes the equal-budget inquiry");
+        assert!(awaiting_reply < terminal);
+        assert_eq!(
+            engine.raw_target_tombstones[1],
+            Some(RawTerminalTombstone {
+                deadline: budget_at + Duration::from_millis(50)
+            })
+        );
+        assert!(matches!(
+            phase_of(&engine, successor_id),
+            Some(Phase::Ready { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    let late_at = budget_at + Duration::from_nanos(1);
+    let release_at = late_at + Duration::from_millis(50);
+    let mut engine = single_flight_raw_engine();
+    let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, POWER, retry), start);
+    let (first_transmission, transmitted_id, _) = request_transmit(&first);
+    assert_eq!(transmitted_id, first_id);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    assert!(request_transmit_optional(&successor).is_none());
+
+    let late = engine.handle(
+        Input::TransmissionFinished {
+            transmission: first_transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        late_at,
+    );
+    assert!(matches!(
+        terminal_failure(&late, first_id),
+        Some(Error::Timeout)
+    ));
+    assert!(!late.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition {
+            id,
+            to: Phase::AwaitingReply { .. },
+            ..
+        } if *id == first_id
+    )));
+    assert!(engine.entry(first_id).is_none());
+    assert!(engine.transmissions.is_empty());
+    assert!(engine.raw_inquiries[1].is_empty());
+    assert!(engine.sequences.is_empty());
+    assert!(engine.lower_sequences.is_empty());
+    assert_eq!(
+        engine.raw_target_tombstones[1],
+        Some(RawTerminalTombstone {
+            deadline: release_at
+        })
+    );
+    assert_eq!(engine.next_wake(), Some(release_at));
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    // The same tombstone isolates the successor while a different target can
+    // use the freed global single-flight capacity.
+    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), late_at);
+    assert_eq!(request_transmit(&other_target).1, other_target_id);
+    let other_sent = send_ok(&mut engine, &other_target, None, late_at);
+    assert!(request_transmit_optional(&other_sent).is_none());
+    let other_reply = engine.handle(
+        frame(
+            2,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(FOCUS),
+                payload: smallvec![0x0c],
+            },
+        ),
+        late_at,
+    );
+    assert!(matches!(
+        terminal_outcome(&other_reply, other_target_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0c]
+    ));
+
+    let stale = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        late_at + Duration::from_nanos(1),
+    );
+    assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(terminal_outcome(&stale, successor_id).is_none());
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let at_expiry = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        release_at,
+    );
+    assert_eq!(
+        ignored_reasons(&at_expiry),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    let ignored = position_of(&at_expiry, |effect| {
+        matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
+    })
+    .expect("stale inquiry reply is ignored before the due pass");
+    let transmitted = position_of(&at_expiry, |effect| {
+        matches!(
+            effect,
+            Effect::Transmit {
+                request,
+                kind: Transmission::Request { .. },
+                ..
+            } if *request == successor_id
+        )
+    })
+    .expect("exact tombstone expiry dispatches the same-target successor");
+    assert!(ignored < transmitted);
+
+    let successor_sent = send_ok(&mut engine, &at_expiry, None, release_at);
+    assert!(request_transmit_optional(&successor_sent).is_none());
+    let successor_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(ZOOM),
+                payload: smallvec![0x0b],
+            },
+        ),
+        release_at + Duration::from_nanos(1),
+    );
+    assert!(matches!(
+        terminal_outcome(&successor_reply, successor_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
     ));
     engine.assert_invariants().unwrap();
 }

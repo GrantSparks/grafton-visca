@@ -29,8 +29,8 @@ use crate::{
     },
     stop_request::pan_tilt_stop_request,
     transport::{AsyncTransport, HasTransportConfig},
-    CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot, OperationCommand,
-    PlainCommand, Result, SessionConfig, StateCache, SubmissionClass,
+    AffectedAxes, CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot,
+    OperationCommand, PlainCommand, Result, SessionConfig, StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -583,26 +583,32 @@ impl AsyncCameraCore {
     pub(crate) async fn stop_all_motion(&self) -> Result<()> {
         let mut first_error = None;
 
-        let pan_tilt_result = match self.pan_tilt_stop_request() {
-            Ok(stop) => match self.submit::<completion::AppliedOnly, _>(&stop).await {
+        if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
+            let pan_tilt_result = match self.pan_tilt_stop_request() {
+                Ok(stop) => match self.submit::<completion::AppliedOnly, _>(&stop).await {
+                    Ok(operation) => operation.applied().await,
+                    Err(error) => Err(error),
+                },
+                Err(error) => Err(error),
+            };
+            retain_first_error(&mut first_error, pan_tilt_result);
+        }
+
+        if self.profile.supports_axes(AffectedAxes::ZOOM) {
+            let zoom_result = match self.submit::<completion::AppliedOnly, _>(&ZoomStop).await {
                 Ok(operation) => operation.applied().await,
                 Err(error) => Err(error),
-            },
-            Err(error) => Err(error),
-        };
-        retain_first_error(&mut first_error, pan_tilt_result);
+            };
+            retain_first_error(&mut first_error, zoom_result);
+        }
 
-        let zoom_result = match self.submit::<completion::AppliedOnly, _>(&ZoomStop).await {
-            Ok(operation) => operation.applied().await,
-            Err(error) => Err(error),
-        };
-        retain_first_error(&mut first_error, zoom_result);
-
-        let focus_result = match self.submit::<completion::AppliedOnly, _>(&FocusStop).await {
-            Ok(operation) => operation.applied().await,
-            Err(error) => Err(error),
-        };
-        retain_first_error(&mut first_error, focus_result);
+        if self.profile.supports_axes(AffectedAxes::FOCUS) {
+            let focus_result = match self.submit::<completion::AppliedOnly, _>(&FocusStop).await {
+                Ok(operation) => operation.applied().await,
+                Err(error) => Err(error),
+            };
+            retain_first_error(&mut first_error, focus_result);
+        }
 
         first_error.map_or(Ok(()), Err)
     }
@@ -881,5 +887,210 @@ fn retain_first_error(first_error: &mut Option<Error>, result: Result<()>) {
         if first_error.is_none() {
             *first_error = Some(error);
         }
+    }
+}
+
+#[cfg(all(test, feature = "test-utils"))]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use std::{
+        future::Future,
+        sync::{Arc, Mutex},
+    };
+
+    use crate::{
+        capabilities::Capabilities,
+        profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
+        testing::testkit::{helpers, DeterministicExecutor, ScriptedTransport, Step},
+        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        CommandTimeouts,
+    };
+
+    struct FailFirstZoomStopSend {
+        inner: ScriptedTransport<DeterministicExecutor>,
+        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        failed: bool,
+    }
+
+    impl FailFirstZoomStopSend {
+        fn new(
+            steps: impl Into<Vec<Step>>,
+            runtime: Arc<DeterministicExecutor>,
+        ) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            let writes = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    inner: ScriptedTransport::new(steps).with_executor(runtime),
+                    writes: Arc::clone(&writes),
+                    failed: false,
+                },
+                writes,
+            )
+        }
+    }
+
+    impl HasTransportConfig for FailFirstZoomStopSend {
+        fn transport_config(&self) -> &TransportConfig {
+            self.inner.transport_config()
+        }
+    }
+
+    impl AsyncTransport for FailFirstZoomStopSend {
+        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+            self.writes
+                .lock()
+                .expect("writes lock")
+                .push(bytes.to_vec());
+            let should_fail = !self.failed && bytes.starts_with(&[0x81, 0x01, 0x04, 0x07]);
+            self.failed |= should_fail;
+            async move {
+                if should_fail {
+                    Err(Error::TransportError(
+                        "injected zoom stop send failure".into(),
+                    ))
+                } else {
+                    self.inner.send(bytes).await
+                }
+            }
+        }
+
+        fn recv_into<'a>(
+            &'a mut self,
+            dst: &'a mut [u8],
+        ) -> impl Future<Output = Result<usize, Error>> + Send {
+            self.inner.recv_into(dst)
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
+    }
+
+    fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
+        let mut capabilities =
+            Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
+        capabilities.has_zoom = has_zoom;
+        capabilities.has_focus = has_focus;
+
+        ProfileSpec::builder(capabilities)
+            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .envelope(ProfileEnvelope::RawVisca)
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::ZERO)
+                    .minimum_command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("valid timing"),
+            )
+            .maximum_command_sockets(1)
+            .supports_operation_complete(true)
+            .supports_command_cancel(false)
+            .preset_recall_axes(None)
+            .position_inquiries(PositionInquirySupport::new(false, false, false))
+            .build()
+            .expect("valid partial motion profile")
+    }
+
+    fn partial_motion_core(session: &Session) -> AsyncCameraCore {
+        AsyncCameraCore {
+            owner: session.owner.clone(),
+            target: CameraId::CAMERA_1,
+            profile: session
+                .config
+                .profile_arc(CameraId::CAMERA_1)
+                .expect("registered partial motion profile"),
+            class: ClassSelection::Request,
+        }
+    }
+
+    #[test]
+    fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
+        let (runtime, _) = DeterministicExecutor::new();
+        let transport =
+            ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
+        let probe = transport.clone();
+        let session = runtime
+            .run_until(Session::open::<DeterministicExecutor, _>(
+                transport,
+                SessionConfig::new(partial_motion_profile(true, false)),
+                runtime.clone(),
+            ))
+            .expect("zoom-only session");
+
+        runtime
+            .run_until(partial_motion_core(&session).stop_all_motion())
+            .expect("zoom-only stop succeeds");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff]],
+            "unsupported pan/tilt and focus stops must never reach the wire"
+        );
+        runtime
+            .run_until(session.close())
+            .expect("session shutdown");
+    }
+
+    #[test]
+    fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
+        let (runtime, _) = DeterministicExecutor::new();
+        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let probe = transport.clone();
+        let session = runtime
+            .run_until(Session::open::<DeterministicExecutor, _>(
+                transport,
+                SessionConfig::new(partial_motion_profile(false, false)),
+                runtime.clone(),
+            ))
+            .expect("no-axis session");
+
+        runtime
+            .run_until(partial_motion_core(&session).stop_all_motion())
+            .expect("no-axis stop is a successful no-op");
+
+        assert!(
+            probe.sent().is_empty(),
+            "a profile without motion axes must not emit a stop frame"
+        );
+        runtime
+            .run_until(session.close())
+            .expect("session shutdown");
+    }
+
+    #[test]
+    fn stop_all_motion_returns_the_first_supported_failure_after_later_stops() {
+        let (runtime, _) = DeterministicExecutor::new();
+        let (transport, writes) =
+            FailFirstZoomStopSend::new([helpers::auto_respond_step()], runtime.clone());
+        let session = runtime
+            .run_until(Session::open::<DeterministicExecutor, _>(
+                transport,
+                SessionConfig::new(partial_motion_profile(true, true)),
+                runtime.clone(),
+            ))
+            .expect("zoom-focus session");
+
+        assert!(matches!(
+            runtime.run_until(partial_motion_core(&session).stop_all_motion()),
+            Err(Error::TransportError(_))
+        ));
+        assert_eq!(
+            writes.lock().expect("writes lock").clone(),
+            vec![
+                vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
+                vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xff],
+            ],
+            "the focus stop must follow the failed zoom stop, while unsupported pan/tilt stays absent"
+        );
+        runtime
+            .run_until(session.close())
+            .expect("session shutdown");
     }
 }

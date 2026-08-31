@@ -28,9 +28,11 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
+    raw,
     request::{self, builtin::ZoomStop},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    CameraId, ControlClass, Error, Request, RetryClass, TimeoutClass,
+    types::ZoomPosition,
+    CameraId, ControlClass, Error, InquiryRoute, Request, RetryClass, TimeoutClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -62,6 +64,26 @@ const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 const NOT_EXECUTABLE: &[u8] = &[0x90, 0x60, 0x41, 0xff];
 /// `0x05` — the camera has no free command socket.
 const NO_SOCKET: &[u8] = &[0x90, 0x60, 0x05, 0xff];
+/// `0x02` — malformed command syntax, transient only for generated inquiries.
+const SYNTAX_ERROR: &[u8] = &[0x90, 0x60, 0x02, 0xff];
+const ZOOM_POSITION_REPLY: &[u8] = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff];
+const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
+
+fn decode_custom_inquiry(payload: &[u8]) -> Result<Vec<u8>, Error> {
+    Ok(payload.to_vec())
+}
+
+fn custom_zoom_inquiry() -> raw::Inquiry<Vec<u8>> {
+    raw::Inquiry::from_fn(
+        ZOOM_POSITION_INQUIRY,
+        InquiryRoute::RAW,
+        decode_custom_inquiry,
+        TimeoutClass::Inquiry,
+        RetryClass::Inquiry,
+        ControlClass::Normal,
+    )
+    .expect("valid custom inquiry")
+}
 
 /// A camera whose answer to the n-th write is scripted.
 #[derive(Debug)]
@@ -286,6 +308,57 @@ fn a_no_socket_answer_is_replayed_for_a_standard_command() {
         probe.writes().len(),
         2,
         "a capacity answer is replayed regardless of retry class"
+    );
+    session.shutdown().expect("owner shutdown");
+}
+
+/// Issue #566: generated noun accessors retain the built-in inquiry provenance
+/// through the public blocking facade. A custom inquiry with the exact same
+/// bytes remains terminal on `0x02`, proving this is provenance rather than
+/// wire-shape policy.
+#[test]
+fn a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_terminal() {
+    let transport = ScriptTransport::new(vec![
+        vec![SYNTAX_ERROR.to_vec()],
+        vec![ZOOM_POSITION_REPLY.to_vec()],
+    ]);
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config()).expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let position = camera
+        .zoom()
+        .position()
+        .expect("a generated inquiry must retry transient 0x02");
+    assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
+    assert_eq!(
+        probe.writes().len(),
+        2,
+        "the built-in inquiry is reissued once"
+    );
+    session.shutdown().expect("owner shutdown");
+
+    let transport = ScriptTransport::new(vec![
+        vec![SYNTAX_ERROR.to_vec()],
+        vec![ZOOM_POSITION_REPLY.to_vec()],
+    ]);
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config()).expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let custom = custom_zoom_inquiry();
+    let error = camera
+        .inquire(&custom)
+        .expect_err("a custom inquiry must surface the camera's syntax verdict");
+    assert!(matches!(error, Error::SyntaxError));
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "a custom inquiry must not reach the scripted resend"
     );
     session.shutdown().expect("owner shutdown");
 }

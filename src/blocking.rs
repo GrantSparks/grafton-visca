@@ -17,9 +17,9 @@ use crate::{
         BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
     },
     stop_request::pan_tilt_stop_request,
-    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, DiagnosticEvent, Error,
-    Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec,
-    Result, StateCache, SubmissionClass,
+    AffectedAxes, CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile,
+    DiagnosticEvent, Error, Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning,
+    PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -999,31 +999,39 @@ impl<'session> BlockingCameraCore<'session> {
         Ok(Operation::from_receipt(receipt, self.host))
     }
 
-    /// Stops pan/tilt, zoom, and focus through this camera's one owner.
+    /// Stops every profile-supported pan/tilt, zoom, and focus axis through
+    /// this camera's one owner.
     ///
-    /// Every typed stop is submitted and observed even when an earlier
-    /// submission or application fails. The first error is returned only after
-    /// all three stop paths have had their observation attempted.
+    /// Every supported typed stop is submitted and observed even when an
+    /// earlier submission or application fails. The first supported-axis error
+    /// is returned only after every supported stop path has had its observation
+    /// attempted.
     pub fn stop_all_motion(&self) -> Result<(), Error> {
         let mut first_error = None;
 
-        let pan_tilt_result = match self.pan_tilt_stop_request() {
-            Ok(stop) => self
-                .submit::<completion::AppliedOnly, _>(&stop)
-                .and_then(|operation| operation.applied()),
-            Err(error) => Err(error),
-        };
-        retain_first_error(&mut first_error, pan_tilt_result);
+        if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
+            let pan_tilt_result = match self.pan_tilt_stop_request() {
+                Ok(stop) => self
+                    .submit::<completion::AppliedOnly, _>(&stop)
+                    .and_then(|operation| operation.applied()),
+                Err(error) => Err(error),
+            };
+            retain_first_error(&mut first_error, pan_tilt_result);
+        }
 
-        let zoom_result = self
-            .submit::<completion::AppliedOnly, _>(&ZoomStop)
-            .and_then(|operation| operation.applied());
-        retain_first_error(&mut first_error, zoom_result);
+        if self.profile.supports_axes(AffectedAxes::ZOOM) {
+            let zoom_result = self
+                .submit::<completion::AppliedOnly, _>(&ZoomStop)
+                .and_then(|operation| operation.applied());
+            retain_first_error(&mut first_error, zoom_result);
+        }
 
-        let focus_result = self
-            .submit::<completion::AppliedOnly, _>(&FocusStop)
-            .and_then(|operation| operation.applied());
-        retain_first_error(&mut first_error, focus_result);
+        if self.profile.supports_axes(AffectedAxes::FOCUS) {
+            let focus_result = self
+                .submit::<completion::AppliedOnly, _>(&FocusStop)
+                .and_then(|operation| operation.applied());
+            retain_first_error(&mut first_error, focus_result);
+        }
 
         first_error.map_or(Ok(()), Err)
     }
@@ -1319,6 +1327,117 @@ fn retain_first_error(first_error: &mut Option<Error>, result: Result<(), Error>
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    use crate::{
+        capabilities::Capabilities,
+        command::CommandKind,
+        profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
+        testing::testkit::{helpers, ScriptedBlockingTransport, Step},
+        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        CommandTimeouts,
+    };
+
+    struct FailFirstZoomStopSend {
+        inner: ScriptedBlockingTransport,
+        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        failed: bool,
+    }
+
+    impl FailFirstZoomStopSend {
+        fn new(steps: impl Into<Vec<Step>>) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            let writes = Arc::new(Mutex::new(Vec::new()));
+            (
+                Self {
+                    inner: ScriptedBlockingTransport::new(steps),
+                    writes: Arc::clone(&writes),
+                    failed: false,
+                },
+                writes,
+            )
+        }
+    }
+
+    impl HasTransportConfig for FailFirstZoomStopSend {
+        fn transport_config(&self) -> &TransportConfig {
+            self.inner.transport_config()
+        }
+    }
+
+    impl BlockingTransport for FailFirstZoomStopSend {
+        fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+            self.writes
+                .lock()
+                .expect("writes lock")
+                .push(bytes.to_vec());
+            if !self.failed && bytes.starts_with(&[0x81, 0x01, 0x04, 0x07]) {
+                self.failed = true;
+                return Err(Error::TransportError(
+                    "injected zoom stop send failure".into(),
+                ));
+            }
+            self.inner.send_with_kind(bytes, kind)
+        }
+
+        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            self.inner.recv_into(dst)
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            timeout: Duration,
+        ) -> Result<usize, Error> {
+            self.inner.recv_into_with_timeout(dst, timeout)
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
+    }
+
+    fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
+        let mut capabilities =
+            Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
+        capabilities.has_zoom = has_zoom;
+        capabilities.has_focus = has_focus;
+
+        ProfileSpec::builder(capabilities)
+            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .envelope(ProfileEnvelope::RawVisca)
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::default())
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::ZERO)
+                    .minimum_inquiry_spacing(Duration::ZERO)
+                    .minimum_command_spacing(Duration::ZERO)
+                    .build()
+                    .expect("valid timing"),
+            )
+            .maximum_command_sockets(1)
+            .supports_operation_complete(true)
+            .supports_command_cancel(false)
+            .preset_recall_axes(None)
+            .position_inquiries(PositionInquirySupport::new(false, false, false))
+            .build()
+            .expect("valid partial motion profile")
+    }
+
+    fn partial_motion_core(session: &Session) -> BlockingCameraCore<'_> {
+        BlockingCameraCore {
+            host: &session.host,
+            target: CameraId::CAMERA_1,
+            profile: session
+                .config
+                .profile(CameraId::CAMERA_1)
+                .expect("registered partial motion profile"),
+            class: ClassSelection::Request,
+        }
+    }
 
     /// The owning `Session` is the host every camera view borrows from: two
     /// views taken from the same session drive the one owned transport, and an
@@ -1353,5 +1472,72 @@ mod tests {
             "both views wrote their zoom stop through the one owned transport"
         );
         session.shutdown().unwrap();
+    }
+
+    #[test]
+    fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
+        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let probe = transport.clone();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(partial_motion_profile(true, false)),
+        )
+        .expect("zoom-only session");
+
+        partial_motion_core(&session)
+            .stop_all_motion()
+            .expect("zoom-only stop succeeds");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff]],
+            "unsupported pan/tilt and focus stops must never reach the wire"
+        );
+        session.shutdown().expect("session shutdown");
+    }
+
+    #[test]
+    fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
+        let transport = ScriptedBlockingTransport::new([]);
+        let probe = transport.clone();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(partial_motion_profile(false, false)),
+        )
+        .expect("no-axis session");
+
+        partial_motion_core(&session)
+            .stop_all_motion()
+            .expect("no-axis stop is a successful no-op");
+
+        assert!(
+            probe.sent().is_empty(),
+            "a profile without motion axes must not emit a stop frame"
+        );
+        session.shutdown().expect("session shutdown");
+    }
+
+    #[test]
+    fn stop_all_motion_returns_the_first_supported_failure_after_later_stops() {
+        let (transport, writes) = FailFirstZoomStopSend::new([helpers::auto_respond_step()]);
+        let session = Session::open(
+            transport,
+            SessionConfig::new(partial_motion_profile(true, true)),
+        )
+        .expect("zoom-focus session");
+
+        assert!(matches!(
+            partial_motion_core(&session).stop_all_motion(),
+            Err(Error::TransportError(_))
+        ));
+        assert_eq!(
+            writes.lock().expect("writes lock").clone(),
+            vec![
+                vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff],
+                vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xff],
+            ],
+            "the focus stop must follow the failed zoom stop, while unsupported pan/tilt stays absent"
+        );
+        session.shutdown().expect("session shutdown");
     }
 }

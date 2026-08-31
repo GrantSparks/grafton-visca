@@ -210,19 +210,12 @@ fn a_camera_with_no_free_socket_is_replayed() {
 }
 
 /// `helpers::syntax_error_then_inquiry_success` scripts the #536 recovery: a
-/// camera answers an inquiry with a transient `0x02` and then answers it
-/// properly on the resend.
-///
-/// **That recovery is deliberately not reachable from the public facade**, and
-/// this test is what says so. `builtin_inquiry_syntax` is set only by
-/// `prepare_builtin_inquiry`, which the crate uses for its own settlement
-/// polling; `Camera::inquire` lowers through `prepare_inquiry`, where a caller
-/// may have supplied a syntax the camera genuinely rejects, and replaying that
-/// would be a guess. So the caller sees `0x02` and the scripted resend is never
-/// reached. The unit test that pins the policy itself is
-/// `prepared::tests::inquiry_syntax_retry_is_reserved_for_builtin_inquiries`.
+/// camera answers this crate's generated inquiry with a transient `0x02` and
+/// then answers it properly on the one resend. Generic public inquiry lowering
+/// retains the generated request's closed provenance, so this direct facade
+/// call takes the same recovery path as a generated noun accessor.
 #[test]
-fn a_facade_inquiry_syntax_error_is_reported_rather_than_replayed() {
+fn a_builtin_facade_inquiry_syntax_error_is_replayed_once() {
     let (session, probe) = open(helpers::syntax_error_then_inquiry_success(
         ZOOM_POSITION_INQUIRY.to_vec(),
         vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff],
@@ -231,17 +224,14 @@ fn a_facade_inquiry_syntax_error_is_reported_rather_than_replayed() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let error = camera
+    let position = camera
         .inquire(&ZoomPositionInquiry)
-        .expect_err("a caller-supplied inquiry syntax is not replayed on 0x02");
-    assert!(
-        matches!(error, Error::SyntaxError),
-        "expected the camera's own rejection, got {error:?}"
-    );
+        .expect("a generated built-in inquiry must retry transient 0x02 once");
+    assert_eq!(position, ZoomPosition::new(0x1234).expect("zoom position"));
     assert_eq!(
         probe.sent().len(),
-        1,
-        "the scripted resend must never be reached"
+        2,
+        "the transient syntax error must reissue the generated inquiry once"
     );
     session.shutdown().expect("owner shutdown");
 }

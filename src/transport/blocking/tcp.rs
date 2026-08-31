@@ -70,6 +70,7 @@ impl Tcp {
     /// This method provides full control over connection and socket parameters.
     /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
+        config.validate_buffer_bounds()?;
         let canonical_addr = canonicalize_endpoint(address, None)?;
         let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
@@ -182,5 +183,72 @@ impl BlockingTransport for Tcp {
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
         Some(AddressingMode::Ip)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use std::{
+        io::ErrorKind,
+        net::TcpListener,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+    use crate::transport::BufferConfig;
+
+    fn invalid_buffer_config() -> TransportConfig {
+        TransportConfig {
+            buffer_config: BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            },
+            ..TransportConfig::default()
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore = "requires a real TCP listener")]
+    fn invalid_config_returns_before_a_listener_can_accept() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
+        listener
+            .set_nonblocking(true)
+            .expect("make listener nonblocking");
+        let address = listener.local_addr().expect("listener address");
+
+        let accept_thread = thread::spawn(move || -> Result<bool, std::io::Error> {
+            let deadline = Instant::now() + Duration::from_millis(100);
+            loop {
+                match listener.accept() {
+                    Ok(_) => return Ok(true),
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        if Instant::now() >= deadline {
+                            return Ok(false);
+                        }
+                        thread::sleep(Duration::from_millis(1));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        });
+
+        let result = Tcp::connect_with_config(&address.to_string(), invalid_buffer_config());
+        let accepted = accept_thread
+            .join()
+            .expect("join accept observer")
+            .expect("listener failed while observing connector");
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidRequest(actual))
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+        assert!(
+            !accepted,
+            "invalid configuration must be rejected before TCP connect"
+        );
     }
 }

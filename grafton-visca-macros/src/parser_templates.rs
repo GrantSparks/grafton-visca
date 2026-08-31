@@ -192,27 +192,20 @@ pub fn generate_mode_enum_parser(
     }
 }
 
-/// Generate a special parser for PanTiltPosition (two signed 16-bit values)
+/// Generate the standard VISCA PanTiltPosition parser.
+///
+/// The standard reply contains exactly four nibbles encoding a signed pan
+/// value followed by four encoding a signed tilt value. Both standard 16-bit
+/// wire values are widened to the public `i32` coordinate fields;
+/// profile-owned codecs such as Sony BRC-300's 5+4 form are intentionally
+/// outside this downstream parser.
 pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.len() < 8 {
-                return Err(#crate_path::Error::invalid_response_length(8, data));
-            }
-
-            // Pan position (bytes 0-3)
-            let pan = ((data[0] & 0x0F) as u16) << 12
-                | ((data[1] & 0x0F) as u16) << 8
-                | ((data[2] & 0x0F) as u16) << 4
-                | (data[3] & 0x0F) as u16;
-            let pan = pan as i16;
-
-            // Tilt position (bytes 4-7)
-            let tilt = ((data[4] & 0x0F) as u16) << 12
-                | ((data[5] & 0x0F) as u16) << 8
-                | ((data[6] & 0x0F) as u16) << 4
-                | (data[7] & 0x0F) as u16;
-            let tilt = tilt as i16;
+            let payload = #crate_path::command::Payload::new(data);
+            let nibbles = #crate_path::command::Nibbles::<8>::try_from(payload)?;
+            let pan = i32::from(nibbles.i16_quad(0));
+            let tilt = i32::from(nibbles.i16_quad(4));
 
             Ok(#crate_path::command::InquiryData::#response_variant { pan, tilt })
         }

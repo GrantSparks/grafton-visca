@@ -15,7 +15,7 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileEnvelope, ProfileSpec},
     protocol::{
-        framer::ProtocolFramer,
+        framer::{FramingMode, ProtocolFramer},
         response::{decode_basic, BasicKind},
     },
     raw::INLINE_BYTES,
@@ -156,6 +156,17 @@ impl OwnerEnvelope {
         match self {
             Self::Raw(_) => EnvelopeKind::Raw,
             Self::Sony(_) => EnvelopeKind::Sony,
+        }
+    }
+
+    /// Select the only valid framer mode for this already-validated envelope.
+    ///
+    /// Owners retain exactly one envelope for their lifetime, so response
+    /// framing must not rediscover it from untrusted received bytes.
+    pub(crate) const fn framing_mode(&self) -> FramingMode {
+        match self {
+            Self::Raw(_) => FramingMode::RawVisca,
+            Self::Sony(_) => FramingMode::SonyEncapsulated,
         }
     }
 
@@ -734,10 +745,10 @@ mod tests {
     use super::*;
     use crate::{
         profile::ProfileSpec,
-        profiles::{GenericVisca, PtzOpticsG2},
+        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         runtime::engine::DecodedResponse,
         runtime::owner::OwnerLimits,
-        transport::envelope::RawVisca,
+        transport::envelope::{RawVisca, SonyEncapsulated},
     };
 
     fn all_targets() -> TargetRegistry {
@@ -770,6 +781,18 @@ mod tests {
                 Ok(Some(actual)) if actual == expected
             ));
         }
+    }
+
+    #[test]
+    fn owner_envelope_selects_its_explicit_framer_mode() {
+        assert_eq!(
+            OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip)).framing_mode(),
+            FramingMode::RawVisca
+        );
+        assert_eq!(
+            OwnerEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip)).framing_mode(),
+            FramingMode::SonyEncapsulated
+        );
     }
 
     #[test]
@@ -1244,6 +1267,42 @@ mod tests {
             policy.protocol.command_spacing,
             profile.timing().minimum_command_spacing()
         );
+    }
+
+    /// Production raw owners always enter the engine with one inquiry flight,
+    /// even when their admission queue is wider. Raw replies carry no request
+    /// identity, so the engine's bounded released-inquiry quarantine relies on
+    /// this topology; sequenced Sony sessions alone may use the wider capacity.
+    #[test]
+    fn production_raw_policy_is_single_flight_while_sony_uses_admission_capacity() {
+        let raw = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let sony = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let raw_profiles = [(CameraId::CAMERA_1, &raw)];
+        let sony_profiles = [(CameraId::CAMERA_1, &sony)];
+        let capacity = NonZeroUsize::new(3).unwrap();
+        let config = TransportConfig::default();
+
+        let raw_policy = owner_policy_for_targets_with_tuning(
+            &raw_profiles,
+            &config,
+            SendSemantics::Datagram,
+            OperationalTuning::new(),
+            capacity,
+        )
+        .unwrap();
+        assert_eq!(raw_policy.protocol.envelope, EnvelopeKind::Raw);
+        assert_eq!(raw_policy.protocol.inquiry_capacity, 1);
+
+        let sony_policy = owner_policy_for_targets_with_tuning(
+            &sony_profiles,
+            &config,
+            SendSemantics::Datagram,
+            OperationalTuning::new(),
+            capacity,
+        )
+        .unwrap();
+        assert_eq!(sony_policy.protocol.envelope, EnvelopeKind::Sony);
+        assert_eq!(sony_policy.protocol.inquiry_capacity, capacity.get());
     }
 
     #[test]

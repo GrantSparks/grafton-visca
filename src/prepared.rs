@@ -298,9 +298,9 @@ fn snapshots_moved(
                 Error::InvalidState("current snapshot omitted selected pan/tilt".into())
             })?
             .raw_values();
-        let tolerance = u32::from(tolerance.pan_tilt.unsigned_abs());
-        if (i32::from(previous_pan) - i32::from(current_pan)).unsigned_abs() > tolerance
-            || (i32::from(previous_tilt) - i32::from(current_tilt)).unsigned_abs() > tolerance
+        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
+        if (i64::from(previous_pan) - i64::from(current_pan)).unsigned_abs() > tolerance
+            || (i64::from(previous_tilt) - i64::from(current_tilt)).unsigned_abs() > tolerance
         {
             return Ok(true);
         }
@@ -516,7 +516,14 @@ pub(crate) fn prepare_inquiry<Q>(
 where
     Q: Inquiry + ?Sized,
 {
-    prepare_inquiry_with_policy(inquiry, target, profile, tuning, class, false)
+    prepare_inquiry_with_policy(
+        inquiry,
+        target,
+        profile,
+        tuning,
+        class,
+        crate::requests::builtin_inquiry_syntax_retry(inquiry),
+    )
 }
 
 /// Prepares a crate-generated inquiry with its closed protocol retry policy.
@@ -969,6 +976,13 @@ impl PreparedCommand {
     }
 }
 
+/// The default observer for a typed inquiry must outlive its automatic retry
+/// policy. A zero total budget is the engine's explicit no-total-budget mode,
+/// so it deliberately leaves the inquiry reply deadline unchanged.
+fn inquiry_observation_timeout(context: &RequestContext) -> Duration {
+    context.timeout.inquiry.max(context.retry.total_budget)
+}
+
 impl<R> PreparedInquiry<R> {
     fn into_template(self) -> PreparedInquiryTemplate<R> {
         PreparedInquiryTemplate {
@@ -983,7 +997,7 @@ impl<R> PreparedInquiry<R> {
     // (`runtime::owner::blocking`), which an async-only leg does not compile.
     #[allow(dead_code)]
     pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
-        let timeout = self.context.timeout.inquiry;
+        let timeout = inquiry_observation_timeout(&self.context);
         let request = RuntimeRequest::Inquiry {
             wire: self.wire,
             context: self.context,
@@ -996,7 +1010,7 @@ impl<R> PreparedInquiry<R> {
         self,
         admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
-        let timeout = self.context.timeout.inquiry;
+        let timeout = inquiry_observation_timeout(&self.context);
         let request = RuntimeRequest::Inquiry {
             wire: self.wire,
             context: self.context,
@@ -1694,7 +1708,7 @@ mod tests {
         assert_eq!(
             detector
                 .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i16::MIN, i16::MAX)),
+                    pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
                     zoom: Some(ZoomPosition::new(100).expect("zoom")),
                     focus: Some(FocusPosition::new(200)),
                     iris: None,
@@ -1706,7 +1720,7 @@ mod tests {
         assert_eq!(
             detector
                 .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i16::MAX, i16::MIN)),
+                    pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
                     zoom: Some(ZoomPosition::new(110).expect("zoom")),
                     focus: Some(FocusPosition::new(205)),
                     iris: None,
@@ -1718,7 +1732,7 @@ mod tests {
         assert_eq!(
             detector
                 .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i16::MAX - 2, i16::MIN + 2)),
+                    pan_tilt: Some(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2)),
                     zoom: Some(ZoomPosition::new(100).expect("zoom")),
                     focus: Some(FocusPosition::new(200)),
                     iris: None,
@@ -1732,7 +1746,7 @@ mod tests {
         assert_eq!(
             zoom_only
                 .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i16::MIN, i16::MAX)),
+                    pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
                     zoom: Some(ZoomPosition::new(10).expect("zoom")),
                     focus: None,
                     iris: None,
@@ -1744,7 +1758,7 @@ mod tests {
         assert_eq!(
             zoom_only
                 .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i16::MAX, i16::MIN)),
+                    pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
                     zoom: Some(ZoomPosition::new(10).expect("zoom")),
                     focus: Some(FocusPosition::new(u16::MAX)),
                     iris: None,
@@ -1752,6 +1766,60 @@ mod tests {
                 })
                 .expect("unselected changes are ignored"),
             MotionState::Settled
+        );
+    }
+
+    #[test]
+    fn motion_detector_accepts_brc300_width_pan_tilt_tolerances() {
+        // Sony BRC-300's signed 20-bit pan range exceeds i16. A 40_000-unit
+        // tolerance is meaningful within its documented endpoints and must
+        // neither truncate nor overflow while comparing two snapshots.
+        let tolerance = MovementTolerance {
+            pan_tilt: 40_000,
+            ..MovementTolerance::default()
+        };
+        let endpoint = PanTiltPosition::new(0x08A58, 0x493D);
+        let within_tolerance = PanTiltPosition::new(0x08A58 - 40_000, 0x493D);
+        let beyond_tolerance = PanTiltPosition::new(0x08A58 - 40_001, 0x493D);
+
+        let mut stable = MotionDetector::new(AffectedAxes::PAN_TILT, tolerance);
+        assert_eq!(
+            stable
+                .observe(PositionSnapshot {
+                    pan_tilt: Some(endpoint),
+                    ..PositionSnapshot::default()
+                })
+                .expect("BRC-300 baseline"),
+            MotionState::NeedSample
+        );
+        assert_eq!(
+            stable
+                .observe(PositionSnapshot {
+                    pan_tilt: Some(within_tolerance),
+                    ..PositionSnapshot::default()
+                })
+                .expect("BRC-300 tolerance-bound sample"),
+            MotionState::Settled
+        );
+
+        let mut moving = MotionDetector::new(AffectedAxes::PAN_TILT, tolerance);
+        assert_eq!(
+            moving
+                .observe(PositionSnapshot {
+                    pan_tilt: Some(endpoint),
+                    ..PositionSnapshot::default()
+                })
+                .expect("BRC-300 moving baseline"),
+            MotionState::NeedSample
+        );
+        assert_eq!(
+            moving
+                .observe(PositionSnapshot {
+                    pan_tilt: Some(beyond_tolerance),
+                    ..PositionSnapshot::default()
+                })
+                .expect("BRC-300 beyond-tolerance sample"),
+            MotionState::Moving
         );
     }
 
@@ -1977,15 +2045,25 @@ mod tests {
         assert!(custom.context.retry.inquiry_timeout);
         assert!(!custom.context.retry.builtin_inquiry_syntax);
 
-        let builtin = prepare_builtin_inquiry(
+        let builtin = prepare_inquiry(
+            &PowerInquiry,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("generic built-in inquiry preparation");
+        assert!(builtin.context.retry.inquiry_timeout);
+        assert!(builtin.context.retry.builtin_inquiry_syntax);
+
+        let settlement_builtin = prepare_builtin_inquiry(
             &PowerInquiry,
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
         )
-        .expect("built-in inquiry preparation");
-        assert!(builtin.context.retry.inquiry_timeout);
-        assert!(builtin.context.retry.builtin_inquiry_syntax);
+        .expect("settlement built-in inquiry preparation");
+        assert!(settlement_builtin.context.retry.builtin_inquiry_syntax);
     }
 
     #[test]
@@ -2103,6 +2181,38 @@ mod tests {
         )
         .expect("inquiry preparation");
         assert_eq!(prepared.context.timeout.inquiry, Duration::from_secs(17));
+    }
+
+    #[test]
+    fn inquiry_default_observation_covers_the_total_retry_budget() {
+        fn prepared_with_budget(total_budget: Duration) -> PreparedInquiry<Vec<u8>> {
+            let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+                .expect("built-in profile");
+            let mut prepared = prepare_inquiry(
+                &CountingInquiry,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("inquiry preparation");
+            prepared.context.timeout.inquiry = Duration::from_secs(1);
+            prepared.context.retry.total_budget = total_budget;
+            prepared
+        }
+
+        for (budget, expected) in [
+            (Duration::from_millis(500), Duration::from_secs(1)),
+            (Duration::from_secs(3), Duration::from_secs(3)),
+            (Duration::ZERO, Duration::from_secs(1)),
+        ] {
+            let admitted =
+                prepared_with_budget(budget).admit_with(|_request, _decoder, timeout| timeout);
+            assert_eq!(admitted, expected, "admission budget {budget:?}");
+
+            let (_request, _decoder, blocking) = prepared_with_budget(budget).into_parts();
+            assert_eq!(blocking, expected, "blocking budget {budget:?}");
+        }
     }
 
     #[test]
@@ -2391,8 +2501,91 @@ mod tests {
             .expect("signed profile");
         let pan_speed = PanSpeed::new(9).expect("speed");
         let tilt_speed = TiltSpeed::new(7).expect("speed");
+        let sony_tilt_speed = TiltSpeed::new(9).expect("matching Sony BRC-300 speed");
 
-        for profile in [&sony, &nearus] {
+        let sony_absolute = PanTiltAbsolute::for_profile(
+            Degrees(45.0),
+            Degrees(-15.0),
+            pan_speed,
+            sony_tilt_speed,
+            &sony,
+        )
+        .expect("Sony BRC-300 absolute");
+        let sony_relative = PanTiltRelative::for_profile(
+            Degrees(45.0),
+            Degrees(-15.0),
+            pan_speed,
+            sony_tilt_speed,
+            &sony,
+        )
+        .expect("Sony BRC-300 relative");
+        let sony_limit = PanTiltLimitSet::for_profile(
+            PanTiltLimitCorner::UpRight,
+            Degrees(45.0),
+            Degrees(-15.0),
+            &sony,
+        )
+        .expect("Sony BRC-300 limit");
+        let prepared_sony_absolute = prepare_builtin_operation::<completion::Targeted, _>(
+            &sony_absolute,
+            CameraId::CAMERA_1,
+            &sony,
+            OperationalTuning::new(),
+        )
+        .expect("prepared Sony BRC-300 absolute");
+        let prepared_sony_relative = prepare_builtin_operation::<completion::Targeted, _>(
+            &sony_relative,
+            CameraId::CAMERA_1,
+            &sony,
+            OperationalTuning::new(),
+        )
+        .expect("prepared Sony BRC-300 relative");
+        let prepared_sony_limit = prepare_builtin_command(
+            &sony_limit,
+            CameraId::CAMERA_1,
+            &sony,
+            OperationalTuning::new(),
+        )
+        .expect("prepared Sony BRC-300 limit");
+        assert_eq!(
+            prepared_sony_absolute.wire.as_bytes(),
+            &[
+                0x81, 0x01, 0x06, 0x02, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+                0x00, 0xFF
+            ]
+        );
+        assert_eq!(
+            prepared_sony_relative.wire.as_bytes(),
+            &[
+                0x81, 0x01, 0x06, 0x03, 0x09, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+                0x00, 0xFF
+            ]
+        );
+        assert_eq!(
+            prepared_sony_limit.wire.as_bytes(),
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+                0x00, 0xFF
+            ]
+        );
+        let sony_inquiry = prepare_inquiry(
+            &PanTiltPositionInquiry,
+            CameraId::CAMERA_1,
+            &sony,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepared Sony BRC-300 inquiry");
+        assert_eq!(
+            sony_inquiry
+                .decoder
+                .decode(&[0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D, 0x00])
+                .expect("Sony BRC-300 position decode"),
+            crate::camera::PanTiltPosition::new(9360, -3120)
+        );
+
+        {
+            let profile = &nearus;
             let absolute = PanTiltAbsolute::for_profile(
                 Degrees(45.0),
                 Degrees(-15.0),
@@ -2400,7 +2593,7 @@ mod tests {
                 tilt_speed,
                 profile,
             )
-            .expect("unsigned absolute");
+            .expect("Nearus standard absolute");
             let relative = PanTiltRelative::for_profile(
                 Degrees(45.0),
                 Degrees(-15.0),
@@ -2408,14 +2601,14 @@ mod tests {
                 tilt_speed,
                 profile,
             )
-            .expect("unsigned relative");
+            .expect("Nearus standard relative");
             let limit = PanTiltLimitSet::for_profile(
                 PanTiltLimitCorner::UpRight,
                 Degrees(45.0),
                 Degrees(-15.0),
                 profile,
             )
-            .expect("unsigned limit");
+            .expect("Nearus standard limit");
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
                 &absolute,
                 CameraId::CAMERA_1,
@@ -2479,25 +2672,33 @@ mod tests {
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
-            .expect("prepared unsigned inquiry");
+            .expect("prepared Nearus standard inquiry");
             assert_eq!(
                 inquiry
                     .decoder
                     .decode(&[0x8, 0x2, 0x4, 0x9, 0x7, 0xf, 0x3, 0xd])
-                    .expect("unsigned position decode"),
+                    .expect("Nearus standard position decode"),
                 crate::camera::PanTiltPosition::new(585, -195)
             );
         }
 
-        let clear = PanTiltLimitClear::new(PanTiltLimitCorner::DownLeft);
+        let clear = PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, &sony)
+            .expect("Sony BRC-300 limit clear");
         let prepared_clear = prepare_command(
             &clear,
             CameraId::CAMERA_1,
-            &signed,
+            &sony,
             OperationalTuning::new(),
             ClassSelection::Request,
         )
         .expect("prepared limit clear");
+        assert_eq!(
+            prepared_clear.wire.as_bytes(),
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F,
+                0x0F, 0xFF
+            ]
+        );
         assert!(matches!(
             prepared_clear.applied_state,
             Some(AppliedStateProjection::Clear {

@@ -44,10 +44,11 @@ impl AsyncTransport for ScriptedTransport {
             .push(bytes.clone());
         async move {
             if bytes.get(1) == Some(&0x09) {
-                // Four compact bytes are accepted by the pan/tilt decoder and
-                // represent the same zero snapshot on both settlement samples.
+                // Sony BRC-300 returns five pan and four tilt nibbles.
                 reply_tx
-                    .send_async(vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0xff])
+                    .send_async(vec![
+                        0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+                    ])
                     .await
                     .map_err(|_| Error::ConnectionClosed { reason: None })?;
             } else {
@@ -110,6 +111,7 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
             coordinates.pan_degrees_to_units(),
             coordinates.tilt_degrees_to_units(),
         )
+        .pan_tilt_wire_codec(coordinates.wire_codec())
         .transports(static_profile.transports())
         .envelope(static_profile.envelope())
         .timing(

@@ -213,6 +213,28 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         self.u16_quad(start) as i16
     }
 
+    /// Combine five nibbles into a 20-bit unsigned value.
+    #[inline]
+    pub(crate) fn u20_penta(&self, start: usize) -> u32 {
+        debug_assert!(start + 4 < N, "u20_penta index out of bounds");
+        (((self.0[start] & 0x0F) as u32) << 16)
+            | (((self.0[start + 1] & 0x0F) as u32) << 12)
+            | (((self.0[start + 2] & 0x0F) as u32) << 8)
+            | (((self.0[start + 3] & 0x0F) as u32) << 4)
+            | ((self.0[start + 4] & 0x0F) as u32)
+    }
+
+    /// Combine five nibbles into a signed two's-complement 20-bit value.
+    #[inline]
+    pub(crate) fn i20_penta(&self, start: usize) -> i32 {
+        let value = self.u20_penta(start);
+        if value & 0x0008_0000 != 0 {
+            value as i32 - 0x0010_0000
+        } else {
+            value as i32
+        }
+    }
+
     /// Get the last nibble in the array.
     #[inline]
     pub fn last_nibble(&self) -> u8 {

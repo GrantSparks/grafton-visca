@@ -78,6 +78,18 @@ impl Drop for TimeoutGuard<'_> {
 impl SerialTransport {
     /// Create a new serial transport with the given configuration.
     pub fn new(config: SerialConfig) -> Result<Self> {
+        // Build and validate the transport configuration before opening the
+        // serial device. Canonical CameraConfig does this during preflight,
+        // but this lower-level initializer also serves direct library paths.
+        let transport_config = TransportConfig {
+            read_timeout: config.read_timeout,
+            write_timeout: config.write_timeout,
+            buffer_config: config.buffer_config,
+            addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
+            ..Default::default()
+        };
+        transport_config.validate_buffer_bounds()?;
+
         // Open serial port
         let mut port = serialport::new(&config.port, config.baud_rate)
             .timeout(config.read_timeout)
@@ -89,21 +101,12 @@ impl SerialTransport {
         let if_clear = config.if_clear_on_connect;
         let address_set = config.address_set_on_connect;
 
-        // Create TransportConfig from SerialConfig
-        let transport_config = TransportConfig {
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            buffer_config: config.buffer_config,
-            addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
-            ..Default::default()
-        };
-
         // Perform initialization if requested
         if if_clear {
-            if_clear_blocking(&mut *port)?;
+            if_clear_blocking(&mut *port, config.write_timeout)?;
         }
         if address_set {
-            address_set_blocking(&mut *port, Duration::from_secs(2))?;
+            address_set_blocking(&mut *port, Duration::from_secs(2), config.write_timeout)?;
         }
 
         Ok(Self {
@@ -186,11 +189,14 @@ impl BlockingTransport for SerialTransport {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::transport::serial::handshake::blocking_handshake::{
+        address_set_blocking, if_clear_blocking,
+    };
     use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits};
-    use std::cell::RefCell;
     use std::io::{self, ErrorKind};
     use std::sync::mpsc;
     use std::thread;
+    use std::{cell::RefCell, collections::VecDeque};
 
     #[test]
     fn test_serial_config_default() {
@@ -205,25 +211,76 @@ mod tests {
         );
     }
 
+    #[test]
+    fn invalid_buffer_bounds_fail_before_serial_device_open() {
+        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
+            .if_clear_on_connect(false)
+            .buffer_config(crate::transport::BufferConfig {
+                recv_buffer_size: 65,
+                send_buffer_size: 64,
+                max_buffer_size: 64,
+            });
+
+        let result = SerialTransport::new(config);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidRequest(actual))
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+    }
+
+    /// One deterministic fake serial read outcome.
+    enum ReadStep {
+        Error(ErrorKind),
+        Bytes(Vec<u8>),
+    }
+
+    /// One deterministic fake serial write outcome.
+    enum WriteStep {
+        Partial { bytes: usize, delay: Duration },
+    }
+
     /// A mock serial port for testing that records all operations.
     struct TestSerialPort {
         /// Current timeout setting.
         timeout: RefCell<Duration>,
-        /// If set, write_all will return this error.
+        /// Every timeout applied through the serial-port API.
+        timeout_history: RefCell<Vec<Duration>>,
+        /// If set, write will return this error.
         write_error: RefCell<Option<ErrorKind>>,
         /// If set, flush will return this error.
         flush_error: RefCell<Option<ErrorKind>>,
         /// Data to return on read.
         read_data: RefCell<Vec<u8>>,
+        /// Scripted read outcomes, used by handshake deadline tests.
+        read_steps: RefCell<VecDeque<ReadStep>>,
+        /// Timeout visible to the fake at each read.
+        read_timeouts: RefCell<Vec<Duration>>,
+        /// Number of low-level writes issued to the fake.
+        write_calls: RefCell<usize>,
+        /// Number of flush calls issued to the fake.
+        flush_calls: RefCell<usize>,
+        /// Scripted write outcomes, used by partial-write deadline tests.
+        write_steps: RefCell<VecDeque<WriteStep>>,
+        /// Fail once when this timeout is requested, then let Drop retry it.
+        fail_next_timeout_set_to: RefCell<Option<Duration>>,
     }
 
     impl TestSerialPort {
         fn new(initial_timeout: Duration) -> Self {
             Self {
                 timeout: RefCell::new(initial_timeout),
+                timeout_history: RefCell::new(Vec::new()),
                 write_error: RefCell::new(None),
                 flush_error: RefCell::new(None),
                 read_data: RefCell::new(Vec::new()),
+                read_steps: RefCell::new(VecDeque::new()),
+                read_timeouts: RefCell::new(Vec::new()),
+                write_calls: RefCell::new(0),
+                flush_calls: RefCell::new(0),
+                write_steps: RefCell::new(VecDeque::new()),
+                fail_next_timeout_set_to: RefCell::new(None),
             }
         }
 
@@ -234,6 +291,21 @@ mod tests {
 
         fn with_flush_error(self, kind: ErrorKind) -> Self {
             *self.flush_error.borrow_mut() = Some(kind);
+            self
+        }
+
+        fn with_read_steps(self, steps: impl IntoIterator<Item = ReadStep>) -> Self {
+            self.read_steps.borrow_mut().extend(steps);
+            self
+        }
+
+        fn with_write_steps(self, steps: impl IntoIterator<Item = WriteStep>) -> Self {
+            self.write_steps.borrow_mut().extend(steps);
+            self
+        }
+
+        fn with_next_timeout_set_failure(self, timeout: Duration) -> Self {
+            *self.fail_next_timeout_set_to.borrow_mut() = Some(timeout);
             self
         }
     }
@@ -248,6 +320,26 @@ mod tests {
 
     impl Read for TestSerialPort {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.read_timeouts.borrow_mut().push(self.timeout());
+
+            let step = { self.read_steps.borrow_mut().pop_front() };
+            if let Some(step) = step {
+                return match step {
+                    ReadStep::Error(kind) => Err(io::Error::new(kind, "simulated read error")),
+                    ReadStep::Bytes(mut bytes) => {
+                        let n = std::cmp::min(buf.len(), bytes.len());
+                        buf[..n].copy_from_slice(&bytes[..n]);
+                        if n < bytes.len() {
+                            bytes.drain(..n);
+                            self.read_steps
+                                .borrow_mut()
+                                .push_front(ReadStep::Bytes(bytes));
+                        }
+                        Ok(n)
+                    }
+                };
+            }
+
             let mut data = self.read_data.borrow_mut();
             let n = std::cmp::min(buf.len(), data.len());
             if n > 0 {
@@ -263,10 +355,19 @@ mod tests {
             if let Some(kind) = *self.write_error.borrow() {
                 return Err(io::Error::new(kind, "simulated write error"));
             }
+            *self.write_calls.borrow_mut() += 1;
+
+            let step = { self.write_steps.borrow_mut().pop_front() };
+            if let Some(WriteStep::Partial { bytes, delay }) = step {
+                thread::sleep(delay);
+                return Ok(bytes.min(buf.len()));
+            }
+
             Ok(buf.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
+            *self.flush_calls.borrow_mut() += 1;
             if let Some(kind) = *self.flush_error.borrow() {
                 return Err(io::Error::new(kind, "simulated flush error"));
             }
@@ -304,7 +405,20 @@ mod tests {
         }
 
         fn set_timeout(&mut self, timeout: Duration) -> serialport::Result<()> {
+            let should_fail = self
+                .fail_next_timeout_set_to
+                .borrow()
+                .is_some_and(|expected| expected == timeout);
+            if should_fail {
+                *self.fail_next_timeout_set_to.borrow_mut() = None;
+                return Err(serialport::Error::new(
+                    serialport::ErrorKind::Unknown,
+                    "simulated timeout restoration error",
+                ));
+            }
+
             *self.timeout.borrow_mut() = timeout;
+            self.timeout_history.borrow_mut().push(timeout);
             Ok(())
         }
 
@@ -400,6 +514,149 @@ mod tests {
             config,
             transport_config,
         }
+    }
+
+    #[test]
+    fn address_set_keeps_one_attempt_after_an_early_read_timeout() {
+        let configured_read_timeout = Duration::from_millis(50);
+        let configured_write_timeout = Duration::from_millis(7);
+        let mut port = TestSerialPort::new(configured_read_timeout).with_read_steps([
+            ReadStep::Error(ErrorKind::TimedOut),
+            ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
+        ]);
+
+        let result =
+            address_set_blocking(&mut port, Duration::from_secs(1), configured_write_timeout);
+
+        assert!(matches!(result, Ok(1)));
+        assert_eq!(
+            *port.write_calls.borrow(),
+            1,
+            "an early idle timeout must not spend an Address Set retry"
+        );
+        assert_eq!(
+            port.read_timeouts.borrow().as_slice(),
+            &[configured_read_timeout, configured_read_timeout]
+        );
+        assert_eq!(port.timeout(), configured_read_timeout);
+    }
+
+    #[test]
+    fn address_set_caps_a_long_port_read_timeout_to_the_remaining_deadline() {
+        let configured_read_timeout = Duration::from_secs(1);
+        let configured_write_timeout = Duration::from_millis(7);
+        let attempt_timeout = Duration::from_millis(50);
+        let mut port = TestSerialPort::new(configured_read_timeout)
+            .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
+
+        let result = address_set_blocking(&mut port, attempt_timeout, configured_write_timeout);
+
+        assert!(matches!(result, Ok(1)));
+        let read_timeouts = port.read_timeouts.borrow();
+        assert_eq!(read_timeouts.len(), 1);
+        assert!(
+            read_timeouts[0] <= attempt_timeout,
+            "the read must not be allowed to outlive the attempt budget"
+        );
+        assert!(
+            read_timeouts[0] < configured_read_timeout,
+            "the configured port timeout is longer than the remaining budget"
+        );
+        assert_eq!(
+            port.timeout_history
+                .borrow()
+                .iter()
+                .filter(|&&timeout| timeout == configured_write_timeout)
+                .count(),
+            1,
+            "Address Set write uses the configured write timeout"
+        );
+        assert_eq!(port.timeout(), configured_read_timeout);
+    }
+
+    #[test]
+    fn address_set_does_not_start_a_second_partial_write_after_its_deadline() {
+        let configured_read_timeout = Duration::from_millis(50);
+        let mut port =
+            TestSerialPort::new(configured_read_timeout).with_write_steps([WriteStep::Partial {
+                bytes: 1,
+                delay: Duration::from_millis(100),
+            }]);
+
+        let result =
+            address_set_blocking(&mut port, Duration::from_millis(50), Duration::from_secs(1));
+
+        assert!(matches!(result, Err(Error::Timeout)));
+        assert_eq!(
+            *port.write_calls.borrow(),
+            1,
+            "the expired budget must prevent the follow-up low-level write"
+        );
+        assert!(port.read_timeouts.borrow().is_empty());
+        assert_eq!(port.timeout(), configured_read_timeout);
+    }
+
+    #[test]
+    fn address_set_with_a_zero_budget_performs_no_io() {
+        let configured_read_timeout = Duration::from_millis(50);
+        let mut port = TestSerialPort::new(configured_read_timeout);
+
+        let result = address_set_blocking(&mut port, Duration::ZERO, Duration::from_millis(7));
+
+        assert!(matches!(result, Err(Error::Timeout)));
+        assert_eq!(*port.write_calls.borrow(), 0);
+        assert!(port.read_timeouts.borrow().is_empty());
+        assert!(port.timeout_history.borrow().is_empty());
+        assert_eq!(port.timeout(), configured_read_timeout);
+    }
+
+    #[test]
+    fn blocking_handshakes_do_not_call_an_unbounded_serial_flush() {
+        let configured_timeout = Duration::from_millis(50);
+        let configured_write_timeout = Duration::from_millis(7);
+        let mut address_port = TestSerialPort::new(configured_timeout)
+            .with_flush_error(ErrorKind::TimedOut)
+            .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
+
+        assert!(matches!(
+            address_set_blocking(
+                &mut address_port,
+                Duration::from_secs(1),
+                configured_write_timeout,
+            ),
+            Ok(1)
+        ));
+        assert_eq!(*address_port.flush_calls.borrow(), 0);
+
+        let mut clear_port =
+            TestSerialPort::new(configured_timeout).with_flush_error(ErrorKind::TimedOut);
+        assert!(if_clear_blocking(&mut clear_port, configured_write_timeout).is_ok());
+        assert_eq!(*clear_port.flush_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn address_set_surfaces_timeout_restoration_failure_after_a_successful_write() {
+        let configured_read_timeout = Duration::from_millis(50);
+        let mut port = TestSerialPort::new(configured_read_timeout)
+            .with_next_timeout_set_failure(configured_read_timeout);
+
+        let result =
+            address_set_blocking(&mut port, Duration::from_secs(1), Duration::from_millis(7));
+
+        assert!(matches!(
+            result,
+            Err(Error::TransportError(message))
+                if message
+                    .as_ref()
+                    .contains("Failed to restore serial handshake timeout")
+        ));
+        assert_eq!(*port.write_calls.borrow(), 1);
+        assert!(port.read_timeouts.borrow().is_empty());
+        assert_eq!(
+            port.timeout(),
+            configured_read_timeout,
+            "Drop retries restoration after the surfaced failure"
+        );
     }
 
     // =========================================================================

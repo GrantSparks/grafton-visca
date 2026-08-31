@@ -19,7 +19,7 @@ use super::{
     RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
 };
 use crate::runtime::engine::{
-    DecodedFrame, Effect, FirstDispatch, IgnoreReason, Input, TransportKind,
+    DecodedFrame, Effect, FirstDispatch, FirstDispatchWait, IgnoreReason, Input, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -249,8 +249,15 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
         configured_timeout: Duration,
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
-        self.with_parts(|owner, driver, _, _| {
-            owner.submit_request_until(driver, request, configured_timeout, deadline)
+        self.with_parts(|owner, driver, reader, decoder| {
+            owner.submit_request_until_with_pump(
+                driver,
+                reader,
+                decoder,
+                request,
+                configured_timeout,
+                deadline,
+            )
         })
     }
 
@@ -358,14 +365,18 @@ impl BlockingSessionHost {
         &self,
         prepared: crate::prepared::PreparedCommand,
     ) -> Result<BlockingCommandReceipt, Error> {
-        self.with_parts(|owner, driver, _, _| owner.submit_command(driver, prepared))
+        self.with_parts(|owner, driver, reader, decoder| {
+            owner.submit_command_with_pump(driver, reader, decoder, prepared)
+        })
     }
 
     pub(crate) fn submit_inquiry<R>(
         &self,
         prepared: crate::prepared::PreparedInquiry<R>,
     ) -> Result<BlockingInquiryReceipt<R>, Error> {
-        self.with_parts(|owner, driver, _, _| owner.submit_inquiry(driver, prepared))
+        self.with_parts(|owner, driver, reader, decoder| {
+            owner.submit_inquiry_with_pump(driver, reader, decoder, prepared)
+        })
     }
 
     pub(crate) fn submit_operation<K>(
@@ -398,7 +409,7 @@ impl BlockingSessionHost {
             if let Some(ack_budget) = prepared.preack_drain_hint() {
                 owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
             }
-            owner.submit_operation(driver, prepared)
+            owner.submit_operation_with_pump(driver, reader, decoder, prepared)
         })
     }
 
@@ -481,8 +492,15 @@ impl BlockingControlHost for BlockingSessionHost {
         configured_timeout: Duration,
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
-        self.with_parts(|owner, driver, _, _| {
-            owner.submit_request_until(driver, request, configured_timeout, deadline)
+        self.with_parts(|owner, driver, reader, decoder| {
+            owner.submit_request_until_with_pump(
+                driver,
+                reader,
+                decoder,
+                request,
+                configured_timeout,
+                deadline,
+            )
         })
     }
 
@@ -614,9 +632,19 @@ impl<'a> BlockingReceiptControl<'a> {
                     .map(|core| BlockingInquiryReceipt { core, decoder })
             }
             #[cfg(all(test, not(feature = "async")))]
-            BlockingControlKind::Borrowed { .. } => self.with_parts(|owner, driver, _, _| {
-                owner.submit_inquiry_until(driver, prepared, deadline)
-            }),
+            BlockingControlKind::Borrowed { .. } => {
+                self.with_parts(|owner, driver, reader, decoder| {
+                    let (request, response_decoder, timeout) = prepared.into_parts();
+                    owner
+                        .submit_request_until_with_pump(
+                            driver, reader, decoder, request, timeout, deadline,
+                        )
+                        .map(|core| BlockingInquiryReceipt {
+                            core,
+                            decoder: response_decoder,
+                        })
+                })
+            }
         }
     }
 
@@ -979,18 +1007,37 @@ impl BlockingCancellationReceipt {
         }
         let deadline = control.deadline_after(timeout)?;
         loop {
+            // An observation that was already buffered before this turn is
+            // authoritative regardless of whether this caller's observer
+            // deadline has subsequently elapsed.
             if let Some(observation) = self.core.try_observation() {
                 return normalize_cancellation_observation(observation);
+            }
+            // Do not begin a fresh receive after an already-expired observer
+            // deadline, but retain equality for the input-at-deadline rule.
+            if control.now() > deadline {
+                return Err(Error::Timeout);
             }
             let pump_result = control.pump_once_until(Some(deadline));
+            // The receive turn may have fed a valid terminal frame to the
+            // engine after the caller's exact observer bound. Snapshot once
+            // after that turn: an input at equality wins, a strictly late
+            // observation remains in the engine but is invisible to this
+            // bounded observer.
+            let observed_after_pump = control.now();
             // This cancellation's own terminal observation wins over the pump's
             // verdict; without one, the pump reports the session boundary error
-            // rather than the raw transport cause (#629).
-            if let Some(observation) = self.core.try_observation() {
-                return normalize_cancellation_observation(observation);
+            // rather than the raw transport cause (#629). That precedence
+            // applies only while this observer is on time.
+            if observed_after_pump <= deadline {
+                if let Some(observation) = self.core.try_observation() {
+                    return normalize_cancellation_observation(observation);
+                }
             }
+            // In particular, do not hide a session-replacement verdict behind
+            // a local observer timeout (#629).
             pump_result?;
-            if control.now() >= deadline {
+            if observed_after_pump >= deadline {
                 return Err(Error::Timeout);
             }
         }
@@ -1059,12 +1106,17 @@ enum SubmitPolicy {
 }
 
 /// Controls whether a receive turn may hand a newly available socket to
-/// ordinary queued work. The pre-ACK drain suppresses that final scheduler
-/// step until its submitting operation has been admitted (issue #673).
+/// ordinary queued work. Submission-side waits suppress that final scheduler
+/// step until the submitting request's first-write result has been decided.
+/// That includes the raw pre-ACK drain (issue #673) and a raw terminal
+/// tombstone hold: both need input-first due work, but neither may hand a
+/// freed lane to an ordinary peer before the submitting request is
+/// re-evaluated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PumpMode {
     Normal,
     PreAckDrain,
+    FirstDispatchWait,
 }
 
 impl PumpMode {
@@ -1093,15 +1145,32 @@ fn wait_core_until(
         ));
     }
     loop {
+        // A receipt outcome already buffered before this turn is not a new
+        // wait, so it remains observable even after the caller's deadline.
         if let Some(outcome) = core.try_outcome() {
             return Ok(outcome);
+        }
+        // Preserve equality so a frame supplied exactly at the observer
+        // deadline is still an input that this observer may consume.
+        if control.now() > deadline {
+            return Err(Error::Timeout);
         }
         let pump_result = control.pump_once_until(Some(deadline));
-        if let Some(outcome) = core.try_outcome() {
-            return Ok(outcome);
+        // One clock snapshot decides whether a newly produced outcome belongs
+        // to this observer. The engine has already consumed every decoded
+        // frame regardless, so a strictly late terminal result remains its
+        // authoritative lifecycle result while this observer times out.
+        let observed_after_pump = control.now();
+        if observed_after_pump <= deadline {
+            if let Some(outcome) = core.try_outcome() {
+                return Ok(outcome);
+            }
         }
+        // Preserve the pump's boundary verdict before declaring an observer
+        // timeout: a terminal session must still ask its caller to replace it
+        // rather than report the raw cause or silently mask that state (#629).
         pump_result?;
-        if control.now() >= deadline {
+        if observed_after_pump >= deadline {
             return Err(Error::Timeout);
         }
     }
@@ -1116,9 +1185,25 @@ fn observer_deadline(now: Instant, timeout: Duration) -> Result<Instant, Error> 
         })
 }
 
+/// Sleeps until an owner deadline, tolerating an early platform wake without
+/// turning a no-data fake into a busy loop.
+fn sleep_until(deadline: Instant) {
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        if remaining.is_zero() {
+            break;
+        }
+        std::thread::sleep(remaining);
+    }
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct DriveReport {
     writes: Vec<(RequestId, Result<(), Error>)>,
+    /// A session boundary reached while draining this effect batch.  Writes
+    /// can poison a stream after an otherwise successful receive or timer
+    /// turn, so callers must not infer that an `Ok` transport read leaves the
+    /// owner usable.
+    boundary_error: Option<Error>,
 }
 
 impl DriveReport {
@@ -1127,6 +1212,16 @@ impl DriveReport {
             .iter()
             .find(|(request, _)| *request == id)
             .map(|(_, result)| result.clone())
+    }
+
+    fn boundary_error(&self) -> Option<Error> {
+        self.boundary_error.clone()
+    }
+
+    fn observe_boundary(&mut self, boundary_error: Option<Error>) {
+        if self.boundary_error.is_none() {
+            self.boundary_error = boundary_error;
+        }
     }
 }
 
@@ -1204,6 +1299,7 @@ impl BlockingOwner {
     }
 
     /// Class-specific typed admission seam for ordinary commands.
+    #[cfg(test)]
     pub(crate) fn submit_command<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1216,6 +1312,8 @@ impl BlockingOwner {
     }
 
     /// Class-specific typed admission seam retaining the external decoder.
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn submit_inquiry<D, R>(
         &mut self,
         driver: &mut D,
@@ -1243,14 +1341,31 @@ impl BlockingOwner {
         })
     }
 
-    pub(crate) fn submit_request_until<D: BlockingWireDriver + ?Sized>(
+    /// Deadline-bound production submission through the authoritative input
+    /// pump. Settlement polling uses this path, so a fresh inquiry cannot
+    /// sleep through a preceding raw-correlation tombstone.
+    pub(crate) fn submit_request_until_with_pump<D, R, F>(
         &mut self,
         driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
         request: RuntimeRequest,
         configured_timeout: Duration,
         deadline: Instant,
-    ) -> Result<ReceiptCore, Error> {
-        self.submit_with_timeout_until(driver, request, configured_timeout, deadline)
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        self.submit_with_timeout_until_pumped(
+            driver,
+            reader,
+            decoder,
+            request,
+            configured_timeout,
+            deadline,
+        )
     }
 
     /// Drain the raw single-candidate pre-ACK gate before an
@@ -1356,6 +1471,8 @@ impl BlockingOwner {
     }
 
     /// Class-specific typed admission seam retaining operation semantics.
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn submit_operation<D, K>(
         &mut self,
         driver: &mut D,
@@ -1381,11 +1498,83 @@ impl BlockingOwner {
         })
     }
 
+    /// Production operation admission with the input pump needed for an exact
+    /// first-dispatch wake.
+    pub(crate) fn submit_operation_with_pump<D, R, F, K>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        prepared: crate::prepared::PreparedOperation<K>,
+    ) -> Result<BlockingOperationReceipt<K>, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+        K: completion::Kind,
+    {
+        prepared.admit_with(|request, affected_axes, settlement, timeout| {
+            self.submit_with_timeout_policy_pumped(
+                driver,
+                reader,
+                decoder,
+                request,
+                timeout,
+                SubmitPolicy::RequireFirstWrite,
+            )
+            .map(|core| BlockingOperationReceipt {
+                core,
+                affected_axes,
+                settlement,
+                marker: PhantomData,
+            })
+        })
+    }
+
+    /// Production inquiry admission with the authoritative input pump.
+    pub(crate) fn submit_inquiry_with_pump<D, R, F, Response>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        frame_decoder: &mut F,
+        prepared: crate::prepared::PreparedInquiry<Response>,
+    ) -> Result<BlockingInquiryReceipt<Response>, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        prepared.admit_with(|request, decoder, timeout| {
+            self.submit_with_timeout_pumped(driver, reader, frame_decoder, request, timeout)
+                .map(|core| BlockingInquiryReceipt { core, decoder })
+        })
+    }
+
+    /// Production command admission has the authoritative reader and decoder
+    /// available when a first-write race reaches an exact scheduler wake.
+    pub(crate) fn submit_command_with_pump<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        prepared: crate::prepared::PreparedCommand,
+    ) -> Result<BlockingCommandReceipt, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        prepared.admit_with(|request, timeout| {
+            self.submit_with_timeout_pumped(driver, reader, decoder, request, timeout)
+                .map(|core| BlockingCommandReceipt { core })
+        })
+    }
+
     /// Admit and perform the first write when this exact request wins the
     /// global dispatch race. Ordinary receipts that cannot win yet stay
-    /// queued in the engine and are written by a later owner turn. No receive
-    /// method is called here, so ACK/completion can only be consumed by an
-    /// explicit pump.
+    /// queued in the engine and are written by a later owner turn. This
+    /// owner-only test seam has no reader/decoder; production submission uses
+    /// the pumped variants above if it reaches a deterministic `WaitUntil`.
     // Untyped admission seam used only by owner unit tests.
     #[cfg(test)]
     pub(crate) fn submit<D: BlockingWireDriver>(
@@ -1401,6 +1590,7 @@ impl BlockingOwner {
         self.submit_with_timeout(driver, request, timeout)
     }
 
+    #[cfg(test)]
     fn submit_with_timeout<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1415,6 +1605,30 @@ impl BlockingOwner {
         )
     }
 
+    fn submit_with_timeout_pumped<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        self.submit_with_timeout_policy_pumped(
+            driver,
+            reader,
+            decoder,
+            request,
+            configured_timeout,
+            SubmitPolicy::QueueAllowed,
+        )
+    }
+
+    #[cfg(test)]
     fn submit_with_timeout_policy<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1422,12 +1636,58 @@ impl BlockingOwner {
         configured_timeout: Duration,
         submit_policy: SubmitPolicy,
     ) -> Result<ReceiptCore, Error> {
-        self.enter()?;
-        let result = self.submit_inner(driver, request, configured_timeout, None, submit_policy);
-        self.leave();
-        result
+        self.submit_with_timeout_policy_with_wait(
+            driver,
+            request,
+            configured_timeout,
+            None,
+            submit_policy,
+            |owner, driver, reason, dispatch_at, observer_deadline| {
+                owner.wait_for_first_dispatch_without_pump(
+                    driver,
+                    reason,
+                    dispatch_at,
+                    observer_deadline,
+                )
+            },
+        )
     }
 
+    fn submit_with_timeout_policy_pumped<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+        submit_policy: SubmitPolicy,
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        self.submit_with_timeout_policy_with_wait(
+            driver,
+            request,
+            configured_timeout,
+            None,
+            submit_policy,
+            |owner, driver, reason, dispatch_at, observer_deadline| {
+                owner.wait_for_first_dispatch_pumped(
+                    driver,
+                    reader,
+                    decoder,
+                    reason,
+                    dispatch_at,
+                    observer_deadline,
+                )
+            },
+        )
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn submit_with_timeout_until<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1444,6 +1704,41 @@ impl BlockingOwner {
         )
     }
 
+    fn submit_with_timeout_until_pumped<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+        deadline: Instant,
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        self.submit_with_timeout_policy_with_wait(
+            driver,
+            request,
+            configured_timeout,
+            Some(deadline),
+            SubmitPolicy::QueueAllowed,
+            |owner, driver, reason, dispatch_at, observer_deadline| {
+                owner.wait_for_first_dispatch_pumped(
+                    driver,
+                    reader,
+                    decoder,
+                    reason,
+                    dispatch_at,
+                    observer_deadline,
+                )
+            },
+        )
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
     fn submit_with_timeout_until_policy<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1452,10 +1747,185 @@ impl BlockingOwner {
         deadline: Instant,
         submit_policy: SubmitPolicy,
     ) -> Result<ReceiptCore, Error> {
+        self.submit_with_timeout_policy_with_wait(
+            driver,
+            request,
+            configured_timeout,
+            Some(deadline),
+            submit_policy,
+            |owner, driver, reason, dispatch_at, observer_deadline| {
+                owner.wait_for_first_dispatch_without_pump(
+                    driver,
+                    reason,
+                    dispatch_at,
+                    observer_deadline,
+                )
+            },
+        )
+    }
+
+    /// Earliest time a first-dispatch wait may consume. The wait's own reason
+    /// supplies one bound, but an already-admitted request can have an earlier
+    /// retry budget, ACK/completion deadline, or cancellation wake. A caller
+    /// observer bound remains an independent ceiling.
+    fn first_dispatch_wait_deadline(
+        &self,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) -> Instant {
+        min_deadline(self.state.next_wake_without_dispatch(), observer_deadline)
+            .map_or(dispatch_at, |earlier| dispatch_at.min(earlier))
+    }
+
+    /// Test-only fallback for the owner seams that have no reader/decoder.
+    /// Pacing has no input authority and can safely use the same no-dispatch
+    /// deadline service as production. A raw tombstone cannot: advancing it
+    /// without first consuming a boundary frame could bind stale input to the
+    /// successor, so this seam fails closed.
+    #[cfg(test)]
+    fn wait_for_first_dispatch_without_pump<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        reason: FirstDispatchWait,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) -> Result<(), Error> {
+        match reason {
+            FirstDispatchWait::Pacing => {
+                self.wait_for_pacing_without_receive(driver, dispatch_at, observer_deadline)
+            }
+            FirstDispatchWait::RawCorrelationTombstone => Err(Error::TransportBusy),
+        }
+    }
+
+    /// Authoritative production first-dispatch wait. Only a raw correlation
+    /// tombstone receives from the wire; ordinary pacing must leave peer
+    /// replies queued for their own receipt waits.
+    fn wait_for_first_dispatch_pumped<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        reason: FirstDispatchWait,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) -> Result<(), Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        match reason {
+            FirstDispatchWait::RawCorrelationTombstone => self.wait_for_raw_correlation_tombstone(
+                driver,
+                reader,
+                decoder,
+                dispatch_at,
+                observer_deadline,
+            ),
+            FirstDispatchWait::Pacing => {
+                self.wait_for_pacing_without_receive(driver, dispatch_at, observer_deadline)
+            }
+        }
+    }
+
+    /// Sleeps through an ordinary pacing wait without receiving, then services
+    /// due work and cancellations while ordinary dispatch stays suppressed.
+    /// The caller re-evaluates the exact request afterwards, so an equal total
+    /// budget terminalizes before that request can write.
+    fn wait_for_pacing_without_receive<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) -> Result<(), Error> {
+        let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
+        sleep_until(deadline);
+        self.service_due_without_dispatch(driver)
+    }
+
+    /// Pumps a raw correlation tombstone at its bounded owner deadline. Frames
+    /// are applied before the dispatch-suppressed due pass, so a stale frame at
+    /// the exact hold expiry is inert before the target lane can release.
+    fn wait_for_raw_correlation_tombstone<D, R, F>(
+        &mut self,
+        driver: &mut D,
+        reader: &mut R,
+        decoder: &mut F,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) -> Result<(), Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        R: BlockingReadDriver + ?Sized,
+        F: BlockingFrameDecoder + ?Sized,
+    {
+        let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
+        let produced = self
+            .pump_once_inner(
+                driver,
+                reader,
+                decoder,
+                Some(deadline),
+                PumpMode::FirstDispatchWait,
+            )
+            .map_err(|error| self.boundary_error_or(error))?;
+
+        // A real blocking transport returns `TimedOut` only at its deadline.
+        // Some deterministic fakes return it immediately; sleeping once here
+        // preserves the same bound and prevents an otherwise-empty raw hold
+        // from turning into a busy receive loop.
+        if produced == 0 {
+            sleep_until(deadline);
+        }
+        self.service_due_without_dispatch(driver)
+    }
+
+    /// Runs only due/cancellation work if a no-dispatch wake has arrived.
+    /// This is shared by pacing and raw tombstone waits so neither can locally
+    /// bypass a total budget or hand a newly free socket to an ordinary peer.
+    fn service_due_without_dispatch<D: BlockingWireDriver + ?Sized>(
+        &mut self,
+        driver: &mut D,
+    ) -> Result<(), Error> {
+        let now = Instant::now();
+        if self
+            .state
+            .next_wake_without_dispatch()
+            .is_some_and(|wake| wake <= now)
+        {
+            let effects = self.advance_for_mode(now, PumpMode::FirstDispatchWait);
+            let report = self.drive_for_mode(driver, effects, PumpMode::FirstDispatchWait);
+            if let Some(error) = report.boundary_error() {
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn submit_with_timeout_policy_with_wait<D, W>(
+        &mut self,
+        driver: &mut D,
+        request: RuntimeRequest,
+        configured_timeout: Duration,
+        observer_deadline: Option<Instant>,
+        submit_policy: SubmitPolicy,
+        wait_for_dispatch: W,
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        W: FnMut(
+            &mut Self,
+            &mut D,
+            FirstDispatchWait,
+            Instant,
+            Option<Instant>,
+        ) -> Result<(), Error>,
+    {
         // Match the async owner boundary: once the caller-owned observer
         // deadline has elapsed, reject before staging admission or writing a
         // new inquiry.
-        if Instant::now() >= deadline {
+        if observer_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             return Err(Error::Timeout);
         }
         self.enter()?;
@@ -1463,21 +1933,33 @@ impl BlockingOwner {
             driver,
             request,
             configured_timeout,
-            Some(deadline),
+            observer_deadline,
             submit_policy,
+            wait_for_dispatch,
         );
         self.leave();
         result
     }
 
-    fn submit_inner<D: BlockingWireDriver + ?Sized>(
+    fn submit_inner<D, W>(
         &mut self,
         driver: &mut D,
         request: RuntimeRequest,
         configured_timeout: Duration,
         observer_deadline: Option<Instant>,
         submit_policy: SubmitPolicy,
-    ) -> Result<ReceiptCore, Error> {
+        mut wait_for_dispatch: W,
+    ) -> Result<ReceiptCore, Error>
+    where
+        D: BlockingWireDriver + ?Sized,
+        W: FnMut(
+            &mut Self,
+            &mut D,
+            FirstDispatchWait,
+            Instant,
+            Option<Instant>,
+        ) -> Result<(), Error>,
+    {
         let target = request.context().target;
         let lane = if request.is_inquiry() {
             RequestLane::Inquiry
@@ -1516,6 +1998,16 @@ impl BlockingOwner {
             }
             let now = Instant::now();
             if observer_deadline.is_some_and(|deadline| now >= deadline) {
+                if matches!(submit_policy, SubmitPolicy::RequireFirstWrite) {
+                    // A public operation handle cannot be lost behind an
+                    // expired caller bound. Unlike QueueAllowed settlement
+                    // inquiries, it has no receipt to keep observing, so
+                    // terminalize its still-unwritten entry and release the
+                    // admission permit through the engine's one authority.
+                    let rejection = self.state.reject_unwritten_without_due(id, Error::Timeout);
+                    let _ = self.drive_without_due(driver, rejection);
+                    return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
+                }
                 return Err(Error::Timeout);
             }
             match self.state.first_dispatch_without_due(id, now) {
@@ -1523,13 +2015,27 @@ impl BlockingOwner {
                     let advanced = self.drive_without_due(driver, effects.into());
                     report.writes.extend(advanced.writes);
                 }
-                FirstDispatch::WaitUntil(dispatch_at) => {
-                    if observer_deadline.is_some_and(|deadline| dispatch_at >= deadline) {
-                        return Err(Error::Timeout);
-                    }
-                    let now = Instant::now();
-                    if dispatch_at > now {
-                        std::thread::sleep(dispatch_at.duration_since(now));
+                FirstDispatch::WaitUntil { deadline, reason } => {
+                    // A raw correlation tombstone is the only first-dispatch
+                    // wait permitted to receive: its boundary needs an ordered
+                    // input turn so an already-buffered stale reply is inert
+                    // before due work frees the target. Ordinary pacing is a
+                    // pure clock wait; receiving there would consume a peer's
+                    // ACK/completion and violate the first-write admission
+                    // boundary. Both paths suppress ordinary dispatch while
+                    // servicing due/cancellation work, then re-evaluate this
+                    // exact request.
+                    if let Err(error) =
+                        wait_for_dispatch(self, driver, reason, deadline, observer_deadline)
+                    {
+                        // A first-dispatch wait fails before this request has
+                        // written or exposed a receipt, regardless of its
+                        // submission policy. Terminalize the exact ready
+                        // entry through the engine so its queue ticket and
+                        // admission permit cannot outlive the returned error.
+                        let rejection = self.state.reject_unwritten_without_due(id, error.clone());
+                        let _ = self.drive_without_due(driver, rejection);
+                        return Err(buffered_submission_error(&completion).unwrap_or(error));
                     }
                 }
                 FirstDispatch::Blocked => {
@@ -1706,7 +2212,10 @@ impl BlockingOwner {
                     .is_some_and(|wake| wake <= now)
                 {
                     let effects = self.advance_for_mode(now, mode);
-                    let _ = self.drive_for_mode(driver, effects, mode);
+                    let report = self.drive_for_mode(driver, effects, mode);
+                    if let Some(error) = report.boundary_error() {
+                        return Err(error);
+                    }
                 }
                 return Ok(0);
             }
@@ -1769,7 +2278,10 @@ impl BlockingOwner {
                 // framing state is intact and this pump simply produced no
                 // frames.
                 let effects = self.input_for_mode(Input::ReceiveFault { error }, received_at, mode);
-                let _ = self.drive_for_mode(driver, effects, mode);
+                let report = self.drive_for_mode(driver, effects, mode);
+                if let Some(error) = report.boundary_error() {
+                    return Err(error);
+                }
                 pause_after_transient_receive_fault(length, owner_deadline);
                 return Ok(0);
             }
@@ -1853,8 +2365,11 @@ impl BlockingOwner {
                 return Ok(driven);
             }
             let count = frames.len();
-            self.drive_decoded_batch_with_mode(driver, frames, received_at, mode);
+            let report = self.drive_decoded_batch_with_mode(driver, frames, received_at, mode);
             driven = driven.saturating_add(count);
+            if let Some(error) = report.boundary_error() {
+                return Err(error);
+            }
             // Only a stream buffers a remainder, and only a batch that filled the
             // limit can have left one; drain and drive it without reading again.
             if is_stream && frame_limit > 0 && count >= frame_limit {
@@ -2000,6 +2515,7 @@ impl BlockingOwner {
                 prepend_effects(&mut effects, produced);
             }
         }
+        report.observe_boundary(self.state.boundary_error());
         report
     }
 
@@ -2024,6 +2540,7 @@ impl BlockingOwner {
                 prepend_effects(&mut effects, produced);
             }
         }
+        report.observe_boundary(self.state.boundary_error());
         report
     }
 
@@ -2086,7 +2603,7 @@ impl BlockingOwner {
         frames: Vec<DecodedFrame>,
         received_at: Instant,
     ) {
-        self.drive_decoded_batch_with_mode(driver, frames, received_at, PumpMode::Normal);
+        let _ = self.drive_decoded_batch_with_mode(driver, frames, received_at, PumpMode::Normal);
     }
 
     /// Replays a decoded batch while retaining all due/cancellation effects but
@@ -2099,14 +2616,14 @@ impl BlockingOwner {
         frames: Vec<DecodedFrame>,
         received_at: Instant,
         mode: PumpMode,
-    ) {
+    ) -> DriveReport {
         let turn = self.state.begin_input_turn(received_at);
         for frame in frames {
             let effects = self.state.input_in_turn(&turn, Input::Frame(frame));
             self.drive_in_turn(driver, &turn, effects);
         }
         let due = self.finish_input_turn_for_mode(turn, mode);
-        let _ = self.drive_for_mode(driver, due, mode);
+        self.drive_for_mode(driver, due, mode)
     }
 
     fn drive_in_turn<D: BlockingWireDriver + ?Sized>(
@@ -2251,16 +2768,20 @@ fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant
 #[allow(clippy::expect_used)]
 mod tests {
     use std::{
+        cell::{Cell, RefCell},
         collections::VecDeque,
+        rc::Rc,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc,
         },
+        time::{Duration, Instant},
     };
 
     use super::*;
     use crate::runtime::engine::{
-        CancellationPolicy, EnvelopeKind, ProtocolPolicy, SessionState, TargetPolicy,
+        CancellationPolicy, DecodedResponse, EnvelopeKind, ProtocolPolicy, SessionState,
+        TargetPolicy,
     };
     use crate::{
         command::CommandKind,
@@ -2270,7 +2791,7 @@ mod tests {
         profiles::GenericVisca,
         request::builtin::{FocusModeCommand, ZoomDrive},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CameraId, ErrorKind, OperationalTuning,
+        CameraId, ErrorKind, OperationalTuning, ViscaSocket,
     };
 
     #[derive(Debug, Default)]
@@ -2381,6 +2902,491 @@ mod tests {
         ) -> Result<Vec<DecodedFrame>, Error> {
             Ok(Vec::new())
         }
+    }
+
+    /// A caller-owned clock whose reader advances it only after producing a
+    /// scripted frame batch. This makes the observer/engine race deterministic
+    /// without teaching the engine about a test clock.
+    #[derive(Clone, Debug)]
+    struct ObserverClock(Rc<Cell<Instant>>);
+
+    impl ObserverClock {
+        fn new(now: Instant) -> Self {
+            Self(Rc::new(Cell::new(now)))
+        }
+
+        fn now(&self) -> Instant {
+            self.0.get()
+        }
+
+        fn set(&self, now: Instant) {
+            self.0.set(now);
+        }
+    }
+
+    #[derive(Debug)]
+    struct DeadlineFrameReader {
+        clock: ObserverClock,
+        offset: Duration,
+        delivered: bool,
+        deadline: Option<Instant>,
+    }
+
+    impl DeadlineFrameReader {
+        fn new(clock: ObserverClock, offset: Duration) -> Self {
+            Self {
+                clock,
+                offset,
+                delivered: false,
+                deadline: None,
+            }
+        }
+    }
+
+    impl BlockingReadDriver for DeadlineFrameReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            assert!(!self.delivered, "one scripted receive per observer wait");
+            let deadline = owner_deadline.expect("receipt pump carries observer deadline");
+            self.deadline = Some(deadline);
+            self.delivered = true;
+            self.clock.set(
+                deadline
+                    .checked_add(self.offset)
+                    .expect("test observer clock remains representable"),
+            );
+            receive_buffer[0] = 0;
+            Ok(BlockingReceive::Bytes(1))
+        }
+    }
+
+    #[derive(Debug)]
+    struct DeadlineFaultReader {
+        clock: ObserverClock,
+        offset: Duration,
+    }
+
+    impl BlockingReadDriver for DeadlineFaultReader {
+        fn receive(
+            &mut self,
+            _receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let deadline = owner_deadline.expect("receipt pump carries observer deadline");
+            self.clock.set(
+                deadline
+                    .checked_add(self.offset)
+                    .expect("test observer clock remains representable"),
+            );
+            Err(Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionReset,
+            ))))
+        }
+    }
+
+    #[derive(Debug)]
+    struct OneBatchDecoder {
+        batch: Option<Vec<DecodedFrame>>,
+    }
+
+    impl OneBatchDecoder {
+        fn new(batch: Vec<DecodedFrame>) -> Self {
+            Self { batch: Some(batch) }
+        }
+    }
+
+    impl BlockingFrameDecoder for OneBatchDecoder {
+        fn decode(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _received: usize,
+            _frame_limit: usize,
+        ) -> Result<Vec<DecodedFrame>, Error> {
+            self.batch
+                .take()
+                .ok_or_else(|| Error::InvalidState("scripted frame batch exhausted".into()))
+        }
+    }
+
+    /// A test-only shared host that uses [`ObserverClock`] for caller bounds
+    /// while continuing to feed all frames through a real [`BlockingOwner`].
+    struct ClockedHost<'a> {
+        clock: ObserverClock,
+        owner: RefCell<&'a mut BlockingOwner>,
+        driver: RefCell<&'a mut dyn BlockingWireDriver>,
+        reader: RefCell<&'a mut dyn BlockingReadDriver>,
+        decoder: RefCell<&'a mut dyn BlockingFrameDecoder>,
+    }
+
+    impl<'a> ClockedHost<'a> {
+        fn new<D, R, F>(
+            clock: ObserverClock,
+            owner: &'a mut BlockingOwner,
+            driver: &'a mut D,
+            reader: &'a mut R,
+            decoder: &'a mut F,
+        ) -> Self
+        where
+            D: BlockingWireDriver,
+            R: BlockingReadDriver,
+            F: BlockingFrameDecoder,
+        {
+            Self {
+                clock,
+                owner: RefCell::new(owner),
+                driver: RefCell::new(driver),
+                reader: RefCell::new(reader),
+                decoder: RefCell::new(decoder),
+            }
+        }
+    }
+
+    impl BlockingControlHost for ClockedHost<'_> {
+        fn now(&self) -> Instant {
+            self.clock.now()
+        }
+
+        fn sleep(&self, duration: Duration) {
+            self.clock.set(
+                self.clock
+                    .now()
+                    .checked_add(duration)
+                    .expect("test observer clock remains representable"),
+            );
+        }
+
+        fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
+            observer_deadline(self.now(), timeout)
+        }
+
+        fn owner_matches(&self, origin: &Arc<()>) -> Result<bool, Error> {
+            let owner = self.owner.borrow();
+            Ok(Arc::ptr_eq(origin, &owner.state.origin))
+        }
+
+        fn pump_once_until(&self, deadline: Option<Instant>) -> Result<usize, Error> {
+            let mut owner = self.owner.borrow_mut();
+            let mut driver = self.driver.borrow_mut();
+            let mut reader = self.reader.borrow_mut();
+            let mut decoder = self.decoder.borrow_mut();
+            owner.pump_once_until(&mut **driver, &mut **reader, &mut **decoder, deadline)
+        }
+
+        fn submit_inquiry_until(
+            &self,
+            request: RuntimeRequest,
+            configured_timeout: Duration,
+            deadline: Instant,
+        ) -> Result<ReceiptCore, Error> {
+            let mut owner = self.owner.borrow_mut();
+            let mut driver = self.driver.borrow_mut();
+            let mut reader = self.reader.borrow_mut();
+            let mut decoder = self.decoder.borrow_mut();
+            owner.submit_request_until_with_pump(
+                &mut **driver,
+                &mut **reader,
+                &mut **decoder,
+                request,
+                configured_timeout,
+                deadline,
+            )
+        }
+
+        fn cancel_operation(
+            &self,
+            receipt: ReceiptCore,
+        ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
+            let mut owner = self.owner.borrow_mut();
+            let mut driver = self.driver.borrow_mut();
+            owner.cancel_core(&mut **driver, receipt)
+        }
+    }
+
+    fn command_frames() -> Vec<DecodedFrame> {
+        vec![
+            DecodedFrame {
+                target: CameraId::CAMERA_1,
+                sequence: None,
+                response: DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            },
+            DecodedFrame {
+                target: CameraId::CAMERA_1,
+                sequence: None,
+                response: DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            },
+        ]
+    }
+
+    fn cancellation_frame() -> Vec<DecodedFrame> {
+        vec![DecodedFrame {
+            target: CameraId::CAMERA_1,
+            sequence: None,
+            response: DecodedResponse::Error {
+                socket: Some(ViscaSocket::S1),
+                code: 0x04,
+            },
+        }]
+    }
+
+    fn generic_profile() -> ProfileSpec {
+        ProfileSpec::from_compile_time::<GenericVisca>().expect("built-in profile")
+    }
+
+    fn focus_receipt(
+        owner: &mut BlockingOwner,
+        driver: &mut FaultDriver,
+        profile: &ProfileSpec,
+    ) -> BlockingCommandReceipt {
+        owner
+            .submit_command(
+                driver,
+                prepare_builtin_command(
+                    &FocusModeCommand::Manual,
+                    CameraId::CAMERA_1,
+                    profile,
+                    OperationalTuning::new(),
+                )
+                .expect("prepared focus command"),
+            )
+            .expect("focus command is admitted")
+    }
+
+    fn cancelling_zoom_receipt(
+        owner: &mut BlockingOwner,
+        driver: &mut FaultDriver,
+        profile: &ProfileSpec,
+    ) -> BlockingCancellationReceipt {
+        let operation = owner
+            .submit_operation(
+                driver,
+                prepare_builtin_operation::<AppliedOnly, _>(
+                    &ZoomDrive::Tele,
+                    CameraId::CAMERA_1,
+                    profile,
+                    OperationalTuning::new(),
+                )
+                .expect("prepared zoom operation"),
+            )
+            .expect("zoom operation is admitted");
+        owner
+            .inject_frame(
+                driver,
+                command_frames()
+                    .into_iter()
+                    .next()
+                    .expect("command ACK frame"),
+                Instant::now(),
+            )
+            .expect("ACK is accepted");
+        operation
+            .cancel_test(owner, driver)
+            .expect("cancellation is accepted")
+    }
+
+    #[test]
+    fn observer_deadline_accepts_pump_terminal_command_at_equality() {
+        let profile = generic_profile();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = focus_receipt(&mut owner, &mut driver, &profile);
+        let start = Instant::now();
+        let clock = ObserverClock::new(start);
+        let timeout = Duration::from_millis(100);
+        let deadline = start.checked_add(timeout).expect("test deadline");
+        let mut reader = DeadlineFrameReader::new(clock.clone(), Duration::ZERO);
+        let mut decoder = OneBatchDecoder::new(command_frames());
+
+        {
+            let host = ClockedHost::new(
+                clock.clone(),
+                &mut owner,
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+            );
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .wait_with_timeout(&mut control, timeout)
+                .expect("a terminal frame at the exact observer deadline wins");
+        }
+
+        assert_eq!(reader.deadline, Some(deadline));
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(owner.state().active_len(), 0);
+    }
+
+    #[test]
+    fn observer_deadline_rejects_pump_terminal_command_one_ns_late() {
+        let profile = generic_profile();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = focus_receipt(&mut owner, &mut driver, &profile);
+        let start = Instant::now();
+        let clock = ObserverClock::new(start);
+        let timeout = Duration::from_millis(100);
+        let deadline = start.checked_add(timeout).expect("test deadline");
+        let mut reader = DeadlineFrameReader::new(clock.clone(), Duration::from_nanos(1));
+        let mut decoder = OneBatchDecoder::new(command_frames());
+
+        let error = {
+            let host = ClockedHost::new(
+                clock.clone(),
+                &mut owner,
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+            );
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .wait_with_timeout(&mut control, timeout)
+                .expect_err("a terminal frame one nanosecond late is invisible to this observer")
+        };
+
+        assert!(matches!(error, Error::Timeout));
+        assert_eq!(reader.deadline, Some(deadline));
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(
+            owner.state().active_len(),
+            0,
+            "the engine still consumed the late terminal frame"
+        );
+    }
+
+    #[test]
+    fn late_observer_deadline_does_not_mask_a_stream_session_boundary() {
+        let profile = generic_profile();
+        let mut stream_policy = raw_owner_policy();
+        stream_policy.protocol.transport = TransportKind::Stream;
+        let mut owner = BlockingOwner::new(stream_policy).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = focus_receipt(&mut owner, &mut driver, &profile);
+        let clock = ObserverClock::new(Instant::now());
+        let timeout = Duration::from_millis(100);
+        let mut reader = DeadlineFaultReader {
+            clock: clock.clone(),
+            offset: Duration::from_nanos(1),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = {
+            let host = ClockedHost::new(clock, &mut owner, &mut driver, &mut reader, &mut decoder);
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .wait_with_timeout(&mut control, timeout)
+                .expect_err("a session boundary remains more important than observer timeout")
+        };
+
+        assert!(matches!(error, Error::ConnectionClosed { .. }));
+        assert!(error.requires_new_session());
+        assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    #[test]
+    fn cancellation_observer_accepts_pump_terminal_at_equality() {
+        let profile = generic_profile();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
+        let start = Instant::now();
+        let clock = ObserverClock::new(start);
+        let timeout = Duration::from_millis(100);
+        let deadline = start.checked_add(timeout).expect("test deadline");
+        let mut reader = DeadlineFrameReader::new(clock.clone(), Duration::ZERO);
+        let mut decoder = OneBatchDecoder::new(cancellation_frame());
+
+        let outcome = {
+            let host = ClockedHost::new(
+                clock.clone(),
+                &mut owner,
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+            );
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .outcome(&mut control, timeout)
+                .expect("a cancellation terminal frame at equality wins")
+        };
+
+        assert_eq!(outcome, CancellationOutcome::Cancelled);
+        assert_eq!(reader.deadline, Some(deadline));
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(owner.state().active_len(), 0);
+    }
+
+    #[test]
+    fn cancellation_observer_rejects_pump_terminal_one_ns_late() {
+        let profile = generic_profile();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
+        let start = Instant::now();
+        let clock = ObserverClock::new(start);
+        let timeout = Duration::from_millis(100);
+        let deadline = start.checked_add(timeout).expect("test deadline");
+        let mut reader = DeadlineFrameReader::new(clock.clone(), Duration::from_nanos(1));
+        let mut decoder = OneBatchDecoder::new(cancellation_frame());
+
+        let error = {
+            let host = ClockedHost::new(
+                clock.clone(),
+                &mut owner,
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+            );
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .outcome(&mut control, timeout)
+                .expect_err("a late cancellation observation must not widen the bound")
+        };
+
+        assert!(matches!(error, Error::Timeout));
+        assert_eq!(reader.deadline, Some(deadline));
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(
+            owner.state().active_len(),
+            0,
+            "the engine still recorded the late cancellation terminal"
+        );
+    }
+
+    #[test]
+    fn buffered_command_outcome_survives_an_expired_observer_deadline() {
+        let profile = generic_profile();
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let receipt = focus_receipt(&mut owner, &mut driver, &profile);
+        let now = Instant::now();
+        for frame in command_frames() {
+            owner
+                .inject_frame(&mut driver, frame, now)
+                .expect("terminal command frame is accepted");
+        }
+        let clock = ObserverClock::new(Instant::now());
+        let mut reader = DeadlineFrameReader::new(clock.clone(), Duration::ZERO);
+        let mut decoder = OneBatchDecoder::new(Vec::new());
+
+        {
+            let host = ClockedHost::new(clock, &mut owner, &mut driver, &mut reader, &mut decoder);
+            let mut control = BlockingReceiptControl::shared(&host);
+            receipt
+                .wait_with_timeout(&mut control, Duration::ZERO)
+                .expect("a pre-buffered receipt outcome does not wait");
+        }
+
+        assert!(!reader.delivered, "the expired observer did not pump");
+        assert!(
+            decoder.batch.is_some(),
+            "the frame decoder stayed untouched"
+        );
     }
 
     #[test]

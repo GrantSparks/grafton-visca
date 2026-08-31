@@ -456,6 +456,7 @@ macro_rules! __define_builtin_profiles {
                         pan_degrees_to_units: $pan_degrees_to_units:expr,
                         tilt_degrees_to_units: $tilt_degrees_to_units:expr,
                         coordinate_system: $coordinate_system:expr,
+                        wire_codec: $pan_tilt_wire_codec:expr,
                     },
                     zoom: {
                         optical_max: $optical_zoom_max:expr,
@@ -606,8 +607,8 @@ macro_rules! __define_builtin_profiles {
             }
 
             impl $crate::capabilities::PanTilt for $profile {
-                const PAN_RANGE: $crate::capabilities::CapabilityRange<i16> = $pan_range;
-                const TILT_RANGE: $crate::capabilities::CapabilityRange<i16> = $tilt_range;
+                const PAN_RANGE: $crate::capabilities::CapabilityRange<i32> = $pan_range;
+                const TILT_RANGE: $crate::capabilities::CapabilityRange<i32> = $tilt_range;
                 const MAX_PAN_SPEED: u8 = $max_pan_speed;
                 const MAX_TILT_SPEED: u8 = $max_tilt_speed;
                 const PAN_TILT_SIMULTANEOUS: bool = $pan_tilt_simultaneous;
@@ -616,6 +617,8 @@ macro_rules! __define_builtin_profiles {
                 const PAN_DEGREES_TO_UNITS: f32 = $pan_degrees_to_units;
                 const TILT_DEGREES_TO_UNITS: f32 = $tilt_degrees_to_units;
                 const COORDINATE_SYSTEM: $crate::capabilities::CoordinateSystem = $coordinate_system;
+                const PAN_TILT_WIRE_CODEC: $crate::capabilities::PanTiltWireCodec =
+                    $pan_tilt_wire_codec;
             }
 
             impl $crate::capabilities::Zoom for $profile {
@@ -1145,10 +1148,16 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(
                     spec.pan_tilt_coordinates().map(|conversion| (
                         conversion.coordinate_system(),
+                        conversion.wire_codec(),
                         conversion.pan_degrees_to_units(),
                         conversion.tilt_degrees_to_units(),
                     )),
-                    Some((P::COORDINATE_SYSTEM, P::PAN_DEGREES_TO_UNITS, P::TILT_DEGREES_TO_UNITS))
+                    Some((
+                        P::COORDINATE_SYSTEM,
+                        P::PAN_TILT_WIRE_CODEC,
+                        P::PAN_DEGREES_TO_UNITS,
+                        P::TILT_DEGREES_TO_UNITS,
+                    ))
                 );
                 assert_eq!(spec.transports(), P::TRANSPORTS);
                 assert_eq!(spec.preset_recall_axes(), P::PRESET_RECALL_AXES);
@@ -1678,8 +1687,8 @@ macro_rules! __define_builtin_profiles {
                         <P as $crate::capabilities::SupportsUdp>::DEFAULT_UDP_PORT,
                         1259
                     );
-                    assert_eq!(P::PAN_RANGE, range!(i16, -2448, 2448));
-                    assert_eq!(P::TILT_RANGE, range!(i16, -432, 1296));
+                    assert_eq!(P::PAN_RANGE, range!(i32, -2448, 2448));
+                    assert_eq!(P::TILT_RANGE, range!(i32, -432, 1296));
                     assert_eq!(P::MAX_PAN_SPEED, 24);
                     assert_eq!(P::MAX_TILT_SPEED, 20);
                     assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
@@ -2187,8 +2196,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2196,6 +2205,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2373,8 +2383,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2382,6 +2392,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2559,8 +2570,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2568,6 +2579,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2749,8 +2761,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2700, 2700),
-                        tilt_range: range!(i16, -300, 1200),
+                        pan_range: range!(i32, -2700, 2700),
+                        tilt_range: range!(i32, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2758,6 +2770,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 15.88,
                         tilt_degrees_to_units: 15.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2937,8 +2950,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2700, 2700),
-                        tilt_range: range!(i16, -300, 1200),
+                        pan_range: range!(i32, -2700, 2700),
+                        tilt_range: range!(i32, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2946,6 +2959,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 15.88,
                         tilt_degrees_to_units: 15.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -3109,8 +3123,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1440, 1440),
-                        tilt_range: range!(i16, -480, 480),
+                        pan_range: range!(i32, -1440, 1440),
+                        tilt_range: range!(i32, -480, 480),
                         max_pan_speed: 18,
                         max_tilt_speed: 18,
                         simultaneous: true,
@@ -3118,6 +3132,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 16.0,
                         tilt_degrees_to_units: 16.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -3228,7 +3243,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "sony-brc300"))]],
                     group: GenericVisca,
                     vendor: "Sony",
-                    description: "Legacy PTZ camera with unsigned coordinate system",
+                    description: "Legacy PTZ camera with signed-centered 20-bit pan and 16-bit tilt coordinates",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -3269,15 +3284,27 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1170, 1170),
-                        tilt_range: range!(i16, -390, 390),
-                        max_pan_speed: 18,
-                        max_tilt_speed: 17,
+                        // Sony BRC-300 technical manual, pp. 12 and 22:
+                        // signed 20-bit pan (`08A58` left / `F75A8` right)
+                        // and signed 16-bit tilt (`493D` up / `E796` down).
+                        // The library's positive-pan/right and negative-tilt/up
+                        // degree convention is therefore opposite both raw axes.
+                        pan_range: range!(i32, -0x08A58, 0x08A58),
+                        tilt_range: range!(i32, -0x186A, 0x493D),
+                        max_pan_speed: 0x18,
+                        // BRC-300 position frames have one speed byte. The
+                        // profile-aware coarse-speed lowering mirrors it into
+                        // both public wrappers; explicit paired speeds must
+                        // agree and use this same documented maximum.
+                        max_tilt_speed: 0x18,
                         simultaneous: true,
                         preset_recovery_ms: 0,
-                        pan_degrees_to_units: 13.0,
-                        tilt_degrees_to_units: 13.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::UnsignedCentered,
+                        // The manual approximates one degree as `0xD0`; the
+                        // negative sign is the documented raw-axis polarity.
+                        pan_degrees_to_units: -208.0,
+                        tilt_degrees_to_units: -208.0,
+                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
                     },
                     zoom: {
                         optical_max: 0x1068,
@@ -3341,8 +3368,13 @@ macro_rules! define_builtin_profiles {
                         gamma_range: None,
                     },
                     presets: {
-                        max: 16,
-                        speed_range: range!(u8, 1, 17),
+                        // Sony BRC-300 technical manual, pp. 11–14:
+                        // CAM_Memory accepts p = 0..=5, and Cmd_PT_M_Speed
+                        // documents q = 1..=24. These discovery facts do not
+                        // establish compatibility with the PTZOptics typed
+                        // preset-recall-speed command family.
+                        max: 5,
+                        speed_range: range!(u8, 1, 24),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -3381,7 +3413,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "nearus-brc300"))]],
                     group: GenericVisca,
                     vendor: "Nearus",
-                    description: "Rebranded Sony BRC-300 with image processing features",
+                    description: "Nearus PTZ camera profile with conservatively modeled standard VISCA pan/tilt framing",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -3422,8 +3454,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1170, 1170),
-                        tilt_range: range!(i16, -390, 390),
+                        pan_range: range!(i32, -1170, 1170),
+                        tilt_range: range!(i32, -390, 390),
                         max_pan_speed: 18,
                         max_tilt_speed: 17,
                         simultaneous: true,
@@ -3431,6 +3463,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 13.0,
                         tilt_degrees_to_units: 13.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::UnsignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x1068,
@@ -3522,6 +3555,7 @@ macro_rules! define_builtin_profiles {
                         SaturationControl,
                     ],
                     evidence: [
+                        ("pan_tilt_wire", "No independent Nearus model source establishes Sony BRC-300's one-speed, five-pan-nibble position frame. The profile therefore exposes conservative standard 4+4 VISCA pan/tilt framing pending model-specific validation."),
                         ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
                         ("iris", "Nearus BRC-300 inherits general iris metadata only; the registry has no independent model-specific evidence for enabling the typed iris control or targeted inquiry."),
                     ],
@@ -3575,8 +3609,8 @@ macro_rules! define_builtin_profiles {
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2880, 2880),
-                        tilt_range: range!(i16, -1440, 1440),
+                        pan_range: range!(i32, -2880, 2880),
+                        tilt_range: range!(i32, -1440, 1440),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -3584,6 +3618,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 16.0,
                         tilt_degrees_to_units: 16.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0xFFFF,

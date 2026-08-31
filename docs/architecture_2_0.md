@@ -296,6 +296,18 @@ rustdoc and are documented here instead. The tables below are derived from the
 transition functions in `src/runtime/engine/mod.rs` and describe the settled
 post-#671 behavior, not an aspirational one.
 
+Raw inquiry replies have no wire identity. The production Raw adapter therefore
+uses one live inquiry per target. Whenever that inquiry releases its response
+correlation — after a reply, a terminal error or timeout, or before a retry is
+requeued — the engine retains a target-local ambiguity hold for the profile's
+ambiguity timeout. Same-target response-bearing successor work cannot send
+during that hold, and frames received during it are inert. This is deliberately
+a single-flight production rule: a wider raw FIFO cannot distinguish a
+duplicate from the already-live next inquiry. At the exact hold deadline input
+is applied first, so a boundary stale frame is still ignored; the due pass then
+releases the successor. Other targets and no-reply work remain independently
+eligible.
+
 ### Protocol phases
 
 | `Phase` | Meaning |
@@ -332,7 +344,7 @@ post-#671 behavior, not an aspirational one.
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain a bounded target tombstone before same-target raw response-bearing command or inquiry work may start. Another `NoReply` may write and extend that fixed hold. |
-| Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. |
+| Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. Production Raw policy has one live inquiry per target, the precondition for its stale-frame hold. |
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | ACK in `AwaitingAck`/`AwaitingLateAck` with a free socket | Assign the socket and transition to `Executing`; if cancel intent is already recorded on a supported target, emit one socket cancellation. |
@@ -340,7 +352,9 @@ post-#671 behavior, not an aspirational one.
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. Retain the bounded target tombstone before same-target raw response-bearing command or inquiry work starts; a later `NoReply` may only extend that fixed hold. |
-| Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. |
+| Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. A production single-flight Raw inquiry first retains its target's response correlation through the ambiguity deadline. |
+| Raw inquiry response-correlation release | A reply, terminal error/timeout, or retry release/requeue retains the target-local hold before same-target response-bearing successor work may send; frames during the hold are `Ignored`. |
+| Raw inquiry frame at exact ambiguity expiry | Input wins over the due pass: the frame is still ignored under the hold, then the due pass releases a waiting successor. |
 | Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
 | Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
 | `0x04` command-cancelled terminal | `finish` with `Cancelled`. |

@@ -179,6 +179,24 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
+    /// Add a VISCA-encoded 20-bit value (5 nibbles).
+    pub fn push_visca_u20(mut self, value: u32) -> Self {
+        self.terminated = false;
+        self.required += 5;
+        if self.position + 5 <= N {
+            let value = value & 0x000F_FFFF;
+            self.buffer[self.position] = ((value >> 16) & 0x0F) as u8;
+            self.buffer[self.position + 1] = ((value >> 12) & 0x0F) as u8;
+            self.buffer[self.position + 2] = ((value >> 8) & 0x0F) as u8;
+            self.buffer[self.position + 3] = ((value >> 4) & 0x0F) as u8;
+            self.buffer[self.position + 4] = (value & 0x0F) as u8;
+            self.position += 5;
+        } else {
+            self.overflowed = true;
+        }
+        self
+    }
+
     /// Add a nibble pair (2 bytes) from a u16 value.
     /// The high nibble (bits 4-7) and low nibble (bits 0-3) are stored as separate bytes.
     pub fn push_nibble_pair(mut self, value: u16) -> Self {

@@ -138,7 +138,8 @@ where
         let registry = TargetRegistry::from_targets(&targets)?;
         let profile = profiles[0].1;
         let envelope = OwnerEnvelope::from_profile(profile, config.addressing)?;
-        let framer = ProtocolFramer::new_with_config(config.buffer_config);
+        let framer =
+            ProtocolFramer::new_with_config_and_mode(config.buffer_config, envelope.framing_mode());
         let routing = RoutingState::new(config.addressing, registry);
         Ok(Self {
             state: Arc::new(Mutex::new(BlockingAdapterState {
@@ -835,6 +836,55 @@ mod tests {
         ));
     }
 
+    /// A raw owner already knows its envelope from the selected profile. A
+    /// malformed/noise prefix can resemble a Sony header, but its `FF` still
+    /// delimits one discarded raw frame before the replies that follow it.
+    /// These prefixes are deliberately malformed/noise, not valid raw replies.
+    #[test]
+    fn raw_owner_recovers_sony_looking_noise_before_following_replies() {
+        for payload_type in [[0x01, 0x11], [0x02, 0x00]] {
+            let noise = [
+                payload_type[0],
+                payload_type[1],
+                0x00,
+                0x05,
+                0x12,
+                0x34,
+                0x56,
+                0x78,
+                0x55,
+                0xff,
+            ];
+            let mut bytes = noise.to_vec();
+            bytes.extend_from_slice(&[0x90, 0x41, 0xff]);
+            bytes.extend_from_slice(&[0x90, 0x51, 0xff]);
+
+            let mut transport = ScriptedTransport::new(config(), [Ok(bytes)]);
+            transport.semantics = SendSemantics::Stream;
+            let adapter =
+                BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let (_writer, mut reader, mut decoder) = adapter.parts();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let mut receive = [0; 128];
+            let received = match reader.receive(&mut receive, None).unwrap() {
+                BlockingReceive::Bytes(n) => {
+                    buffers.receive_mut()[..n].copy_from_slice(&receive[..n]);
+                    n
+                }
+                BlockingReceive::TimedOut => 0,
+            };
+
+            let frames = decoder.decode(&mut buffers, received, 4).unwrap();
+            assert_eq!(frames.len(), 2, "{payload_type:02x?}");
+            assert!(matches!(frames[0].response, DecodedResponse::Ack { .. }));
+            assert!(matches!(
+                frames[1].response,
+                DecodedResponse::Completion { .. }
+            ));
+            assert_eq!(buffers.take_discarded_malformed(), 1, "{payload_type:02x?}");
+        }
+    }
+
     #[test]
     fn sony_decoder_preserves_full_sequence_metadata() {
         let payload = [0x90, 0x41, 0xff];
@@ -863,6 +913,55 @@ mod tests {
             frames[0].sequence,
             Some(EnvelopeSequence {
                 value: 0x1234_5678,
+                width: SequenceWidth::Full32,
+            })
+        );
+        assert!(matches!(frames[0].response, DecodedResponse::Ack { .. }));
+    }
+
+    #[test]
+    fn sony_owner_buffers_a_fragmented_header_and_payload_by_declared_length() {
+        let payload = [0x90, 0x41, 0xff];
+        let header = crate::protocol::sony::SonyHeader::new_reply(payload.len(), 0xff00_ff00);
+        let mut framed = header.encode().to_vec();
+        framed.extend_from_slice(&payload);
+        let mut transport = ScriptedTransport::new(
+            config(),
+            [Ok(framed[..6].to_vec()), Ok(framed[6..].to_vec())],
+        );
+        transport.semantics = SendSemantics::Stream;
+        let adapter = BlockingTransportAdapter::new(
+            transport,
+            &ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (_writer, mut reader, mut decoder) = adapter.parts();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let mut receive = [0; 128];
+
+        let first = match reader.receive(&mut receive, None).unwrap() {
+            BlockingReceive::Bytes(n) => {
+                buffers.receive_mut()[..n].copy_from_slice(&receive[..n]);
+                n
+            }
+            BlockingReceive::TimedOut => 0,
+        };
+        assert!(decoder.decode(&mut buffers, first, 4).unwrap().is_empty());
+
+        let second = match reader.receive(&mut receive, None).unwrap() {
+            BlockingReceive::Bytes(n) => {
+                buffers.receive_mut()[..n].copy_from_slice(&receive[..n]);
+                n
+            }
+            BlockingReceive::TimedOut => 0,
+        };
+        let frames = decoder.decode(&mut buffers, second, 4).unwrap();
+        assert_eq!(frames.len(), 1);
+        assert_eq!(
+            frames[0].sequence,
+            Some(EnvelopeSequence {
+                value: 0xff00_ff00,
                 width: SequenceWidth::Full32,
             })
         );

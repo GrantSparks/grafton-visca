@@ -1,138 +1,122 @@
-//! Test for issue #363: Make async runtime inquiry decoding profile-aware.
-//!
-//! This test verifies that the async runtime correctly uses profile-aware
-//! decoding for pan/tilt position inquiries, properly handling coordinate
-//! system conversion for cameras with unsigned-centered coordinates.
+//! Profile-aware pan/tilt position decoding, including Sony BRC-300's
+//! nonstandard five-nibble pan field.
 
 use grafton_visca::{
-    camera::profiles::{GenericVisca, SonyBRC300},
-    capabilities::{CoordinateSystem, PanTilt},
+    camera::profiles::{GenericVisca, NearusBRC300, SonyBRC300},
+    capabilities::{CoordinateSystem, PanTilt, PanTiltWireCodec},
     command::{InquiryData, InquiryKind, Response},
+    PanTiltPositionRaw,
 };
 
-#[test]
-fn test_profile_parse_signed_centered_pan_tilt_position() {
-    // Create a DataReply response with pan/tilt at center (0x0000, 0x0000 for signed-centered)
-    let frame = [
-        0x90, 0x50, 0x00, 0x00, 0x00, 0x00, // Pan: 0x0000 (center for signed)
-        0x00, 0x00, 0x00, 0x00, // Tilt: 0x0000 (center for signed)
-        0xFF,
-    ];
+fn parsed<P: grafton_visca::capabilities::Profile>(payload: &[u8]) -> Response {
+    let mut frame = Vec::with_capacity(payload.len() + 3);
+    frame.extend_from_slice(&[0x90, 0x50]);
+    frame.extend_from_slice(payload);
+    frame.push(0xFF);
+    Response::parse_with_profile::<P>(&frame, &InquiryKind::PanTiltPosition)
+        .expect("profile-aware pan/tilt position should parse")
+}
 
-    let response_type = InquiryKind::PanTiltPosition;
-
-    // Use profile-aware lifting with GenericVisca (signed-centered)
-    let response = Response::parse_with_profile::<GenericVisca>(&frame, &response_type)
-        .expect("Should parse successfully");
-
-    // Verify the response is correctly interpreted as (0, 0)
+fn pan_tilt(response: Response) -> (i32, i32) {
     match response {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, 0, "Pan should be 0 at center for signed-centered");
-            assert_eq!(tilt, 0, "Tilt should be 0 at center for signed-centered");
-        }
-        _ => panic!("Expected PanTiltPosition inquiry response"),
+        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => (pan, tilt),
+        _ => panic!("expected PanTiltPosition inquiry response"),
     }
 }
 
 #[test]
-fn test_profile_parse_unsigned_centered_pan_tilt_position() {
-    // Create a DataReply response with pan/tilt at center (0x8000, 0x8000 for unsigned-centered)
-    let frame = [
-        0x90, 0x50, 0x08, 0x00, 0x00, 0x00, // Pan: 0x8000 (center for unsigned)
-        0x08, 0x00, 0x00, 0x00, // Tilt: 0x8000 (center for unsigned)
-        0xFF,
-    ];
-
-    let response_type = InquiryKind::PanTiltPosition;
-
-    // Use profile-aware lifting with SonyBRC300 (unsigned-centered)
-    let response = Response::parse_with_profile::<SonyBRC300>(&frame, &response_type)
-        .expect("Should parse successfully");
-
-    // Verify the response is correctly interpreted as (0, 0)
-    match response {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(pan, 0, "Pan should be 0 at center for unsigned-centered");
-            assert_eq!(tilt, 0, "Tilt should be 0 at center for unsigned-centered");
-        }
-        _ => panic!("Expected PanTiltPosition inquiry response"),
-    }
+fn standard_visca_signed_centered_profile_decodes_eight_nibbles() {
+    assert_eq!(
+        pan_tilt(parsed::<GenericVisca>(&[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ])),
+        (0, 0)
+    );
 }
 
 #[test]
-fn test_coordinate_conversion_extremes() {
-    // Test maximum positive pan/tilt for unsigned-centered
-    // 0xFFFF should convert to 32767 in host units
-    let frame = [
-        0x90, 0x50, 0x0F, 0x0F, 0x0F, 0x0F, // Pan: 0xFFFF
-        0x0F, 0x0F, 0x0F, 0x0F, // Tilt: 0xFFFF
-        0xFF,
-    ];
-
-    let response_type = InquiryKind::PanTiltPosition;
-
-    // Use profile-aware lifting for unsigned-centered
-    let response = Response::parse_with_profile::<SonyBRC300>(&frame, &response_type)
-        .expect("Should parse successfully");
-
-    match response {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(
-                pan, 32767,
-                "Pan should be 32767 at max for unsigned-centered"
-            );
-            assert_eq!(
-                tilt, 32767,
-                "Tilt should be 32767 at max for unsigned-centered"
-            );
-        }
-        _ => panic!("Expected PanTiltPosition inquiry response"),
-    }
-
-    // Test minimum (0x0000 should convert to -32768)
-    let frame = [
-        0x90, 0x50, 0x00, 0x00, 0x00, 0x00, // Pan: 0x0000
-        0x00, 0x00, 0x00, 0x00, // Tilt: 0x0000
-        0xFF,
-    ];
-
-    let response = Response::parse_with_profile::<SonyBRC300>(&frame, &response_type)
-        .expect("Should parse successfully");
-
-    match response {
-        Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => {
-            assert_eq!(
-                pan, -32768,
-                "Pan should be -32768 at min for unsigned-centered"
-            );
-            assert_eq!(
-                tilt, -32768,
-                "Tilt should be -32768 at min for unsigned-centered"
-            );
-        }
-        _ => panic!("Expected PanTiltPosition inquiry response"),
-    }
+fn sony_brc300_decodes_documented_nine_nibble_center() {
+    assert_eq!(
+        pan_tilt(parsed::<SonyBRC300>(&[
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ])),
+        (0, 0)
+    );
 }
 
-// Note: Full async runtime integration testing would require more complex test setup.
-// The key fix is demonstrated by the profile-aware response parsing tests above,
-// which show that coordinate conversion works correctly for both coordinate systems.
-// The async runtime uses the same profile-aware parser internally,
-// ensuring correct coordinate conversion for all profiles.
+#[test]
+fn sony_brc300_decodes_documented_signed_endpoints() {
+    // BRC-300 manual p. 22: `08A58`/`F75A8` pan and `493D`/`E796` tilt.
+    assert_eq!(
+        pan_tilt(parsed::<SonyBRC300>(&[
+            0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
+        ])),
+        (0x08A58, 0x493D)
+    );
+    assert_eq!(
+        pan_tilt(parsed::<SonyBRC300>(&[
+            0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09, 0x06,
+        ])),
+        (-0x08A58, -0x186A)
+    );
+}
 
 #[test]
-fn test_real_profiles_coordinate_systems() {
-    // Verify that real camera profiles have the expected coordinate systems
+fn sony_brc300_inquiry_endpoints_use_library_axis_polarity() {
+    // BRC-300 p. 22: positive raw endpoints are Left/Up, while negative raw
+    // endpoints are Right/Down. The library exposes right as positive pan and
+    // up as negative tilt degrees.
+    let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
+        0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
+    ]));
+    let left_up = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    assert!(left_up.pan.0 < 0.0);
+    assert!(left_up.tilt.0 < 0.0);
+    assert!((left_up.pan.0 + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((left_up.tilt.0 + 0x493D as f32 / 208.0).abs() < f32::EPSILON);
+
+    let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
+        0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09, 0x06,
+    ]));
+    let right_down = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    assert!(right_down.pan.0 > 0.0);
+    assert!(right_down.tilt.0 > 0.0);
+    assert!((right_down.pan.0 - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((right_down.tilt.0 - 0x186A as f32 / 208.0).abs() < f32::EPSILON);
+}
+
+#[test]
+fn nearus_does_not_inherit_sony_brc300_framing_without_evidence() {
+    // Nearus retains its existing unsigned-centered metadata, but uses the
+    // conservative standard 4+4 VISCA codec rather than Sony's 5+4 frame.
+    assert_eq!(
+        pan_tilt(parsed::<NearusBRC300>(&[
+            0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+        ])),
+        (0, 0)
+    );
+    assert_eq!(
+        NearusBRC300::PAN_TILT_WIRE_CODEC,
+        PanTiltWireCodec::StandardVisca
+    );
+}
+
+#[test]
+fn real_profile_wire_facts_are_distinct() {
     assert_eq!(
         GenericVisca::COORDINATE_SYSTEM,
-        CoordinateSystem::SignedCentered,
-        "GenericVisca should use signed-centered coordinates"
+        CoordinateSystem::SignedCentered
     );
-
     assert_eq!(
         SonyBRC300::COORDINATE_SYSTEM,
-        CoordinateSystem::UnsignedCentered,
-        "SonyBRC300 should use unsigned-centered coordinates"
+        CoordinateSystem::SignedCentered
     );
+    assert_eq!(
+        SonyBRC300::PAN_TILT_WIRE_CODEC,
+        PanTiltWireCodec::SonyBrc300
+    );
+    assert_eq!(SonyBRC300::PAN_RANGE.min(), -0x08A58);
+    assert_eq!(SonyBRC300::PAN_RANGE.max(), 0x08A58);
+    assert_eq!(SonyBRC300::TILT_RANGE.min(), -0x186A);
+    assert_eq!(SonyBRC300::TILT_RANGE.max(), 0x493D);
 }

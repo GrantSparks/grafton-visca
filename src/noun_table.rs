@@ -217,22 +217,14 @@ macro_rules! noun_table {
             /// Moves to an absolute degree position at the selected speed.
             targeted [PanTiltAbsolute] absolute(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
                 -> builtin::PanTiltAbsolute
-                = with_profile |profile| builtin::PanTiltAbsolute::for_profile(
-                    pan,
-                    tilt,
-                    types::PanSpeed::from(speed),
-                    types::TiltSpeed::from(speed),
-                    profile,
+                = with_profile |profile| builtin::PanTiltAbsolute::for_profile_speed_level(
+                    pan, tilt, speed, profile,
                 );
             /// Moves by a relative degree offset at the selected speed.
             targeted [PanTiltRelative] relative(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
                 -> builtin::PanTiltRelative
-                = with_profile |profile| builtin::PanTiltRelative::for_profile(
-                    pan,
-                    tilt,
-                    types::PanSpeed::from(speed),
-                    types::TiltSpeed::from(speed),
-                    profile,
+                = with_profile |profile| builtin::PanTiltRelative::for_profile_speed_level(
+                    pan, tilt, speed, profile,
                 );
             /// Sets one pan/tilt movement-limit corner.
             plain [PanTiltLimitSet] limit_set(
@@ -248,7 +240,7 @@ macro_rules! noun_table {
             /// Clears one pan/tilt movement-limit corner.
             plain [PanTiltLimitClear] limit_clear(corner: command::PanTiltLimitCorner)
                 -> builtin::PanTiltLimitClear
-                = builtin::PanTiltLimitClear::new(corner);
+                = with_profile |profile| builtin::PanTiltLimitClear::for_profile(corner, profile);
         ]; $($rest)* }
     };
 

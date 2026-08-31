@@ -14,6 +14,7 @@ fn final_request_classification_contracts() {
         "tests/api_contract/fail/plain_request_is_not_an_operation.rs",
         "tests/api_contract/fail/inquiry_request_is_not_plain.rs",
         "tests/api_contract/fail/builtin_inquiry_retry_is_private.rs",
+        "tests/api_contract/fail/downstream_builtin_inquiry_retry_authority_is_private.rs",
         "tests/api_contract/fail/submission_class_cannot_be_urgent.rs",
         "tests/api_contract/fail/system_protocol_controls_are_internal.rs",
     ];

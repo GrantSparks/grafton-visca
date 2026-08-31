@@ -6,6 +6,66 @@
 use grafton_visca::command::{InquiryData, InquiryKind, Response};
 
 #[test]
+fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
+    use grafton_visca::command::WhiteBalanceMode;
+
+    for (wire, expected) in [
+        (0x00, WhiteBalanceMode::Auto),
+        (0x01, WhiteBalanceMode::Indoor),
+        (0x02, WhiteBalanceMode::Outdoor),
+        (0x03, WhiteBalanceMode::OnePush),
+        (0x04, WhiteBalanceMode::ATW),
+        (0x05, WhiteBalanceMode::Manual),
+        (0x20, WhiteBalanceMode::ColorTemperature),
+    ] {
+        let response =
+            Response::parse_with_type(&[0x90, 0x50, wire, 0xff], &InquiryKind::WhiteBalanceMode)
+                .expect("supported white-balance mode must decode");
+        assert!(matches!(
+            response,
+            Response::Inquiry(InquiryData::WhiteBalanceMode { mode }) if mode == expected
+        ));
+    }
+}
+
+#[test]
+fn sony_fr7_profile_path_advertises_and_decodes_atw() {
+    use grafton_visca::{
+        command::WhiteBalanceMode,
+        profiles::{GenericVisca, SonyFR7},
+        ProfileSpec,
+    };
+
+    let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    assert!(
+        fr7.capabilities()
+            .white_balance_modes
+            .contains(&WhiteBalanceMode::ATW),
+        "the FR7 registry advertises its typed ATW wire value"
+    );
+    let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic VISCA profile");
+    assert!(
+        !generic
+            .capabilities()
+            .white_balance_modes
+            .contains(&WhiteBalanceMode::ATW),
+        "ATW remains an FR7-specific advertised mode"
+    );
+
+    let response = Response::parse_with_profile::<SonyFR7>(
+        &[0x90, 0x50, 0x04, 0xff],
+        &InquiryKind::WhiteBalanceMode,
+    )
+    .expect("the Sony FR7 ATW inquiry reply must decode");
+    assert!(matches!(
+        response,
+        Response::Inquiry(InquiryData::WhiteBalanceMode {
+            mode: WhiteBalanceMode::ATW
+        })
+    ));
+}
+
+#[test]
 fn test_parse_power_inquiry_responses() {
     // Power On response
     let data = vec![0x90, 0x50, 0x02, 0xFF];

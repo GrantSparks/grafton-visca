@@ -229,12 +229,14 @@ pub struct ProfileTimingBuilder {
     minimum_command_spacing: Option<Duration>,
 }
 
-/// Exact pan/tilt coordinate conversion owned by a validated profile.
+/// Profile-specified pan/tilt coordinate conversion owned by a validated profile.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltCoordinateConversion {
     coordinate_system: capabilities::CoordinateSystem,
+    #[cfg_attr(feature = "serde", serde(default))]
+    wire_codec: capabilities::PanTiltWireCodec,
     pan_degrees_to_units: f32,
     tilt_degrees_to_units: f32,
 }
@@ -246,27 +248,34 @@ impl PanTiltCoordinateConversion {
         self.coordinate_system
     }
 
-    /// Returns the exact pan degree-to-unit factor.
+    /// Returns the profile-owned position-command and inquiry framing.
+    #[must_use]
+    pub const fn wire_codec(self) -> capabilities::PanTiltWireCodec {
+        self.wire_codec
+    }
+
+    /// Returns the signed pan degree-to-unit scale.
+    ///
+    /// A negative scale represents a raw pan axis whose increasing values move
+    /// left while the library's positive degree convention is right.
     #[must_use]
     pub const fn pan_degrees_to_units(self) -> f32 {
         self.pan_degrees_to_units
     }
 
-    /// Returns the exact tilt degree-to-unit factor.
+    /// Returns the signed tilt degree-to-unit scale.
+    ///
+    /// A negative scale represents a raw tilt axis whose increasing values move
+    /// up while the library's negative degree convention is up.
     #[must_use]
     pub const fn tilt_degrees_to_units(self) -> f32 {
         self.tilt_degrees_to_units
     }
 
-    pub(crate) fn camera_coordinates(
-        self,
-        pan_degrees: f32,
-        tilt_degrees: f32,
-    ) -> (i16, i16, u16, u16) {
-        let pan = (pan_degrees * self.pan_degrees_to_units).round() as i16;
-        let tilt = (tilt_degrees * self.tilt_degrees_to_units).round() as i16;
-        let (pan_wire, tilt_wire) = self.coordinate_system.to_camera_coords(pan, tilt);
-        (pan, tilt, pan_wire, tilt_wire)
+    pub(crate) fn camera_coordinates(self, pan_degrees: f32, tilt_degrees: f32) -> (i32, i32) {
+        let pan = (pan_degrees * self.pan_degrees_to_units).round() as i32;
+        let tilt = (tilt_degrees * self.tilt_degrees_to_units).round() as i32;
+        (pan, tilt)
     }
 }
 
@@ -888,7 +897,7 @@ impl ProfileSpec {
         &self.capabilities
     }
 
-    /// Returns exact pan/tilt coordinate facts when pan/tilt is supported.
+    /// Returns profile-specified pan/tilt coordinate facts when pan/tilt is supported.
     #[must_use]
     pub const fn pan_tilt_coordinates(&self) -> Option<PanTiltCoordinateConversion> {
         self.pan_tilt_coordinates
@@ -898,7 +907,7 @@ impl ProfileSpec {
         &self,
         pan_degrees: f32,
         tilt_degrees: f32,
-    ) -> Result<(i16, i16, u16, u16)> {
+    ) -> Result<(i32, i32)> {
         if !pan_degrees.is_finite()
             || !tilt_degrees.is_finite()
             || !self.capabilities.pan_range_degrees.contains(&pan_degrees)
@@ -1206,9 +1215,9 @@ impl ProfileSpec {
                 || self.capabilities.tilt_speed.start() > self.capabilities.tilt_speed.end()
                 || self.pan_tilt_coordinates.is_none_or(|conversion| {
                     !conversion.pan_degrees_to_units.is_finite()
-                        || conversion.pan_degrees_to_units <= 0.0
+                        || conversion.pan_degrees_to_units == 0.0
                         || !conversion.tilt_degrees_to_units.is_finite()
-                        || conversion.tilt_degrees_to_units <= 0.0
+                        || conversion.tilt_degrees_to_units == 0.0
                 }))
         {
             return Err(Error::InvalidRequest(
@@ -1221,28 +1230,59 @@ impl ProfileSpec {
                     "pan/tilt coordinate conversion is required".into(),
                 ));
             };
-            let coherent = |degrees: f32, factor: f32, units: i16| {
-                (degrees * factor - f32::from(units)).abs() <= 0.5
+            if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
+                && conversion.coordinate_system != capabilities::CoordinateSystem::SignedCentered
+            {
+                return Err(Error::InvalidRequest(
+                    "Sony BRC-300 pan/tilt framing requires signed-centered coordinates".into(),
+                ));
+            }
+            if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
+                && (!(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.start())
+                    || !(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.end())
+                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.start())
+                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.end()))
+            {
+                return Err(Error::InvalidRequest(
+                    "Sony BRC-300 pan/tilt ranges must fit signed 20-bit pan and signed 16-bit tilt framing".into(),
+                ));
+            }
+            if conversion.wire_codec == capabilities::PanTiltWireCodec::StandardVisca
+                && (!(-0x8000..=0x7FFF).contains(self.capabilities.pan_range.start())
+                    || !(-0x8000..=0x7FFF).contains(self.capabilities.pan_range.end())
+                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.start())
+                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.end()))
+            {
+                return Err(Error::InvalidRequest(
+                    "standard VISCA pan/tilt ranges must fit signed 16-bit framing".into(),
+                ));
+            }
+            let coherent = |degrees: f32, factor: f32, units: i32| {
+                (degrees * factor - units as f32).abs() <= 0.5
             };
-            if !coherent(
-                *self.capabilities.pan_range_degrees.start(),
+            let coherent_range =
+                |degrees: &std::ops::RangeInclusive<f32>,
+                 factor: f32,
+                 units: &std::ops::RangeInclusive<i32>| {
+                    let (start_units, end_units) = if factor.is_sign_negative() {
+                        (*units.end(), *units.start())
+                    } else {
+                        (*units.start(), *units.end())
+                    };
+                    coherent(*degrees.start(), factor, start_units)
+                        && coherent(*degrees.end(), factor, end_units)
+                };
+            if !coherent_range(
+                &self.capabilities.pan_range_degrees,
                 conversion.pan_degrees_to_units,
-                *self.capabilities.pan_range.start(),
-            ) || !coherent(
-                *self.capabilities.pan_range_degrees.end(),
-                conversion.pan_degrees_to_units,
-                *self.capabilities.pan_range.end(),
-            ) || !coherent(
-                *self.capabilities.tilt_range_degrees.start(),
+                &self.capabilities.pan_range,
+            ) || !coherent_range(
+                &self.capabilities.tilt_range_degrees,
                 conversion.tilt_degrees_to_units,
-                *self.capabilities.tilt_range.start(),
-            ) || !coherent(
-                *self.capabilities.tilt_range_degrees.end(),
-                conversion.tilt_degrees_to_units,
-                *self.capabilities.tilt_range.end(),
+                &self.capabilities.tilt_range,
             ) {
                 return Err(Error::InvalidRequest(
-                    "pan/tilt degree ranges must match their exact unit converters".into(),
+                    "pan/tilt degree ranges must match their profile-specified unit scales".into(),
                 ));
             }
         }
@@ -1557,16 +1597,27 @@ impl ProfileSpec {
                     capabilities.has_exposure && capabilities.exposure_brightness_range.is_some()
                 }
                 capabilities::TypedSupportSurface::OnePushWhiteBalance => {
-                    capabilities.has_white_balance && capabilities.has_one_push_wb
+                    capabilities.has_white_balance
+                        && capabilities.has_one_push_wb
+                        && capabilities
+                            .white_balance_modes
+                            .contains(&crate::command::WhiteBalanceMode::OnePush)
                 }
                 capabilities::TypedSupportSurface::AutoTrackingWhiteBalance => {
                     capabilities.has_white_balance
+                        && capabilities
+                            .white_balance_modes
+                            .contains(&crate::command::WhiteBalanceMode::ATW)
                 }
                 capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
                     capabilities.has_white_balance
                 }
                 capabilities::TypedSupportSurface::ColorTemperature => {
-                    capabilities.has_white_balance && capabilities.color_temp_range.is_some()
+                    capabilities.has_white_balance
+                        && capabilities.color_temp_range.is_some()
+                        && capabilities
+                            .white_balance_modes
+                            .contains(&crate::command::WhiteBalanceMode::ColorTemperature)
                 }
                 capabilities::TypedSupportSurface::RgbGain => {
                     capabilities.has_white_balance
@@ -1756,6 +1807,7 @@ pub struct ProfileSpecBuilder {
     tcp_port_inferred: bool,
     udp_port_inferred: bool,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
+    pan_tilt_wire_codec: capabilities::PanTiltWireCodec,
     transports: Option<TransportCompatibility>,
     envelope: Option<ProfileEnvelope>,
     timing: Option<ProfileTiming>,
@@ -1775,6 +1827,7 @@ impl ProfileSpecBuilder {
             tcp_port_inferred,
             udp_port_inferred,
             pan_tilt_coordinates: None,
+            pan_tilt_wire_codec: capabilities::PanTiltWireCodec::StandardVisca,
             transports: None,
             envelope: None,
             timing: None,
@@ -1799,9 +1852,11 @@ impl ProfileSpecBuilder {
             udp_port_inferred: false,
             pan_tilt_coordinates: Some(PanTiltCoordinateConversion {
                 coordinate_system: P::COORDINATE_SYSTEM,
+                wire_codec: P::PAN_TILT_WIRE_CODEC,
                 pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
                 tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
             }),
+            pan_tilt_wire_codec: P::PAN_TILT_WIRE_CODEC,
             transports: Some(P::TRANSPORTS),
             envelope: Some(
                 if <P::Envelope as crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION {
@@ -1880,13 +1935,13 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets pan/tilt range, speed, and coordinate-conversion facts.
+    /// Sets pan/tilt range, speed, and signed coordinate-conversion facts.
     #[must_use]
     #[allow(clippy::too_many_arguments)]
     pub fn pan_tilt(
         mut self,
-        pan_range: std::ops::RangeInclusive<i16>,
-        tilt_range: std::ops::RangeInclusive<i16>,
+        pan_range: std::ops::RangeInclusive<i32>,
+        tilt_range: std::ops::RangeInclusive<i32>,
         maximum_pan_speed: u8,
         maximum_tilt_speed: u8,
         pan_degrees_to_units: f32,
@@ -1898,21 +1953,27 @@ impl ProfileSpecBuilder {
         self.capabilities.tilt_range = tilt_range.clone();
         self.capabilities.pan_speed = 1..=maximum_pan_speed;
         self.capabilities.tilt_speed = 1..=maximum_tilt_speed;
-        self.capabilities.pan_range_degrees = *pan_range.start() as f32 / pan_degrees_to_units
-            ..=*pan_range.end() as f32 / pan_degrees_to_units;
-        self.capabilities.tilt_range_degrees = *tilt_range.start() as f32 / tilt_degrees_to_units
-            ..=*tilt_range.end() as f32 / tilt_degrees_to_units;
+        let pan_start_degrees = *pan_range.start() as f32 / pan_degrees_to_units;
+        let pan_end_degrees = *pan_range.end() as f32 / pan_degrees_to_units;
+        let tilt_start_degrees = *tilt_range.start() as f32 / tilt_degrees_to_units;
+        let tilt_end_degrees = *tilt_range.end() as f32 / tilt_degrees_to_units;
+        self.capabilities.pan_range_degrees =
+            pan_start_degrees.min(pan_end_degrees)..=pan_start_degrees.max(pan_end_degrees);
+        self.capabilities.tilt_range_degrees =
+            tilt_start_degrees.min(tilt_end_degrees)..=tilt_start_degrees.max(tilt_end_degrees);
         self.capabilities.pan_tilt_simultaneous = simultaneous;
         self.capabilities.has_pan_tilt = true;
         self.pan_tilt_coordinates = Some(PanTiltCoordinateConversion {
             coordinate_system,
+            wire_codec: self.pan_tilt_wire_codec,
             pan_degrees_to_units,
             tilt_degrees_to_units,
         });
         self
     }
 
-    /// Sets exact coordinate facts for a pre-populated pan/tilt capability inventory.
+    /// Sets profile-specified signed coordinate facts for a pre-populated pan/tilt capability
+    /// inventory.
     #[must_use]
     pub fn pan_tilt_coordinates(
         mut self,
@@ -1922,9 +1983,24 @@ impl ProfileSpecBuilder {
     ) -> Self {
         self.pan_tilt_coordinates = Some(PanTiltCoordinateConversion {
             coordinate_system,
+            wire_codec: self.pan_tilt_wire_codec,
             pan_degrees_to_units,
             tilt_degrees_to_units,
         });
+        self
+    }
+
+    /// Selects the profile-owned pan/tilt position-command and inquiry framing.
+    ///
+    /// The standard VISCA framing remains the default for runtime profiles.
+    /// Calling this after [`Self::pan_tilt`] or [`Self::pan_tilt_coordinates`]
+    /// updates the already supplied conversion facts as well.
+    #[must_use]
+    pub fn pan_tilt_wire_codec(mut self, wire_codec: capabilities::PanTiltWireCodec) -> Self {
+        self.pan_tilt_wire_codec = wire_codec;
+        if let Some(conversion) = &mut self.pan_tilt_coordinates {
+            conversion.wire_codec = wire_codec;
+        }
         self
     }
 
@@ -2085,6 +2161,13 @@ mod tests {
         capabilities
     }
 
+    fn runtime_white_balance_capabilities(modes: Vec<crate::WhiteBalanceMode>) -> Capabilities {
+        let mut capabilities = valid_runtime_capabilities();
+        capabilities.has_white_balance = true;
+        capabilities.white_balance_modes = modes;
+        capabilities
+    }
+
     fn runtime_builder(capabilities: Capabilities) -> ProfileSpecBuilder {
         ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(capabilities::CoordinateSystem::SignedCentered, 10.0, 10.0)
@@ -2108,6 +2191,150 @@ mod tests {
             .supports_command_cancel(false)
             .preset_recall_axes(Some(AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM)))
             .position_inquiries(PositionInquirySupport::new(true, true, true))
+    }
+
+    #[test]
+    fn runtime_brc300_codec_requires_ranges_encodable_by_its_position_fields() {
+        let mut endpoints = valid_runtime_capabilities();
+        endpoints.pan_range = -0x080000..=0x07_FFFF;
+        endpoints.tilt_range = -0x8000..=0x7FFF;
+        endpoints.pan_range_degrees = -524_288.0..=524_287.0;
+        endpoints.tilt_range_degrees = -32_768.0..=32_767.0;
+
+        assert!(runtime_builder(endpoints.clone())
+            .pan_tilt_coordinates(capabilities::CoordinateSystem::SignedCentered, 1.0, 1.0)
+            .pan_tilt_wire_codec(capabilities::PanTiltWireCodec::SonyBrc300)
+            .build()
+            .is_ok());
+
+        let mut pan_out_of_range = endpoints.clone();
+        pan_out_of_range.pan_range = -0x080001..=0x07_FFFF;
+        pan_out_of_range.pan_range_degrees = -524_289.0..=524_287.0;
+        assert!(runtime_builder(pan_out_of_range)
+            .pan_tilt_coordinates(capabilities::CoordinateSystem::SignedCentered, 1.0, 1.0)
+            .pan_tilt_wire_codec(capabilities::PanTiltWireCodec::SonyBrc300)
+            .build()
+            .is_err());
+
+        let mut tilt_out_of_range = endpoints;
+        tilt_out_of_range.tilt_range = -0x8001..=0x7FFF;
+        tilt_out_of_range.tilt_range_degrees = -32_769.0..=32_767.0;
+        assert!(runtime_builder(tilt_out_of_range)
+            .pan_tilt_coordinates(capabilities::CoordinateSystem::SignedCentered, 1.0, 1.0)
+            .pan_tilt_wire_codec(capabilities::PanTiltWireCodec::SonyBrc300)
+            .build()
+            .is_err());
+    }
+
+    #[test]
+    fn runtime_standard_visca_codec_requires_ranges_encodable_by_its_position_fields() {
+        let build = |pan_range: std::ops::RangeInclusive<i32>,
+                     tilt_range: std::ops::RangeInclusive<i32>| {
+            runtime_builder(valid_runtime_capabilities())
+                .pan_tilt(
+                    pan_range,
+                    tilt_range,
+                    8,
+                    8,
+                    -1.0,
+                    1.0,
+                    capabilities::CoordinateSystem::SignedCentered,
+                    true,
+                )
+                .pan_tilt_wire_codec(capabilities::PanTiltWireCodec::StandardVisca)
+                .build()
+        };
+
+        assert!(build(-0x8000..=0x7FFF, -0x8000..=0x7FFF).is_ok());
+
+        for result in [
+            build(-0x8001..=0x7FFF, -0x8000..=0x7FFF),
+            build(-0x8000..=0x8000, -0x8000..=0x7FFF),
+            build(-0x8000..=0x7FFF, -0x8001..=0x7FFF),
+            build(-0x8000..=0x7FFF, -0x8000..=0x8000),
+        ] {
+            assert!(matches!(
+                result,
+                Err(Error::InvalidRequest(message))
+                    if message == "standard VISCA pan/tilt ranges must fit signed 16-bit framing"
+            ));
+        }
+    }
+
+    #[test]
+    fn reverse_axis_brc300_scales_keep_static_and_runtime_ranges_ordered() {
+        let static_profile = ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>()
+            .expect("Sony BRC-300 static profile");
+        let static_capabilities = static_profile.capabilities();
+
+        let runtime_profile = runtime_builder(valid_runtime_capabilities())
+            .pan_tilt(
+                -0x08A58..=0x08A58,
+                -0x186A..=0x493D,
+                0x18,
+                0x18,
+                -208.0,
+                -208.0,
+                capabilities::CoordinateSystem::SignedCentered,
+                true,
+            )
+            .pan_tilt_wire_codec(capabilities::PanTiltWireCodec::SonyBrc300)
+            .build()
+            .expect("valid reverse-axis runtime BRC-300 profile");
+
+        assert_eq!(
+            runtime_profile.capabilities().pan_range_degrees,
+            static_capabilities.pan_range_degrees
+        );
+        assert_eq!(
+            runtime_profile.capabilities().tilt_range_degrees,
+            static_capabilities.tilt_range_degrees
+        );
+
+        for profile in [&static_profile, &runtime_profile] {
+            let capabilities = profile.capabilities();
+            assert!(capabilities.pan_range_degrees.start() <= capabilities.pan_range_degrees.end());
+            assert!(
+                capabilities.tilt_range_degrees.start() <= capabilities.tilt_range_degrees.end()
+            );
+
+            let conversion = profile.pan_tilt_coordinates().expect("BRC-300 coordinates");
+            let (pan, tilt) = profile
+                .convert_pan_tilt_degrees(45.0, -15.0)
+                .expect("right/up BRC-300 target");
+            assert_eq!((pan, tilt), (-0x02490, 0x0C30));
+            assert_eq!(pan as f32 / conversion.pan_degrees_to_units(), 45.0);
+            assert_eq!(tilt as f32 / conversion.tilt_degrees_to_units(), -15.0);
+        }
+    }
+
+    #[test]
+    fn runtime_pan_tilt_scales_reject_zero_and_nonfinite_values() {
+        for (name, pan_scale, tilt_scale) in [
+            ("zero pan", 0.0, 10.0),
+            ("negative zero tilt", 10.0, -0.0),
+            ("NaN pan", f32::NAN, 10.0),
+            ("NaN tilt", 10.0, f32::NAN),
+            ("infinite pan", f32::INFINITY, 10.0),
+            ("infinite tilt", 10.0, f32::NEG_INFINITY),
+        ] {
+            assert!(
+                runtime_builder(valid_runtime_capabilities())
+                    .pan_tilt(
+                        -100..=100,
+                        -50..=50,
+                        8,
+                        8,
+                        pan_scale,
+                        tilt_scale,
+                        capabilities::CoordinateSystem::SignedCentered,
+                        true,
+                    )
+                    .build()
+                    .is_err(),
+                "accepted {name} pan/tilt scale"
+            );
+        }
     }
 
     fn conservative_runtime_builder(capabilities: Capabilities) -> ProfileSpecBuilder {
@@ -2630,6 +2857,58 @@ mod tests {
         let mut usb_audio = valid_runtime_capabilities();
         usb_audio.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::UsbAudio);
         assert!(runtime_builder(usb_audio).build().is_err());
+    }
+
+    #[test]
+    fn runtime_builder_rejects_typed_white_balance_modes_missing_from_inventory() {
+        let mut one_push = runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::Auto]);
+        one_push.has_one_push_wb = true;
+        one_push.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::OnePushWhiteBalance);
+        assert!(runtime_builder(one_push).build().is_err());
+
+        let mut atw = runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::Auto]);
+        atw.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::AutoTrackingWhiteBalance);
+        assert!(runtime_builder(atw).build().is_err());
+
+        let mut color_temperature =
+            runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::Manual]);
+        color_temperature.has_color_temp = true;
+        color_temperature.color_temp_range = Some(2_500..=8_000);
+        color_temperature.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::ColorTemperature);
+        assert!(runtime_builder(color_temperature).build().is_err());
+    }
+
+    #[test]
+    fn runtime_builder_accepts_coherent_partial_typed_white_balance_profiles() {
+        let mut one_push =
+            runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::OnePush]);
+        one_push.has_one_push_wb = true;
+        one_push.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::OnePushWhiteBalance);
+        assert!(runtime_builder(one_push).build().is_ok());
+
+        let mut atw = runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::ATW]);
+        atw.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::AutoTrackingWhiteBalance);
+        assert!(runtime_builder(atw).build().is_ok());
+
+        let mut color_temperature =
+            runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::ColorTemperature]);
+        color_temperature.has_color_temp = true;
+        color_temperature.color_temp_range = Some(2_500..=8_000);
+        color_temperature.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::ColorTemperature);
+        assert!(runtime_builder(color_temperature).build().is_ok());
+
+        // The metadata can describe an independent one-push trigger without
+        // granting the typed mode-selection surface.
+        let mut trigger_only =
+            runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::Auto]);
+        trigger_only.has_one_push_wb = true;
+        assert!(runtime_builder(trigger_only).build().is_ok());
     }
 
     #[test]

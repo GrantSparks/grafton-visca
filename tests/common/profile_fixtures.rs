@@ -35,7 +35,7 @@ macro_rules! synthetic_profile_default {
 }
 
 macro_rules! synthetic_profile_impl {
-    ($profile:ident, $model:literal, $typed_support:expr, $default:ident) => {
+    ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr) => {
         #[allow(dead_code)]
         #[derive(Debug, Clone, Copy)]
         pub struct $profile;
@@ -58,8 +58,8 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl PanTilt for $profile {
-            const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1700, 1700);
-            const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-300, 900);
+            const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
+            const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-300, 900);
             const MAX_PAN_SPEED: u8 = 24;
             const MAX_TILT_SPEED: u8 = 20;
             const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -131,7 +131,7 @@ macro_rules! synthetic_profile_impl {
                 TransportCompatibility::new(Some(5678), Some(1259), true);
             const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
             const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
-            const AMBIGUITY_TIMEOUT: Duration = Duration::from_secs(1);
+            const AMBIGUITY_TIMEOUT: Duration = $ambiguity_timeout;
             const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
             const PRESET_RECALL_AXES: Option<AffectedAxes> = Some(
                 AffectedAxes::PAN_TILT
@@ -146,10 +146,22 @@ macro_rules! synthetic_profile_impl {
 
 macro_rules! synthetic_profile {
     ($profile:ident, $model:literal, $typed_support:expr) => {
-        synthetic_profile_impl!($profile, $model, $typed_support, default);
+        synthetic_profile_impl!(
+            $profile,
+            $model,
+            $typed_support,
+            default,
+            Duration::from_secs(1)
+        );
     };
     ($profile:ident, $model:literal, $typed_support:expr, no_default) => {
-        synthetic_profile_impl!($profile, $model, $typed_support, no_default);
+        synthetic_profile_impl!(
+            $profile,
+            $model,
+            $typed_support,
+            no_default,
+            Duration::from_secs(1)
+        );
     };
 }
 
@@ -172,6 +184,18 @@ synthetic_profile!(
     no_default
 );
 
+// Motion-owner tests intentionally chain successful Raw position inquiries
+// under exact one-second observer deadlines. Keep the production-style
+// correlation hold nonzero while making it small enough that the fixture's
+// next same-target inquiry can still begin within that caller-owned budget.
+synthetic_profile_impl!(
+    MotionOwnerCompileTimeProfile,
+    "Motion Owner Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default,
+    Duration::from_millis(1)
+);
+
 // No built-in profile declares motion sync (see the profile registry's
 // `MotionSync` note), so the typed accessor is only reachable from a profile
 // that opts in — which is what makes a behavioural test of the helper possible
@@ -185,6 +209,7 @@ synthetic_profile!(
 impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
 impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
 impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
+impl MotionSyncMetadata for MotionOwnerCompileTimeProfile {}
 
 /// The one fixture that documents the physical capability, so the typed
 /// `MotionSync` surface above has something real to gate.

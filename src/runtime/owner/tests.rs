@@ -193,7 +193,7 @@ mod blocking {
     use std::{
         collections::{BTreeMap, VecDeque},
         sync::Arc,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use crate::{
@@ -208,8 +208,8 @@ mod blocking {
     use super::cached_projection;
     use crate::runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, ReplyShape, RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy,
-        TransportKind,
+        EnvelopeSequence, InquiryRoute, ReplyShape, RequestContext, RetryPolicy, SequenceWidth,
+        TimeoutPolicy, TransportKind,
     };
 
     fn policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
@@ -267,6 +267,25 @@ mod blocking {
             ),
             context: context(target, cancellation),
             applied_state,
+        }
+    }
+
+    fn raw_inquiry(
+        target: CameraId,
+        route: InquiryRoute,
+        total_budget: Duration,
+    ) -> RuntimeRequest {
+        let mut inquiry_context = context(target, CancellationPolicy::Supported);
+        inquiry_context.retry = RetryPolicy {
+            total_budget,
+            ..RetryPolicy::NEVER
+        };
+        RuntimeRequest::Inquiry {
+            wire: Arc::new(
+                EncodedMessage::new(&[target.to_address_byte(), 0x09, 0x04, 0xff]).unwrap(),
+            ),
+            context: inquiry_context,
+            route,
         }
     }
 
@@ -465,6 +484,38 @@ mod blocking {
         }
     }
 
+    /// The submission-side raw tombstone test needs a real bounded wait rather
+    /// than a test-thread sleep. The first read supplies an already-buffered
+    /// stale frame; the second sleeps only to the exact owner deadline and
+    /// reports idle, so `pump_once_inner` performs its no-dispatch due turn.
+    #[derive(Debug, Default)]
+    struct TombstoneWaitReader {
+        calls: usize,
+        deadlines: Vec<Instant>,
+        stale_first: bool,
+    }
+
+    impl BlockingReadDriver for TombstoneWaitReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
+            self.calls = self.calls.saturating_add(1);
+            self.deadlines.push(deadline);
+            if self.stale_first && self.calls == 1 {
+                receive_buffer[0] = 1;
+                return Ok(BlockingReceive::Bytes(1));
+            }
+            let now = Instant::now();
+            if deadline > now {
+                std::thread::sleep(deadline.duration_since(now));
+            }
+            Ok(BlockingReceive::TimedOut)
+        }
+    }
+
     fn prepared_focus(
         profile: &crate::ProfileSpec,
         target: CameraId,
@@ -484,9 +535,11 @@ mod blocking {
         target: CameraId,
     ) -> crate::prepared::PreparedCommand {
         crate::prepared::prepare_command(
-            &crate::request::builtin::PanTiltLimitClear::new(
+            &crate::request::builtin::PanTiltLimitClear::for_profile(
                 crate::command::PanTiltLimitCorner::DownLeft,
-            ),
+                profile,
+            )
+            .unwrap(),
             target,
             profile,
             crate::OperationalTuning::new(),
@@ -627,15 +680,284 @@ mod blocking {
             .unwrap());
     }
 
+    /// A blocking first-write submission must service the earlier ready
+    /// request budget while a raw predecessor's target tombstone still holds.
+    /// The former implementation slept straight to the tombstone and wrote B
+    /// after B had already expired.
+    #[test]
+    fn pumped_raw_tombstone_submission_expires_ready_budget_before_a_write() {
+        let mut owner_policy = policy(4, TransportKind::Datagram);
+        owner_policy.protocol.inquiry_capacity = 1;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+        let first_route = InquiryRoute(0x41);
+        let first = owner
+            .submit(
+                &mut driver,
+                raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1)),
+            )
+            .expect("first raw inquiry writes");
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(first_route),
+                        payload: smallvec::smallvec![0x01],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("first raw inquiry completes into its target tombstone");
+        assert!(matches!(
+            first.terminal(),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        let hold_until = owner
+            .state()
+            .next_wake()
+            .expect("the terminal raw inquiry leaves its target hold");
+
+        let mut reader = TombstoneWaitReader::default();
+        let mut decoder = EmptyDecoder;
+        let error = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(
+                    CameraId::CAMERA_1,
+                    InquiryRoute(0x42),
+                    Duration::from_nanos(1),
+                ),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect_err("a ready budget before the raw hold cannot reach the wire");
+
+        assert!(matches!(error, Error::Timeout));
+        assert_eq!(driver.writes.len(), 1, "expired B never writes");
+        assert_eq!(
+            reader.calls, 1,
+            "the bounded owner pump serviced B's due wake"
+        );
+        assert!(
+            reader.deadlines[0] < hold_until,
+            "the pump used B's total budget rather than sleeping to the later raw hold"
+        );
+        assert_eq!(
+            owner.state().next_wake(),
+            Some(hold_until),
+            "B did not install its own raw quarantine while still unwritten"
+        );
+        assert_eq!(owner.state().active_len(), 0);
+    }
+
+    /// The no-reader test seam fails closed while a raw tombstone owns the
+    /// target's correlation boundary. Its returned error must still remove the
+    /// just-admitted ordinary receipt, rather than leaving it to write after a
+    /// later scheduler wake.
+    #[test]
+    fn no_reader_raw_tombstone_failure_terminalizes_queue_allowed_successor() {
+        let mut owner_policy = policy(1, TransportKind::Datagram);
+        owner_policy.protocol.inquiry_capacity = 1;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let permit_capacity = owner.state().permits().capacity();
+        let mut driver = FakeDriver::default();
+        let predecessor_route = InquiryRoute(0x43);
+        let predecessor = owner
+            .submit(
+                &mut driver,
+                raw_inquiry(
+                    CameraId::CAMERA_1,
+                    predecessor_route,
+                    Duration::from_secs(1),
+                ),
+            )
+            .expect("predecessor raw inquiry writes");
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(predecessor_route),
+                        payload: smallvec::smallvec![0x01],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("predecessor reply leaves its target tombstone");
+        assert!(matches!(
+            predecessor.terminal(),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        let hold_until = owner
+            .state()
+            .next_wake()
+            .expect("the terminal raw inquiry leaves its target hold");
+
+        let error = owner
+            .submit(
+                &mut driver,
+                raw_inquiry(
+                    CameraId::CAMERA_1,
+                    InquiryRoute(0x44),
+                    Duration::from_secs(1),
+                ),
+            )
+            .expect_err("the no-reader seam fails closed at the raw tombstone");
+
+        assert!(matches!(error, Error::TransportBusy));
+        assert_eq!(driver.writes.len(), 1, "the successor never writes");
+        assert_eq!(
+            owner.state().active_len(),
+            0,
+            "the successor is terminalized"
+        );
+        assert_eq!(
+            owner.state().permits().available(),
+            permit_capacity,
+            "the successor returns its admission permit"
+        );
+
+        // `RequireFirstWrite` reaches the same failed-wait branch. Keep its
+        // established terminal cleanup alongside the QueueAllowed regression.
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let require_first_write_error = owner
+            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
+            .expect_err("an unwritten operation also fails closed at the raw tombstone");
+        assert!(matches!(require_first_write_error, Error::TransportBusy));
+        assert_eq!(owner.state().active_len(), 0);
+        assert_eq!(owner.state().permits().available(), permit_capacity);
+
+        owner.wake(&mut driver, hold_until).unwrap();
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "releasing the tombstone cannot dispatch the returned successor"
+        );
+        assert_eq!(owner.state().active_len(), 0);
+        assert_eq!(owner.state().permits().available(), permit_capacity);
+    }
+
+    /// A buffered stale A reply must be consumed while A's raw tombstone is
+    /// still live, before the no-dispatch due turn releases B. A different
+    /// target remains independently writable; a later B reply then resolves B
+    /// rather than the stale A payload having been misattributed to it.
+    #[test]
+    fn pumped_raw_tombstone_submission_consumes_stale_input_before_successor_write() {
+        let mut owner_policy = policy(4, TransportKind::Datagram);
+        owner_policy.protocol.inquiry_capacity = 1;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+        let first_route = InquiryRoute(0x51);
+        let successor_route = InquiryRoute(0x52);
+        let first = owner
+            .submit(
+                &mut driver,
+                raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1)),
+            )
+            .expect("first raw inquiry writes");
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(first_route),
+                        payload: smallvec::smallvec![0x0a],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("first raw inquiry completes into its target tombstone");
+        assert!(matches!(
+            first.terminal(),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+
+        let mut other_target = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut other_target {
+            context.timeout.ack = Duration::from_secs(1);
+        }
+        let other = owner
+            .submit(&mut driver, other_target)
+            .expect("the raw target hold does not block camera two");
+        let other_id = other.id();
+        assert_eq!(driver.writes.len(), 2);
+        assert_eq!(driver.writes[1].0, other_id);
+
+        let mut reader = TombstoneWaitReader {
+            stale_first: true,
+            ..TombstoneWaitReader::default()
+        };
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(first_route),
+                    payload: smallvec::smallvec![0x0a],
+                },
+            )]]),
+        };
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("the raw hold releases only after the stale frame is consumed");
+        let successor_id = successor.id();
+
+        assert_eq!(
+            reader.calls, 2,
+            "stale input is consumed before the hold wake"
+        );
+        assert_eq!(driver.writes.len(), 3);
+        assert_eq!(
+            driver.writes[2].0, successor_id,
+            "B writes only after A is inert"
+        );
+        assert!(
+            successor.terminal().is_none(),
+            "the stale A reply did not resolve B before B's own reply"
+        );
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(successor_route),
+                        payload: smallvec::smallvec![0x0b],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("B's own reply is accepted after its write");
+        assert!(matches!(
+            successor.terminal(),
+            Some(RuntimeOutcome::Reply { route, payload })
+                if route == Some(successor_route) && payload.as_slice() == [0x0b]
+        ));
+        drop(other);
+    }
+
     #[test]
     fn settlement_query_pacing_timeout_detaches_without_write_or_lifecycle_mutation() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
         let tuning = crate::OperationalTuning::new().inquiry_spacing(Duration::from_millis(8));
-        let prepare = || {
+        let prepare = |target| {
             crate::prepared::prepare_builtin_inquiry(
                 &crate::command::PowerInquiry,
-                CameraId::CAMERA_1,
+                target,
                 &profile,
                 tuning,
             )
@@ -643,7 +965,9 @@ mod blocking {
         };
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let first = owner.submit_inquiry(&mut driver, prepare()).unwrap();
+        let first = owner
+            .submit_inquiry(&mut driver, prepare(CameraId::CAMERA_1))
+            .unwrap();
         owner
             .inject_frame(
                 &mut driver,
@@ -665,7 +989,7 @@ mod blocking {
 
         let deadline = Instant::now() + Duration::from_millis(1);
         assert!(matches!(
-            owner.submit_inquiry_until(&mut driver, prepare(), deadline),
+            owner.submit_inquiry_until(&mut driver, prepare(CameraId::CAMERA_2), deadline),
             Err(Error::Timeout)
         ));
         assert_eq!(driver.writes.len(), 1, "expired pacing writes no query");
@@ -698,7 +1022,7 @@ mod blocking {
             .inject_frame(
                 &mut driver,
                 frame(
-                    CameraId::CAMERA_1,
+                    CameraId::CAMERA_2,
                     DecodedResponse::InquiryReply {
                         route: None,
                         payload: smallvec::smallvec![0x03],
@@ -1342,6 +1666,8 @@ mod blocking {
         #[derive(Debug)]
         struct PeerReader {
             events: VecDeque<(BlockingReceive, bool)>,
+            frame_deadline: Option<Instant>,
+            frame_received_at: Option<Instant>,
         }
 
         impl BlockingReadDriver for PeerReader {
@@ -1357,13 +1683,30 @@ mod blocking {
                 if wait_for_deadline || matches!(event, BlockingReceive::TimedOut) {
                     if let Some(deadline) = owner_deadline {
                         let now = Instant::now();
-                        if deadline > now {
-                            std::thread::sleep(deadline.duration_since(now));
+                        // A real sleep cannot reliably land on an exact
+                        // `Instant`. The engine treats a strictly-late frame
+                        // as inert, so the peer frame wakes inside its owner
+                        // deadline. A timeout carries no frame, so it may run
+                        // through the sample boundary and let the polling loop
+                        // submit its next query before the next scripted reply.
+                        let pause = if wait_for_deadline {
+                            deadline
+                                .saturating_duration_since(now)
+                                .saturating_sub(Duration::from_millis(5))
+                        } else {
+                            deadline.saturating_duration_since(now)
+                        };
+                        if !pause.is_zero() {
+                            std::thread::sleep(pause);
                         }
                     }
                 }
                 if matches!(event, BlockingReceive::Bytes(_)) {
                     receive_buffer[0] = 1;
+                }
+                if wait_for_deadline {
+                    self.frame_deadline = owner_deadline;
+                    self.frame_received_at = Some(Instant::now());
                 }
                 Ok(event)
             }
@@ -1402,12 +1745,17 @@ mod blocking {
             )
             .unwrap();
 
-        let peer = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
+        let mut peer_request = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut peer_request {
+            // This stays ahead of the 25 ms settlement sampling interval while
+            // leaving room to deliver the frame inside its strict-late bound.
+            context.timeout.ack = Duration::from_millis(20);
+        }
+        let peer = owner.submit(&mut driver, peer_request).unwrap();
+        let peer_ack_deadline = match owner.state().request_state(peer.id()) {
+            Some((Phase::AwaitingAck { deadline, .. }, CancelState::None)) => deadline,
+            state => panic!("peer did not await its ACK: {state:?}"),
+        };
         let mut reader = PeerReader {
             events: VecDeque::from([
                 (BlockingReceive::Bytes(1), false),
@@ -1415,6 +1763,8 @@ mod blocking {
                 (BlockingReceive::TimedOut, false),
                 (BlockingReceive::Bytes(1), false),
             ]),
+            frame_deadline: None,
+            frame_received_at: None,
         };
         let mut decoder = ScriptedDecoder {
             batches: VecDeque::from([
@@ -1458,6 +1808,17 @@ mod blocking {
                 .wait()
                 .unwrap();
         }
+        assert_eq!(
+            reader.frame_deadline,
+            Some(peer_ack_deadline),
+            "the interval pump must be bounded by the peer ACK deadline"
+        );
+        assert!(
+            reader
+                .frame_received_at
+                .is_some_and(|received| received <= peer_ack_deadline),
+            "the peer frame must reach the strict-late boundary on time"
+        );
         assert!(matches!(peer.terminal(), Some(RuntimeOutcome::Applied)));
         assert_eq!(owner.state().active_len(), 0);
         assert_eq!(owner.state().permits().available(), 3);
@@ -1592,6 +1953,98 @@ mod blocking {
         }
         assert_eq!(driver.writes.len(), 2, "the same request is written again");
         assert_eq!(driver.writes[0].0, driver.writes[1].0);
+    }
+
+    /// A transient read fault is an input turn: after applying it, the engine
+    /// runs already-due retry work. A failed stream retry write in that work
+    /// poisons the owner, so this otherwise recoverable receive result must
+    /// report the boundary instead of pretending that the pump made no progress.
+    #[test]
+    fn transient_receive_fault_due_stream_retry_write_failure_reports_poison() {
+        #[derive(Debug, Default)]
+        struct DueFaultReader {
+            deadline: Option<Instant>,
+        }
+
+        impl BlockingReadDriver for DueFaultReader {
+            fn receive(
+                &mut self,
+                _receive_buffer: &mut [u8],
+                owner_deadline: Option<Instant>,
+            ) -> Result<BlockingReceive, Error> {
+                let deadline = owner_deadline.expect("retry deadline bounds transient read");
+                self.deadline = Some(deadline);
+                let pause = deadline.saturating_duration_since(Instant::now());
+                if !pause.is_zero() {
+                    std::thread::sleep(pause);
+                }
+                Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionRefused,
+                ))))
+            }
+        }
+
+        let mut retry = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut retry {
+            context.retry = RetryPolicy {
+                max_retries: 1,
+                initial_backoff: Duration::from_millis(30),
+                maximum_backoff: Duration::from_millis(30),
+                total_budget: Duration::from_secs(1),
+                ack_timeout: false,
+                completion_timeout: false,
+                inquiry_timeout: false,
+                buffer_full: true,
+                movement_not_executable: false,
+                builtin_inquiry_syntax: false,
+            };
+        }
+
+        let mut owner = BlockingOwner::new(sony_policy(1, TransportKind::Stream)).unwrap();
+        let mut driver = sony_driver([0]);
+        let receipt = owner.submit(&mut driver, retry).unwrap();
+        let id = receipt.id();
+        owner
+            .inject_frame(
+                &mut driver,
+                sony_frame(
+                    CameraId::CAMERA_1,
+                    0,
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: 0x03,
+                    },
+                ),
+                Instant::now(),
+            )
+            .unwrap();
+        let retry_deadline = owner
+            .state()
+            .next_wake()
+            .expect("buffer-full retry has a due deadline");
+        driver.results.push_back(Err(Error::TransportError(
+            "transient fault due retry stream write failed".into(),
+        )));
+
+        let mut reader = DueFaultReader::default();
+        let mut decoder = EmptyDecoder;
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("the due retry's stream write poisons this transient-fault pump");
+
+        let Error::StreamPoisoned { reason } = &error else {
+            panic!("the transient-fault pump must report stream poison, got {error:?}");
+        };
+        assert!(reason.contains("transient fault due retry stream write failed"));
+        assert_eq!(reader.deadline, Some(retry_deadline));
+        assert_eq!(driver.writes.len(), 2);
+        assert_eq!(driver.writes[0].0, id);
+        assert_eq!(driver.writes[1].0, id);
+        assert!(matches!(
+            receipt.terminal(),
+            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert_eq!(owner.state().state(), SessionState::Poisoned);
     }
 
     /// A fatal read ends the session on a stream transport as a close, not as
@@ -1730,6 +2183,310 @@ mod blocking {
         assert_eq!(owner.state().state(), SessionState::Closed);
     }
 
+    /// A retry can become due while a targeted operation is between position
+    /// samples. A failed stream retry write poisons the whole owner even though
+    /// that pump iteration received no bytes, so the settlement must surface
+    /// the owner boundary rather than waiting out its observer budget.
+    #[test]
+    fn due_stream_retry_write_failure_ends_settlement_with_poison() {
+        #[derive(Debug)]
+        struct SettlementReader {
+            events: VecDeque<BlockingReceive>,
+        }
+
+        impl BlockingReadDriver for SettlementReader {
+            fn receive(
+                &mut self,
+                receive_buffer: &mut [u8],
+                owner_deadline: Option<Instant>,
+            ) -> Result<BlockingReceive, Error> {
+                let event = self.events.pop_front().ok_or_else(|| {
+                    Error::InvalidState("due-retry settlement reader event exhausted".into())
+                })?;
+                match event {
+                    BlockingReceive::Bytes(_) => receive_buffer[0] = 1,
+                    BlockingReceive::TimedOut => {
+                        if let Some(deadline) = owner_deadline {
+                            let now = Instant::now();
+                            if deadline > now {
+                                std::thread::sleep(deadline.duration_since(now));
+                            }
+                        }
+                    }
+                }
+                Ok(event)
+            }
+        }
+
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
+        let mut driver = FakeDriver::default();
+        let operation = owner
+            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
+            .unwrap();
+        let now = Instant::now();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+
+        let mut retry = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
+        if let RuntimeRequest::Command { context, .. } = &mut retry {
+            context.retry = RetryPolicy {
+                max_retries: 1,
+                initial_backoff: Duration::from_millis(60),
+                maximum_backoff: Duration::from_millis(60),
+                total_budget: Duration::from_secs(1),
+                ack_timeout: false,
+                completion_timeout: false,
+                inquiry_timeout: false,
+                buffer_full: true,
+                movement_not_executable: false,
+                builtin_inquiry_syntax: false,
+            };
+        }
+        let peer = owner.submit(&mut driver, retry).unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_2,
+                    DecodedResponse::Error {
+                        socket: None,
+                        code: 0x03,
+                    },
+                ),
+                Instant::now(),
+            )
+            .unwrap();
+
+        // The baseline position inquiry succeeds. The retry becomes due while
+        // the settlement loop waits for its next sample.
+        driver
+            .results
+            .push_back(Ok(TransmissionMeta { sequence: None }));
+        driver.results.push_back(Err(Error::TransportError(
+            "due retry stream write failed".into(),
+        )));
+
+        let mut reader = SettlementReader {
+            events: VecDeque::from([
+                BlockingReceive::Bytes(1),
+                BlockingReceive::TimedOut,
+                BlockingReceive::Bytes(1),
+                BlockingReceive::TimedOut,
+            ]),
+        };
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([
+                vec![frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: None,
+                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
+                    },
+                )],
+                vec![frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: None,
+                        payload: smallvec::smallvec![0x0, 0x2, 0x0, 0x0],
+                    },
+                )],
+            ]),
+        };
+
+        let error = operation
+            .settled_with_timeout(
+                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Duration::from_secs(1),
+            )
+            .wait()
+            .expect_err("a due stream retry write poisons settlement");
+        let Error::StreamPoisoned { reason } = &error else {
+            panic!("settlement must report stream poison, got {error:?}");
+        };
+        assert!(reason.contains("due retry stream write failed"));
+        assert!(error.requires_new_session());
+        assert!(matches!(
+            peer.terminal(),
+            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert_eq!(owner.state().state(), SessionState::Poisoned);
+    }
+
+    /// A frame for a separate target can free its queued work at the end of a
+    /// decoded source batch. If that queued stream write fails, the targeted
+    /// settlement being observed must receive the poison immediately.
+    #[test]
+    fn unrelated_decoded_frame_stream_write_failure_ends_settlement_with_poison() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
+        let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
+        let mut driver = FakeDriver::default();
+        let operation = owner
+            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
+            .unwrap();
+        let now = Instant::now();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Completion {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                now,
+            )
+            .unwrap();
+
+        let peer = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let queued = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        assert_eq!(driver.writes.len(), 2, "the second peer request is queued");
+
+        // The settlement baseline writes successfully. The unrelated camera-2
+        // ACK below frees the queued request and its dispatch fails.
+        driver
+            .results
+            .push_back(Ok(TransmissionMeta { sequence: None }));
+        driver.results.push_back(Err(Error::TransportError(
+            "decoded queued stream write failed".into(),
+        )));
+        let mut reader = ScriptedReader;
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([
+                vec![frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: None,
+                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
+                    },
+                )],
+                vec![frame(
+                    CameraId::CAMERA_2,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                )],
+            ]),
+        };
+
+        let error = operation
+            .settled_with_timeout(
+                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Duration::from_secs(1),
+            )
+            .wait()
+            .expect_err("a queued stream write after an unrelated frame poisons settlement");
+        let Error::StreamPoisoned { reason } = &error else {
+            panic!("settlement must report stream poison, got {error:?}");
+        };
+        assert!(reason.contains("decoded queued stream write failed"));
+        assert!(error.requires_new_session());
+        assert!(matches!(
+            peer.terminal(),
+            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert!(matches!(
+            queued.terminal(),
+            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert_eq!(owner.state().state(), SessionState::Poisoned);
+    }
+
+    #[test]
+    fn decoded_datagram_write_failure_remains_per_request_and_keeps_pumping() {
+        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+        let peer = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        let queued = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        assert_eq!(driver.writes.len(), 1, "the second request is queued");
+        driver.results.push_back(Err(Error::TransportError(
+            "decoded queued datagram write failed".into(),
+        )));
+
+        let mut reader = ScriptedReader;
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]]),
+        };
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .expect("a failed datagram dispatch leaves the pump usable"),
+            1
+        );
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert!(owner.state().boundary_error().is_none());
+        assert!(
+            peer.terminal().is_none(),
+            "the first request remains active"
+        );
+        assert!(matches!(
+            queued.terminal(),
+            Some(RuntimeOutcome::Failed(Error::TransportError(reason)))
+                if reason == "decoded queued datagram write failed"
+        ));
+    }
+
     /// Issue #629: the cancellation observer's pump is the other escape site.
     /// Its own terminal observation wins; without one the session's boundary
     /// error must be reported, never the raw read fault.
@@ -1782,6 +2539,13 @@ mod blocking {
         match &mut b_request {
             RuntimeRequest::Command { context, .. } => {
                 context.timeout.ack = Duration::from_secs(2);
+                // The synthetic decoded batch below is replayed at
+                // `a_ack_at + 1s`, after B's cancellation is issued. Keep B's
+                // ambiguity window open through that timestamp: strict-late
+                // response handling correctly treats a post-window ACK as
+                // inert, which would no longer exercise the recursive cancel
+                // effect this fixture is asserting.
+                context.timeout.ambiguity = Duration::from_secs(2);
             }
             RuntimeRequest::Inquiry { .. } => unreachable!(),
         }

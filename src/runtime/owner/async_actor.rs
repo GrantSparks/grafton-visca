@@ -166,6 +166,28 @@ where
     }
 }
 
+/// Select the final two boundary sources without disturbing the priority of
+/// shutdown, cancellation, or admission above them.
+///
+/// An already-due engine wake gets one control allowance, then wins this tail
+/// on the following turn.  Keeping this separate from [`select_source`] makes
+/// the control-vs-wake bound independent of receive-vs-boundary arbitration.
+async fn select_control_or_wake<T, Control, Wake>(
+    wake_first: bool,
+    control: Control,
+    wake: Wake,
+) -> T
+where
+    Control: Future<Output = T>,
+    Wake: Future<Output = T>,
+{
+    if wake_first {
+        future::or(wake, control).await
+    } else {
+        future::or(control, wake).await
+    }
+}
+
 /// Yield one poll to the current executor without depending on a runtime.
 ///
 /// A ready transport can otherwise keep this actor inside one executor poll:
@@ -434,11 +456,18 @@ impl AdmissionRejectionIngress {
     /// Records one rejection and reports whether this caller must enqueue the
     /// one coalesced actor wake-up.
     fn record(&self, event: PreAdmissionRejection) -> bool {
-        let _ = self
-            .total
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-                Some(value.saturating_add(1))
-            });
+        let mut total = self.total.load(Ordering::Acquire);
+        loop {
+            match self.total.compare_exchange_weak(
+                total,
+                total.saturating_add(1),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => break,
+                Err(observed) => total = observed,
+            }
+        }
         let mut pending = self
             .pending
             .lock()
@@ -1834,6 +1863,14 @@ where
         let read_timeout = self.state.policy().read_timeout;
         let mut source_phase = SourcePhase::ReceiveFirst;
         let mut receive_first_streak: usize = 0;
+        // The control lane normally precedes the timer. A due wake permits one
+        // control observation, then wins the tail until it is advanced. Keep
+        // the deadline that consumed that allowance rather than a bare bool:
+        // a boundary can replace a wake, and a timer can become due while this
+        // task is parked in the prior selection.
+        //
+        // Shutdown, cancellation, and admission remain above this tail.
+        let mut control_allowance_consumed_for: Option<Instant> = None;
         loop {
             if self.state.state() != SessionState::Running {
                 break;
@@ -1866,11 +1903,25 @@ where
             };
             // Compute this after the cooperative yield: a timer that became due
             // while another task ran must not inherit a stale positive delay.
-            let wake_duration = self
-                .state
-                .next_wake()
-                .map(|wake| wake.saturating_duration_since(Executor::now(runtime.as_ref())))
-                .unwrap_or(Duration::from_secs(86_400));
+            let now = Executor::now(runtime.as_ref());
+            let wake_deadline = self.state.next_wake();
+            let (wake_duration, wake_is_due) = wake_deadline.map_or_else(
+                || (Duration::from_secs(86_400), false),
+                |wake| {
+                    let duration = wake.saturating_duration_since(now);
+                    (duration, duration.is_zero())
+                },
+            );
+            // A retune or another higher-priority boundary can make the prior
+            // wake irrelevant. Do not carry a consumed allowance over to an
+            // absent, future, or replaced timer — including a replacement that
+            // is already due.
+            if !wake_is_due || control_allowance_consumed_for != wake_deadline {
+                control_allowance_consumed_for = None;
+            }
+            let wake_precedes_control = wake_is_due
+                && control_allowance_consumed_for
+                    .is_some_and(|consumed| wake_deadline.is_some_and(|wake| wake == consumed));
 
             let event = {
                 let frame_limit = self.state.policy().limits.frames_per_receive;
@@ -1911,15 +1962,19 @@ where
                     }
                 };
                 let wake = async {
-                    Executor::sleep(runtime.as_ref(), wake_duration).await;
+                    // Do not rely on a zero-duration executor sleep being
+                    // ready on its first poll. `next_wake` already established
+                    // that this timer is due, and `ActorEvent::Wake` remains
+                    // the only path that advances engine time.
+                    if !wake_is_due {
+                        Executor::sleep(runtime.as_ref(), wake_duration).await;
+                    }
                     ActorEvent::Wake
                 };
+                let control_or_wake = select_control_or_wake(wake_precedes_control, control, wake);
                 let boundaries = future::or(
                     shutdown,
-                    future::or(
-                        cancellation,
-                        future::or(admission, future::or(control, wake)),
-                    ),
+                    future::or(cancellation, future::or(admission, control_or_wake)),
                 );
                 select_source(effective_phase, receive, boundaries).await
             };
@@ -1929,9 +1984,29 @@ where
             // turn (or a non-progressing receive, which already yields) resets it
             // so the ceiling only ever fires against a genuine receive flood.
             let event_was_receive = matches!(event, ActorEvent::Receive { .. });
+            // `wake_is_due` describes the instant before the selection began.
+            // If the timer matured while both tail futures were parked, the
+            // left-biased control future can still win this poll. Re-sample the
+            // engine before the control handler mutates it and charge that
+            // control to the exact selected wake in either case.
+            let control_consumed_due_wake = matches!(&event, ActorEvent::Control(_))
+                .then(|| {
+                    let observed_at = Executor::now(runtime.as_ref());
+                    self.state
+                        .next_wake()
+                        .filter(|current| Some(*current) == wake_deadline)
+                        .filter(|wake| *wake <= observed_at)
+                })
+                .flatten();
+            let wake_won = matches!(&event, ActorEvent::Wake);
             let outcome = self
                 .handle_event(event, &mut driver, runtime.as_ref())
                 .await;
+            if wake_won {
+                control_allowance_consumed_for = None;
+            } else if let Some(wake) = control_consumed_due_wake {
+                control_allowance_consumed_for = Some(wake);
+            }
             if event_was_receive && outcome == TurnOutcome::Continue {
                 receive_first_streak = receive_first_streak.saturating_add(1);
             } else {
@@ -2655,14 +2730,27 @@ mod tests {
     struct ManualRuntime {
         executor: TokioRuntime,
         now: Arc<Mutex<Instant>>,
+        polling_sleeps: bool,
     }
 
     #[cfg(feature = "runtime-tokio")]
     impl ManualRuntime {
         fn new(now: Instant) -> Self {
+            Self::with_sleep_behavior(now, false)
+        }
+
+        /// Makes a timer ready when this manual clock has advanced past it and
+        /// its future is polled again. Tests that manually poll an owner use
+        /// this to control an already-constructed timer race exactly.
+        fn with_polling_sleeps(now: Instant) -> Self {
+            Self::with_sleep_behavior(now, true)
+        }
+
+        fn with_sleep_behavior(now: Instant, polling_sleeps: bool) -> Self {
             Self {
                 executor: TokioRuntime::from_current().unwrap(),
                 now: Arc::new(Mutex::new(now)),
+                polling_sleeps,
             }
         }
 
@@ -2693,8 +2781,20 @@ mod tests {
             crate::executor::Executor::block_on(&self.executor, future)
         }
 
-        fn sleep(&self, _duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-            future::pending()
+        fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
+            let deadline = {
+                let now = *self.now.lock().unwrap();
+                now.checked_add(duration).unwrap_or(now)
+            };
+            let now = Arc::clone(&self.now);
+            let polling_sleeps = self.polling_sleeps;
+            std::future::poll_fn(move |_| {
+                if polling_sleeps && *now.lock().unwrap() >= deadline {
+                    std::task::Poll::Ready(())
+                } else {
+                    std::task::Poll::Pending
+                }
+            })
         }
 
         fn timeout<'a, F, T>(
@@ -2743,6 +2843,22 @@ mod tests {
     }
 
     type RecordedWrites = Arc<Mutex<Vec<(RequestId, Vec<u8>, bool)>>>;
+
+    #[test]
+    fn admission_rejection_ingress_total_saturates() {
+        let ingress = AdmissionRejectionIngress::new(2);
+        let rejection = PreAdmissionRejection {
+            target: CameraId::CAMERA_1,
+            lane: RequestLane::Command,
+            error: crate::ErrorKind::BufferFull,
+        };
+        ingress.total.store(u64::MAX - 1, Ordering::Release);
+
+        assert!(ingress.record(rejection));
+        assert_eq!(ingress.total(), u64::MAX);
+        assert!(!ingress.record(rejection));
+        assert_eq!(ingress.total(), u64::MAX);
+    }
 
     #[test]
     fn simultaneous_source_readiness_follows_the_explicit_phase() {
@@ -3616,7 +3732,7 @@ mod tests {
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn async_receive_batch_precedes_an_overdue_completion_deadline() {
+    async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
         let runtime = ManualRuntime::new(Instant::now());
         let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime.clone()).unwrap();
         let harness = harness();
@@ -3636,6 +3752,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 1);
+        let completion_deadline = Executor::now(&runtime)
+            .checked_add(Duration::from_secs(5))
+            .expect("the fixed completion deadline must be representable");
 
         let second = handle.submit(command()).await.unwrap();
         assert_eq!(started.recv_async().await.unwrap(), second.id);
@@ -3645,7 +3764,11 @@ mod tests {
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 2);
 
-        runtime.advance(Duration::from_secs(6));
+        // Deliver ACK S2 and completion S1 at S1's exact completion deadline.
+        // The ordered receive batch must settle S1 before due work runs; a
+        // strictly late correlated completion is rejected by the engine.
+        runtime.advance(Duration::from_secs(5));
+        assert_eq!(Executor::now(&runtime), completion_deadline);
         frames
             .send_async(batch(vec![
                 ack(ViscaSocket::S2),
@@ -3663,6 +3786,168 @@ mod tests {
         drop(second);
         handle.shutdown().await.unwrap();
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A due engine wake may allow one ordinary control observation, but a
+    /// chained backlog of real public controls cannot keep it from advancing
+    /// engine time. The first metrics call intentionally observes the pending
+    /// inquiry; the second must observe its reply deadline having fired.
+    ///
+    /// Before the tail fairness bound, every metrics call won
+    /// `future::or(control, wake)`, so all four observed `active == 1` and an
+    /// unbounded caller chain could postpone the deadline forever.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn due_wake_is_not_starved_by_chained_public_controls() {
+        const CONTROL_CHAIN: usize = 4;
+
+        let runtime = TokioRuntime::from_current().unwrap();
+        let mut owner_policy = policy(1);
+        // The actor's bounded control lane is intentionally full before it
+        // starts, making this a deterministic chain rather than a scheduler
+        // race between the caller and the ready timer.
+        owner_policy.limits.applied_subscribers = CONTROL_CHAIN;
+        let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+        let (_frames, receives) = flume::bounded(1);
+        let mut driver = UngatedDriver { receives };
+
+        // Install one sent inquiry without running the event loop yet. Its
+        // reply deadline is therefore the next authoritative engine wake.
+        let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let admission = actor
+            .admissions
+            .try_recv()
+            .expect("the staged inquiry must be waiting for the actor");
+        actor
+            .handle_admission(admission, &mut driver, &runtime)
+            .await;
+        assert!(admitted.recv_async().await.unwrap().is_ok());
+        assert_eq!(actor.state.active_len(), 1);
+        let deadline = actor
+            .state
+            .next_wake()
+            .expect("the sent inquiry must own a reply deadline");
+        assert_eq!(
+            deadline.saturating_duration_since(Executor::now(&runtime)),
+            Duration::from_secs(5)
+        );
+
+        // Send each request through the public control API and wait until it
+        // has joined the actor's FIFO lane before starting its successor. No
+        // actor is polling yet, so the resulting sequence is deterministic.
+        let mut controls = Vec::with_capacity(CONTROL_CHAIN);
+        for expected_queued in 1..=CONTROL_CHAIN {
+            let control_handle = handle.clone();
+            controls.push(tokio::spawn(async move { control_handle.metrics().await }));
+            while handle.control.len() < expected_queued {
+                tokio::task::yield_now().await;
+            }
+        }
+        assert!(handle.control.is_full());
+
+        // Make the protocol deadline due before selection begins. Tokio's
+        // paused clock keeps this exact and avoids a wall-clock liveness race.
+        tokio::time::advance(Duration::from_secs(5)).await;
+        assert_eq!(
+            deadline.saturating_duration_since(Executor::now(&runtime)),
+            Duration::ZERO,
+            "the chained controls race an already-due protocol deadline"
+        );
+        let actor_task = tokio::spawn(actor.run(driver));
+
+        let first = controls.remove(0).await.unwrap().unwrap();
+        let second = controls.remove(0).await.unwrap().unwrap();
+        assert_eq!(
+            first.active, 1,
+            "one control may observe the pre-wake state"
+        );
+        assert_eq!(
+            second.active, 0,
+            "the due Wake must advance the engine before a second queued control",
+        );
+        assert!(matches!(
+            completion.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        ));
+
+        for control in controls {
+            control.await.unwrap().unwrap();
+        }
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A timer can mature after the actor has constructed its tail selection.
+    /// The first control then wins the old left-biased race, but it must still
+    /// spend the due wake's one allowance before the loop is rebuilt.
+    ///
+    /// This manually polls the same actor future before and after advancing a
+    /// test clock, so no Tokio task scheduling order can accidentally let Wake
+    /// run before the two controls are queued.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn parked_future_wake_charges_the_first_ready_control() {
+        let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+        let mut owner_policy = policy(1);
+        owner_policy.limits.applied_subscribers = 2;
+        // Keep the receive timeout after the inquiry deadline so the parked
+        // receive arm cannot become the source that wakes this test.
+        owner_policy.read_timeout = Duration::from_secs(10);
+        let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+        let (_frames, receives) = flume::bounded(1);
+        let mut driver = UngatedDriver { receives };
+
+        let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let admission = actor
+            .admissions
+            .try_recv()
+            .expect("the staged inquiry must be waiting for the actor");
+        actor
+            .handle_admission(admission, &mut driver, &runtime)
+            .await;
+        assert!(admitted.recv_async().await.unwrap().is_ok());
+        let deadline = actor
+            .state
+            .next_wake()
+            .expect("the sent inquiry must own a reply deadline");
+
+        let mut run = Box::pin(actor.run(driver));
+        let waker = std::task::Waker::noop();
+        let mut context = std::task::Context::from_waker(waker);
+        assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+
+        // The original tail was built with a positive delay and is now parked.
+        // Advance the logical clock without polling the actor, then enqueue two
+        // controls before its next poll. Both the timer and first control are
+        // ready when that already-built left-biased tail resumes.
+        runtime.advance(Duration::from_secs(5));
+        assert_eq!(
+            deadline.saturating_duration_since(Executor::now(&runtime)),
+            Duration::ZERO,
+        );
+        let (first_reply, first_result) = flume::bounded(1);
+        let (second_reply, second_result) = flume::bounded(1);
+        handle
+            .control
+            .try_send(ControlBoundary::Metrics(first_reply))
+            .unwrap();
+        handle
+            .control
+            .try_send(ControlBoundary::Metrics(second_reply))
+            .unwrap();
+
+        assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+        let first = first_result.try_recv().unwrap().unwrap();
+        let second = second_result.try_recv().unwrap().unwrap();
+        assert_eq!(first.active, 1, "the first control owns the allowance");
+        assert_eq!(
+            second.active, 0,
+            "the matured wake must run before a second queued control",
+        );
+        assert!(matches!(
+            completion.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        ));
     }
 
     #[cfg(feature = "runtime-tokio")]

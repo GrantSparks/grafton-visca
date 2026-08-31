@@ -13,7 +13,7 @@ implementations:
 
 - **`ViscaInquiry`** - Generate inquiry command implementations with parser support
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
-- **`ViscaValue`** - Value wrapper types with VISCA encoding
+- **`ViscaValue`** - Validated value wrapper types
 
 ## ViscaInquiry
 
@@ -62,7 +62,9 @@ The macro generates:
 - `Nibble` / `ExtendedNibble` - Extended nibble encoding
 - `Flags` / `BitFlags` - Bit flags (for image flip)
 - `Mode` / `ModeEnum` - Enum value parsing
-- `PanTilt` - Special parser for pan/tilt positions
+- `PanTilt` - Standard VISCA 4+4-nibble parser for signed pan/tilt replies.
+  It widens the two signed 16-bit wire values to public `i32` coordinates and
+  does not parse profile-owned codecs such as Sony BRC-300's 5+4 form.
 - `LastNibble` - Last nibble from a nibble-encoded payload
 - `BoolConvention` - Boolean parsing with an explicit convention
 
@@ -110,7 +112,8 @@ pub enum Mode {
 
 ## ViscaValue
 
-Creates value wrapper types with VISCA encoding and validation.
+Creates value wrapper types with construction-time validation and configurable
+display formatting. It does not generate VISCA byte encoding or decoding APIs.
 
 ### Basic Usage
 
@@ -118,20 +121,28 @@ Creates value wrapper types with VISCA encoding and validation.
 use grafton_visca_macros::ViscaValue;
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 2)]
+#[visca_value(min = "0x0000", max = "0x4000")]
 struct ZoomPosition(u16);
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 1)]
+#[visca_value(valid_values = "[0x01, 0x02, 0x03]")]
 struct ZoomSpeed(u8);
 ```
 
-### Generated Methods
+### Attributes and Generated API
 
-The macro generates methods for:
-- Converting to/from byte representations
-- Validation of value ranges
-- VISCA protocol encoding
+The supported `visca_value` keys are `min`, `max`, `valid_values`,
+`display_format`, and `display_prefix`. `min` and `max` must be specified
+together as unsuffixed integer literals inside strings, for example
+`min = "0x0000"`. `valid_values` is the alternative validation form. Every key
+may appear only once; unknown keys, including `bytes`, are rejected.
+
+The macro generates:
+
+- `new(value)` with range or valid-value validation
+- `value()`, `TryFrom<Inner>`, and `From<Wrapper> for Inner`
+- `MIN` and `MAX` when bounds or `valid_values` are specified
+- `Display` with optional format and prefix
 
 Use the derive macros above with the typed request contracts documented by the
 main crate. There is no forwarding attribute or mode-specific generated API.
@@ -180,7 +191,7 @@ pub struct ExposureModeInquiry;
 use grafton_visca_macros::ViscaValue;
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 2, min = 0x0000, max = 0x4000)]
+#[visca_value(min = "0x0000", max = "0x4000")]
 pub struct ZoomPosition(u16);
 
 impl ZoomPosition {

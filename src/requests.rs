@@ -21,6 +21,15 @@ pub(crate) struct AppliedStateAuthority(private::SealedToken);
 #[doc(hidden)]
 pub(crate) struct RequestContractAuthority(private::SealedToken);
 
+/// Crate-only authority passed to the hidden built-in inquiry provenance hook.
+///
+/// The containing module is private and this token is not constructible by a
+/// downstream [`Inquiry`] implementation. Generated built-in inquiries use the
+/// hook to authorize the narrow `0x02` retry; custom inquiries retain its
+/// default `false` result.
+#[doc(hidden)]
+pub(crate) struct BuiltinInquiryAuthority(private::SealedToken);
+
 mod private {
     #[derive(Debug, Clone, Copy)]
     pub(crate) struct SealedToken;
@@ -33,6 +42,12 @@ impl AppliedStateAuthority {
 }
 
 impl RequestContractAuthority {
+    pub(crate) const fn new() -> Self {
+        Self(private::SealedToken)
+    }
+}
+
+impl BuiltinInquiryAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
     }
@@ -755,6 +770,25 @@ pub trait Inquiry: Request<Class = request::Inquiry> {
     ) -> ResponseDecoder<Self::Response> {
         self.decoder()
     }
+
+    /// Returns whether this inquiry is one of the crate-generated built-ins
+    /// eligible for the narrow syntax-error replay policy.
+    ///
+    /// The private authority keeps this provenance closed: downstream/custom
+    /// inquiry implementations use the default and cannot opt themselves in.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn builtin_inquiry_syntax_retry(&self, _authority: BuiltinInquiryAuthority) -> bool {
+        false
+    }
+}
+
+/// Reads the closed built-in inquiry provenance during generic preparation.
+pub(crate) fn builtin_inquiry_syntax_retry<Q>(inquiry: &Q) -> bool
+where
+    Q: Inquiry + ?Sized,
+{
+    inquiry.builtin_inquiry_syntax_retry(BuiltinInquiryAuthority::new())
 }
 
 /// A command with explicit physical-operation semantics.

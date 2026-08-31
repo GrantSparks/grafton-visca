@@ -31,7 +31,10 @@ pub(crate) fn reset_request_write_count() {
 pub(crate) fn request_write_count() -> usize {
     REQUEST_WRITE_COUNT.with(std::cell::Cell::get)
 }
-use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
+use crate::types::{
+    FocusPosition, IrisLevel, PanSpeed, SpeedLevel, TiltSpeed, ZoomPosition, ZoomSpeed,
+};
+use crate::{capabilities::PanTiltWireCodec, command::pan_tilt::PanTiltProfiled};
 use crate::{units::Degrees, PanTiltCoordinateConversion};
 
 macro_rules! impl_request {
@@ -43,6 +46,53 @@ macro_rules! impl_request {
             const TIMEOUT_CLASS: TimeoutClass = $timeout;
             const RETRY_CLASS: RetryClass = $retry;
             const CONTROL_CLASS: ControlClass = $control;
+
+            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+                #[cfg(test)]
+                REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
+                let wire = ($wire)(self);
+                WireEncode::write_into(&wire, camera_id, buffer)
+            }
+
+            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+                <Self as BuiltinValidation>::validate(self, profile)
+            }
+
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn admission_control_class(
+                &self,
+                _authority: crate::requests::RequestContractAuthority,
+            ) -> Result<ControlClass, Error> {
+                Ok(Self::CONTROL_CLASS)
+            }
+
+            #[allow(private_interfaces)]
+            fn applied_state_projection(
+                &self,
+                _authority: crate::requests::AppliedStateAuthority,
+            ) -> Option<crate::runtime::engine::AppliedStateProjection> {
+                <Self as BuiltinValidation>::applied_state(self)
+            }
+        }
+    };
+}
+
+/// Implements a typed request whose profile-owned wire codec changes its
+/// exact encoded length while retaining one conservative maximum allocation.
+macro_rules! impl_profiled_request {
+    ($type:ty, $class:ty, $size:expr, $timeout:expr, $retry:expr, $control:expr, $encoded_size:expr, $wire:expr) => {
+        impl Request for $type {
+            type Class = $class;
+
+            const MAX_SIZE: usize = $size;
+            const TIMEOUT_CLASS: TimeoutClass = $timeout;
+            const RETRY_CLASS: RetryClass = $retry;
+            const CONTROL_CLASS: ControlClass = $control;
+
+            fn encoded_size(&self) -> usize {
+                ($encoded_size)(self)
+            }
 
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 #[cfg(test)]
@@ -204,10 +254,52 @@ fn validate_pan_tilt_speed(
     Ok(())
 }
 
+/// Validates paired speeds for a position command whose profile may carry a
+/// one-speed wire form.
+fn validate_pan_tilt_position_speed(
+    profile: &crate::ProfileSpec,
+    pan: PanSpeed,
+    tilt: TiltSpeed,
+) -> Result<(), Error> {
+    validate_pan_tilt_speed(profile, pan, tilt)?;
+    if profile
+        .pan_tilt_coordinates()
+        .is_some_and(|conversion| conversion.wire_codec() == PanTiltWireCodec::SonyBrc300)
+        && pan.value() != tilt.value()
+    {
+        return Err(Error::InvalidRequest(
+            "Sony BRC-300 absolute and relative position commands have one speed byte; pan and tilt speeds must match".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Lowers one coarse position speed through the profile-owned position grammar.
+///
+/// Standard VISCA keeps [`SpeedLevel`]'s asymmetric pan/tilt mapping. Sony
+/// BRC-300 position frames carry one `VV` byte, so both public speed wrappers
+/// deliberately receive that one numeric value before the paired-speed
+/// validator runs.
+fn pan_tilt_position_speeds_from_level(
+    speed: SpeedLevel,
+    profile: &crate::ProfileSpec,
+) -> Result<(PanSpeed, TiltSpeed), Error> {
+    let pan_speed = PanSpeed::from(speed);
+    let tilt_speed = if profile
+        .pan_tilt_coordinates()
+        .is_some_and(|conversion| conversion.wire_codec() == PanTiltWireCodec::SonyBrc300)
+    {
+        TiltSpeed::new(pan_speed.value())?
+    } else {
+        TiltSpeed::from(speed)
+    };
+    Ok((pan_speed, tilt_speed))
+}
+
 fn validate_pan_tilt_position(
     profile: &crate::ProfileSpec,
-    pan: i16,
-    tilt: i16,
+    pan: i32,
+    tilt: i32,
     conversion: PanTiltCoordinateConversion,
 ) -> Result<(), Error> {
     validate_pan_tilt(profile)?;
@@ -224,6 +316,13 @@ fn validate_pan_tilt_position(
         return Err(invalid_value("tilt position", tilt));
     }
     Ok(())
+}
+
+const fn pan_tilt_position_encoded_size(wire_codec: PanTiltWireCodec) -> usize {
+    match wire_codec {
+        PanTiltWireCodec::StandardVisca => 15,
+        PanTiltWireCodec::SonyBrc300 => 16,
+    }
 }
 
 fn validate_iris_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -1161,10 +1260,8 @@ fn scalar_projection<T: crate::command::semantics::BuiltinStateEffectContract>(
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PreparedPanTiltPosition {
-    pan: i16,
-    tilt: i16,
-    pan_wire: u16,
-    tilt_wire: u16,
+    pan: i32,
+    tilt: i32,
     conversion: PanTiltCoordinateConversion,
 }
 
@@ -1179,12 +1276,10 @@ impl PreparedPanTiltPosition {
             .ok_or(Error::FeatureNotSupported {
                 feature: "pan/tilt coordinate conversion",
             })?;
-        let (pan, tilt, pan_wire, tilt_wire) = profile.convert_pan_tilt_degrees(pan.0, tilt.0)?;
+        let (pan, tilt) = profile.convert_pan_tilt_degrees(pan.0, tilt.0)?;
         Ok(Self {
             pan,
             tilt,
-            pan_wire,
-            tilt_wire,
             conversion,
         })
     }
@@ -3128,25 +3223,42 @@ impl PanTiltAbsolute {
         tilt_speed: TiltSpeed,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
-        validate_pan_tilt_speed(profile, pan_speed, tilt_speed)?;
+        validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
             position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
             pan_speed,
             tilt_speed,
         })
     }
+
+    /// Creates an absolute target from one coarse speed through the profile's
+    /// position-command grammar.
+    pub(crate) fn for_profile_speed_level(
+        pan: Degrees<f32>,
+        tilt: Degrees<f32>,
+        speed: SpeedLevel,
+        profile: &crate::ProfileSpec,
+    ) -> Result<Self, Error> {
+        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, profile)?;
+        Self::for_profile(pan, tilt, pan_speed, tilt_speed, profile)
+    }
 }
 
-impl_request!(
+impl_profiled_request!(
     PanTiltAbsolute,
     request::Operation<completion::Targeted>,
-    15,
+    16,
     TimeoutClass::Movement,
     RetryClass::Movement,
     ControlClass::User,
-    |value: &PanTiltAbsolute| PanTilt::AbsolutePositionRaw {
-        pan_u16: value.position.pan_wire,
-        tilt_u16: value.position.tilt_wire,
+    |value: &PanTiltAbsolute| pan_tilt_position_encoded_size(
+        value.position.conversion.wire_codec()
+    ),
+    |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
+        codec: value.position.conversion.wire_codec(),
+        coordinate_system: value.position.conversion.coordinate_system(),
+        pan: value.position.pan,
+        tilt: value.position.tilt,
         pan_speed: value.pan_speed,
         tilt_speed: value.tilt_speed,
     }
@@ -3175,25 +3287,42 @@ impl PanTiltRelative {
         tilt_speed: TiltSpeed,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
-        validate_pan_tilt_speed(profile, pan_speed, tilt_speed)?;
+        validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
             position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
             pan_speed,
             tilt_speed,
         })
     }
+
+    /// Creates a relative target from one coarse speed through the profile's
+    /// position-command grammar.
+    pub(crate) fn for_profile_speed_level(
+        pan: Degrees<f32>,
+        tilt: Degrees<f32>,
+        speed: SpeedLevel,
+        profile: &crate::ProfileSpec,
+    ) -> Result<Self, Error> {
+        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, profile)?;
+        Self::for_profile(pan, tilt, pan_speed, tilt_speed, profile)
+    }
 }
 
-impl_request!(
+impl_profiled_request!(
     PanTiltRelative,
     request::Operation<completion::Targeted>,
-    15,
+    16,
     TimeoutClass::Movement,
     RetryClass::Movement,
     ControlClass::User,
-    |value: &PanTiltRelative| PanTilt::RelativePositionRaw {
-        pan_u16: value.position.pan_wire,
-        tilt_u16: value.position.tilt_wire,
+    |value: &PanTiltRelative| pan_tilt_position_encoded_size(
+        value.position.conversion.wire_codec()
+    ),
+    |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
+        codec: value.position.conversion.wire_codec(),
+        coordinate_system: value.position.conversion.coordinate_system(),
+        pan: value.position.pan,
+        tilt: value.position.tilt,
         pan_speed: value.pan_speed,
         tilt_speed: value.tilt_speed,
     }
@@ -3227,17 +3356,22 @@ impl PanTiltLimitSet {
     }
 }
 
-impl_request!(
+impl_profiled_request!(
     PanTiltLimitSet,
     request::Plain,
-    15,
+    16,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal,
-    |value: &PanTiltLimitSet| PanTilt::LimitSetRaw {
+    |value: &PanTiltLimitSet| pan_tilt_position_encoded_size(
+        value.position.conversion.wire_codec()
+    ),
+    |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
+        codec: value.position.conversion.wire_codec(),
+        coordinate_system: value.position.conversion.coordinate_system(),
         corner: value.corner,
-        pan_u16: value.position.pan_wire,
-        tilt_u16: value.position.tilt_wire,
+        pan: value.position.pan,
+        tilt: value.position.tilt,
     }
 );
 
@@ -3245,24 +3379,50 @@ impl_request!(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanTiltLimitClear {
     corner: PanTiltLimitCorner,
+    wire_codec: PanTiltWireCodec,
 }
 
 impl PanTiltLimitClear {
-    /// Creates a limit-clear command.
+    /// Creates a standard-VISCA limit-clear command.
+    ///
+    /// Use [`Self::for_profile`] when the camera profile owns a different
+    /// position-command framing, such as Sony BRC-300.
     #[must_use]
     pub const fn new(corner: PanTiltLimitCorner) -> Self {
-        Self { corner }
+        Self {
+            corner,
+            wire_codec: PanTiltWireCodec::StandardVisca,
+        }
+    }
+
+    /// Creates a limit-clear command bound to one validated profile's framing.
+    pub fn for_profile(
+        corner: PanTiltLimitCorner,
+        profile: &crate::ProfileSpec,
+    ) -> Result<Self, Error> {
+        validate_pan_tilt(profile)?;
+        let conversion = profile
+            .pan_tilt_coordinates()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "pan/tilt coordinate conversion",
+            })?;
+        Ok(Self {
+            corner,
+            wire_codec: conversion.wire_codec(),
+        })
     }
 }
 
-impl_request!(
+impl_profiled_request!(
     PanTiltLimitClear,
     request::Plain,
-    15,
+    16,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal,
-    |value: &PanTiltLimitClear| PanTilt::LimitClear {
+    |value: &PanTiltLimitClear| pan_tilt_position_encoded_size(value.wire_codec),
+    |value: &PanTiltLimitClear| PanTiltProfiled::LimitClear {
+        codec: value.wire_codec,
         corner: value.corner,
     }
 );
@@ -3921,14 +4081,14 @@ impl BuiltinValidation for PanTiltStop {
 
 impl BuiltinValidation for PanTiltAbsolute {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_speed(profile, self.pan_speed, self.tilt_speed)?;
+        validate_pan_tilt_position_speed(profile, self.pan_speed, self.tilt_speed)?;
         self.position.validate(profile)
     }
 }
 
 impl BuiltinValidation for PanTiltRelative {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_speed(profile, self.pan_speed, self.tilt_speed)?;
+        validate_pan_tilt_position_speed(profile, self.pan_speed, self.tilt_speed)?;
         self.position.validate(profile)
     }
 }
@@ -3952,7 +4112,16 @@ impl BuiltinValidation for PanTiltLimitSet {
 
 impl BuiltinValidation for PanTiltLimitClear {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)
+        validate_pan_tilt(profile)?;
+        if profile
+            .pan_tilt_coordinates()
+            .is_none_or(|conversion| conversion.wire_codec() != self.wire_codec)
+        {
+            return Err(Error::InvalidRequest(
+                "pan/tilt limit-clear request was built for a different wire codec".into(),
+            ));
+        }
+        Ok(())
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4600,6 +4769,57 @@ mod tests {
         follows_static_surface!(
             TypedSupportSurface::PtzOpticsNdiQuality,
             SetNdiQuality::new(NdiQuality::High)
+        );
+    }
+
+    #[test]
+    fn profile_aware_speed_level_lowering_keeps_standard_pairs_and_mirrors_brc300() {
+        let standard = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let brc300 = ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile");
+
+        let standard_absolute = PanTiltAbsolute::for_profile_speed_level(
+            Degrees(10.0),
+            Degrees(-5.0),
+            SpeedLevel::Medium,
+            &standard,
+        )
+        .expect("standard coarse absolute position");
+        assert_eq!(
+            wire(&standard_absolute),
+            vec![
+                0x81, 0x01, 0x06, 0x02, 0x0C, 0x0A, 0x00, 0x00, 0x09, 0x00, 0x0F, 0x0F, 0x0B, 0x08,
+                0xFF,
+            ]
+        );
+
+        let brc300_absolute = PanTiltAbsolute::for_profile_speed_level(
+            Degrees(45.0),
+            Degrees(-15.0),
+            SpeedLevel::Fastest,
+            &brc300,
+        )
+        .expect("BRC-300 coarse absolute position");
+        assert_eq!(
+            wire(&brc300_absolute),
+            vec![
+                0x81, 0x01, 0x06, 0x02, 0x18, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+                0x00, 0xFF,
+            ]
+        );
+
+        let brc300_relative = PanTiltRelative::for_profile_speed_level(
+            Degrees(45.0),
+            Degrees(-15.0),
+            SpeedLevel::Fastest,
+            &brc300,
+        )
+        .expect("BRC-300 coarse relative position");
+        assert_eq!(
+            wire(&brc300_relative),
+            vec![
+                0x81, 0x01, 0x06, 0x03, 0x18, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
+                0x00, 0xFF,
+            ]
         );
     }
 
@@ -5258,13 +5478,13 @@ mod tests {
     #[test]
     fn write_only_state_requests_use_their_exact_plain_policies() {
         assert_policy::<PanTiltLimitSet>(
-            15,
+            16,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<PanTiltLimitClear>(
-            15,
+            16,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
