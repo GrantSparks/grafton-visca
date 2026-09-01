@@ -193,6 +193,16 @@ impl SessionConfig {
                 "session requires at least one registered target".into(),
             ));
         }
+        // The async admission boundary is a flume channel. Its receive path
+        // temporarily accounts for one additional pending sender, so the
+        // representable maximum would overflow that channel's capacity
+        // arithmetic. Reject it before adapter or owner construction; every
+        // smaller non-zero value remains a valid caller-selected bound.
+        if self.admission_capacity.get() == usize::MAX {
+            return Err(Error::InvalidRequest(
+                "session admission capacity must be less than usize::MAX".into(),
+            ));
+        }
         for profile in self.targets.iter().flatten() {
             crate::runtime::owner::validate_profile_transport(profile, kind)?;
             profile.validate_tuning(self.tuning)?;

@@ -265,8 +265,9 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
 
 /// Variable-length nibble view for responses that support multiple formats.
 ///
-/// Used for responses like Zoom and PanTilt that can return either 4 or 8 nibbles
-/// depending on the camera model and query context.
+/// Used by the Zoom-position response parser, which supports both 4-nibble and
+/// 8-nibble reply forms. Standard pan/tilt replies use an exact eight-nibble
+/// [`Nibbles`] view instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Nibbles4Or8<'a> {
     /// 4-nibble response format.

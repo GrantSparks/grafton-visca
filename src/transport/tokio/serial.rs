@@ -6,13 +6,13 @@ use std::{sync::Arc, time::Duration};
 
 use crate::{
     error::{Error, Result},
-    executor::{TokioBoundFuture, TokioExecutor},
+    executor::{Executor, TokioBoundFuture, TokioExecutor},
     transport::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         builder::TransportConfig,
         serial::{
             handshake::async_handshake::{address_set_async, if_clear_async},
-            Config as SerialConfig,
+            startup_plan, Config as SerialConfig, StartupOperation,
         },
     },
 };
@@ -118,13 +118,7 @@ impl Serial {
         // Create executor for handshake operations
         let executor = TokioExecutor::from_current()?;
 
-        // Perform initialization if requested
-        if config.if_clear_on_connect {
-            if_clear_async(&executor, &mut adapter).await?;
-        }
-        if config.address_set_on_connect {
-            address_set_async(&executor, &mut adapter, Duration::from_secs(2)).await?;
-        }
+        perform_startup_handshakes(&executor, &mut adapter, &config).await?;
 
         Ok(Self::new(adapter, transport_config))
     }
@@ -152,11 +146,69 @@ impl Serial {
     }
 }
 
+/// Perform the requested serial bus startup operations in protocol order.
+async fn perform_startup_handshakes<E, S>(
+    executor: &E,
+    io: &mut S,
+    config: &SerialConfig,
+) -> Result<()>
+where
+    E: Executor,
+    S: AsyncReadExtTrait + AsyncWriteExtTrait + Send,
+{
+    for operation in startup_plan(config).into_iter().flatten() {
+        match operation {
+            StartupOperation::AddressSet => {
+                address_set_async(executor, io, Duration::from_secs(2)).await?;
+            }
+            StartupOperation::InterfaceClear => {
+                if_clear_async(executor, io).await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use crate::transport::BufferConfig;
+    use std::collections::VecDeque;
+
+    struct TranscriptIo {
+        reads: VecDeque<Vec<u8>>,
+        writes: Vec<Vec<u8>>,
+    }
+
+    impl TranscriptIo {
+        fn with_read(bytes: Vec<u8>) -> Self {
+            Self {
+                reads: [bytes].into(),
+                writes: Vec::new(),
+            }
+        }
+    }
+
+    impl AsyncReadExtTrait for TranscriptIo {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            let bytes = self.reads.pop_front().expect("unexpected serial read");
+            buf[..bytes.len()].copy_from_slice(&bytes);
+            Ok(bytes.len())
+        }
+    }
+
+    impl AsyncWriteExtTrait for TranscriptIo {
+        async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+            self.writes.push(buf.to_vec());
+            Ok(())
+        }
+
+        async fn flush(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
 
     #[tokio::test]
     async fn invalid_buffer_bounds_fail_before_serial_device_open() {
@@ -175,5 +227,27 @@ mod tests {
             Err(Error::InvalidRequest(actual))
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
+    }
+
+    #[tokio::test]
+    async fn startup_with_address_set_and_if_clear_transmits_address_set_first() {
+        let executor = TokioExecutor::from_current().expect("Tokio runtime is present");
+        let mut io = TranscriptIo::with_read(vec![0x88, 0x30, 0x02, 0xFF]);
+        let config = SerialConfig::new("/dev/test")
+            .address_set_on_connect(true)
+            .if_clear_on_connect(true);
+
+        perform_startup_handshakes(&executor, &mut io, &config)
+            .await
+            .expect("startup handshakes succeed");
+
+        assert_eq!(
+            io.writes,
+            [
+                vec![0x88, 0x30, 0x01, 0xFF],
+                vec![0x88, 0x01, 0x00, 0x01, 0xFF],
+            ],
+            "the Tokio serial startup transcript must address the bus before clearing it"
+        );
     }
 }

@@ -9579,6 +9579,172 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
     engine.assert_invariants().unwrap();
 }
 
+/// #700: an ACK is never correlation evidence for a completion-only command.
+/// In particular, a timeout followed by cancellation must not turn the late-ACK
+/// quarantine into a socket-owning cancellation path.
+#[test]
+fn completion_only_stray_acks_remain_inert_across_its_lifecycle() {
+    let start = Instant::now();
+
+    // An ACK racing the local request write must not become a deferred ACK.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
+        let stray_ack = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        assert_eq!(
+            ignored_reasons(&stray_ack),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(cancel_transmit_optional(&stray_ack).is_none());
+        assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), None);
+        assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
+        send_ok(&mut engine, &admitted_effects, None, start);
+        engine.assert_invariants().unwrap();
+    }
+
+    // Once sent, a completion-only command still ignores a stray ACK rather
+    // than acquiring its socket.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut engine, &admitted_effects, None, start);
+        let stray_ack = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        assert_eq!(
+            ignored_reasons(&stray_ack),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(cancel_transmit_optional(&stray_ack).is_none());
+        assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), None);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingCompletion { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // Its completion timeout creates the usual raw unconfirmed quarantine.
+    // While cancellation remains absent, an ACK must remain inert there too.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut engine, &admitted_effects, None, start);
+        engine.advance(start + Duration::from_millis(40));
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        assert_eq!(
+            engine.entry(id).map(Entry::cancellation),
+            Some(CancelState::None)
+        );
+        let stray_ack = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(41),
+        );
+        assert_eq!(
+            ignored_reasons(&stray_ack),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(cancel_transmit_optional(&stray_ack).is_none());
+        assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), None);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+
+    // This is the owner-reachable ordering: completion timeout, then the
+    // caller's cancellation while the unconfirmed hold is live, then a stray
+    // ACK. The ACK must neither acquire a socket nor emit a socket cancel.
+    {
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (admitted_effects, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        send_ok(&mut engine, &admitted_effects, None, start);
+        engine.advance(start + Duration::from_millis(40));
+        let cancelled = engine.handle(Input::Cancel { id }, start + Duration::from_millis(41));
+        assert!(cancelled.iter().any(
+            |effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)
+        ));
+        assert!(cancel_transmit_optional(&cancelled).is_none());
+        assert!(matches!(
+            engine.entry(id).map(Entry::cancellation),
+            Some(CancelState::Requested { .. })
+        ));
+
+        let stray_ack = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(42),
+        );
+        assert_eq!(
+            ignored_reasons(&stray_ack),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(cancel_transmit_optional(&stray_ack).is_none());
+        assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), None);
+        assert!(matches!(
+            phase_of(&engine, id),
+            Some(Phase::AwaitingLateAck { .. })
+        ));
+        assert!(matches!(
+            engine.entry(id).map(Entry::cancellation),
+            Some(CancelState::Requested { .. })
+        ));
+        engine.assert_invariants().unwrap();
+    }
+}
+
 /// A completion-only terminal may carry a socket nibble even though this shape
 /// never established socket ownership. The target was exclusive while it was
 /// live, so the sole completion-only candidate is still exact evidence.
@@ -11729,6 +11895,31 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
         phase_of(&runtime, completion_id),
         Some(Phase::AwaitingCompletion { .. })
     ));
+
+    // Even exact Sony sequence correlation does not make an ACK meaningful for
+    // this reply shape: it must not assign a socket or begin cancellation work.
+    let stray_ack = runtime.handle(
+        frame(
+            1,
+            Some((0x1001, SequenceWidth::Full32)),
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert_eq!(
+        ignored_reasons(&stray_ack),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(cancel_transmit_optional(&stray_ack).is_none());
+    assert_eq!(socket_of(&runtime, completion_id), None);
+    assert_eq!(runtime.socket_owner(camera(1), ViscaSocket::S1), None);
+    assert!(matches!(
+        phase_of(&runtime, completion_id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+    runtime.assert_invariants().unwrap();
 
     let (inquiry_effects, inquiry_id) = admit(&mut runtime, 2, inquiry(1, POWER), start);
     assert_eq!(

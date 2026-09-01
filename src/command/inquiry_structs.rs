@@ -3332,47 +3332,13 @@ fn decode_flip_state(payload: Payload<'_>) -> Result<Response, Error> {
 ///
 /// This decoder interprets pan/tilt positions as signed 16-bit values.
 fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
-    if payload.len() == 8 {
-        let nibbles = Nibbles::<8>::try_from(payload)?;
-        let pan = i32::from(nibbles.i16_quad(0));
-        let tilt = i32::from(nibbles.i16_quad(4));
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else if payload.len() == 4 {
-        tracing::warn!(
-            "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
-            payload.as_slice()
-        );
-        let pan = if payload.len() >= 2 {
-            #[allow(clippy::cast_possible_wrap)]
-            let p = ((payload.as_slice()[0] as i16) << 8) | (payload.as_slice()[1] as i16);
-            i32::from(p)
-        } else {
-            0
-        };
-        let tilt = if payload.len() >= 4 {
-            #[allow(clippy::cast_possible_wrap)]
-            let t = ((payload.as_slice()[2] as i16) << 8) | (payload.as_slice()[3] as i16);
-            i32::from(t)
-        } else {
-            0
-        };
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else {
-        tracing::debug!(
-            "PanTiltPosition: Payload length {} doesn't match pan/tilt format (expected 8 or 4 bytes)",
-            payload.len()
-        );
-        Err(Error::DecoderNotFound {
-            inquiry_kind: InquiryKind::PanTiltPosition,
-            payload_hex: format_payload_hex(payload.as_slice()),
-        })
-    }
+    let nibbles = Nibbles::<8>::try_from(payload)?;
+    let pan = i32::from(nibbles.i16_quad(0));
+    let tilt = i32::from(nibbles.i16_quad(4));
+    Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+        pan,
+        tilt,
+    }))
 }
 
 /// Decode PanTiltPosition using the profile's coordinate-system conversion.
@@ -3389,41 +3355,15 @@ fn decode_pan_tilt_position_with_codec(
 ) -> Result<Response, Error> {
     match codec {
         PanTiltWireCodec::StandardVisca => {
-            if payload.len() == 8 {
-                let nibbles = Nibbles::<8>::try_from(payload)?;
-                let pan_u16 = nibbles.u16_quad(0);
-                let tilt_u16 = nibbles.u16_quad(4);
-                let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
+            let nibbles = Nibbles::<8>::try_from(payload)?;
+            let pan_u16 = nibbles.u16_quad(0);
+            let tilt_u16 = nibbles.u16_quad(4);
+            let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
 
-                Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-                    pan: i32::from(pan),
-                    tilt: i32::from(tilt),
-                }))
-            } else if payload.len() == 4 {
-                tracing::warn!(
-                    "PanTiltPosition: Received compact standard VISCA format (4 bytes). Payload: {:02X?}. Treating as home position.",
-                    payload.as_slice()
-                );
-                let pan_u16 =
-                    ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16);
-                let tilt_u16 =
-                    ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16);
-                let (pan, tilt) = coordinate_system.convert_from_camera_coords(pan_u16, tilt_u16);
-
-                Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-                    pan: i32::from(pan),
-                    tilt: i32::from(tilt),
-                }))
-            } else {
-                tracing::debug!(
-                    "PanTiltPosition: Payload length {} doesn't match standard VISCA pan/tilt format (expected 8 or 4 bytes)",
-                    payload.len()
-                );
-                Err(Error::DecoderNotFound {
-                    inquiry_kind: InquiryKind::PanTiltPosition,
-                    payload_hex: format_payload_hex(payload.as_slice()),
-                })
-            }
+            Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+                pan: i32::from(pan),
+                tilt: i32::from(tilt),
+            }))
         }
         PanTiltWireCodec::SonyBrc300 => {
             if coordinate_system != crate::capabilities::CoordinateSystem::SignedCentered {
@@ -3563,6 +3503,29 @@ mod wire_decoder_regression_tests {
             Err(Error::InvalidResponseLength {
                 expected: 2,
                 actual: 3,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn standard_pan_tilt_requires_eight_nibble_bytes() {
+        assert!(matches!(
+            parse_inquiry_payload(
+                &[0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06],
+                &InquiryKind::PanTiltPosition,
+            ),
+            Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+                pan: 0x0123,
+                tilt: 0x0456,
+            }))
+        ));
+
+        assert!(matches!(
+            parse_inquiry_payload(&[0x12, 0x34, 0x56, 0x78], &InquiryKind::PanTiltPosition),
+            Err(Error::InvalidResponseLength {
+                expected: 8,
+                actual: 4,
                 ..
             })
         ));

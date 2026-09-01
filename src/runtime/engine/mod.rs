@@ -2304,7 +2304,8 @@ impl ProtocolEngine {
         }
     }
 
-    /// The unique raw command on `target` whose ACK has not been established.
+    /// The unique raw command on `target` whose ACK-bearing reply has not been
+    /// established.
     ///
     /// Raw dispatch admits only one unacknowledged command per target (decision
     /// D7), so a raw target can never hold two entries at once in
@@ -2314,16 +2315,17 @@ impl ProtocolEngine {
     /// first place. Keep this resolver exact regardless: if an invariant
     /// regression ever produced a second candidate it returns `None` (fails
     /// closed) rather than turning admission order into an ACK/error guess. The
-    /// `Sending` phase is included for the deferred-ACK latch. A `NoReply`
-    /// command is deliberately excluded: it has no response lifecycle, so any
-    /// frame racing its local write must remain inert.
+    /// `Sending` phase is included for the deferred-ACK latch. Only an
+    /// `AckThenCompletion` command is eligible: `NoReply` has no response
+    /// lifecycle, and `CompletionOnly` deliberately has no ACK/socket
+    /// lifecycle, so either shape must keep an ACK racing its local write inert.
     fn unique_raw_command_candidate(&self, target: CameraId) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
                 || entry.request.is_inquiry()
                 || entry.request.context().target != target
-                || entry.request.context().reply_shape == ReplyShape::NoReply
+                || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
                 || !matches!(
                     entry.phase,
                     Phase::Sending { .. }
@@ -2480,7 +2482,9 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        if entry.request.is_inquiry() {
+        if entry.request.is_inquiry()
+            || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
+        {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
@@ -4013,6 +4017,22 @@ impl ProtocolEngine {
             }
             if entry.deferred_ack.is_some() && !matches!(entry.phase, Phase::Sending { .. }) {
                 return Err("deferred ACK outlived the write it raced".into());
+            }
+            if entry.request.context().reply_shape == ReplyShape::CompletionOnly
+                && (entry.deferred_ack.is_some()
+                    || matches!(
+                        entry.phase,
+                        Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
+                    )
+                    || matches!(
+                        entry.cancellation,
+                        CancelState::Sending { .. }
+                            | CancelState::AwaitingTerminal { .. }
+                            | CancelState::ObservationFailed { .. }
+                    )
+                    || entry.cancel_attempted_socket.is_some())
+            {
+                return Err("completion-only command has ACK/socket cancellation state".into());
             }
             if entry.deferred_completion.is_some() && !matches!(entry.phase, Phase::Sending { .. })
             {

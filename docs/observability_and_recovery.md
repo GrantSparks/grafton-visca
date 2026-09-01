@@ -451,8 +451,7 @@ values from the poisoned owner.
 ## Memory bounds
 
 The current owner policy is intentionally explicit. The first nine rows are
-fixed; the last two are the two buffer sizes a caller can tune, and their
-values come from the transport's `BufferConfig`, not from an owner constant:
+fixed; the remaining three are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
 | --- | ---: | --- |
@@ -465,11 +464,18 @@ values come from the transport's `BufferConfig`, not from an owner constant:
 | Applied-state subscribers | 16 | no |
 | Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
+| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) | yes — `SessionConfig::with_admission_capacity()` |
 | Received payload bytes | see below | yes — `BufferConfig::recv_buffer_size` |
 | Reusable framing bytes | 8192 | yes — `BufferConfig::max_buffer_size` |
 
-The two tunable rows are set from `TransportConfig::buffer_config` every time
-a session is built, so the receive row has no single number. Reach them with
+Admission capacity is fixed when the session opens and bounds each admitted
+boundary plus its pending/active owner lifecycle entry until safe terminal
+removal, including ambiguity quarantine. It defaults to 64; callers may choose
+any non-zero value below `usize::MAX` with
+`SessionConfig::with_admission_capacity()`.
+
+The two transport-buffer rows are set from `TransportConfig::buffer_config`
+every time a session is built, so the receive row has no single number. Reach them with
 `CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
 for a standard transport, with the blocking `NetTransportBuilder`'s
 `recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned

@@ -1572,9 +1572,7 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::IrisControl => {
                     capabilities.has_exposure && capabilities.iris_range.is_some()
                 }
-                capabilities::TypedSupportSurface::IrisControlInquiry => {
-                    capabilities.has_exposure && capabilities.iris_range.is_some()
-                }
+                capabilities::TypedSupportSurface::IrisControlInquiry => capabilities.has_exposure,
                 capabilities::TypedSupportSurface::OnePushFocus => {
                     capabilities.has_focus && capabilities.has_one_push_focus
                 }
@@ -2424,7 +2422,15 @@ mod tests {
         // it is neither a direct iris command nor a targeted position-settlement
         // path, so it must not borrow `IrisControl` permission or its inquiry
         // requirement.
-        let mut typed_iris_status = iris_metadata.clone();
+        let mut typed_iris_status = valid_runtime_capabilities();
+        typed_iris_status.has_exposure = true;
+        typed_iris_status.shutter_speeds.push(RuntimeShutterSpeed {
+            label: "1/60".into(),
+            value: 1,
+        });
+        typed_iris_status.gain_range = 0..=1;
+        assert!(!typed_iris_status.has_iris_control);
+        assert_eq!(typed_iris_status.iris_range, None);
         typed_iris_status.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry);
         let source_declared_status = runtime_builder(typed_iris_status)
@@ -2438,6 +2444,13 @@ mod tests {
             &source_declared_status,
         )
         .expect("source-declared iris control-status inquiry must validate");
+
+        let mut iris_status_without_exposure = valid_runtime_capabilities();
+        iris_status_without_exposure.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry);
+        assert!(runtime_builder(iris_status_without_exposure)
+            .build()
+            .is_err());
 
         let mut typed_iris = iris_metadata;
         typed_iris.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::IrisControl);

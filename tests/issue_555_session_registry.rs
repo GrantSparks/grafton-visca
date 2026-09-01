@@ -109,6 +109,9 @@ mod async_registry {
         },
     };
 
+    #[cfg(feature = "runtime-tokio")]
+    use std::num::NonZeroUsize;
+
     use grafton_visca::{
         camera::TransportKind,
         request,
@@ -391,6 +394,31 @@ mod async_registry {
         .await
         .expect_err("empty registry");
         assert!(matches!(error, Error::InvalidRequest(_)));
+        assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn tokio_maximum_admission_capacity_fails_before_owner_construction() {
+        let (transport, counts) =
+            AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
+        let config = SessionConfig::new(raw_profile()).with_admission_capacity(
+            NonZeroUsize::new(usize::MAX).expect("usize::MAX is non-zero"),
+        );
+
+        let error = grafton_visca::Session::open(
+            transport,
+            config,
+            grafton_visca::TokioRuntime::from_current().expect("runtime"),
+        )
+        .await
+        .expect_err("maximum admission capacity must fail validation");
+
+        assert!(matches!(error, Error::InvalidRequest(_)));
+        // The rejection occurs before adapter construction, which would read
+        // transport configuration and then create/spawn the owner actor.
         assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
         assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
         assert_eq!(counts.reads.load(Ordering::SeqCst), 0);

@@ -2806,6 +2806,14 @@ mod tests {
                 .expect("signed position decode"),
             crate::camera::PanTiltPosition::new(720, -240)
         );
+        assert!(matches!(
+            inquiry.decoder.decode(&[0x12, 0x34, 0x56, 0x78]),
+            Err(Error::InvalidResponseLength {
+                expected: 8,
+                actual: 4,
+                ..
+            })
+        ));
     }
 
     #[test]

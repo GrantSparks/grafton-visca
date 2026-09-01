@@ -15,7 +15,7 @@ use crate::{
         builder::{AddressingMode, TransportConfig},
         serial::{
             handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
-            Config as SerialConfig,
+            startup_plan, Config as SerialConfig, StartupOperation,
         },
         BlockingTransport, HasTransportConfig,
     },
@@ -98,16 +98,7 @@ impl SerialTransport {
                 Error::TransportError(format!("Failed to open serial port: {e}").into())
             })?;
 
-        let if_clear = config.if_clear_on_connect;
-        let address_set = config.address_set_on_connect;
-
-        // Perform initialization if requested
-        if if_clear {
-            if_clear_blocking(&mut *port, config.write_timeout)?;
-        }
-        if address_set {
-            address_set_blocking(&mut *port, Duration::from_secs(2), config.write_timeout)?;
-        }
+        perform_startup_handshakes(&mut *port, &config)?;
 
         Ok(Self {
             port,
@@ -115,6 +106,25 @@ impl SerialTransport {
             transport_config,
         })
     }
+}
+
+/// Perform the requested serial bus startup operations in protocol order.
+fn perform_startup_handshakes(
+    port: &mut dyn serialport::SerialPort,
+    config: &SerialConfig,
+) -> Result<()> {
+    for operation in startup_plan(config).into_iter().flatten() {
+        match operation {
+            StartupOperation::AddressSet => {
+                address_set_blocking(port, Duration::from_secs(2), config.write_timeout)?;
+            }
+            StartupOperation::InterfaceClear => {
+                if_clear_blocking(port, config.write_timeout)?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 impl HasTransportConfig for SerialTransport {
@@ -259,6 +269,8 @@ mod tests {
         read_timeouts: RefCell<Vec<Duration>>,
         /// Number of low-level writes issued to the fake.
         write_calls: RefCell<usize>,
+        /// Complete byte sequences submitted to the fake, in transmission order.
+        writes: RefCell<Vec<Vec<u8>>>,
         /// Number of flush calls issued to the fake.
         flush_calls: RefCell<usize>,
         /// Scripted write outcomes, used by partial-write deadline tests.
@@ -278,6 +290,7 @@ mod tests {
                 read_steps: RefCell::new(VecDeque::new()),
                 read_timeouts: RefCell::new(Vec::new()),
                 write_calls: RefCell::new(0),
+                writes: RefCell::new(Vec::new()),
                 flush_calls: RefCell::new(0),
                 write_steps: RefCell::new(VecDeque::new()),
                 fail_next_timeout_set_to: RefCell::new(None),
@@ -356,6 +369,7 @@ mod tests {
                 return Err(io::Error::new(kind, "simulated write error"));
             }
             *self.write_calls.borrow_mut() += 1;
+            self.writes.borrow_mut().push(buf.to_vec());
 
             let step = { self.write_steps.borrow_mut().pop_front() };
             if let Some(WriteStep::Partial { bytes, delay }) = step {
@@ -632,6 +646,27 @@ mod tests {
             TestSerialPort::new(configured_timeout).with_flush_error(ErrorKind::TimedOut);
         assert!(if_clear_blocking(&mut clear_port, configured_write_timeout).is_ok());
         assert_eq!(*clear_port.flush_calls.borrow(), 0);
+    }
+
+    #[test]
+    fn startup_with_address_set_and_if_clear_transmits_address_set_first() {
+        let mut port = TestSerialPort::new(Duration::from_millis(50))
+            .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
+        let config = SerialConfig::new("/dev/test")
+            .address_set_on_connect(true)
+            .if_clear_on_connect(true)
+            .write_timeout(Duration::from_millis(7));
+
+        perform_startup_handshakes(&mut port, &config).expect("startup handshakes succeed");
+
+        assert_eq!(
+            port.writes.borrow().as_slice(),
+            [
+                vec![0x88, 0x30, 0x01, VISCA_TERMINATOR],
+                vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR],
+            ],
+            "the blocking serial startup transcript must address the bus before clearing it"
+        );
     }
 
     #[test]
