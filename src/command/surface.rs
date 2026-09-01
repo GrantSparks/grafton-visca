@@ -207,12 +207,12 @@ const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinR
 
 /// Human-readable closed-inventory totals for the built-in surface.
 ///
-/// There are 149 command IDs: 146 target-facing noun rows and three protocol
+/// There are 150 command IDs: 147 target-facing noun rows and three protocol
 /// exceptions (the two broadcast handshakes and internal cancellation).
 #[allow(dead_code)]
-pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
+pub(crate) const BUILTIN_COMMAND_COUNT: usize = 150;
 #[allow(dead_code)]
-pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
+pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 147;
 #[allow(dead_code)]
 pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
 
@@ -247,9 +247,19 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::DigitalZoomRange,
         )
     };
+    (HasExposureMode) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ExposureMode,
+        )
+    };
     (HasIrisControl) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::IrisControl,
+        )
+    };
+    (HasIrisControlInquiry) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::IrisControlInquiry,
         )
     };
     (HasOnePushFocus) => {
@@ -422,11 +432,6 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::GammaControl,
         )
     };
-    (HasNoiseReduction) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NoiseReduction,
-        )
-    };
     (HasNoiseReduction2D) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
@@ -435,6 +440,16 @@ macro_rules! surface_marker {
     (HasNoiseReduction3D) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+        )
+    };
+    (HasNoiseReduction2DControl) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+        )
+    };
+    (HasNoiseReduction3DControl) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
         )
     };
     (HasPictureEffect) => {
@@ -811,7 +826,7 @@ mod tests {
         // regression this assertion exists to surface.
         assert_eq!(
             (plain, applied_only, targeted),
-            (118, 16, 15),
+            (119, 16, 15),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
@@ -832,10 +847,6 @@ mod tests {
     ///
     /// Both halves of a toggle must be reachable from the same set of
     /// profiles, or a profile can reach one direction and get stuck there.
-    /// The noise-reduction pairs are the case that motivated this: the level
-    /// newtypes are bounded `1..=5` and `1..=8`, so `set_noise_reduction_*`
-    /// cannot express off and the disable rows are the only way to send the
-    /// `0x00` wire value.
     ///
     /// `set_flip_both` and `set_flip_mode` are here for the same reason.  They
     /// send the *same* combined opcode, so a split gate would let a profile
@@ -854,14 +865,6 @@ mod tests {
         }
 
         for (on, off) in [
-            (
-                BuiltinCommand::NoiseReduction2d,
-                BuiltinCommand::NoiseReduction2dOff,
-            ),
-            (
-                BuiltinCommand::NoiseReduction3d,
-                BuiltinCommand::NoiseReduction3dOff,
-            ),
             (
                 BuiltinCommand::ImageFlipHorizontal,
                 BuiltinCommand::ImageFlipHorizontalOff,

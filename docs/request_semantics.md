@@ -9,8 +9,9 @@ The rule is intentionally narrow:
 
 1. A request is an operation only when it starts, stops, or retargets physical
    actuation and exact VISCA socket cancellation has useful lifecycle meaning.
-2. A targeted operation has a meaningful physical end state.
-3. An applied-only operation has actuation but no meaningful physical target.
+2. A targeted operation has a meaningful target state and a profile-selected
+   protocol settlement condition.
+3. An applied-only operation has actuation but no meaningful target state.
 4. Configuration, mode selection, and stored-state edits are plain commands.
 
 ## Typed raw escape hatches
@@ -64,7 +65,7 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Gain | `GainReset`, `GainUp`, `GainDown`, `GainDirect`, `GainLimit` | Plain | — |
 | White balance | all `WhiteBalance*`, `AutoWhiteBalanceSensitivity`, `OnePushWhiteBalanceTrigger` | Plain | — |
 | Color | `RedTuning`, `BlueTuning`, `Saturation`, `Hue`, all `ColorTemperature*`, `RedGain*`, `BlueGain*` | Plain | — |
-| Image | all `Sharpness*`, `Luminance`, `Contrast`, `Gamma`, `Backlight`, `NoiseReduction2d`, `NoiseReduction3d`, `PictureEffect` | Plain | — |
+| Image | all `Sharpness*`, `Luminance`, `Contrast`, `Gamma`, `Backlight`, `PictureEffect` | Plain | — |
 | Image state | `ImageFlipBoth`, `ImageFlipCombined` | Plain | Set `Flip` |
 | Image state | `ImageFlipOff`, `ImageFlipHorizontal`, `ImageFlipHorizontalOff`, `ImageFlipVertical` | Plain | Invalidate `Flip` |
 | Image state | `ImageFreezeOn`, `ImageFreezeOff` | Plain | Set `ImageFreeze` |
@@ -135,7 +136,10 @@ than silently ignoring it. When a command's completion cannot be confirmed (no c
 the deadline), the default per-request recovery applies (issue #671): that one
 request fails `UnsequencedCommandUnconfirmed` while its slot is quarantined
 against a late reply, and the session keeps running; the strict
-`strict_unconfirmed_poison` opt-in poisons the session instead.
+`strict_unconfirmed_poison` opt-in poisons the session instead. A receive fault
+has that immediate strict effect only before cancel intent is recorded; a
+recorded cancel uses cancellation-driven late-ACK resolution and poisons only
+if its deadline is unconfirmed.
 
 Reply shape is for *legitimate* custom completion-only or fire-and-forget vendor
 frames. It never re-admits the owner-only wire primitives above: a socket cancel
@@ -150,7 +154,7 @@ how the camera's exposure controller behaves; they do not command a
 cancelable lens or axis movement. Dynamic range, anti-flicker, spotlight, and
 auto-slow-shutter likewise update an exposure policy or mode register. Their
 application is observable as a completed command, but there is no exact
-physical target for settlement or useful socket cancellation beyond that
+target state for protocol settlement or useful socket cancellation beyond that
 application point.
 
 Shutter, brightness, and gain are also plain even where a camera implements
@@ -159,7 +163,7 @@ step a control register and do not expose a position inquiry/settlement plan
 that can be used as an independently cancellable movement. `Iris` is the
 explicit exception: its direct/step forms have a finite aperture target and an
 exact built-in inquiry, so they are targeted on the `Iris` axis. Shutter and
-brightness values are not inferred to be physical targets, and gain is an
+brightness values are not inferred to be target states, and gain is an
 electronic exposure value rather than a camera-axis operation.
 
 Preset recall is targeted because a validated profile can provide the exact
@@ -175,7 +179,7 @@ Calibration and configuration commands (one-push white balance, focus/ND
 mode selection, motion-sync and variable-speed setup, menu actions, settings
 save, address/interface setup, and similar vendor controls) are plain. They
 may change internal calibration or future command behavior, but they do not
-carry a recoverable physical target and their protocol completion is the only
+carry a recoverable target state and their protocol completion is the only
 stable lifecycle boundary. A later profile may add an inquiry or a typed
 state value; that must add an explicit ledger state/effect rather than
 silently promoting the existing row to an operation.

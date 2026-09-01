@@ -352,7 +352,7 @@ impl StateCache {
     /// Returns the last recorded pan/tilt movement-limit update.
     ///
     /// [`StateKey::PanTiltLimits`] stores the corner discriminator in slot 0
-    /// (`0x00` for [`PanTiltLimitCorner::DownLeft`], `0x03` for
+    /// (`0x00` for [`PanTiltLimitCorner::DownLeft`], `0x01` for
     /// [`PanTiltLimitCorner::UpRight`]). A `limit_set` additionally stores the
     /// converted raw pan and tilt in slots 1 and 2; a `limit_clear` stores only
     /// the corner.
@@ -372,7 +372,7 @@ impl StateCache {
         };
         let corner = match value.get(0)? {
             0x00 => crate::command::PanTiltLimitCorner::DownLeft,
-            0x03 => crate::command::PanTiltLimitCorner::UpRight,
+            0x01 => crate::command::PanTiltLimitCorner::UpRight,
             _ => return None,
         };
         if cleared {

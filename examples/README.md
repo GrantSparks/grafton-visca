@@ -11,8 +11,8 @@ Preferred usage:
 - Use checked public value types such as `UnitInterval::new(...)` and `CameraId`/`try_camera_id(...)` instead of raw normalized floats or raw camera ID setters.
 - Treat raw transport, protocol, and lab-validation programs as advanced integration/reference material.
 - Use ordinary noun methods for simple command completion. Use operation handles
-  when a command needs an exact deadline, physical-settle wait, cancellation, or
-  explicit detach.
+  when a command needs an exact deadline, profile-selected protocol-settlement
+  wait, cancellation, or explicit detach.
 
 Example quality bar:
 

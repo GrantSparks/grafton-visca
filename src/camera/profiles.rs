@@ -53,6 +53,10 @@ mod profile_constants {
         ExposureMode::Bright,
     ];
 
+    /// Profiles with no source-backed support for the shared `04 39` AE-mode
+    /// command and inquiry family.
+    pub const NO_SHARED_EXPOSURE_MODES: &[ExposureMode] = &[];
+
     pub const PTZ_OPTICS_EXPOSURE_MODES: &[ExposureMode] = &[
         ExposureMode::Auto,
         ExposureMode::Manual,

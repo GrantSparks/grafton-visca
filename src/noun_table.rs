@@ -368,10 +368,12 @@ macro_rules! noun_table {
             @noun Exposure;
             /// Returns the active exposure mode.
             inquiry command::ExposureModeInquiry mode() -> command::ExposureMode
+                where HasExposureMode
                 = command::ExposureModeInquiry;
             /// Sets the exposure mode.
             plain [ExposureMode] set_mode(mode: command::ExposureMode)
-                -> command::ExposureCommand = command::ExposureCommand::new(mode);
+                -> command::ExposureCommand where HasExposureMode
+                = command::ExposureCommand::new(mode);
             /// Returns the shutter speed.
             inquiry command::ShutterInquiry shutter() -> types::ShutterSpeed
                 = command::ShutterInquiry;
@@ -433,7 +435,7 @@ macro_rules! noun_table {
                 -> command::DynamicRange where HasWideDynamicRange
                 = command::DynamicRange::new(level);
             /// Returns whether iris control is automatic.
-            inquiry command::IrisControlInquiry iris_control() -> bool where HasIrisControl
+            inquiry command::IrisControlInquiry iris_control() -> bool where HasIrisControlInquiry
                 = command::IrisControlInquiry;
             /// Returns the iris level.
             inquiry command::IrisInquiry iris() -> types::IrisLevel where HasIrisControl
@@ -718,36 +720,33 @@ macro_rules! noun_table {
             inquiry command::NoiseReduction2DInquiry noise_reduction_2d()
                 -> types::NoiseReduction2DLevel where HasNoiseReduction2D
                 = command::NoiseReduction2DInquiry;
-            /// Sets 2D noise reduction level.
-            plain [NoiseReduction2d] set_noise_reduction_2d(
-                level: types::NoiseReduction2DLevel
-            ) -> command::NoiseReduction2D where HasNoiseReduction2D
-                = command::NoiseReduction2D::with_level(level);
-            /// Disables 2D noise reduction.
-            plain [NoiseReduction2dOff] disable_noise_reduction_2d()
-                -> command::NoiseReduction2D where HasNoiseReduction2D
-                = command::NoiseReduction2D::off();
+            /// Returns the 2D noise reduction mode.
+            inquiry command::NoiseReduction2DModeInquiry noise_reduction_2d_mode()
+                -> command::NoiseReduction2DMode where HasNoiseReduction2D
+                = command::NoiseReduction2DModeInquiry;
             /// Returns 3D noise reduction level.
             inquiry command::NoiseReduction3DInquiry noise_reduction_3d()
                 -> types::NoiseReduction3DLevel where HasNoiseReduction3D
                 = command::NoiseReduction3DInquiry;
-            /// Sets 3D noise reduction level.
-            plain [NoiseReduction3d] set_noise_reduction_3d(
-                level: types::NoiseReduction3DLevel
-            ) -> command::NoiseReduction3D where HasNoiseReduction3D
+            /// Sets the 2D noise-reduction mode.
+            plain [NoiseReduction2dMode] set_noise_reduction_2d_mode(
+                mode: command::NoiseReduction2DMode
+            ) -> command::NoiseReduction2DModeCommand where HasNoiseReduction2DControl
+                = command::NoiseReduction2DModeCommand::new(mode);
+            /// Sets the 2D noise-reduction level.
+            plain [NoiseReduction2d] set_noise_reduction_2d(level: types::NoiseReduction2DLevel)
+                -> command::NoiseReduction2D where HasNoiseReduction2DControl
+                = command::NoiseReduction2D::with_level(level);
+            /// Disables 2D noise reduction.
+            plain [NoiseReduction2dOff] disable_noise_reduction_2d() -> command::NoiseReduction2D
+                where HasNoiseReduction2DControl = command::NoiseReduction2D::off();
+            /// Sets the 3D noise-reduction level.
+            plain [NoiseReduction3d] set_noise_reduction_3d(level: types::NoiseReduction3DLevel)
+                -> command::NoiseReduction3D where HasNoiseReduction3DControl
                 = command::NoiseReduction3D::with_level(level);
             /// Disables 3D noise reduction.
-            plain [NoiseReduction3dOff] disable_noise_reduction_3d()
-                -> command::NoiseReduction3D where HasNoiseReduction3D
-                = command::NoiseReduction3D::off();
-            /// Returns the aggregate noise-reduction level.
-            inquiry command::NrLevelInquiry noise_reduction_level() -> types::NoiseReductionLevel
-                where HasNoiseReduction
-                = command::NrLevelInquiry;
-            /// Returns the aggregate noise-reduction mode.
-            inquiry command::NrModeInquiry noise_reduction_mode() -> command::NoiseReductionMode
-                where HasNoiseReduction
-                = command::NrModeInquiry;
+            plain [NoiseReduction3dOff] disable_noise_reduction_3d() -> command::NoiseReduction3D
+                where HasNoiseReduction3DControl = command::NoiseReduction3D::off();
             /// Disables vertical image flip.
             plain [ImageFlipOff] disable_flip() -> builtin::ImageFlipCommand where HasImageFlip
                 = builtin::ImageFlipCommand::new(command::Flip::Off);

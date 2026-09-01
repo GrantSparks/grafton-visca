@@ -117,6 +117,15 @@ pub fn active_grafton_visca_features() -> Vec<&'static str> {
     if cfg!(feature = "test-utils") {
         features.push("test-utils");
     }
+    if cfg!(feature = "serde") {
+        features.push("serde");
+    }
+    if cfg!(feature = "schemars") {
+        features.push("schemars");
+    }
+    if cfg!(feature = "ts-rs") {
+        features.push("ts-rs");
+    }
     features
 }
 
@@ -817,6 +826,9 @@ transport-serial = []
 transport-serial-tokio = []
 dyn-api = []
 test-utils = []
+serde = []
+schemars = []
+ts-rs = []
 
 [dependencies]
 grafton-visca = {{ path = {}, default-features = false, features = {} }}

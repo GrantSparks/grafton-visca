@@ -4,7 +4,10 @@
 //! serialized [`AsyncOwnerActor`](crate::runtime::owner::AsyncOwnerActor) and
 //! the transport moved into that actor. [`Camera`] values are inexpensive
 //! target views: cloning one only clones the owner handle and its immutable
-//! target/profile facts.
+//! target/profile facts. Dropping a non-final handle leaves that shared owner
+//! running; dropping the final owner handle may release its actor and transport,
+//! but never emits a protocol STOP. [`Session::close`] is the deterministic
+//! release barrier.
 
 #![cfg(feature = "async")]
 
@@ -183,9 +186,12 @@ impl Session {
     /// housekeeping pass and therefore also covered work in flight. To widen a
     /// deadline for a command that is already running, cancel it and resubmit.
     ///
-    /// The update is not a merge: `tuning` replaces the previous value whole,
-    /// so a field left unset returns to its profile default rather than keeping
-    /// the value a previous call installed.
+    /// The update is not a merge for runtime-mutable values: a field left unset
+    /// returns to its profile default rather than keeping the value a previous
+    /// call installed. [`OperationalTuning::strict_unconfirmed_poison`] is a
+    /// construction-only recovery policy, so setting it here is rejected; an
+    /// update that leaves it unset retains a construction-time strict opt-in in
+    /// [`Self::tuning`].
     ///
     /// The update travels through the owner's control boundary and the owner is
     /// its only writer, so two session clones reconfiguring concurrently
@@ -194,14 +200,16 @@ impl Session {
     ///
     /// # Errors
     ///
-    /// Rejects exactly what construction rejects — tuning that weakens a
-    /// registered profile's pacing minima, raises its socket limit, undercuts
-    /// its deadlines, or specifies incoherent retry timing — leaving the
+    /// Rejects tuning that construction would reject for a registered profile:
+    /// values that weaken pacing minima, raise a socket limit, undercut a
+    /// deadline, or specify incoherent retry timing. It also rejects an
+    /// explicit construction-only strict recovery setting, leaving the
     /// session's current tuning untouched. Returns the session's terminal error
-    /// if the owner has shut down.
+    /// if the owner has shut down; a retained terminal error takes precedence
+    /// over validation of the proposed update.
     pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        self.config.validate_tuning(tuning)?;
-        self.owner.reconfigure(tuning).await
+        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        self.owner.reconfigure(validated_tuning).await
     }
 
     /// Requests the single owner actor to shut down.
@@ -266,7 +274,9 @@ impl Session {
 ///
 /// The value owns its session, so it is self-sufficient: the connection lives
 /// as long as this camera session (or a [`Camera`] taken out of it) is alive.
-/// Use [`close`](Self::close) for the explicit teardown that mirrors
+/// Dropping the final async owner handle may release the actor and transport,
+/// but does not emit a protocol STOP or provide a teardown barrier. Use
+/// [`close`](Self::close) for the explicit teardown that mirrors
 /// [`Session::close`].
 pub struct CameraSession<P: CompileTimeProfile> {
     session: Session,
@@ -796,6 +806,18 @@ impl<P: CompileTimeProfile> Camera<P> {
 
     /// Executes a plain command through this camera's shared owner.
     ///
+    /// This intentionally has no request-specific `P: Has*` bound. Noun and
+    /// accessor methods carry the `Has*` marker bounds that define the
+    /// compile-time profile-permission surface; this direct method is the
+    /// uniform typed/downstream extension boundary.
+    ///
+    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// encoding, owner admission, or transport I/O. Crate-provided requests
+    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
+    /// when the selected profile lacks their required feature. Raw and other
+    /// downstream requests are explicit low-level extensions and may provide
+    /// their own profile validation.
+    ///
     /// Ordinary commands wait for their terminal protocol application. A raw
     /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
     /// local transport write succeeds; it does not claim camera application.
@@ -826,6 +848,18 @@ impl<P: CompileTimeProfile> Camera<P> {
     }
 
     /// Sends an inquiry and decodes its response through the shared owner.
+    ///
+    /// This intentionally has no request-specific `P: Has*` bound. Noun and
+    /// accessor methods carry the `Has*` marker bounds that define the
+    /// compile-time profile-permission surface; this direct method is the
+    /// uniform typed/downstream extension boundary.
+    ///
+    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// encoding, owner admission, or transport I/O. Crate-provided inquiries
+    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
+    /// when the selected profile lacks their required feature. Raw and other
+    /// downstream requests are explicit low-level extensions and may provide
+    /// their own profile validation.
     pub async fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response>
     where
         Q: Inquiry + ?Sized,

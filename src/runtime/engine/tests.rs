@@ -3450,7 +3450,11 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let start = Instant::now();
     let projection = AppliedStateProjection::set(
         crate::command::semantics::WriteOnlyState::PanTiltLimits,
-        &[1, 2],
+        &[
+            i64::from(crate::command::PanTiltLimitCorner::UpRight.to_byte()),
+            1,
+            2,
+        ],
     )
     .unwrap();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -8895,6 +8899,103 @@ fn raw_receive_fault_poisons_under_strict_opt_in() {
     engine.assert_invariants().unwrap();
 }
 
+/// Strict raw receive-fault poisoning applies only before cancellation intent
+/// exists. Once cancellation is requested, a transient fault must leave the
+/// request on the cancellation-driven late-ACK path: a late ACK can still
+/// assign a socket and issue the cancel, and strict mode poisons only when that
+/// resolution remains unconfirmed at its ambiguity deadline.
+#[test]
+fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
+    let start = Instant::now();
+    let mut engine = strict_poison_engine();
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let id = admitted(&admission);
+    send_ok(&mut engine, &admission, None, start);
+
+    let cancel_at = start + Duration::from_millis(1);
+    let cancelled = engine.handle(Input::Cancel { id }, cancel_at);
+    assert!(cancelled
+        .iter()
+        .any(|effect| matches!(effect, Effect::CancellationRecorded { id: seen } if *seen == id)));
+    assert!(matches!(
+        engine.entry(id).map(Entry::cancellation),
+        Some(CancelState::Requested { .. })
+    ));
+
+    let fault = engine.handle(
+        Input::ReceiveFault {
+            error: Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))),
+        },
+        cancel_at,
+    );
+    assert_eq!(engine.state(), SessionState::Running);
+    assert!(!fault
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { .. })));
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::AwaitingAck { .. })
+    ));
+    assert!(
+        engine.transmissions.is_empty(),
+        "the request must not replay"
+    );
+
+    let acknowledged = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        cancel_at + Duration::from_millis(1),
+    );
+    let (_, cancel_request, _) = cancel_transmit(&acknowledged);
+    assert_eq!(cancel_request, id);
+    assert!(matches!(
+        engine.entry(id).map(Entry::phase),
+        Some(Phase::Executing {
+            socket: ViscaSocket::S1,
+            ..
+        })
+    ));
+
+    let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
+        Some(CancelState::Sending {
+            ambiguity_deadline, ..
+        }) => ambiguity_deadline,
+        cancellation => panic!("expected in-flight cancellation, got {cancellation:?}"),
+    };
+    let expired = engine.advance(ambiguity_deadline);
+    assert_eq!(engine.state(), SessionState::Poisoned);
+    assert_eq!(
+        expired
+            .iter()
+            .filter(|effect| matches!(effect, Effect::Terminal { .. }))
+            .count(),
+        1,
+        "strict terminalization must have exactly one terminal cause"
+    );
+    assert!(matches!(
+        terminal_failure(&expired, id),
+        Some(Error::StreamPoisoned { .. })
+    ));
+    assert!(!expired.iter().any(|effect| matches!(
+        effect,
+        Effect::RetryScheduled { .. } | Effect::AppliedState { .. }
+    )));
+    engine.assert_invariants().unwrap();
+}
+
 /// Issue #671 core safety (ACK path): a raw command whose ACK is lost fails only
 /// itself and quarantines its unacknowledged slot for the ambiguity window. A
 /// late ACK arriving during the quarantine is ignored — never applied, never
@@ -9371,6 +9472,66 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
 }
 
 // ---- Issue #700: raw reply-shape axis (completion-only / no-reply) ---------
+
+/// The raw single-candidate invariant must use the same phase predicate as the
+/// dispatch gate. In particular, completion-only `AwaitingCompletion` owns no
+/// socket and cannot coexist with another same-target positional candidate.
+///
+/// Design references: issue_542_design_review.md, “Decisions from this review”,
+/// item 7; architecture_2_0.md, “Correlation before ACK is envelope-specific”
+/// and “Operational invariants”.
+#[test]
+fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let (first_admission, first_id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &first_admission, None, start);
+    assert!(matches!(
+        phase_of(&engine, first_id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+    engine
+        .assert_invariants()
+        .expect("one completion-only candidate is valid");
+
+    // A candidate on another raw target is independently attributable.
+    let (second_admission, second_id) = admit(
+        &mut engine,
+        2,
+        command_with_reply_shape(2, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &second_admission, None, start);
+    assert!(matches!(
+        phase_of(&engine, second_id),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+    engine
+        .assert_invariants()
+        .expect("one completion-only candidate per target is valid");
+
+    // White-box corruption: normal dispatch cannot create this state, so move
+    // the second otherwise-valid completion-only request onto target 1. There
+    // are now two socketless candidates for one target and the audit must
+    // reject them before any raw terminal could require a temporal guess.
+    let same_target =
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
+    engine
+        .entries
+        .get_mut(&second_id)
+        .expect("second entry remains live")
+        .request = same_target;
+    assert_eq!(
+        engine.assert_invariants().unwrap_err().as_ref(),
+        "more than one raw command is unacknowledged on a target"
+    );
+}
 
 /// #700: a completion-only raw command skips AwaitingAck entirely — it earns no
 /// socket and awaits its completion under the completion deadline — then
@@ -9945,6 +10106,448 @@ fn raw_single_flight_inquiry_success_quarantines_duplicate_until_exact_expiry() 
     engine.assert_invariants().unwrap();
 }
 
+/// An inquiry's target-only reply hold must not steal complete evidence that
+/// already belongs to a concurrently live raw command.  In particular, an ACK
+/// still has its unique pre-ACK candidate and a socketless completion still has
+/// its unique socket owner; neither can be a delayed inquiry reply.
+#[test]
+fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_engine();
+
+    let (command_send, command_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &command_send, None, start);
+    assert!(matches!(
+        phase_of(&engine, command_id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+
+    let (inquiry_send, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
+    send_ok(&mut engine, &inquiry_send, None, start);
+    let inquiry_done = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&inquiry_done, inquiry_id),
+        Some(RuntimeOutcome::Reply { .. })
+    ));
+    assert_eq!(
+        engine.raw_target_tombstones[1],
+        Some(RawTerminalTombstone::inquiry(
+            start + Duration::from_millis(50)
+        ))
+    );
+
+    // These are precisely the inquiry-shaped stale evidence the narrow hold
+    // retains. They must leave the pre-ACK command live.
+    for stale in [
+        DecodedResponse::InquiryReply {
+            route: Some(POWER),
+            payload: smallvec![0x0a],
+        },
+        DecodedResponse::Error {
+            socket: None,
+            code: 0x01,
+        },
+        DecodedResponse::Error {
+            socket: Some(ViscaSocket::S2),
+            code: 0x01,
+        },
+    ] {
+        let effects = engine.handle(frame(1, None, stale), start + Duration::from_nanos(1));
+        assert_eq!(
+            ignored_reasons(&effects),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+        assert!(engine.entry(command_id).is_some());
+    }
+
+    // This ACK is attributable to the command that was already live before
+    // the inquiry hold; it must not be broad-filtered as inquiry evidence.
+    let ack = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_nanos(2),
+    );
+    assert!(ack.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition {
+            id,
+            to: Phase::Executing {
+                socket: ViscaSocket::S1,
+                ..
+            },
+            ..
+        } if *id == command_id
+    )));
+
+    // A named terminal without an owner remains inert under the hold; it may
+    // not fall back to another socket or a successor.
+    let unowned = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S2),
+            },
+        ),
+        start + Duration::from_nanos(3),
+    );
+    assert_eq!(
+        ignored_reasons(&unowned),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert!(engine.entry(command_id).is_some());
+
+    // The socketless terminal is uniquely attributable to S1 and reaches the
+    // live command even though the inquiry hold remains active.
+    let completed = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        start + Duration::from_nanos(4),
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, command_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A named completion/error has an exact raw socket key. An inquiry hold may
+/// suppress stale data and socketless errors, but must never hide this key from
+/// a still-live command on the same target.
+#[test]
+fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
+    let start = Instant::now();
+    let setup = || {
+        let mut engine = single_flight_raw_engine();
+        let (command_send, command_id) = admit(
+            &mut engine,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut engine, &command_send, None, start);
+        engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start,
+        );
+        let (inquiry_send, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
+        send_ok(&mut engine, &inquiry_send, None, start);
+        let inquiry_done = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::InquiryReply {
+                    route: Some(POWER),
+                    payload: smallvec![0x0a],
+                },
+            ),
+            start,
+        );
+        assert!(terminal_outcome(&inquiry_done, inquiry_id).is_some());
+        (engine, command_id)
+    };
+
+    let (mut completion_engine, completion_id) = setup();
+    let completion = completion_engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_nanos(1),
+    );
+    assert!(matches!(
+        terminal_outcome(&completion, completion_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    completion_engine.assert_invariants().unwrap();
+
+    let (mut error_engine, error_id) = setup();
+    let error = error_engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: Some(ViscaSocket::S1),
+                code: 0x01,
+            },
+        ),
+        start + Duration::from_nanos(1),
+    );
+    assert_eq!(terminal_id(&error), Some(error_id));
+    error_engine.assert_invariants().unwrap();
+}
+
+/// A broad uncorrelatable-command hold remains intentionally conservative: no
+/// raw response shape may escape it before the ambiguity deadline.
+#[test]
+fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (send, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        start,
+    );
+    let written = send_ok(&mut engine, &send, None, start);
+    assert!(matches!(
+        terminal_outcome(&written, id),
+        Some(RuntimeOutcome::Written)
+    ));
+    for response in [
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Ack { socket: None },
+        DecodedResponse::Completion {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Completion { socket: None },
+        DecodedResponse::InquiryReply {
+            route: Some(POWER),
+            payload: smallvec![0x0a],
+        },
+        DecodedResponse::Error {
+            socket: Some(ViscaSocket::S1),
+            code: 0x01,
+        },
+        DecodedResponse::Error {
+            socket: None,
+            code: 0x01,
+        },
+    ] {
+        let effects = engine.handle(frame(1, None, response), start + Duration::from_nanos(1));
+        assert_eq!(
+            ignored_reasons(&effects),
+            vec![IgnoreReason::UnmatchedFrame]
+        );
+    }
+    engine.assert_invariants().unwrap();
+}
+
+/// The release projection carries every scope, rather than collapsing an S1,
+/// S2, pre-ACK, and inquiry release to one target bool.  Its prefix decision
+/// then preserves only evidence that remains exact for another live owner.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[test]
+fn raw_typed_release_scopes_preserve_only_live_other_socket_evidence() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (send, command_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &send, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        phase_of(&engine, command_id),
+        Some(Phase::Executing {
+            socket: ViscaSocket::S1,
+            ..
+        })
+    ));
+
+    let mut releases = RawCorrelationReleaseSet::default();
+    let scope = releases.for_target_mut(camera(1));
+    scope.release_exact_socket(ViscaSocket::S2);
+    scope.release_pre_ack_unkeyed();
+    scope.release_inquiry_unkeyed();
+    assert!(scope.exact_socket(ViscaSocket::S2));
+    assert!(scope.pre_ack_unkeyed());
+    assert!(scope.inquiry_unkeyed());
+    assert!(!scope.terminal_all());
+
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            },
+        ),
+        RawPrefixDisposition::ReleasePreserving,
+        "S1 remains exact for its live owner while S2/unkeyed scopes release"
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            },
+        ),
+        RawPrefixDisposition::Discard,
+        "the releasing exact socket cannot leak into a successor"
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::Ack,
+            },
+        ),
+        RawPrefixDisposition::Defer,
+        "an ACK nibble is assignment preference, never ownership"
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::SourceOnly,
+            },
+        ),
+        RawPrefixDisposition::Defer
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::SocketlessCompletion,
+            },
+        ),
+        RawPrefixDisposition::Defer
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::SocketlessError,
+            },
+        ),
+        RawPrefixDisposition::Defer
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(2),
+                kind: RawIncompletePrefix::SourceOnly,
+            },
+        ),
+        RawPrefixDisposition::ReleasePreserving,
+        "a different target's retained prefix remains live"
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(releases, RawPrefixEvidence::Complete),
+        RawPrefixDisposition::Defer,
+        "complete input must reach the engine before the due pass"
+    );
+
+    // A simultaneous broad terminal scope overrides every narrower exact
+    // preservation rule; it deliberately retains the historical fail-closed
+    // no-successor behavior.
+    releases.for_target_mut(camera(1)).release_terminal_all();
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            },
+        ),
+        RawPrefixDisposition::Discard
+    );
+    assert_eq!(
+        engine.raw_prefix_disposition(
+            releases,
+            RawPrefixEvidence::Incomplete {
+                target: camera(1),
+                kind: RawIncompletePrefix::Noncorrelating,
+            },
+        ),
+        RawPrefixDisposition::ReleasePreserving
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// A normal response deadline can create a future tombstone but does not itself
+/// release correlation before input. Otherwise a split valid frame exactly at
+/// its ordinary deadline would be discarded before the engine sees it.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[test]
+fn raw_release_projection_excludes_ordinary_response_deadlines() {
+    let start = Instant::now();
+    let mut command_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (command_send, command_id) = admit(
+        &mut command_engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut command_engine, &command_send, None, start);
+    command_engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let command_deadline = match phase_of(&command_engine, command_id) {
+        Some(Phase::Executing { deadline, .. }) => deadline,
+        phase => panic!("expected executing command, got {phase:?}"),
+    };
+    assert!(command_engine
+        .raw_correlation_releases_due(command_deadline)
+        .is_empty());
+
+    let mut inquiry_engine = single_flight_raw_engine();
+    let (inquiry_send, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1, POWER), start);
+    send_ok(&mut inquiry_engine, &inquiry_send, None, start);
+    let inquiry_deadline = match phase_of(&inquiry_engine, inquiry_id) {
+        Some(Phase::AwaitingReply { deadline, .. }) => deadline,
+        phase => panic!("expected awaiting inquiry reply, got {phase:?}"),
+    };
+    assert!(inquiry_engine
+        .raw_correlation_releases_due(inquiry_deadline)
+        .is_empty());
+}
+
 /// A raw inquiry timeout releases the FIFO owner just as a reply does. A late
 /// reply from the timed-out request is therefore inert until the target hold
 /// expires, after which B's own reply remains attributable to B.
@@ -10057,9 +10660,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
     );
     assert_eq!(
         engine.raw_target_tombstones[1],
-        Some(RawTerminalTombstone {
-            deadline: release_at
-        })
+        Some(RawTerminalTombstone::inquiry(release_at))
     );
     assert_eq!(engine.next_wake(), Some(release_at));
     assert!(matches!(
@@ -10203,9 +10804,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
         assert!(request_transmit_optional(&successor).is_none());
         assert_eq!(
             engine.raw_target_tombstones[1],
-            Some(RawTerminalTombstone {
-                deadline: release_at
-            })
+            Some(RawTerminalTombstone::inquiry(release_at))
         );
         (engine, successor_id)
     };
@@ -10225,9 +10824,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
         ));
         assert_eq!(
             engine.raw_target_tombstones[1],
-            Some(RawTerminalTombstone {
-                deadline: release_at
-            })
+            Some(RawTerminalTombstone::inquiry(release_at))
         );
         let expired = engine.advance_without_dispatch(release_at - Duration::from_nanos(1));
         assert!(matches!(
@@ -10419,9 +11016,9 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         assert!(awaiting_reply < terminal);
         assert_eq!(
             engine.raw_target_tombstones[1],
-            Some(RawTerminalTombstone {
-                deadline: budget_at + Duration::from_millis(50)
-            })
+            Some(RawTerminalTombstone::inquiry(
+                budget_at + Duration::from_millis(50)
+            ))
         );
         assert!(matches!(
             phase_of(&engine, successor_id),
@@ -10465,9 +11062,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
     assert!(engine.lower_sequences.is_empty());
     assert_eq!(
         engine.raw_target_tombstones[1],
-        Some(RawTerminalTombstone {
-            deadline: release_at
-        })
+        Some(RawTerminalTombstone::inquiry(release_at))
     );
     assert_eq!(engine.next_wake(), Some(release_at));
     assert!(matches!(

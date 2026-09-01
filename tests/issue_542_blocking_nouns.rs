@@ -10,10 +10,10 @@ use grafton_visca::{
     capabilities::{
         HasAutoFocusSensitivity, HasAutoWhiteBalanceSensitivity, HasBacklightCompensation,
         HasBrightnessControl, HasColorTemperature, HasContrastControl, HasExposure,
-        HasExposureCompensation, HasFocus, HasFocusNearLimitInquiry, HasFocusZone,
+        HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry, HasFocusZone,
         HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageProcessing,
-        HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter,
-        HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasPanTilt, HasPictureEffect,
+        HasIrisControl, HasIrisControlInquiry, HasLuminanceControl, HasMenuControl, HasMotionSync,
+        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction3D, HasPanTilt, HasPictureEffect,
         HasPower, HasPresets, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
         HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
         HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
@@ -48,11 +48,6 @@ where
 {
     plain(camera.power().on());
     plain(camera.power().off());
-    plain(
-        camera
-            .exposure()
-            .set_mode(grafton_visca::ExposureMode::Auto),
-    );
     plain(camera.white_balance().auto());
     plain(camera.menu().display(true));
 
@@ -63,6 +58,17 @@ where
 
     // The safety/observation surface is intentionally a separate noun.
     let _ = camera.motion();
+}
+
+fn exposure_mode_surface<'session, P: CompileTimeProfile + HasExposureMode>(
+    camera: &Camera<'session, P>,
+) {
+    plain(
+        camera
+            .exposure()
+            .set_mode(grafton_visca::ExposureMode::Auto),
+    );
+    let _ = camera.exposure().mode();
 }
 
 /// These rows used to be included in `baseline` because
@@ -85,7 +91,6 @@ fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session,
     let _ = camera.focus().position();
     let _ = camera.focus().mode();
     let _ = camera.focus().range();
-    let _ = camera.exposure().mode();
     let _ = camera.exposure().shutter();
     let _ = camera.exposure().gain();
     let _ = camera.exposure().gain_limit();
@@ -102,11 +107,10 @@ fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session,
 }
 
 #[allow(dead_code)]
-fn noise_gate<'session, P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction>(
+fn noise_2d_gate<'session, P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2D>(
     camera: &Camera<'session, P>,
 ) {
-    let _ = camera.image().noise_reduction_level();
-    let _ = camera.image().noise_reduction_mode();
+    let _ = camera.image().noise_reduction_2d_mode();
 }
 
 #[allow(dead_code)]
@@ -127,10 +131,10 @@ where
         + HasImageFlip
         + HasImageProcessing
         + HasIrisControl
+        + HasIrisControlInquiry
         + HasLuminanceControl
         + HasMotionSync
         + HasNdFilter
-        + HasNoiseReduction
         + HasNoiseReduction2D
         + HasNoiseReduction3D
         + HasPictureEffect
@@ -160,6 +164,7 @@ where
     let _ = camera.image().sharpness_level();
     let _ = camera.image().backlight();
     let _ = camera.image().noise_reduction_2d();
+    let _ = camera.image().noise_reduction_2d_mode();
     let _ = camera.image().noise_reduction_3d();
     let _ = camera.image().flip();
     let _ = camera.image().picture_effect();
@@ -282,6 +287,8 @@ fn non_default<'session>(
 #[test]
 fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) = baseline::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
+        exposure_mode_surface::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
         base_image_surface::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =

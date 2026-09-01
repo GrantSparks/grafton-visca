@@ -232,8 +232,14 @@ macro_rules! __impl_typed_support_marker {
     (DigitalZoomRange for $profile:ty) => {
         impl $crate::capabilities::HasDigitalZoomRange for $profile {}
     };
+    (ExposureMode for $profile:ty) => {
+        impl $crate::capabilities::HasExposureMode for $profile {}
+    };
     (IrisControl for $profile:ty) => {
         impl $crate::capabilities::HasIrisControl for $profile {}
+    };
+    (IrisControlInquiry for $profile:ty) => {
+        impl $crate::capabilities::HasIrisControlInquiry for $profile {}
     };
     (OnePushFocus for $profile:ty) => {
         impl $crate::capabilities::HasOnePushFocus for $profile {}
@@ -337,14 +343,17 @@ macro_rules! __impl_typed_support_marker {
     (GammaControl for $profile:ty) => {
         impl $crate::capabilities::HasGammaControl for $profile {}
     };
-    (NoiseReduction for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction for $profile {}
-    };
     (NoiseReduction2D for $profile:ty) => {
         impl $crate::capabilities::HasNoiseReduction2D for $profile {}
     };
     (NoiseReduction3D for $profile:ty) => {
         impl $crate::capabilities::HasNoiseReduction3D for $profile {}
+    };
+    (NoiseReduction2DControl for $profile:ty) => {
+        impl $crate::capabilities::HasNoiseReduction2DControl for $profile {}
+    };
+    (NoiseReduction3DControl for $profile:ty) => {
+        impl $crate::capabilities::HasNoiseReduction3DControl for $profile {}
     };
     (PictureEffect for $profile:ty) => {
         impl $crate::capabilities::HasPictureEffect for $profile {}
@@ -1050,7 +1059,11 @@ macro_rules! __define_builtin_profiles {
                     "HasDigitalZoomToggle"
                 }
                 $crate::capabilities::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
+                $crate::capabilities::TypedSupportSurface::ExposureMode => "HasExposureMode",
                 $crate::capabilities::TypedSupportSurface::IrisControl => "HasIrisControl",
+                $crate::capabilities::TypedSupportSurface::IrisControlInquiry => {
+                    "HasIrisControlInquiry"
+                }
                 $crate::capabilities::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
                 $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus => {
                     "HasPtzOpticsSnapFocus"
@@ -1115,9 +1128,14 @@ macro_rules! __define_builtin_profiles {
                 $crate::capabilities::TypedSupportSurface::HueControl => "HasHueControl",
                 $crate::capabilities::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
                 $crate::capabilities::TypedSupportSurface::GammaControl => "HasGammaControl",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
                 $crate::capabilities::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
                 $crate::capabilities::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
+                $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl => {
+                    "HasNoiseReduction2DControl"
+                }
+                $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl => {
+                    "HasNoiseReduction3DControl"
+                }
                 $crate::capabilities::TypedSupportSurface::PictureEffect => "HasPictureEffect",
                 $crate::capabilities::TypedSupportSurface::Tally => "HasTally",
                 $crate::capabilities::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
@@ -1246,6 +1264,12 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(
                     facts.typed_support,
                     <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                );
+                assert!(
+                    !facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::ExposureMode
+                    ) || !P::EXPOSURE_MODES.is_empty(),
+                    "{id:?} shared exposure-mode typed support requires a non-empty source-backed mode inventory"
                 );
                 assert_eq!(
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
@@ -1610,7 +1634,7 @@ macro_rules! __define_builtin_profiles {
                     (ProfileId::PtzOpticsG2, true, false),
                     (ProfileId::PtzOpticsG3, true, false),
                     (ProfileId::PtzOptics30X, true, false),
-                    (ProfileId::SonyFr7, true, true),
+                    (ProfileId::SonyFr7, false, true),
                     (ProfileId::SonyBrcH900, false, false),
                     (ProfileId::SonyEviH100, false, false),
                     (ProfileId::SonyBrc300, false, false),
@@ -1629,8 +1653,76 @@ macro_rules! __define_builtin_profiles {
             }
 
             #[test]
+            fn sony_fr7_has_no_shared_ae_mode_inventory() {
+                let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFR7>()
+                    .expect("Sony FR7 profile");
+                let capabilities = profile.capabilities();
+                assert!(capabilities.has_exposure);
+                assert!(capabilities.exposure_modes.is_empty());
+                assert!(!capabilities.supports_typed(
+                    $crate::capabilities::TypedSupportSurface::ExposureMode
+                ));
+                for mode in [
+                    $crate::command::exposure::ExposureMode::Auto,
+                    $crate::command::exposure::ExposureMode::Manual,
+                    $crate::command::exposure::ExposureMode::Shutter,
+                    $crate::command::exposure::ExposureMode::Iris,
+                    $crate::command::exposure::ExposureMode::Bright,
+                ] {
+                    assert!(!capabilities.supports_exposure_mode(mode));
+                }
+            }
+
+            #[test]
+            fn shared_exposure_mode_support_is_exact_and_inventory_backed() {
+                fn assert_shared_ae_mode_profile<P>()
+                where
+                    P: $crate::capabilities::Profile + $crate::capabilities::HasExposureMode,
+                {
+                    assert!(
+                        !P::EXPOSURE_MODES.is_empty(),
+                        "shared exposure-mode marker requires a source-backed mode inventory"
+                    );
+                    assert!(
+                        <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT.contains(
+                            $crate::capabilities::TypedSupportSurface::ExposureMode
+                        ),
+                        "shared exposure-mode marker and typed support must come from the same registry row"
+                    );
+                }
+
+                assert_shared_ae_mode_profile::<PtzOpticsG2>();
+                assert_shared_ae_mode_profile::<PtzOpticsG3>();
+                assert_shared_ae_mode_profile::<PtzOptics30X>();
+
+                for facts in BUILTIN_PROFILE_FACTS {
+                    let expected = matches!(
+                        facts.id,
+                        ProfileId::PtzOpticsG2
+                            | ProfileId::PtzOpticsG3
+                            | ProfileId::PtzOptics30X
+                    );
+                    assert_eq!(
+                        facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::ExposureMode
+                        ),
+                        expected,
+                        "{:?} shared exposure-mode support must remain limited to the source-backed PTZOptics profiles",
+                        facts.id
+                    );
+                }
+            }
+
+            #[test]
             fn typed_support_registry_has_evidence_for_surprising_gaps() {
                 for facts in BUILTIN_PROFILE_FACTS {
+                    assert!(
+                        !facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::IrisControlInquiry,
+                        ),
+                        "{} must not expose `09 04 2B` iris status inquiry without model-specific evidence",
+                        facts.type_name,
+                    );
                     if !facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::IrisControl,
                     ) {
@@ -1734,11 +1826,55 @@ macro_rules! __define_builtin_profiles {
                     assert!(facts.has_typed_support($crate::capabilities::TypedSupportSurface::FocusZone));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl));
+                    assert!(!facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::IrisControlInquiry
+                    ));
+                    assert!(facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::ExposureMode
+                    ));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect));
                     assert!(!facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry
                     ));
+                    for surface in [
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
+                    ] {
+                        assert!(facts.has_typed_support(surface), "{id:?} {surface:?}");
+                    }
+                }
+
+                const R14_NR_EVIDENCE: &str = "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain.";
+                for id in [ProfileId::PtzOpticsG2, ProfileId::PtzOpticsG3] {
+                    let evidence = id
+                        .registry_facts()
+                        .evidence
+                        .iter()
+                        .find(|item| item.key == "noise_reduction")
+                        .expect("G2 and G3 must record the R14 NR evidence");
+                    assert_eq!(evidence.rationale, R14_NR_EVIDENCE, "{id:?}");
+                }
+                let legacy_30x_evidence = ProfileId::PtzOptics30X
+                    .registry_facts()
+                    .evidence
+                    .iter()
+                    .find(|item| item.key == "noise_reduction")
+                    .expect("legacy 30X must record separate inquiry and control sources");
+                assert_eq!(
+                    legacy_30x_evidence.rationale,
+                    "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."
+                );
+                let nr_profiles = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`";
+                for surface in [
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
+                ] {
+                    assert_eq!(registry_profile_type_names_for(surface), nr_profiles, "{surface:?}");
                 }
 
                 for (id, focus_zone_inquiry, usb_audio) in [
@@ -1782,6 +1918,7 @@ macro_rules! __define_builtin_profiles {
                         $crate::capabilities::TypedSupportSurface::OnePushFocus
                             | $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
                             | $crate::capabilities::TypedSupportSurface::MotionSync
+                            | $crate::capabilities::TypedSupportSurface::IrisControlInquiry
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -1896,8 +2033,18 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Iris control, iris-priority mode, and iris inquiry",
+                    "Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry",
                     $crate::capabilities::TypedSupportSurface::IrisControl,
+                );
+                assert_literal_row(
+                    readme,
+                    "Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`)",
+                    "No built-in profile currently marks this typed capability",
+                );
+                assert_row(
+                    readme,
+                    "Shared VISCA exposure mode control and inquiry",
+                    $crate::capabilities::TypedSupportSurface::ExposureMode,
                 );
                 assert_literal_row(
                     readme,
@@ -2039,8 +2186,8 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Aggregate noise-reduction inquiry",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction,
+                    "2D mode and 2D/3D noise-reduction level inquiries",
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                 );
                 assert_eq!(
                     registry_profile_type_names_for(
@@ -2052,8 +2199,16 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "2D/3D noise reduction",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                    "2D mode and 2D/3D noise-reduction level controls",
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                );
+                assert_eq!(
+                    registry_profile_type_names_for(
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl
+                    ),
+                    registry_profile_type_names_for(
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl
+                    )
                 );
                 assert_row(
                     readme,
@@ -2297,6 +2452,7 @@ macro_rules! define_builtin_profiles {
                         PtzOpticsPresetRecallSpeed,
                         PtzOpticsMulticastStreaming,
                         PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2321,17 +2477,19 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
-                        ("command_cancel", "Tested G2 hardware rejects the standard VISCA socket-cancel command; use an explicit STOP command for bounded motion control."),
-                        ("digital_zoom", "Hardware rejects VISCA digital zoom control on tested G2 firmware."),
-                        ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("command_cancel", "No model- and firmware-identified source-backed evidence establishes standard VISCA socket-cancel support for G2; keep it unavailable pending documented validation."),
+                        ("digital_zoom", "No model- and firmware-identified source-backed evidence establishes VISCA digital-zoom control for G2; keep it unavailable pending documented validation."),
+                        ("iris", "R1 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) document G2 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
                         ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the G2 family."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the 81 2A 02 A0 04 USB-audio command and matching inquiry for G2 models."),
+                        ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
                     ],
                 }
 
@@ -2484,6 +2642,7 @@ macro_rules! define_builtin_profiles {
                         PtzOpticsPresetRecallSpeed,
                         PtzOpticsMulticastStreaming,
                         PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2506,30 +2665,32 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
-                        ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("iris", "R10 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) independently document G3 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
                         ("vendor_controls", "The PTZOptics Move 4K G3 command manual (R10 in docs/visca_reference.md) documents the anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained for G3."),
                         ("focus_zone_inquiry", "The G3 command list establishes focus-zone selection, but its query table does not establish the matching 81 09 04 AA response; keep the inquiry untyped."),
                         ("usb_audio", "The UAC command/query table is source-backed for the Gen-2 entries, not G3; keep USB audio conservative pending a G3-specific source."),
                         ("picture_effect", "PTZOptics' official Developer Portal identifies its current VISCA list for G2 and G3 and documents the 04 63 picture-effect command and inquiry there."),
+                        ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
                     ],
                 }
 
                 profile PtzOptics30X {
-                    doc: "PtzOptics 30X camera profile.",
+                    doc: "PtzOptics legacy PT30X SDI/NDI G2 raw-VISCA camera profile.",
                     id: PtzOptics30X,
-                    id_doc: "PtzOptics 30X cameras",
+                    id_doc: "PTZOptics legacy PT30X SDI/NDI G2 (Gen-2 raw-VISCA) camera",
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "ptzoptics-30x"))]],
                     group: PtzOpticsG2,
                     vendor: "PtzOptics",
-                    description: "High-end 30x optical zoom PTZ camera with extended optical range",
+                    description: "Legacy PT30X SDI/NDI G2 raw-VISCA profile with 30x optical zoom",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -2671,6 +2832,7 @@ macro_rules! define_builtin_profiles {
                         PtzOpticsPresetRecallSpeed,
                         PtzOpticsMulticastStreaming,
                         PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2695,17 +2857,19 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
-                        ("iris", "The shared PTZOptics Gen-2 inquiry table documents iris priority, relative controls, direct 0x4B, and the matching 0x4B position inquiry."),
+                        ("iris", "The shared PTZOptics Gen-2 source documents iris priority, relative controls, direct `04 4B`, and matching `09 04 4B` position inquiry for the raw 30X profile. It does not establish a model-specific `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
                         ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the raw 30X model."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the USB-audio command and matching inquiry for the raw 30X model."),
+                        ("noise_reduction", "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."),
                     ],
                 }
 
@@ -2751,7 +2915,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: true,
+                            iris: false,
                             nd_filter: true,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -2792,8 +2956,8 @@ macro_rules! define_builtin_profiles {
                         near_limit_inquiry: true,
                     },
                     exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(range!(u16, 0x00, 0x1E)),
+                        modes: profile_constants::NO_SHARED_EXPOSURE_MODES,
+                        iris_range: None,
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
                         brightness_range: None,
@@ -2862,7 +3026,6 @@ macro_rules! define_builtin_profiles {
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
-                        IrisControl,
                         AutoFocusSensitivity,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
@@ -2878,9 +3041,6 @@ macro_rules! define_builtin_profiles {
                         SaturationControl,
                         HueControl,
                         GammaControl,
-                        NoiseReduction,
-                        NoiseReduction2D,
-                        NoiseReduction3D,
                         Tally,
                         DirectMenu,
                         NdFilter,
@@ -2890,7 +3050,7 @@ macro_rules! define_builtin_profiles {
                         ("sony_spotlight", "The FR7 command list (R7 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
-                        ("iris", "The FR7 registry retains the standard iris control and exact 0x4B position inquiry documented in the Sony command table; this evidence is not generalized to the other Sony/EVI/Nearus profiles."),
+                        ("iris", "The FR7 command list documents vendor-relative iris Up/Down commands under 7E 04 4B and an Auto Iris inquiry under 05 34, but not the shared 04 39 AE-mode commands/inquiry, standard absolute iris-direct command, or 09 04 4B position inquiry; keep those shared typed surfaces absent until the distinct protocol families have their own models."),
                         ("nd_filter", "The FR7 registry is the only built-in entry with variable-ND metadata, typed ND controls, and the exact 0x64 position inquiry documented in the Sony command table."),
                         ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
@@ -3061,9 +3221,6 @@ macro_rules! define_builtin_profiles {
                         SharpnessControl,
                         SaturationControl,
                         GammaControl,
-                        NoiseReduction,
-                        NoiseReduction2D,
-                        NoiseReduction3D,
                         Tally,
                     ],
                     evidence: [
@@ -3228,7 +3385,6 @@ macro_rules! define_builtin_profiles {
                         ImageFlip,
                         ImageMirror,
                         GammaControl,
-                        NoiseReduction,
                     ],
                     evidence: [
                         ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),

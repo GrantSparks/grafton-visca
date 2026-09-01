@@ -594,7 +594,7 @@ fn decode_response(routing: RoutingState, payload: &[u8]) -> Result<DecodedRespo
 /// replies use exactly `0x90`, `0xa0`, ..., `0xf0` for camera 1 through 7, while IP and
 /// Sony replies use exactly `0x90` and can be attributed only to one registered
 /// target.
-fn decode_response_target(
+pub(crate) fn decode_response_target(
     routing: RoutingState,
     payload: &[u8],
 ) -> Result<Option<CameraId>, Error> {

@@ -11,6 +11,49 @@ The 2.0.0-rc.1 release candidate. 2.0 is a clean break from the 1.x API;
 `docs/migration_2_0.md` maps every pre-2.0 vocabulary item to its
 destination.
 
+`settled` in this release candidate is a profile-selected protocol settlement
+condition — a profile-declared completion-is-settled signal or two
+affected-axis position samples within tolerance. It is an intended indication
+of target rest, not a bench-verified assertion that physical motion ended;
+exact model/firmware/transport/command evidence remains pending in the
+[hardware release checklist](docs/hardware_release_checklist.md). Historical
+entries below retain their original wording.
+
+### Fixed
+
+- **BREAKING**: Static `camera.exposure().mode()` and `.set_mode(...)` now
+  require `HasExposureMode`. The built-in marker is emitted only for
+  `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`; Sony FR7 and every other
+  built-in profile no longer expose the shared `04 39` AE-mode APIs. Dynamic
+  exposure methods remain available on the erased facade, but reject before
+  encoding unless both typed support and a nonempty documented mode inventory
+  are present.
+
+- **BREAKING**: Removed Sony FR7 from the shared typed `HasIrisControl` surface
+  after revalidating its primary command list. FR7 documents a distinct
+  vendor-relative `7E 04 4B` iris Up/Down family and `05 34` Auto Iris inquiry,
+  not the shared `04 39` AE-mode command/inquiry family, standard absolute Iris
+  Direct command, or `09 04 4B` position inquiry that the shared typed API
+  requires. Shared AE modes and their inquiry now reject before encoding on
+  FR7; the documented vendor frames remain available through the raw-command
+  escape hatch until they receive separate typed models. The standard iris
+  inquiry parser now preserves both position nibbles in its raw response value.
+
+- **BREAKING**: Split the standard `09 04 2B` iris auto/manual-status inquiry
+  from `HasIrisControl`. `iris_control()` now requires
+  `HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; no
+  built-in profile grants that new surface. `PtzOpticsG2`, `PtzOpticsG3`, and
+  `PtzOptics30X` retain `HasIrisControl` for standard iris
+  reset/up/down/direct control and the distinct `09 04 4B` position inquiry.
+  Downstream profiles may opt into the status inquiry only with exact
+  model-specific source evidence.
+
+- **BREAKING**: With `serde`, `CapabilityRange` now rejects unordered
+  endpoints (`min > max`) during deserialization. Validated public scalar
+  wrappers and `visca_range_type!` values now deserialize through their checked
+  `TryFrom`/`new` paths, rejecting out-of-range scalar values instead of
+  constructing an invalid wrapper.
+
 ### Added
 
 - **Added a raw reply-shape axis (`raw::RawReplyShape`)** (#700) so a raw caller
@@ -168,10 +211,13 @@ destination.
   keeps the deadlines it was admitted with**. 2.0 stamps a request's deadlines
   once, at preparation, where 1.2.0 recomputed them on every housekeeping pass;
   nothing is re-timed underneath a receipt a caller is already holding. Cancel
-  and resubmit to move a running command onto a new deadline. The update is a
-  whole replacement rather than a merge, and it is validated on exactly the
-  grounds `SessionConfig::with_tuning` validates on, so a value construction
-  would have rejected is rejected here too and leaves the live tuning untouched.
+  and resubmit to move a running command onto a new deadline. Runtime-mutable
+  fields are replaced whole rather than merged, and they are validated on the
+  same profile-safety grounds as `SessionConfig::with_tuning`; an override
+  rejected on those grounds at construction is likewise rejected here and
+  leaves the live tuning untouched. The construction-only
+  `strict_unconfirmed_poison` policy is retained when it is unset and rejects an
+  explicit `true` or `false` at runtime.
 
 - **Added a typed submission-QoS API without exposing the owner's urgent safety
   lane** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
@@ -201,21 +247,33 @@ destination.
   `Priority::Critical` becomes request-owned safety metadata, and notes that
   `runtime::testing::Priority` has no 2.0 equivalent.
 
-- Restored `image().disable_noise_reduction_2d()` and
-  `image().disable_noise_reduction_3d()` on all three noun surfaces (#651).
-  The rewrite ledgered `BuiltinCommand::NoiseReduction2d` / `NoiseReduction3d`
-  under the single method spellings `set_noise_reduction_2d` / `_3d`, whose
-  level newtypes are bounded `1..=5` and `1..=8`. The parameter therefore
-  cannot express off, and the `0x00` wire value — produced only by
-  `NoiseReduction2D::off()` / `NoiseReduction3D::off()` — was reachable from no
-  noun method on any profile: once noise reduction was turned on, nothing short
-  of `camera.execute(..)` could turn it back off. 1.x paired each setter with a
-  `disable_noise_reduction_2d` / `_3d`. Each off value now has its own ledger
-  row, `BuiltinCommand::NoiseReduction2dOff` / `NoiseReduction3dOff`, gated on
-  the same `HasNoiseReduction2D` / `HasNoiseReduction3D` markers as the
-  setters, so the per-row gates and the cross-surface parity test enforce both
-  directions the way they already do for the flip and multicast pairs. The
-  frames are `81 01 04 53 00 FF` and `81 01 04 54 00 FF`.
+- **BREAKING API change**: Split the former combined 2D/3D noise-reduction
+  inquiry/control gates. `HasNoiseReduction2D` and `HasNoiseReduction3D`
+  remain the inquiry markers; the independent
+  `HasNoiseReduction2DControl` / `HasNoiseReduction3DControl` markers and
+  `TypedSupportSurface::NoiseReduction2DControl` /
+  `TypedSupportSurface::NoiseReduction3DControl` now gate the restored control
+  surface: `set_noise_reduction_2d_mode`, `set_noise_reduction_2d`,
+  `disable_noise_reduction_2d`, `set_noise_reduction_3d`, and
+  `disable_noise_reduction_3d`. All four markers are emitted only for
+  `PtzOpticsG2`, `PtzOpticsG3`, and the explicitly legacy PT30X SDI/NDI G2
+  profile `PtzOptics30X`; this is not inferred for Move, Link, or newer 30X
+  models. R14 separately documents command inputs (`04 50` Auto/Manual,
+  `04 53` off/`1–5`, `04 54` off/`1–8`) and current G2/G3 inquiry outputs
+  (`09 04 50`, `09 04 53 = 0–5`, `09 04 54 = 0–5`). The narrower inquiry
+  output domain does not retract a separately documented command-input domain,
+  and the API makes no set-to-query round-trip identity promise. R1 is an
+  archived inquiry source (including legacy `09 04 54 = 0–8`), not a setter
+  source.
+
+  Aggregate NR aliases remain removed: there is no `HasNoiseReduction`,
+  aggregate `TypedSupportSurface::NoiseReduction` or `"noise-reduction"` serde
+  tag, `noise_reduction_level`, `noise_reduction_mode`, or aggregate
+  modes/speeds/strength mappings. Persisted aggregate-tag data is rejected and
+  is deliberately not translated into per-dimension support; raw requests
+  remain the extension path for unsupported profiles and aggregate vendor
+  dialects. Internal bit 30 remains reserved and unassigned solely to preserve
+  the positions of surviving surfaces; this is not a bitset-ABI promise.
 - Restored `image().disable_horizontal_flip()` on all three noun surfaces
   (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
   single method spelling `enable_horizontal_flip`, so the noun surfaces only
@@ -275,8 +333,12 @@ destination.
   counters count frames as they are decoded, including frames that no longer
   correlate to an active request. `retries_scheduled` counts wherever the
   engine emits a permitted retry, so an eligible sequenced receive-fault retry
-  (#565) counts like any other; a raw receive fault while an unacknowledged
-  command awaits ACK poisons instead.
+  (#565) counts like any other. A raw receive fault while an unacknowledged
+  command awaits ACK does not schedule a retry or poison by default: it remains
+  awaiting ACK until the ACK deadline; the strict
+  `strict_unconfirmed_poison` opt-in poisons on that fault only with no
+  recorded cancel. A recorded cancel instead follows cancellation-driven
+  late-ACK resolution and poisons only if its deadline remains unconfirmed.
 - Added `DiagnosticEvent::DeadlineExpired` and `DiagnosticDeadline` (#571). A
   subscriber that needs to know whether an expired deadline led to another
   attempt reads `will_retry` off the event, instead of inferring it from a
@@ -1224,14 +1286,18 @@ destination.
 - **Hardened raw/envelope admission and response framing.** Raw VISCA now
   allows only one unacknowledged command per target; socket concurrency opens
   after ACK, while Sony sequence-based pipelines remain intact. A raw command
-  whose successful send leaves its outcome ambiguous is never replayed: this
-  includes ACK/completion/cancellation ambiguity, a receive fault while
-  awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`,
-  `AwaitingCompletion`, or `Executing`. By default (since #671) it fails only
-  that one command with
-  `Error::UnsequencedCommandUnconfirmed` while the session survives — the
-  whole-session poison is the `strict_unconfirmed_poison` opt-in; fixed ACK,
-  completion, and error frames now require their exact lengths and reject
+  whose successful send leaves its outcome ambiguous is never replayed. An
+  ACK/completion/cancellation ambiguity or active retry-budget expiry in
+  `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` defaults to
+  failing only that command with `Error::UnsequencedCommandUnconfirmed` while
+  the session survives. A transient receive fault while awaiting ACK also never
+  authorizes replay, but by default leaves the command awaiting ACK; only its
+  later ACK deadline without an ACK enters that per-request recovery. The
+  `strict_unconfirmed_poison` opt-in poisons the whole session immediately on
+  that receive fault only with no recorded cancel; a recorded cancel follows
+  cancellation-driven late-ACK resolution and poisons only if its deadline
+  remains unconfirmed (as do the other unconfirmed-recovery triggers). Fixed
+  ACK, completion, and error frames now require their exact lengths and reject
   trailing bytes. Raw errors use exact socket/inquiry evidence rather than
   command recency.
 - **Kept transport progress and retry/cancel timing bounded.** Empty UDP
@@ -2700,7 +2766,8 @@ The central achievement is adding powerful ergonomic features that previously re
 Enhanced type safety for inquiry responses, preventing type confusion and ensuring correct value interpretation:
 
 - **Red/Blue tuning inquiry type fixes**: Fixed type mismatches for `red_tuning()` and `blue_tuning()` inquiries from `u8` to `i8` to correctly represent -10 to +10 offset range. Updated all inquiry trait signatures, response decoders, blocking API, and accessor methods.
-- **New type wrappers for image control**: Added `GammaLevel` (0-4 range) and `NoiseReductionLevel` (0-5 range) type wrappers to complement existing typed inquiry responses.
+- **New type wrappers for image control**: Added `GammaLevel` and typed
+  noise-reduction level wrappers to complement existing typed inquiry responses.
 - **Consistent type safety across inquiries**: All tuning-related inquiry methods now return properly typed values that match the VISCA protocol semantics (gain offsets vs absolute values).
 
 These improvements ensure that inquiry responses are type-safe throughout the API, eliminating potential bugs from incorrect type assumptions and providing better compile-time validation.
@@ -2888,8 +2955,8 @@ camera.set_contrast(ContrastLevel::new(5)?).await?;
 camera.set_sharpness(SharpnessLevel::new(7)?).await?;
 camera.set_luminance(LuminanceLevel::new(10)?).await?;
 camera.set_saturation(SaturationLevel::new(8)?).await?;
-camera.set_noise_reduction_2d(NoiseReduction2DLevel::new(3)?).await?;
-camera.set_noise_reduction_3d(NoiseReduction3DLevel::new(2)?).await?;
+let _ = camera.noise_reduction_2d().await?;
+let _ = camera.noise_reduction_3d().await?;
 camera.set_picture_effect(PictureEffectMode::BlackAndWhite).await?;
 
 // Color control operations

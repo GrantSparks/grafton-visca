@@ -36,7 +36,7 @@ fn final_request_classification_contracts() {
             not(feature = "async"),
             not(feature = "blocking")
         ))]
-        fixtures.push("tests/api_contract/fail_no_canonical/external_request_class_is_sealed.rs");
+        fixtures.push("tests/api_contract/fail/external_request_class_is_sealed.rs");
         fixtures.push("tests/api_contract/fail/external_completion_kind_is_sealed.rs");
     }
     compile_fail::assert_compile_fail_fixture_paths(&fixtures, &features);

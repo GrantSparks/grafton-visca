@@ -57,6 +57,9 @@ use super::engine::{
     TransmissionMeta,
 };
 
+#[cfg(any(feature = "async", feature = "blocking"))]
+use super::engine::{RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence};
+
 #[cfg(any(feature = "blocking", test))]
 use super::engine::FirstDispatch;
 
@@ -496,6 +499,33 @@ pub(crate) struct TargetStateCache {
 impl TargetStateCache {
     fn apply(&mut self, projection: AppliedStateProjection, capacity: usize) {
         if capacity == 0 {
+            return;
+        }
+        // The cache stores the public semantic discriminator, not a
+        // profile-specific wire variant. `PanTiltLimitCorner` has only the
+        // two Standard VISCA values documented for this opcode: down-left
+        // (`0x00`) and up-right (`0x01`). Refuse a malformed projection before
+        // it can replace a previously known limit update.
+        let invalid_limit_corner = match projection {
+            AppliedStateProjection::Set {
+                key: WriteOnlyState::PanTiltLimits,
+                value,
+            } => !matches!(
+                value.values[0..value.value_count as usize].first(),
+                Some(0 | 1)
+            ),
+            // A value-less clear remains the legacy whole-key clear. A
+            // corner-local clear must use the same discriminator as a set.
+            AppliedStateProjection::Clear {
+                key: WriteOnlyState::PanTiltLimits,
+                value,
+            } => matches!(
+                value.values[0..value.value_count as usize].first(),
+                Some(value) if !matches!(value, 0 | 1)
+            ),
+            _ => false,
+        };
+        if invalid_limit_corner {
             return;
         }
         self.generation = self.generation.wrapping_add(1);
@@ -1326,9 +1356,19 @@ impl OwnerState {
     ///
     /// The caller is responsible for validating `tuning` against the registered
     /// profiles first — the owner does not retain `ProfileSpec` values, and the
-    /// session facades reject exactly what construction rejects before the
-    /// update reaches this point.
+    /// session facades perform those profile-safety checks before the update
+    /// reaches this point.
     pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+        // The engine's strict raw-command recovery policy is selected at
+        // construction and deliberately has no engine retune operation. Do
+        // not let an internal caller accidentally install a live value that
+        // claims a policy the engine cannot have adopted.
+        tuning.validate_runtime_reconfiguration()?;
+        let tuning = if self.policy.protocol.strict_unconfirmed_poison {
+            tuning.strict_unconfirmed_poison(true)
+        } else {
+            tuning
+        };
         let baseline = self.policy.baseline;
         let command_spacing = tuning
             .command_spacing_override()
@@ -1452,6 +1492,22 @@ impl OwnerState {
         self.engine.next_wake()
     }
 
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
+        self.engine.raw_correlation_releases_due(now)
+    }
+
+    /// Delegates retained raw-prefix handling to the engine, which is the
+    /// sole authority for raw correlation policy.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn raw_prefix_disposition(
+        &self,
+        releases: RawCorrelationReleaseSet,
+        evidence: RawPrefixEvidence,
+    ) -> RawPrefixDisposition {
+        self.engine.raw_prefix_disposition(releases, evidence)
+    }
+
     /// The next engine wake that remains relevant while the blocking owner
     /// suppresses ordinary ready dispatch (issue #673).  Protocol deadlines
     /// and pending cancellation pacing still wake the owner; unrelated ready
@@ -1526,6 +1582,16 @@ impl OwnerState {
         self.engine.finish_input_turn(turn.0).into()
     }
 
+    /// End a decoded-input turn while retained stream input still has priority
+    /// over scheduler deadlines.
+    #[cfg(feature = "async")]
+    pub(crate) fn finish_input_turn_without_due(
+        &mut self,
+        turn: OwnerInputTurn,
+    ) -> VecDeque<Effect> {
+        self.engine.finish_input_turn_without_due(turn.0).into()
+    }
+
     fn observe_input(&mut self, input: &Input) {
         if let Input::Frame(frame) = input {
             // Error frames are counted as the owner decodes them, so a camera
@@ -1571,7 +1637,7 @@ impl OwnerState {
             .into()
     }
 
-    #[cfg(any(feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn finish_write_without_due(
         &mut self,
         staged: &StagedWrite,

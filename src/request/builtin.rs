@@ -461,6 +461,11 @@ fn validate_exposure_mode(
     require(
         capabilities.supports_exposure_mode(mode),
         "selected exposure mode",
+    )?;
+    validate_static_typed_command(
+        profile,
+        StaticBuiltinCommand::ExposureMode,
+        "shared exposure-mode control",
     )
 }
 
@@ -999,14 +1004,26 @@ impl BuiltinValidation for crate::command::image::BacklightCommand {
     }
 }
 
+impl BuiltinValidation for crate::command::image::NoiseReduction2DModeCommand {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        let capabilities = profile.capabilities();
+        require(capabilities.has_2d_nr, "2D noise reduction")?;
+        validate_image_control(
+            profile,
+            TypedSupportSurface::NoiseReduction2DControl,
+            "2D noise reduction control",
+        )
+    }
+}
+
 impl BuiltinValidation for crate::command::image::NoiseReduction2D {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_image_processing, "image processing")?;
         require(capabilities.has_2d_nr, "2D noise reduction")?;
-        require(
-            capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D),
-            "typed 2D noise reduction",
+        validate_image_control(
+            profile,
+            TypedSupportSurface::NoiseReduction2DControl,
+            "2D noise reduction control",
         )
     }
 }
@@ -1014,11 +1031,11 @@ impl BuiltinValidation for crate::command::image::NoiseReduction2D {
 impl BuiltinValidation for crate::command::image::NoiseReduction3D {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_image_processing, "image processing")?;
         require(capabilities.has_3d_nr, "3D noise reduction")?;
-        require(
-            capabilities.supports_typed(TypedSupportSurface::NoiseReduction3D),
-            "typed 3D noise reduction",
+        validate_image_control(
+            profile,
+            TypedSupportSurface::NoiseReduction3DControl,
+            "3D noise reduction control",
         )
     }
 }
@@ -1628,6 +1645,13 @@ impl_plain_request!(
 );
 impl_plain_request!(
     crate::command::image::BacklightCommand,
+    6,
+    TimeoutClass::Quick,
+    RetryClass::Standard,
+    ControlClass::Normal
+);
+impl_plain_request!(
+    crate::command::image::NoiseReduction2DModeCommand,
     6,
     TimeoutClass::Quick,
     RetryClass::Standard,
@@ -2491,6 +2515,11 @@ pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage
         crate::command::semantics::BuiltinCommand::Backlight,
         crate::command::BacklightCommand,
         "false/true"
+    ),
+    typed_plain_coverage!(
+        crate::command::semantics::BuiltinCommand::NoiseReduction2dMode,
+        crate::command::NoiseReduction2DModeCommand,
+        "Auto/Manual"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::NoiseReduction2d,
@@ -4636,10 +4665,10 @@ mod tests {
     use crate::{
         command::{
             AntiFlickerCommand, AutoNdCommand, AutoSlowShutterOff, AutoSlowShutterOn, DigitalZoom,
-            FocusLock, ImageFreeze, MulticastStreaming, NdFilterMode, NdFilterModeCommand,
-            PanTiltLimitCorner, PresetRecallSpeed, SetNdiQuality, SettingsSaveCommand,
-            SpotlightOff, SpotlightOn, TallyBrightHi, TallyBrightLo, TallyFlash, TallyOff, TallyOn,
-            TallyRedOn, VariableSpeedMode,
+            ExposureCommand, ExposureMode, FocusLock, ImageFreeze, MulticastStreaming,
+            NdFilterMode, NdFilterModeCommand, PanTiltLimitCorner, PresetRecallSpeed,
+            SetNdiQuality, SettingsSaveCommand, SpotlightOff, SpotlightOn, TallyBrightHi,
+            TallyBrightLo, TallyFlash, TallyOff, TallyOn, TallyRedOn, VariableSpeedMode,
         },
         prepared::{
             prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
@@ -6018,9 +6047,106 @@ mod tests {
     }
 
     #[test]
-    fn supported_profiles_admit_iris_nd_and_push_af_requests() {
+    fn noise_reduction_controls_require_control_support_before_request_encoding() {
+        let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let coordinates = source
+            .pan_tilt_coordinates()
+            .expect("G2 pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "NR inquiry without NR control".into();
+        capabilities.typed_support = capabilities
+            .typed_support
+            .without(TypedSupportSurface::NoiseReduction2DControl)
+            .without(TypedSupportSurface::NoiseReduction3DControl);
+        let profile = ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .preset_recall_axes(source.preset_recall_axes())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect("inquiry-only NR runtime profile");
+
+        assert!(profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::NoiseReduction2D));
+        assert!(profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::NoiseReduction3D));
+
+        reset_request_write_count();
+        for command in [
+            crate::command::NoiseReduction2DModeCommand::new(
+                crate::command::NoiseReduction2DMode::Manual,
+            ),
+            crate::command::NoiseReduction2DModeCommand::new(
+                crate::command::NoiseReduction2DMode::Auto,
+            ),
+        ] {
+            let error = prepare_builtin_command(
+                &command,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+            )
+            .expect_err("the 2D control surface must reject before encoding");
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "2D noise reduction control"
+                }
+            ));
+        }
+        for command in [
+            crate::command::NoiseReduction2D::off(),
+            crate::command::NoiseReduction2D::with_level(crate::types::NoiseReduction2DLevel::MAX),
+        ] {
+            assert!(matches!(
+                prepare_builtin_command(
+                    &command,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                ),
+                Err(Error::FeatureNotSupported {
+                    feature: "2D noise reduction control"
+                })
+            ));
+        }
+        for command in [
+            crate::command::NoiseReduction3D::off(),
+            crate::command::NoiseReduction3D::with_level(crate::types::NoiseReduction3DLevel::MAX),
+        ] {
+            assert!(matches!(
+                prepare_builtin_command(
+                    &command,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                ),
+                Err(Error::FeatureNotSupported {
+                    feature: "3D noise reduction control"
+                })
+            ));
+        }
+        assert_eq!(request_write_count(), 0);
+    }
+
+    #[test]
+    fn profile_validation_limits_typed_iris_to_supported_profiles() {
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let iris = IrisDirect::new(IrisLevel::new(4).unwrap());
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
@@ -6030,12 +6156,30 @@ mod tests {
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
-            &IrisDirect::new(IrisLevel::new(4).unwrap()),
+            &iris,
+            CameraId::CAMERA_1,
+            &ptz,
+            OperationalTuning::new(),
+        )
+        .is_ok());
+
+        reset_request_write_count();
+        assert!(prepare_builtin_operation::<completion::Targeted, _>(
+            &IrisReset,
             CameraId::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
-        .is_ok());
+        .is_err());
+        assert!(prepare_builtin_operation::<completion::Targeted, _>(
+            &iris,
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+        )
+        .is_err());
+        assert_eq!(request_write_count(), 0);
+
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterDirect::new(NdFilterValue::new(4).unwrap()),
             CameraId::CAMERA_1,
@@ -6057,6 +6201,60 @@ mod tests {
             OperationalTuning::new(),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn fr7_rejects_every_shared_ae_mode_before_encoding() {
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+
+        reset_request_write_count();
+        for mode in [
+            ExposureMode::Auto,
+            ExposureMode::Manual,
+            ExposureMode::Shutter,
+            ExposureMode::Iris,
+            ExposureMode::Bright,
+        ] {
+            let error = prepare_builtin_command(
+                &ExposureCommand::new(mode),
+                CameraId::CAMERA_1,
+                &fr7,
+                OperationalTuning::new(),
+            )
+            .expect_err("FR7 does not document the shared AE-mode command family");
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "selected exposure mode"
+                }
+            ));
+        }
+        assert_eq!(request_write_count(), 0);
+    }
+
+    #[test]
+    fn shared_ae_modes_require_typed_support_beyond_nonempty_inventory() {
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        assert!(!generic.capabilities().exposure_modes.is_empty());
+        assert!(!generic
+            .capabilities()
+            .supports_typed(TypedSupportSurface::ExposureMode));
+
+        reset_request_write_count();
+        let error = prepare_builtin_command(
+            &ExposureCommand::new(ExposureMode::Auto),
+            CameraId::CAMERA_1,
+            &generic,
+            OperationalTuning::new(),
+        )
+        .expect_err("discovery metadata alone must not admit shared AE-mode control");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "shared exposure-mode control"
+            }
+        ));
+        assert_eq!(request_write_count(), 0);
     }
 
     /// Issue #684: the tally-mode opcodes share the one `HasTally` gate with the

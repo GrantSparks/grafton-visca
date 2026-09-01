@@ -563,7 +563,7 @@ fn typed_cache_getters_decode_the_combined_flip_pair() {
 
 #[test]
 fn typed_cache_getters_decode_pan_tilt_limit_updates() {
-    let (session, _writes) = ptz_session();
+    let (session, writes) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -572,13 +572,20 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     camera
         .pan_tilt()
         .limit_set(
-            PanTiltLimitCorner::UpRight,
+            PanTiltLimitCorner::DownLeft,
             Degrees::new(0.0),
             Degrees::new(0.0),
         )
         .expect("limit set");
+    assert_eq!(
+        one_frame(&writes),
+        [
+            0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0xFF,
+        ]
+    );
     let update = cache.pan_tilt_limits().expect("recorded limit update");
-    assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
+    assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
     assert!(!update.is_cleared());
     assert_eq!(
         update.position().map(|position| position.raw_values()),
@@ -597,6 +604,13 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
             Degrees::new(30.0),
         )
         .expect("limit set");
+    assert_eq!(
+        one_frame(&writes),
+        [
+            0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x0B, 0x00,
+            0xFF,
+        ]
+    );
     let update = cache.pan_tilt_limits().expect("recorded limit update");
     assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
     assert!(!update.is_cleared());
@@ -611,8 +625,31 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         .pan_tilt()
         .limit_clear(PanTiltLimitCorner::DownLeft)
         .expect("limit clear");
+    assert_eq!(
+        one_frame(&writes),
+        [
+            0x81, 0x01, 0x06, 0x07, 0x01, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+            0xFF,
+        ]
+    );
     let update = cache.pan_tilt_limits().expect("recorded limit clear");
     assert_eq!(update.corner(), PanTiltLimitCorner::DownLeft);
+    assert!(update.is_cleared());
+    assert_eq!(update.position(), None);
+
+    camera
+        .pan_tilt()
+        .limit_clear(PanTiltLimitCorner::UpRight)
+        .expect("limit clear");
+    assert_eq!(
+        one_frame(&writes),
+        [
+            0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+            0xFF,
+        ]
+    );
+    let update = cache.pan_tilt_limits().expect("recorded limit clear");
+    assert_eq!(update.corner(), PanTiltLimitCorner::UpRight);
     assert!(update.is_cleared());
     assert_eq!(update.position(), None);
 

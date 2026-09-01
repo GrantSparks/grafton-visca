@@ -103,7 +103,8 @@ impl Settlement<Targeted> {
     }
 }
 
-/// An operation with a physical target and a settlement plan.
+/// An operation with a target state and a profile-selected protocol settlement
+/// plan.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Targeted;
 

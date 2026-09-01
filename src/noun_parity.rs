@@ -889,7 +889,9 @@ const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
         TypedSupportSurface::DirectZoom => "HasDirectZoom",
         TypedSupportSurface::DigitalZoomToggle => "HasDigitalZoomToggle",
         TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
+        TypedSupportSurface::ExposureMode => "HasExposureMode",
         TypedSupportSurface::IrisControl => "HasIrisControl",
+        TypedSupportSurface::IrisControlInquiry => "HasIrisControlInquiry",
         TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
         TypedSupportSurface::PtzOpticsSnapFocus => "HasPtzOpticsSnapFocus",
         TypedSupportSurface::PtzOpticsAntiFlicker => "HasPtzOpticsAntiFlicker",
@@ -924,9 +926,10 @@ const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
         TypedSupportSurface::HueControl => "HasHueControl",
         TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
         TypedSupportSurface::GammaControl => "HasGammaControl",
-        TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
         TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
         TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
+        TypedSupportSurface::NoiseReduction2DControl => "HasNoiseReduction2DControl",
+        TypedSupportSurface::NoiseReduction3DControl => "HasNoiseReduction3DControl",
         TypedSupportSurface::PictureEffect => "HasPictureEffect",
         TypedSupportSurface::Tally => "HasTally",
         TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
@@ -1024,6 +1027,10 @@ fn direct_import_markers_follow_static_noun_and_inquiry_gates() {
     let markers = required_markers();
 
     assert!(markers.contains("HasDirectZoom"));
+    assert!(
+        markers.contains("HasExposureMode"),
+        "shared exposure-mode static gates require their direct imports"
+    );
     assert!(
         markers.contains("HasFocusZoneInquiry"),
         "inquiry-only static gates still require their direct imports"
@@ -1238,11 +1245,11 @@ fn compiled_registry_inventory_counts_remain_readable() {
             | StaticSurfaceDisposition::InternalCancellation { .. } => exceptions += 1,
         }
     }
-    assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT); // 149 commands
-    assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 146 target-facing
+    assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT); // 150 commands
+    assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 147 target-facing
     assert_eq!(exceptions, NON_NOUN_COMMAND_COUNT); // 3 protocol exceptions
     assert_eq!(nouns.len(), 14); // 14 nouns
-    assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 63); // 63 typed inquiries
+    assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 62); // 62 typed inquiries
 
     // The compiled noun-table projection has one row for each target-facing
     // command ID, one for each typed inquiry, and one for each empty-ID
@@ -1250,8 +1257,8 @@ fn compiled_registry_inventory_counts_remain_readable() {
     // mistaken for a command row or silently disappear from a facade.
     let table = table_surface();
     let (command_rows, inquiry_rows, helper_rows) = table_row_counts(&table);
-    assert_eq!(command_rows, 146); // 146 command-method rows
-    assert_eq!(inquiry_rows, 63); // 63 inquiry rows
+    assert_eq!(command_rows, 147); // 147 command-method rows
+    assert_eq!(inquiry_rows, 62); // 62 inquiry rows
     assert_eq!(helper_rows, 9); // 9 empty-ID helper rows
     assert_eq!(command_rows + inquiry_rows + helper_rows, 218); // 218 total rows
 
@@ -1357,6 +1364,10 @@ fn erased_inquiry_gates_match_the_static_noun_surface() {
 #[test]
 fn dynamic_vendor_command_gates_match_the_static_noun_surface() {
     const GATES: &[(BuiltinCommand, TypedSupportSurface)] = &[
+        (
+            BuiltinCommand::ExposureMode,
+            TypedSupportSurface::ExposureMode,
+        ),
         (
             BuiltinCommand::AntiFlicker,
             TypedSupportSurface::PtzOpticsAntiFlicker,

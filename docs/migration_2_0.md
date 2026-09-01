@@ -112,6 +112,31 @@ Dynamic views remain async and object-safe. They erase profile/request types but
 share the static session's owner, timeout, pacing, cancellation, and state
 cache. There is no dynamic policy layer that can bypass static preparation.
 
+### Noise-reduction controls and independent gates
+
+The surviving typed NR surface is split by direction and dimension. The
+inquiries keep `HasNoiseReduction2D` / `HasNoiseReduction3D`; controls require
+the independent `HasNoiseReduction2DControl` /
+`HasNoiseReduction3DControl` markers (and the matching dynamic
+`TypedSupportSurface::NoiseReduction2DControl` /
+`TypedSupportSurface::NoiseReduction3DControl` checks). Do not replace one
+bound with the other: an inquiry permission is not a control permission.
+
+| Earlier/removed vocabulary | 2.0 destination |
+| --- | --- |
+| 2D mode setter | `camera.image().set_noise_reduction_2d_mode(...)` |
+| 2D level setter / disable helper | `camera.image().set_noise_reduction_2d(...)` / `camera.image().disable_noise_reduction_2d()` |
+| 3D level setter / disable helper | `camera.image().set_noise_reduction_3d(...)` / `camera.image().disable_noise_reduction_3d()` |
+| 2D mode and 2D/3D level inquiries | `camera.image().noise_reduction_2d_mode()`, `.noise_reduction_2d()`, and `.noise_reduction_3d()` under their inquiry markers |
+| `HasNoiseReduction`, `TypedSupportSurface::NoiseReduction`, `noise-reduction` serde tag, `noise_reduction_level`, `noise_reduction_mode`, or aggregate modes/speeds/strength mappings | **No typed replacement.** These aggregate APIs remain removed; use a deliberately specified raw request only for an unsupported profile or aggregate vendor dialect. |
+
+The four individual NR markers are emitted only for `PtzOpticsG2`,
+`PtzOpticsG3`, and the explicitly legacy PT30X SDI/NDI G2 profile
+`PtzOptics30X`. This does not follow from a PTZOptics family name and does not
+cover Move, Link, or newer 30X models. R14 documents command inputs separately
+from current query outputs, so migration must not assume a set-to-query numeric
+round trip; see [the source-specific NR contract](visca_reference.md#78-image-processing).
+
 ### `Axes` → `AffectedAxes`: rename and `ALL` meaning change
 
 This axis change is both a rename and a semantic change, and the semantic half
@@ -127,18 +152,18 @@ silently widens the selection.
 A motion observation only queries the axes it is given, and preparation
 requires the profile to declare a position inquiry for every selected axis.
 `AffectedAxes::ALL` therefore now demands iris **and** ND-filter position
-inquiries. `SonyFR7` is the only built-in profile that declares both, so
+inquiries. No built-in profile declares both, so
 `motion().is_moving_axes(MotionQuery::new(AffectedAxes::ALL))`,
 `wait_until_idle(IdleWait::new(AffectedAxes::ALL, ..))`, and any operation
-declaring `ALL` fail on eight of the nine built-in profiles with
+declaring `ALL` fail on all nine built-in profiles with
 `Error::FeatureNotSupported` before a frame is sent. The port compiles; it just
 never runs.
 
 Use `AffectedAxes::MOVEMENT` for "wait for everything that moves". It is
 exactly 1.x's three `Axes::ALL` axes and is what `MotionQuery::default()`,
 `IdleWait::default()`, and the named `IdleWait` presets already select. Reserve
-`AffectedAxes::ALL` for a profile you have checked declares iris and ND-filter
-position inquiries.
+`AffectedAxes::ALL` for an explicit profile that declares both iris and
+ND-filter position inquiries.
 
 ## Requests, inquiries, and operations
 
@@ -147,7 +172,7 @@ position inquiries.
 | Concrete async `_op` methods (`pan_tilt_*_op`, `set_*_op`, `preset_recall_op`, and similar) | Construct the typed request and call `submit`; use the returned targeted/applied-only handle. |
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
-| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation. |
+| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and observes its profile-selected protocol settlement condition; it is not a 2.0.0-rc.1 bench-verified assertion of physical rest. |
 | `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns a linear `Operation<K>` **handle**; hold it and call `operation.cancel()`. The handle itself is the cancellation authority. |
 | `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` / `Cancellation` handle. |
 | `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
@@ -409,6 +434,13 @@ Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
 registry. `test-utils` is for deterministic tests, not production construction.
 
+With `serde`, checked data stays checked across the wire boundary:
+`CapabilityRange` now requires ordered `min`/`max` endpoints and rejects
+`min > max` during deserialization. Validated public scalar wrappers and values
+declared by `visca_range_type!` deserialize through their checked `TryFrom`/
+`new` paths, so an out-of-range scalar is rejected rather than constructing an
+invalid wrapper.
+
 ### Reconfiguring timeouts at runtime
 
 1.2.0's `Camera::set_timeout_config` took a `TimeoutConfig`; 2.0's
@@ -424,7 +456,7 @@ fields map directly to the corresponding tuning methods:
 | `long_timeout` | `long_running_timeout` |
 | `network_timeout` | `network_timeout` |
 | `default_timeout` | No direct counterpart: every 2.0 request selects a `TimeoutClass`; set the corresponding category deadline. |
-| *(no 1.x field)* | `settlement_timeout` for the physical-settling budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
+| *(no 1.x field)* | `settlement_timeout` for the profile-selected protocol-settlement budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
 
 Two profile deadlines changed value relative to 1.x, and both are interim
@@ -474,9 +506,13 @@ your own deadline) rather than from tuning.
 
 Two differences matter in practice.
 
-**The update is a whole replacement, not a merge.** Any field left unset returns
-to the profile default rather than keeping a value an earlier call installed.
-Build the complete `OperationalTuning` each time.
+**The runtime-mutable fields are replaced whole, not merged.** Any mutable field
+left unset returns to the profile default rather than keeping a value an earlier
+call installed. Build the complete set of mutable `OperationalTuning` overrides
+each time. `strict_unconfirmed_poison` is the construction-only exception: an
+explicit `true` or `false` is rejected by `set_tuning`, while leaving it unset
+retains the session's construction-time policy and reports that retained value
+through `Session::tuning`.
 
 **In-flight work is not re-timed.** 1.2.0 recomputed deadlines on every
 housekeeping pass, so widening `ack_timeout` also rescued a command that was
@@ -539,7 +575,7 @@ application requested:
 | --- | --- | --- |
 | The peer closed the connection | `ConnectionClosed` | `true` |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable raw command | `StreamPoisoned` | `true` |
-| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
+| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, including an ACK deadline that expires after a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
 
 A fatal receive closure is normalized to `ConnectionClosed`, with the

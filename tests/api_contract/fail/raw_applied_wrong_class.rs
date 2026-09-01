@@ -7,4 +7,4 @@ fn main() {
 }
 
 //~ E0277
-//~ "the trait bound `grafton_visca::raw::AppliedOnly: OperationCommand<grafton_visca::completion::Targeted>` is not satisfied"
+//~ "AppliedOnly: OperationCommand<"

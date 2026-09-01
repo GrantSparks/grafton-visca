@@ -480,6 +480,149 @@ pub(crate) enum DecodedResponse {
     Unknown,
 }
 
+/// Target-local correlation evidence whose ambiguity window becomes due in an
+/// owner turn.
+///
+/// This deliberately retains the identity which is being released.  A bool per
+/// target loses the distinction between a released socket-one request and a
+/// still-live request on the other socket, which is exactly the distinction a
+/// byte-stream owner needs before it advances due work and dispatches a
+/// successor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct RawCorrelationRelease {
+    terminal_all: bool,
+    inquiry_unkeyed: bool,
+    pre_ack_unkeyed: bool,
+    exact_sockets: [bool; 2],
+}
+
+impl RawCorrelationRelease {
+    pub(crate) const fn is_empty(self) -> bool {
+        !self.terminal_all
+            && !self.inquiry_unkeyed
+            && !self.pre_ack_unkeyed
+            && !self.exact_sockets[0]
+            && !self.exact_sockets[1]
+    }
+
+    pub(crate) const fn terminal_all(self) -> bool {
+        self.terminal_all
+    }
+
+    // Queried by async/blocking retained-prefix integrations; engine-only
+    // feature combinations construct the scope but do not inspect it.
+    #[allow(dead_code)]
+    pub(crate) const fn inquiry_unkeyed(self) -> bool {
+        self.inquiry_unkeyed
+    }
+
+    // See `inquiry_unkeyed`: this remains part of the crate-private owner API.
+    #[allow(dead_code)]
+    pub(crate) const fn pre_ack_unkeyed(self) -> bool {
+        self.pre_ack_unkeyed
+    }
+
+    pub(crate) fn exact_socket(self, socket: ViscaSocket) -> bool {
+        self.exact_sockets[socket.as_index()]
+    }
+
+    pub(super) fn release_terminal_all(&mut self) {
+        self.terminal_all = true;
+    }
+
+    pub(super) fn release_inquiry_unkeyed(&mut self) {
+        self.inquiry_unkeyed = true;
+    }
+
+    pub(super) fn release_pre_ack_unkeyed(&mut self) {
+        self.pre_ack_unkeyed = true;
+    }
+
+    pub(super) fn release_exact_socket(&mut self, socket: ViscaSocket) {
+        self.exact_sockets[socket.as_index()] = true;
+    }
+}
+
+/// The complete set of raw correlation releases due in one owner turn.
+///
+/// Index zero is intentionally retained as an inert slot, matching the engine
+/// target table.  Real camera identifiers occupy one through seven.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) struct RawCorrelationReleaseSet {
+    targets: [RawCorrelationRelease; 9],
+}
+
+impl RawCorrelationReleaseSet {
+    pub(crate) const fn is_empty(self) -> bool {
+        let mut index = 0;
+        while index < self.targets.len() {
+            if !self.targets[index].is_empty() {
+                return false;
+            }
+            index += 1;
+        }
+        true
+    }
+
+    pub(crate) fn for_target(self, target: CameraId) -> RawCorrelationRelease {
+        self.targets[target.id() as usize]
+    }
+
+    pub(super) fn for_target_mut(&mut self, target: CameraId) -> &mut RawCorrelationRelease {
+        &mut self.targets[target.id() as usize]
+    }
+}
+
+/// What a byte-stream framer can prove about bytes it retained at a raw
+/// correlation-release boundary.
+///
+/// It deliberately does not describe a complete frame: complete frames always
+/// enter the engine before due work, preserving the input-first boundary rule.
+/// The socket nibble of an ACK is not included as identity because it expresses
+/// an assignment preference, not ownership.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawPrefixEvidence {
+    Complete,
+    Incomplete {
+        target: CameraId,
+        kind: RawIncompletePrefix,
+    },
+}
+
+/// The protocol identity, if any, visible in an incomplete raw frame prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawIncompletePrefix {
+    /// The source byte (`0x9y..=0xFy`) arrived with no response-class byte.
+    SourceOnly,
+    /// `0x4y`: an ACK's nibble is an assignment preference, not an owner.
+    Ack,
+    /// `0x50`: socketless completion evidence.
+    SocketlessCompletion,
+    /// `0x60`: socketless error evidence.
+    SocketlessError,
+    /// `0x5y`/`0x6y` for one exact numbered socket.
+    NamedCompletionOrError(ViscaSocket),
+    /// Bytes cannot correlate to a raw request and therefore cannot revive or
+    /// bind a successor.
+    Noncorrelating,
+}
+
+/// The safe action for retained raw bytes at a correlation-release boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawPrefixDisposition {
+    /// No raw correlation release is due; leave normal owner processing alone.
+    NoRelease,
+    /// Input must be consumed before due work, or the prefix is too ambiguous
+    /// for release and the owner must fail closed rather than dispatch.
+    Defer,
+    /// The retained prefix belongs to the released correlation and must be
+    /// dropped before advancing due work.
+    Discard,
+    /// Due work may run while the retained bytes remain available for the next
+    /// receive turn; they cannot bind the released correlation to a successor.
+    ReleasePreserving,
+}
+
 /// A decoded frame owns its target and parsed data; it borrows no scheduler state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedFrame {

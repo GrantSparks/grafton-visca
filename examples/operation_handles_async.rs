@@ -45,8 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn movement(session: &Session) -> Result<(), Error> {
     let camera = session.camera::<PtzOpticsG2>()?;
 
-    // Targeted movement exposes physical settling; applied-only movement has
-    // no settled state and is observed only at protocol application. Both
+    // Targeted movement exposes profile-selected protocol settlement;
+    // applied-only movement has no settled state and is observed only at protocol application. Both
     // waits consume the handle, so neither adds a stop of its own.
     camera.pan_tilt().home().await?.settled().await?;
     camera.zoom().tele().await?.applied().await?;

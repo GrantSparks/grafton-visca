@@ -19,7 +19,8 @@ pub enum TypedSupportSurface {
     DigitalZoomToggle,
     /// Absolute zoom positions in the optical-plus-digital range.
     DigitalZoomRange,
-    /// Direct iris controls and iris inquiries.
+    /// Standard iris reset/up/down/direct controls and the `09 04 4B`
+    /// iris-position inquiry.
     IrisControl,
     /// Standard one-push auto focus trigger.
     OnePushFocus,
@@ -73,11 +74,9 @@ pub enum TypedSupportSurface {
     LuminanceControl,
     /// Gamma control and inquiry.
     GammaControl,
-    /// Aggregate noise-reduction inquiries.
-    NoiseReduction,
-    /// 2D noise-reduction control and inquiry.
+    /// 2D noise-reduction mode and level inquiries.
     NoiseReduction2D,
-    /// 3D noise-reduction control and inquiry.
+    /// 3D noise-reduction level inquiry.
     NoiseReduction3D,
     /// Picture-effect control and inquiry.
     PictureEffect,
@@ -113,11 +112,28 @@ pub enum TypedSupportSurface {
     PtzOpticsMulticastStreaming,
     /// PTZOptics NDI-quality control.
     PtzOpticsNdiQuality,
+    /// Shared VISCA exposure-mode control and inquiry.
+    ExposureMode,
+    /// Standard `09 04 2B` iris auto/manual status inquiry.
+    ///
+    /// This remains distinct from [`Self::IrisControl`] because position and
+    /// status inquiries are independently documented profile surfaces.
+    IrisControlInquiry,
+    /// 2D noise-reduction mode and level controls.
+    ///
+    /// This is deliberately independent from [`Self::NoiseReduction2D`],
+    /// whose source-backed permission covers only inquiries.
+    NoiseReduction2DControl,
+    /// 3D noise-reduction level controls.
+    ///
+    /// This is deliberately independent from [`Self::NoiseReduction3D`],
+    /// whose source-backed permission covers only inquiries.
+    NoiseReduction3DControl,
 }
 
 impl TypedSupportSurface {
     /// All known typed support surfaces.
-    pub const ALL: [Self; 48] = [
+    pub const ALL: [Self; 51] = [
         Self::DirectZoom,
         Self::DigitalZoomToggle,
         Self::DigitalZoomRange,
@@ -148,7 +164,6 @@ impl TypedSupportSurface {
         Self::HueControl,
         Self::LuminanceControl,
         Self::GammaControl,
-        Self::NoiseReduction,
         Self::NoiseReduction2D,
         Self::NoiseReduction3D,
         Self::PictureEffect,
@@ -166,6 +181,10 @@ impl TypedSupportSurface {
         Self::SonyAutoSlowShutter,
         Self::PtzOpticsMulticastStreaming,
         Self::PtzOpticsNdiQuality,
+        Self::ExposureMode,
+        Self::IrisControlInquiry,
+        Self::NoiseReduction2DControl,
+        Self::NoiseReduction3DControl,
     ];
 
     const fn bit(self) -> u64 {
@@ -200,7 +219,8 @@ impl TypedSupportSurface {
             Self::HueControl => 27,
             Self::LuminanceControl => 28,
             Self::GammaControl => 29,
-            Self::NoiseReduction => 30,
+            // Bit 30 remains reserved for the removed aggregate NR surface,
+            // preserving persisted support-set encodings for every survivor.
             Self::NoiseReduction2D => 31,
             Self::NoiseReduction3D => 32,
             Self::PictureEffect => 33,
@@ -218,6 +238,14 @@ impl TypedSupportSurface {
             Self::SonyAutoSlowShutter => 45,
             Self::PtzOpticsMulticastStreaming => 46,
             Self::PtzOpticsNdiQuality => 47,
+            // Appended after all existing persisted support-set bits.
+            Self::ExposureMode => 48,
+            // Appended after all existing persisted support-set bits.
+            Self::IrisControlInquiry => 49,
+            // Appended after all existing persisted support-set bits.
+            Self::NoiseReduction2DControl => 50,
+            // Appended after all existing persisted support-set bits.
+            Self::NoiseReduction3DControl => 51,
         }
     }
 }
@@ -406,5 +434,277 @@ mod tests {
                 TypedSupportSurface::UsbAudio,
             ]
         );
+    }
+
+    #[test]
+    fn appended_noise_reduction_control_bits_preserve_existing_encodings() {
+        assert_eq!(
+            TypedSupportSet::from_surface(TypedSupportSurface::PtzOpticsNdiQuality).0,
+            1 << 47
+        );
+        assert_eq!(
+            TypedSupportSet::from_surface(TypedSupportSurface::ExposureMode).0,
+            1 << 48
+        );
+        assert_eq!(
+            TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry).0,
+            1 << 49
+        );
+        assert_eq!(
+            TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction2DControl).0,
+            1 << 50
+        );
+        assert_eq!(
+            TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction3DControl).0,
+            1 << 51
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_preserves_the_historical_wire_contract_and_appends_noise_reduction_controls(
+    ) -> Result<(), serde_json::Error> {
+        // This table is intentionally independent of `TypedSupportSurface::ALL`
+        // and serde's derive-generated spelling.  It pins each public wire tag
+        // to its exact semantic surface, so a swapped decoder, a spurious
+        // accepted tag, or a surface added only to `ALL` cannot pass by merely
+        // agreeing with the aggregate fixtures below.
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 51] = [
+            ("direct-zoom", TypedSupportSurface::DirectZoom),
+            (
+                "digital-zoom-toggle",
+                TypedSupportSurface::DigitalZoomToggle,
+            ),
+            ("digital-zoom-range", TypedSupportSurface::DigitalZoomRange),
+            ("iris-control", TypedSupportSurface::IrisControl),
+            ("one-push-focus", TypedSupportSurface::OnePushFocus),
+            (
+                "ptz-optics-snap-focus",
+                TypedSupportSurface::PtzOpticsSnapFocus,
+            ),
+            ("focus-lock", TypedSupportSurface::FocusLock),
+            ("push-auto-focus", TypedSupportSurface::PushAutoFocus),
+            ("focus-zone", TypedSupportSurface::FocusZone),
+            (
+                "auto-focus-sensitivity",
+                TypedSupportSurface::AutoFocusSensitivity,
+            ),
+            (
+                "focus-near-limit-inquiry",
+                TypedSupportSurface::FocusNearLimitInquiry,
+            ),
+            (
+                "backlight-compensation",
+                TypedSupportSurface::BacklightCompensation,
+            ),
+            ("wide-dynamic-range", TypedSupportSurface::WideDynamicRange),
+            (
+                "exposure-compensation",
+                TypedSupportSurface::ExposureCompensation,
+            ),
+            ("brightness-control", TypedSupportSurface::BrightnessControl),
+            (
+                "one-push-white-balance",
+                TypedSupportSurface::OnePushWhiteBalance,
+            ),
+            (
+                "auto-tracking-white-balance",
+                TypedSupportSurface::AutoTrackingWhiteBalance,
+            ),
+            (
+                "auto-white-balance-sensitivity",
+                TypedSupportSurface::AutoWhiteBalanceSensitivity,
+            ),
+            ("color-temperature", TypedSupportSurface::ColorTemperature),
+            ("rgb-gain", TypedSupportSurface::RgbGain),
+            ("rgb-tuning", TypedSupportSurface::RgbTuning),
+            ("image-flip", TypedSupportSurface::ImageFlip),
+            ("image-mirror", TypedSupportSurface::ImageMirror),
+            (
+                "combined-image-flip",
+                TypedSupportSurface::CombinedImageFlip,
+            ),
+            ("contrast-control", TypedSupportSurface::ContrastControl),
+            ("sharpness-control", TypedSupportSurface::SharpnessControl),
+            ("saturation-control", TypedSupportSurface::SaturationControl),
+            ("hue-control", TypedSupportSurface::HueControl),
+            ("luminance-control", TypedSupportSurface::LuminanceControl),
+            ("gamma-control", TypedSupportSurface::GammaControl),
+            ("noise-reduction2-d", TypedSupportSurface::NoiseReduction2D),
+            ("noise-reduction3-d", TypedSupportSurface::NoiseReduction3D),
+            ("picture-effect", TypedSupportSurface::PictureEffect),
+            ("tally", TypedSupportSurface::Tally),
+            ("direct-menu", TypedSupportSurface::DirectMenu),
+            ("nd-filter", TypedSupportSurface::NdFilter),
+            ("variable-speed", TypedSupportSurface::VariableSpeed),
+            ("motion-sync", TypedSupportSurface::MotionSync),
+            ("focus-zone-inquiry", TypedSupportSurface::FocusZoneInquiry),
+            ("usb-audio", TypedSupportSurface::UsbAudio),
+            (
+                "ptz-optics-anti-flicker",
+                TypedSupportSurface::PtzOpticsAntiFlicker,
+            ),
+            (
+                "ptz-optics-settings-save",
+                TypedSupportSurface::PtzOpticsSettingsSave,
+            ),
+            (
+                "ptz-optics-preset-recall-speed",
+                TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+            ),
+            ("sony-spotlight", TypedSupportSurface::SonySpotlight),
+            (
+                "sony-auto-slow-shutter",
+                TypedSupportSurface::SonyAutoSlowShutter,
+            ),
+            (
+                "ptz-optics-multicast-streaming",
+                TypedSupportSurface::PtzOpticsMulticastStreaming,
+            ),
+            (
+                "ptz-optics-ndi-quality",
+                TypedSupportSurface::PtzOpticsNdiQuality,
+            ),
+            ("exposure-mode", TypedSupportSurface::ExposureMode),
+            (
+                "iris-control-inquiry",
+                TypedSupportSurface::IrisControlInquiry,
+            ),
+            (
+                "noise-reduction2-d-control",
+                TypedSupportSurface::NoiseReduction2DControl,
+            ),
+            (
+                "noise-reduction3-d-control",
+                TypedSupportSurface::NoiseReduction3DControl,
+            ),
+        ];
+
+        // These wire fixtures deliberately do not derive from the surface list
+        // or serde's rename rules. They preserve the 47 surviving historical
+        // tags and their canonical order; the unsupported aggregate
+        // noise-reduction was intentionally not retained in the 2.0 surface.
+        const LEGACY_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality"]"#;
+        const PREVIOUS_CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode"]"#;
+        const CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode","iris-control-inquiry"]"#;
+        const CONTROL_JSON: &str = r#"["noise-reduction2-d-control","noise-reduction3-d-control"]"#;
+
+        assert_eq!(TypedSupportSurface::ALL.len(), 51);
+        assert_eq!(WIRE_SURFACES.len(), 51);
+        for (wire_name, surface) in WIRE_SURFACES {
+            let singleton_json = serde_json::to_string(&[wire_name])?;
+            let decoded: TypedSupportSet = serde_json::from_str(&singleton_json)?;
+            let expected = TypedSupportSet::from_surface(surface);
+
+            assert_eq!(decoded, expected, "{wire_name} must decode to {surface:?}");
+            assert_eq!(decoded.iter().count(), 1, "{wire_name} must be a singleton");
+            assert_eq!(
+                serde_json::to_string(&decoded)?,
+                singleton_json,
+                "{wire_name} must serialize with its exact pinned spelling"
+            );
+        }
+
+        assert_eq!(
+            PREVIOUS_CURRENT_JSON,
+            format!(
+                r#"{},"exposure-mode"]"#,
+                &LEGACY_JSON[..LEGACY_JSON.len() - 1]
+            )
+        );
+        assert_eq!(
+            CURRENT_JSON,
+            format!(
+                r#"{},"iris-control-inquiry"]"#,
+                &PREVIOUS_CURRENT_JSON[..PREVIOUS_CURRENT_JSON.len() - 1]
+            )
+        );
+
+        let legacy: TypedSupportSet = serde_json::from_str(LEGACY_JSON)?;
+        assert_eq!(legacy.iter().count(), 47);
+        assert!(!legacy.contains(TypedSupportSurface::ExposureMode));
+        assert!(!legacy.contains(TypedSupportSurface::IrisControlInquiry));
+        assert!(!legacy.contains(TypedSupportSurface::NoiseReduction2DControl));
+        assert!(!legacy.contains(TypedSupportSurface::NoiseReduction3DControl));
+        assert_eq!(
+            legacy,
+            TypedSupportSet::from_surfaces(
+                &WIRE_SURFACES[..WIRE_SURFACES.len() - 4]
+                    .iter()
+                    .map(|(_, surface)| *surface)
+                    .collect::<Vec<_>>(),
+            )
+        );
+        assert_eq!(serde_json::to_string(&legacy)?, LEGACY_JSON);
+
+        let previous_current: TypedSupportSet = serde_json::from_str(PREVIOUS_CURRENT_JSON)?;
+        assert_eq!(previous_current.iter().count(), 48);
+        assert!(previous_current.contains(TypedSupportSurface::ExposureMode));
+        assert!(!previous_current.contains(TypedSupportSurface::IrisControlInquiry));
+        assert!(!previous_current.contains(TypedSupportSurface::NoiseReduction2DControl));
+        assert!(!previous_current.contains(TypedSupportSurface::NoiseReduction3DControl));
+        assert_eq!(
+            previous_current,
+            TypedSupportSet::from_surfaces(
+                &WIRE_SURFACES[..WIRE_SURFACES.len() - 3]
+                    .iter()
+                    .map(|(_, surface)| *surface)
+                    .collect::<Vec<_>>(),
+            )
+        );
+        assert_eq!(
+            serde_json::to_string(&previous_current)?,
+            PREVIOUS_CURRENT_JSON
+        );
+
+        let current: TypedSupportSet = serde_json::from_str(CURRENT_JSON)?;
+        assert_eq!(current.iter().count(), 49);
+        assert!(current.contains(TypedSupportSurface::ExposureMode));
+        assert!(current.contains(TypedSupportSurface::IrisControlInquiry));
+        assert!(!current.contains(TypedSupportSurface::NoiseReduction2DControl));
+        assert!(!current.contains(TypedSupportSurface::NoiseReduction3DControl));
+        assert_eq!(
+            current,
+            TypedSupportSet::from_surfaces(
+                &WIRE_SURFACES[..WIRE_SURFACES.len() - 2]
+                    .iter()
+                    .map(|(_, surface)| *surface)
+                    .collect::<Vec<_>>(),
+            )
+        );
+        assert_eq!(serde_json::to_string(&current)?, CURRENT_JSON);
+        assert_eq!(
+            current,
+            previous_current.union(TypedSupportSet::from_surface(
+                TypedSupportSurface::IrisControlInquiry
+            ))
+        );
+
+        let controls: TypedSupportSet = serde_json::from_str(CONTROL_JSON)?;
+        assert!(controls.contains(TypedSupportSurface::NoiseReduction2DControl));
+        assert!(controls.contains(TypedSupportSurface::NoiseReduction3DControl));
+        assert_eq!(serde_json::to_string(&controls)?, CONTROL_JSON);
+
+        let final_current = current.union(controls);
+        assert_eq!(final_current.iter().count(), 51);
+        assert_eq!(
+            final_current,
+            TypedSupportSet::from_surfaces(
+                &WIRE_SURFACES
+                    .iter()
+                    .map(|(_, surface)| *surface)
+                    .collect::<Vec<_>>(),
+            )
+        );
+        assert_eq!(
+            serde_json::to_string(&final_current)?,
+            format!(
+                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control"]"#,
+                &CURRENT_JSON[..CURRENT_JSON.len() - 1]
+            )
+        );
+
+        assert!(serde_json::from_str::<TypedSupportSet>(r#"["noise-reduction"]"#).is_err());
+        Ok(())
     }
 }

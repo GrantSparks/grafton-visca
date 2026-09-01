@@ -225,8 +225,9 @@ fn a_widened_ack_timeout_governs_the_next_submission() {
 
 /// The other direction: narrowing back is a real update, not a one-way ratchet.
 ///
-/// An empty tuning is a complete replacement, so every deadline returns to its
-/// profile default rather than keeping the widened value.
+/// An empty tuning completely replaces the runtime-mutable overrides, so every
+/// deadline returns to its profile default rather than keeping the widened
+/// value.
 #[test]
 fn a_narrowed_ack_timeout_governs_the_next_submission() {
     let transport = SilentTransport::new();
@@ -341,10 +342,71 @@ fn the_installed_tuning_reads_back_through_the_session() {
     assert_eq!(
         session.tuning(),
         OperationalTuning::new(),
-        "the update replaces the previous value whole rather than merging"
+        "the runtime-mutable update replaces the previous value whole rather than merging"
     );
 
     session.shutdown().expect("owner shutdown");
+}
+
+/// `strict_unconfirmed_poison` selects the engine's raw-command recovery
+/// policy while the session is built. Runtime reconfiguration must therefore
+/// never make the readback claim a different policy: a default session cannot
+/// turn strict at runtime, while a strict session retains its construction
+/// policy when it replaces its mutable tuning or leaves it entirely unset.
+#[test]
+fn strict_recovery_policy_is_construction_only_and_remains_visible_in_readback() {
+    let default_session =
+        Session::open(SilentTransport::new(), session_config()).expect("default owner session");
+    let requested_strict = OperationalTuning::new().strict_unconfirmed_poison(true);
+    let error = default_session
+        .set_tuning(requested_strict)
+        .expect_err("runtime tuning cannot enable construction-only strict recovery");
+    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+    assert_eq!(
+        default_session.tuning(),
+        OperationalTuning::new(),
+        "a rejected default-to-strict update must not make readback claim strict recovery"
+    );
+    default_session.shutdown().expect("owner shutdown");
+
+    let strict = OperationalTuning::new().strict_unconfirmed_poison(true);
+    let strict_session = Session::open(
+        SilentTransport::new(),
+        session_config()
+            .with_tuning(strict)
+            .expect("strict tuning is valid"),
+    )
+    .expect("strict owner session");
+
+    let error = strict_session
+        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(false))
+        .expect_err("runtime tuning cannot disable construction-only strict recovery");
+    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+    assert_eq!(
+        strict_session.tuning(),
+        strict,
+        "the rejected strict-to-default update leaves the strict readback intact"
+    );
+
+    let mutable_update = OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT);
+    strict_session
+        .set_tuning(mutable_update)
+        .expect("runtime-mutable tuning is still replaceable on a strict session");
+    assert_eq!(
+        strict_session.tuning(),
+        mutable_update.strict_unconfirmed_poison(true),
+        "a mutable update preserves the effective construction-time strict policy"
+    );
+
+    strict_session
+        .set_tuning(OperationalTuning::new())
+        .expect("an unset strict field is not a policy change");
+    assert_eq!(
+        strict_session.tuning(),
+        strict,
+        "clearing mutable overrides must not make a strict session read back as default"
+    );
+    strict_session.shutdown().expect("owner shutdown");
 }
 
 /// Runtime updates are validated on exactly the grounds construction validates

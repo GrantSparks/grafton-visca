@@ -27,10 +27,10 @@ use crate::{
 use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperation};
 
 /// Number of target-facing built-in command methods in this projection.
-pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 146;
+pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 147;
 
 /// Number of typed inquiry methods in this projection.
-pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 63;
+pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 62;
 
 /// Number of domain nouns (motion is a separate safety/observation view).
 pub const DYN_NOUN_COUNT: usize = 14;
@@ -426,16 +426,18 @@ pub trait DynAdvanced: Send + Sync {
 pub trait DynMotion: Send + Sync {
     /// Stops all supported pan/tilt, zoom, and focus movement.
     fn stop_all_motion(&self) -> DynFuture<'_, Result<(), Error>>;
-    /// Reports whether any mechanical movement axis is moving.
+    /// Reports whether protocol position samples indicate movement on any
+    /// mechanical movement axis.
     ///
     /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
     /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
     ///
     /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
     fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>>;
-    /// Reports whether the selected physical axes are moving.
+    /// Reports whether two protocol position samples indicate movement on the
+    /// selected axes.
     fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>>;
-    /// Waits until the selected physical axes become idle.
+    /// Waits until the selected axes meet the protocol idle condition.
     fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>>;
 }
 
@@ -864,6 +866,6 @@ mod tests {
             .map(|metadata| metadata.name)
             .collect::<Vec<_>>();
         untyped_queryable.sort_unstable();
-        assert_eq!(untyped_queryable, ["DefogModeInquiry", "NrSpeedInquiry"]);
+        assert_eq!(untyped_queryable, ["DefogModeInquiry"]);
     }
 }

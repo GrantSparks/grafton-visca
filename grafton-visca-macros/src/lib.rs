@@ -17,8 +17,22 @@ use proc_macro::TokenStream;
 mod crate_path;
 mod inquiry_command;
 mod parser_templates;
+mod range_type;
 mod value_macros;
 mod visca_enum;
+
+/// Internal expansion adapter used by `grafton_visca::visca_range_type!`.
+///
+/// This is exported only because a declarative macro must invoke it after the
+/// main crate has selected its enabled helper features. It is not a supported
+/// standalone API.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __grafton_visca_range_type_decl(input: TokenStream) -> TokenStream {
+    range_type::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// Derive macro for generating validated value wrappers for command value types.
 ///

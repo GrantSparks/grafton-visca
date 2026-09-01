@@ -6,14 +6,14 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
     protocol::framer::ProtocolFramer,
-    runtime::engine::TransmissionMeta,
+    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
     transport::{envelope::FrameSequence, AsyncTransport, HasTransportConfig},
-    CameraId, Error,
+    CameraId, Error, ViscaSocket,
 };
 
 use super::{
     adapter::{
-        decode_frames_with_routing, owner_policy_for_targets_with_tuning,
+        decode_frames_with_routing, decode_response_target, owner_policy_for_targets_with_tuning,
         validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
     },
     AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, WireWrite,
@@ -254,7 +254,7 @@ where
                 // read timeout — the shape the trait documents — from burning
                 // every in-flight retry budget (#625, #637).
                 Err(error) if super::receive_reported_no_data(&error) => {
-                    return Ok(AsyncReceive::NoData)
+                    return Ok(AsyncReceive::NoData);
                 }
                 Err(error) => return Ok(AsyncReceive::Fault(error)),
             };
@@ -275,6 +275,48 @@ where
             )
             .map(AsyncReceive::Frames)
         }
+    }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(
+            self.policy.protocol.transport == crate::runtime::engine::TransportKind::Stream
+                && self.state.framer.has_buffered_data(),
+        )
+    }
+
+    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
+            return Ok(None);
+        }
+        let Some(source) = self.state.framer.buffered_first_byte() else {
+            return Ok(None);
+        };
+        if self.state.framer.buffered_first_raw_input_is_complete()? {
+            return Ok(Some(RawPrefixEvidence::Complete));
+        }
+        let target = decode_response_target(self.state.routing, &[source])?.ok_or_else(|| {
+            Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
+        })?;
+        let bytes = self.state.framer.buffered_first_two_raw_input_bytes()?;
+        let kind = match bytes.get(1).copied() {
+            None => RawIncompletePrefix::SourceOnly,
+            // An ACK socket nibble is a preference for assigning a free
+            // socket, never evidence of who owns a named socket already.
+            Some(response) if response & 0xf0 == 0x40 => RawIncompletePrefix::Ack,
+            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
+            Some(0x60) => RawIncompletePrefix::SocketlessError,
+            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            Some(_) => RawIncompletePrefix::Noncorrelating,
+        };
+        Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        if self.policy.protocol.transport == crate::runtime::engine::TransportKind::Stream {
+            self.state.framer.discard_first_raw_input()?;
+        }
+        Ok(())
     }
 }
 
@@ -507,6 +549,86 @@ mod tests {
             matches!(third, AsyncReceive::Closed),
             "only a zero-length read closes the transport"
         );
+    }
+
+    /// The production adapter must expose only protocol facts from an
+    /// incomplete raw frame.  In particular, the low nibble of an ACK is not
+    /// socket ownership: the engine alone decides whether a due correlation
+    /// release may progress.  These literal vectors exercise the real
+    /// `ProtocolFramer` seam used by the async actor.
+    #[test]
+    fn buffered_raw_prefix_evidence_is_socket_aware_without_guessing_ack_ownership() {
+        let cases = [
+            (
+                vec![0x90],
+                RawIncompletePrefix::SourceOnly,
+                "source-only input",
+            ),
+            (vec![0x90, 0x41], RawIncompletePrefix::Ack, "ACK"),
+            (
+                vec![0x90, 0x50],
+                RawIncompletePrefix::SocketlessCompletion,
+                "socketless completion",
+            ),
+            (
+                vec![0x90, 0x60],
+                RawIncompletePrefix::SocketlessError,
+                "socketless error",
+            ),
+            (
+                vec![0x90, 0x51],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+                "named S1 completion",
+            ),
+            (
+                vec![0x90, 0x62],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+                "named S2 error",
+            ),
+            (
+                vec![0x90, 0x53],
+                RawIncompletePrefix::Noncorrelating,
+                "invalid named socket",
+            ),
+        ];
+
+        for (prefix, expected_kind, case) in cases {
+            let transport = ScriptedTransport {
+                config: TransportConfig::default(),
+                sent: Vec::new(),
+                receives: [Ok(prefix)].into_iter().collect(),
+                semantics: SendSemantics::Stream,
+            };
+            let mut adapter =
+                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4))
+                .expect("a partial prefix is ordinary stream input");
+            assert!(matches!(received, AsyncReceive::Frames(ref frames) if frames.is_empty()));
+            assert_eq!(
+                adapter.buffered_stream_input().unwrap(),
+                Some(RawPrefixEvidence::Incomplete {
+                    target: CameraId::CAMERA_1,
+                    kind: expected_kind,
+                }),
+                "{case}",
+            );
+        }
+
+        let transport = ScriptedTransport {
+            config: TransportConfig::default(),
+            sent: Vec::new(),
+            receives: [Ok(vec![0x80])].into_iter().collect(),
+            semantics: SendSemantics::Stream,
+        };
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        assert!(matches!(
+            adapter.buffered_stream_input(),
+            Err(Error::InvalidResponse { .. }) | Err(Error::InvalidState(_))
+        ));
     }
 
     /// Issue #625/#637: a transport with an internal read timeout is the shape

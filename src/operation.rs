@@ -159,8 +159,9 @@ where
 }
 
 impl Operation<completion::Targeted> {
-    /// Waits for exact application and then physical settling using the
-    /// prepared settlement plan and configured observer deadline.
+    /// Waits for exact application and then the profile-selected protocol
+    /// settlement condition using the prepared plan and configured observer
+    /// deadline.
     pub async fn settled(self) -> Result<(), Error> {
         let mut this = self;
         let Some(receipt) = this.receipt.take() else {
@@ -169,9 +170,9 @@ impl Operation<completion::Targeted> {
         receipt.settled(this.control.clone()).wait().await.map(drop)
     }
 
-    /// Waits for exact application and physical settling using an explicit
-    /// observer deadline.  The prepared scheduler and settlement policy are
-    /// not changed.
+    /// Waits for exact application and the profile-selected protocol settlement
+    /// condition using an explicit observer deadline. The prepared scheduler
+    /// and settlement policy are not changed.
     pub async fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
         let mut this = self;
         let Some(receipt) = this.receipt.take() else {

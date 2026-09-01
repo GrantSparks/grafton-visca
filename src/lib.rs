@@ -56,8 +56,8 @@
 //! - **Configuration APIs**: `CameraConfig` for standard transports and `Session::open` for caller-owned transports
 //! - **Unified Error Handling**: Consistent error mapping across all transport types
 //! - **Configurable Timeouts**: Per-category timeout configuration for different command types
-//! - **Lifecycle-Exact Operation Handles**: Exact applied waits, physical settled waits,
-//!   cancellation, and detach across blocking, async, and dynamic APIs
+//! - **Lifecycle-Exact Operation Handles**: Exact applied waits and profile-selected
+//!   protocol-settlement waits, cancellation, and detach across blocking, async, and dynamic APIs
 //! - **Serialization Support**: Optional serde/schemars integration for all value types
 //!
 //! ## 2.0 API Shape
@@ -110,16 +110,20 @@
 //!   `NoReply` command instead reports only a successful local transport write
 //!   and cannot create an operation handle. Typed operations expose applied
 //!   through `applied()`.
-//! - **Targeted operation** — an operation with a meaningful physical end state
+//! - **Targeted operation** — an operation with a meaningful target state
 //!   (home, absolute/relative move, target position, preset recall). It can be
 //!   observed as applied and as settled.
-//! - **Applied-only operation** — an operation with no meaningful physical rest
-//!   state: a continuous drive, a STOP, or an instantaneous trigger. It exposes
+//! - **Applied-only operation** — an operation with no meaningful target state:
+//!   a continuous drive, a STOP, or an instantaneous trigger. It exposes
 //!   `applied()` and has no `settled()`.
-//! - **Settled** — a targeted operation was applied *and* physical motion
-//!   ended, proven by an exact operation-complete signal where the profile
-//!   supports one, or by affected-axis position polling otherwise. Settling is a
-//!   caller wait, not an engine phase.
+//! - **Settled** — a targeted operation was applied *and* meets the
+//!   profile-selected protocol settlement condition: a profile-declared
+//!   completion-is-settled signal, or two affected-axis position samples within
+//!   tolerance. It is an intended indication of target rest, not a
+//!   2.0.0-rc.1 bench-verified assertion that physical motion ended; exact
+//!   model/firmware/transport/command evidence remains in the repository's
+//!   `docs/hardware_release_checklist.md`.
+//!   Settlement is a caller wait, not an engine phase.
 //!
 //! **Deadline classes** (three independent owners; a default inquiry observer
 //! may be sized from immutable retry policy)
@@ -199,7 +203,7 @@
 //! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 //! let camera = session.camera::<PtzOpticsG2>()?;
 //!
-//! // `home` is a targeted operation: `settled` waits past applied to physical rest.
+//! // `home` is targeted: `settled` waits past applied for protocol settlement.
 //! camera.pan_tilt().home()?.settled()?;
 //!
 //! // `stop` is applied-only: it has an applied wait and no settled state. The
@@ -499,8 +503,8 @@
 //! ### Bounded Operation Handles
 //!
 //! Ordinary noun methods are the simplest command-completion API. Use `submit`
-//! when one command needs an exact deadline, cancellation, detach, or a physical
-//! settle signal:
+//! when one command needs an exact deadline, cancellation, detach, or a
+//! profile-selected protocol-settlement wait:
 //!
 //! ```rust
 //! # #[cfg(feature = "blocking")]
@@ -749,7 +753,7 @@
 //! ### Image Control
 //! - Focus control with auto/manual modes
 //! - Sharpness, brightness, and contrast adjustment
-//! - Noise reduction (2D and 3D)
+//! - 2D noise-reduction mode and 2D/3D level inquiries and controls (independently profile-gated)
 //! - Image flip and other effects
 //!
 //! ## Position Units
@@ -879,7 +883,7 @@
 //!
 //! ## Movement Completion Tracking
 //!
-//! Observe or wait for exactly selected physical axes with
+//! Observe or wait for the protocol position samples of exactly selected axes with
 //! [`camera::MotionQuery`] and [`camera::IdleWait`]. Unselected axes are never
 //! queried:
 //!
@@ -934,6 +938,23 @@
 //! ```
 
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
+
+/// Implementation details used by exported declarative macros.
+///
+/// This is not a supported public API. It exists so macro expansions can refer
+/// to optional dependencies through the defining crate even when a downstream
+/// crate renames dependencies or does not depend on them directly.
+#[doc(hidden)]
+pub mod __macro_support {
+    #[doc(hidden)]
+    pub use grafton_visca_macros::__grafton_visca_range_type_decl;
+    #[cfg(feature = "schemars")]
+    pub use schemars;
+    #[cfg(feature = "serde")]
+    pub use serde;
+    #[cfg(feature = "ts-rs")]
+    pub use ts_rs;
+}
 
 pub use crate::{
     camera_id::CameraId,

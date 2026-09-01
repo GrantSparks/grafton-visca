@@ -55,6 +55,20 @@ run_filtered_test() {
     printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
 }
 
+run_reexported_range_helper_test() (
+    local export_dir
+    export_dir="$(mktemp -d "${TMPDIR:-/tmp}/grafton-range-reexport.XXXXXX")"
+    trap 'find "$export_dir" -depth -delete' EXIT
+
+    TS_RS_EXPORT_DIR="$export_dir" cargo_stable test \
+        --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
+        -p range-macro-consumer --features range-helper-derives
+
+    test -s "${export_dir}/ReexportedRange.ts"
+    grep -Fq 'export type ReexportedRange = number;' \
+        "${export_dir}/ReexportedRange.ts"
+)
+
 expect_unknown_feature() {
     local feature="$1"
     local output_file
@@ -139,6 +153,17 @@ run_test "test-utils + blocking + Tokio" \
     cargo_stable test --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
 run_test "macro derives" \
     cargo_stable test -p grafton-visca-macros
+# The workspace/default leg leaves this fixture's optional serde, schemars,
+# and ts-rs oracle cfg'd out; the all-features leg is only a check. Run this
+# fixture explicitly so its `renamed_dependency_derive_and_profile_contract_runs`
+# behavioral contract is not merely compile-checked.
+run_test "renamed range helper derives" \
+    cargo_stable test -p phase4-renamed-dependency --features range-helper-derives --all-targets
+run_test "re-exported range macro without helpers" \
+    cargo_stable test --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
+        -p range-macro-consumer
+run_test "re-exported range macro with helpers" \
+    run_reexported_range_helper_test
 
 run_test "all-features and all-targets check" \
     cargo_stable check --workspace --all-features --all-targets

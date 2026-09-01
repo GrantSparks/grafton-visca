@@ -1184,6 +1184,8 @@ mod tests {
         assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsPresetRecallSpeed));
         assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsMulticastStreaming));
         assert!(g2.supports_typed(TypedSupportSurface::PtzOpticsNdiQuality));
+        assert!(g2.supports_typed(TypedSupportSurface::ExposureMode));
+        assert!(!g2.supports_typed(TypedSupportSurface::IrisControlInquiry));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomToggle));
         assert!(!g2.supports_typed(TypedSupportSurface::DigitalZoomRange));
 
@@ -1203,6 +1205,62 @@ mod tests {
         assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
         assert!(fr7.supports_typed(TypedSupportSurface::SonySpotlight));
         assert!(!fr7.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
+        assert!(!fr7.supports_typed(TypedSupportSurface::ExposureMode));
+        assert!(!fr7.supports_typed(TypedSupportSurface::IrisControlInquiry));
+    }
+
+    #[test]
+    fn iris_control_status_inquiry_is_not_inferred_from_other_iris_facts() {
+        let g3 = Capabilities::from_profile::<PtzOpticsG3>();
+        assert!(g3.has_iris_control);
+        assert!(g3.supports_typed(TypedSupportSurface::IrisControl));
+        assert!(!g3.supports_typed(TypedSupportSurface::IrisControlInquiry));
+
+        for (name, caps) in [
+            ("PtzOptics G2", Capabilities::from_profile::<PtzOpticsG2>()),
+            ("PtzOptics G3", g3),
+            (
+                "PtzOptics 30X",
+                Capabilities::from_profile::<PtzOptics30X>(),
+            ),
+            ("Sony FR7", Capabilities::from_profile::<SonyFR7>()),
+            ("Sony BRC-H900", Capabilities::from_profile::<SonyBRCH900>()),
+            ("Sony EVI-H100", Capabilities::from_profile::<SonyEVIH100>()),
+            ("Sony BRC-300", Capabilities::from_profile::<SonyBRC300>()),
+            (
+                "Nearus BRC-300",
+                Capabilities::from_profile::<NearusBRC300>(),
+            ),
+            (
+                "Generic VISCA",
+                Capabilities::from_profile::<GenericVisca>(),
+            ),
+        ] {
+            assert!(
+                !caps.supports_typed(TypedSupportSurface::IrisControlInquiry),
+                "{name} must not infer `09 04 2B` permission from iris metadata or position inquiry support"
+            );
+        }
+    }
+
+    #[test]
+    fn shared_exposure_mode_support_is_not_inferred_from_discovery_inventory() {
+        for caps in [
+            Capabilities::from_profile::<PtzOpticsG2>(),
+            Capabilities::from_profile::<PtzOpticsG3>(),
+            Capabilities::from_profile::<PtzOptics30X>(),
+        ] {
+            assert!(!caps.exposure_modes.is_empty());
+            assert!(caps.supports_typed(TypedSupportSurface::ExposureMode));
+        }
+
+        let generic = Capabilities::from_profile::<GenericVisca>();
+        assert!(!generic.exposure_modes.is_empty());
+        assert!(!generic.supports_typed(TypedSupportSurface::ExposureMode));
+
+        let fr7 = Capabilities::from_profile::<SonyFR7>();
+        assert!(fr7.exposure_modes.is_empty());
+        assert!(!fr7.supports_typed(TypedSupportSurface::ExposureMode));
     }
 
     #[test]

@@ -21,3 +21,4 @@ fn main() {
 }
 
 //~ E0271
+//~ "type mismatch resolving `<SmolRuntime as Runtime>::SerialTransport == Serial<TokioSerialAdapter>`"

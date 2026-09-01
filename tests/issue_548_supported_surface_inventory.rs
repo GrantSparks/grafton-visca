@@ -77,7 +77,6 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "HueControl",
     "LuminanceControl",
     "GammaControl",
-    "NoiseReduction",
     "NoiseReduction2D",
     "NoiseReduction3D",
     "PictureEffect",
@@ -95,6 +94,10 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "SonyAutoSlowShutter",
     "PtzOpticsMulticastStreaming",
     "PtzOpticsNdiQuality",
+    "ExposureMode",
+    "IrisControlInquiry",
+    "NoiseReduction2DControl",
+    "NoiseReduction3DControl",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[
@@ -214,10 +217,10 @@ fn static_noun_and_control_inventory_is_closed() {
         14
     );
 
-    // The command registry is intentionally readable at a glance: 149 IDs,
-    // of which 146 are target-facing and three are protocol exceptions.
-    assert!(surface.contains("BUILTIN_COMMAND_COUNT: usize = 149"));
-    assert!(surface.contains("TARGET_FACING_COMMAND_COUNT: usize = 146"));
+    // The command registry is intentionally readable at a glance: 150 IDs,
+    // of which 147 are target-facing and three are protocol exceptions.
+    assert!(surface.contains("BUILTIN_COMMAND_COUNT: usize = 150"));
+    assert!(surface.contains("TARGET_FACING_COMMAND_COUNT: usize = 147"));
     assert!(surface.contains("NON_NOUN_COMMAND_COUNT: usize = 3"));
 }
 
@@ -250,8 +253,8 @@ fn dynamic_control_inventory_is_closed() {
     // registry. The crate's compiled tests derive the same totals from the
     // command/inquiry registries.
     for (name, value) in [
-        ("DYN_NOUN_TARGET_METHOD_COUNT", "146"),
-        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "63"),
+        ("DYN_NOUN_TARGET_METHOD_COUNT", "147"),
+        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "62"),
         ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "9"),
         ("DYN_NOUN_COUNT", "14"),
     ] {

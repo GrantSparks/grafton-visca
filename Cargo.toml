@@ -2,6 +2,7 @@
 members = [
     ".",
     "grafton-visca-macros",
+    "tests/fixtures/phase4_derive_shadows",
     "tests/fixtures/phase4_renamed",
 ]
 
@@ -107,7 +108,11 @@ nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
 schemars = { version = "1.2", optional = true }
-ts-rs = { version = "12", features = ["format"], optional = true }
+# Keep ts-rs' default `serde-compat` support for the serde attributes it understands.
+# The value wrappers also use serde's `try_from`/`into` validation controls, which
+# ts-rs v12 intentionally ignores; `no-serde-warnings` suppresses unsupported-
+# attribute diagnostics without disabling `serde-compat`.
+ts-rs = { version = "12", features = ["format", "no-serde-warnings"], optional = true }
 serialport = { version = "4.9", optional = true }
 tokio-serial = { version = "5.4", optional = true }
 thiserror = "2.0"

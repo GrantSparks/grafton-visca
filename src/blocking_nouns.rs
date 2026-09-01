@@ -21,16 +21,17 @@ use crate::{
         HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
         HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
         HasContrastControl, HasDigitalZoomToggle, HasDirectMenuControl, HasDirectZoom, HasExposure,
-        HasExposureCompensation, HasFocus, HasFocusLock, HasFocusNearLimitInquiry, HasFocusZone,
-        HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageMirror,
-        HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
-        HasNdFilter, HasNoiseReduction, HasNoiseReduction2D, HasNoiseReduction3D, HasOnePushFocus,
-        HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
-        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
-        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasPtzOpticsSnapFocus,
-        HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
-        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed,
-        HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasExposureCompensation, HasExposureMode, HasFocus, HasFocusLock, HasFocusNearLimitInquiry,
+        HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
+        HasImageMirror, HasImageProcessing, HasIrisControl, HasIrisControlInquiry,
+        HasLuminanceControl, HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction2D,
+        HasNoiseReduction2DControl, HasNoiseReduction3D, HasNoiseReduction3DControl,
+        HasOnePushFocus, HasOnePushWhiteBalance, HasPanTilt, HasPictureEffect, HasPower,
+        HasPresets, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
+        HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
+        HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning, HasSaturationControl,
+        HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio,
+        HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command,
     completion::{self, AppliedOnly, Targeted},
@@ -429,7 +430,8 @@ impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> 
         self.camera.core().stop_all_motion()
     }
 
-    /// Reports whether any mechanical movement axis is moving.
+    /// Reports whether protocol position samples indicate movement on any
+    /// mechanical movement axis.
     ///
     /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
     /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
@@ -439,12 +441,13 @@ impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> 
         self.camera.core().is_moving(MotionQuery::default())
     }
 
-    /// Reports whether the selected physical axes are moving.
+    /// Reports whether two protocol position samples indicate movement on the
+    /// selected axes.
     pub fn is_moving_axes(&self, query: MotionQuery) -> Result<bool> {
         self.camera.core().is_moving(query)
     }
 
-    /// Waits for the selected physical axes to become idle.
+    /// Waits until the selected axes meet the protocol idle condition.
     pub fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
         self.camera.core().wait_until_idle(wait)
     }

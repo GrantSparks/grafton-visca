@@ -208,8 +208,8 @@ mod blocking {
     use super::cached_projection;
     use crate::runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, InquiryRoute, ReplyShape, RequestContext, RetryPolicy, SequenceWidth,
-        TimeoutPolicy, TransportKind,
+        EnvelopeSequence, InquiryRoute, RawIncompletePrefix, RawPrefixEvidence, ReplyShape,
+        RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransportKind,
     };
 
     fn policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
@@ -311,6 +311,46 @@ mod blocking {
                 .pop_front()
                 .unwrap_or(Ok(TransmissionMeta { sequence: None }))
         }
+    }
+
+    fn raw_inquiry_tombstone(
+        transport: TransportKind,
+        route: InquiryRoute,
+        ambiguity: Duration,
+    ) -> (BlockingOwner, FakeDriver, Instant) {
+        let mut owner_policy = policy(4, transport);
+        owner_policy.protocol.inquiry_capacity = 1;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+        let mut first_request = raw_inquiry(CameraId::CAMERA_1, route, Duration::from_secs(1));
+        if let RuntimeRequest::Inquiry { context, .. } = &mut first_request {
+            context.timeout.ambiguity = ambiguity;
+        }
+        let first = owner
+            .submit(&mut driver, first_request)
+            .expect("first raw inquiry writes");
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(route),
+                        payload: smallvec::smallvec![0x0c],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("first inquiry completes into its raw tombstone");
+        assert!(matches!(
+            first.terminal(),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        let hold_until = owner
+            .state()
+            .next_wake()
+            .expect("terminal raw inquiry retains a target tombstone");
+        (owner, driver, hold_until)
     }
 
     /// Build the same low-level policy as [`policy`], but with Sony's
@@ -484,6 +524,152 @@ mod blocking {
         }
     }
 
+    #[derive(Debug)]
+    enum FragmentDecode {
+        Prefix,
+        /// A source byte alone is still ambiguous at a narrow inquiry release
+        /// (issue #542 design review §18), so a later tail must be received
+        /// rather than treating this test fixture's prefix as an owned named
+        /// terminal.
+        SourceOnlyPrefix,
+        /// A stream framer is called with zero newly read bytes at H.  This
+        /// models a genuine post-H idle receive without clearing its retained
+        /// prefix; `docs/architecture_2_0.md` requires that input-first pass.
+        ZeroByteNoFrame,
+        Frames(Vec<DecodedFrame>),
+        Malformed,
+    }
+
+    /// Models the production framer contract at the blocking owner seam: a
+    /// prefix is retained across turns, a tail clears it by producing a frame,
+    /// and the tombstone boundary can explicitly discard an orphaned prefix.
+    #[derive(Debug)]
+    struct FragmentTrackingDecoder {
+        steps: VecDeque<FragmentDecode>,
+        pending: bool,
+        pending_kind: Option<RawIncompletePrefix>,
+        discarded_fragments: usize,
+    }
+
+    impl FragmentTrackingDecoder {
+        fn new(steps: impl IntoIterator<Item = FragmentDecode>) -> Self {
+            Self {
+                steps: steps.into_iter().collect(),
+                pending: false,
+                pending_kind: None,
+                discarded_fragments: 0,
+            }
+        }
+    }
+
+    impl BlockingFrameDecoder for FragmentTrackingDecoder {
+        fn decode(
+            &mut self,
+            buffers: &mut OwnerBuffers,
+            received: usize,
+            _frame_limit: usize,
+        ) -> Result<Vec<DecodedFrame>, Error> {
+            match self
+                .steps
+                .pop_front()
+                .ok_or_else(|| Error::InvalidState("fragment decoder exhausted".into()))?
+            {
+                FragmentDecode::Prefix => {
+                    self.pending = true;
+                    self.pending_kind = Some(RawIncompletePrefix::NamedCompletionOrError(
+                        crate::ViscaSocket::S1,
+                    ));
+                    Ok(Vec::new())
+                }
+                FragmentDecode::SourceOnlyPrefix => {
+                    self.pending = true;
+                    self.pending_kind = Some(RawIncompletePrefix::SourceOnly);
+                    Ok(Vec::new())
+                }
+                FragmentDecode::ZeroByteNoFrame => {
+                    if received != 0 {
+                        return Err(Error::InvalidState(
+                            "zero-byte stream decoder step received input".into(),
+                        ));
+                    }
+                    Ok(Vec::new())
+                }
+                FragmentDecode::Frames(frames) => {
+                    self.pending = false;
+                    self.pending_kind = None;
+                    Ok(frames)
+                }
+                FragmentDecode::Malformed => {
+                    self.pending = false;
+                    self.pending_kind = None;
+                    buffers.set_discarded_malformed(1);
+                    Ok(Vec::new())
+                }
+            }
+        }
+
+        fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+            Ok(self.pending)
+        }
+
+        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
+            Ok(self.pending.then_some(CameraId::CAMERA_1))
+        }
+
+        fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+            Ok(self.pending.then(|| RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: self
+                    .pending_kind
+                    .unwrap_or(RawIncompletePrefix::NamedCompletionOrError(
+                        crate::ViscaSocket::S1,
+                    )),
+            }))
+        }
+
+        fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+            if self.pending {
+                self.pending = false;
+                self.pending_kind = None;
+                self.discarded_fragments = self.discarded_fragments.saturating_add(1);
+            }
+            Ok(())
+        }
+    }
+
+    /// A deliberately broken decoder used to prove the tombstone boundary
+    /// verifies the discard postcondition instead of trusting `Ok(())`.
+    #[derive(Debug, Default)]
+    struct NonClearingFragmentDecoder {
+        pending: bool,
+        discard_calls: usize,
+    }
+
+    impl BlockingFrameDecoder for NonClearingFragmentDecoder {
+        fn decode(
+            &mut self,
+            _buffers: &mut OwnerBuffers,
+            _received: usize,
+            _frame_limit: usize,
+        ) -> Result<Vec<DecodedFrame>, Error> {
+            self.pending = true;
+            Ok(Vec::new())
+        }
+
+        fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+            Ok(self.pending)
+        }
+
+        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
+            Ok(self.pending.then_some(CameraId::CAMERA_1))
+        }
+
+        fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+            self.discard_calls = self.discard_calls.saturating_add(1);
+            Ok(())
+        }
+    }
+
     /// The submission-side raw tombstone test needs a real bounded wait rather
     /// than a test-thread sleep. The first read supplies an already-buffered
     /// stale frame; the second sleeps only to the exact owner deadline and
@@ -513,6 +699,160 @@ mod blocking {
                 std::thread::sleep(deadline.duration_since(now));
             }
             Ok(BlockingReceive::TimedOut)
+        }
+    }
+
+    /// Delivers one raw stream frame in a prefix and tail. The tail waits for
+    /// the tombstone deadline so the test exercises input-first processing at
+    /// the exact ambiguity boundary.
+    #[derive(Debug, Default)]
+    struct FragmentedTombstoneWaitReader {
+        calls: usize,
+        deadlines: Vec<Instant>,
+    }
+
+    impl BlockingReadDriver for FragmentedTombstoneWaitReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
+            self.calls = self.calls.saturating_add(1);
+            self.deadlines.push(deadline);
+            receive_buffer[0] = 1;
+            match self.calls {
+                // The decoder retains this prefix and produces no frame.
+                1 => Ok(BlockingReceive::Bytes(1)),
+                // The tail becomes available at the precise hold deadline.
+                2 => {
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline.duration_since(now));
+                    }
+                    Ok(BlockingReceive::Bytes(1))
+                }
+                // Once the successor is safely written, deliver its own reply
+                // in a normal receipt pump.
+                3 => Ok(BlockingReceive::Bytes(1)),
+                _ => Err(Error::InvalidState(
+                    "fragmented tombstone reader exhausted".into(),
+                )),
+            }
+        }
+    }
+
+    /// Models 65 already-queued complete stale replies. The owner can consume
+    /// only its bounded 64 turns; the final reply must remain visibly queued.
+    #[derive(Debug)]
+    struct QueuedCompleteFramesReader {
+        calls: usize,
+        remaining: usize,
+    }
+
+    impl QueuedCompleteFramesReader {
+        fn new(remaining: usize) -> Self {
+            Self {
+                calls: 0,
+                remaining,
+            }
+        }
+    }
+
+    impl BlockingReadDriver for QueuedCompleteFramesReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            _owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            self.calls = self.calls.saturating_add(1);
+            if self.remaining > 0 {
+                self.remaining = self.remaining.saturating_sub(1);
+                receive_buffer[0] = 1;
+                Ok(BlockingReceive::Bytes(1))
+            } else {
+                Ok(BlockingReceive::TimedOut)
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct CompleteStaleFrameDecoder {
+        route: InquiryRoute,
+    }
+
+    impl BlockingFrameDecoder for CompleteStaleFrameDecoder {
+        fn decode(
+            &mut self,
+            _buffers: &mut OwnerBuffers,
+            _received: usize,
+            _frame_limit: usize,
+        ) -> Result<Vec<DecodedFrame>, Error> {
+            Ok(vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(self.route),
+                    payload: smallvec::smallvec![0x11],
+                },
+            )])
+        }
+    }
+
+    #[derive(Debug)]
+    enum TombstoneRead {
+        Bytes,
+        TransientFault,
+        Idle,
+        TimeoutAtDeadline,
+    }
+
+    #[derive(Debug)]
+    struct ScriptedTombstoneReader {
+        reads: VecDeque<TombstoneRead>,
+        calls: usize,
+        deadlines: Vec<Instant>,
+    }
+
+    impl ScriptedTombstoneReader {
+        fn new(reads: impl IntoIterator<Item = TombstoneRead>) -> Self {
+            Self {
+                reads: reads.into_iter().collect(),
+                calls: 0,
+                deadlines: Vec::new(),
+            }
+        }
+    }
+
+    impl BlockingReadDriver for ScriptedTombstoneReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
+            self.calls = self.calls.saturating_add(1);
+            self.deadlines.push(deadline);
+            match self
+                .reads
+                .pop_front()
+                .ok_or_else(|| Error::InvalidState("tombstone reader exhausted".into()))?
+            {
+                TombstoneRead::Bytes => {
+                    receive_buffer[0] = 1;
+                    Ok(BlockingReceive::Bytes(1))
+                }
+                TombstoneRead::TransientFault => Err(Error::Io(Arc::new(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionRefused,
+                )))),
+                TombstoneRead::Idle => Ok(BlockingReceive::TimedOut),
+                TombstoneRead::TimeoutAtDeadline => {
+                    let now = Instant::now();
+                    if deadline > now {
+                        std::thread::sleep(deadline.duration_since(now));
+                    }
+                    Ok(BlockingReceive::TimedOut)
+                }
+            }
         }
     }
 
@@ -947,6 +1287,403 @@ mod blocking {
                 if route == Some(successor_route) && payload.as_slice() == [0x0b]
         ));
         drop(other);
+    }
+
+    /// A raw TCP prefix must not make the submission-side tombstone wait look
+    /// idle. Its tail is available exactly at expiry, so it has to be decoded
+    /// and ignored before the successor inquiry is written; otherwise a later
+    /// receipt pump can misattribute that stale reply to the successor.
+    #[test]
+    fn pumped_stream_raw_tombstone_consumes_fragmented_stale_input_before_successor_write() {
+        let mut owner_policy = policy(4, TransportKind::Stream);
+        owner_policy.protocol.inquiry_capacity = 1;
+        let mut owner = BlockingOwner::new(owner_policy).unwrap();
+        let mut driver = FakeDriver::default();
+        let first_route = InquiryRoute(0x53);
+        let successor_route = InquiryRoute(0x54);
+        let mut first_request =
+            raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1));
+        if let RuntimeRequest::Inquiry { context, .. } = &mut first_request {
+            context.timeout.ambiguity = Duration::from_millis(100);
+        }
+        let first = owner
+            .submit(&mut driver, first_request)
+            .expect("first raw inquiry writes");
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::InquiryReply {
+                        route: Some(first_route),
+                        payload: smallvec::smallvec![0x0c],
+                    },
+                ),
+                Instant::now(),
+            )
+            .expect("first raw inquiry completes into its target tombstone");
+        assert!(matches!(
+            first.terminal(),
+            Some(RuntimeOutcome::Reply { .. })
+        ));
+        let hold_until = owner
+            .state()
+            .next_wake()
+            .expect("the terminal raw inquiry leaves its target hold");
+
+        let mut reader = FragmentedTombstoneWaitReader::default();
+        let mut decoder = FragmentTrackingDecoder::new([
+            FragmentDecode::Prefix,
+            FragmentDecode::Frames(vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(first_route),
+                    payload: smallvec::smallvec![0x0c],
+                },
+            )]),
+            FragmentDecode::Frames(vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(successor_route),
+                    payload: smallvec::smallvec![0x0d],
+                },
+            )]),
+        ]);
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("the tombstone consumes the fragmented stale reply before B writes");
+        let successor_id = successor.id();
+
+        assert_eq!(
+            reader.calls, 2,
+            "both prefix and tail are consumed while the tombstone is active"
+        );
+        assert_eq!(reader.deadlines[0], hold_until);
+        assert!(
+            reader.deadlines[1] >= hold_until,
+            "the post-H raw probe has one small positive transport-read ceiling"
+        );
+        assert_eq!(driver.writes.len(), 2);
+        assert_eq!(
+            driver.writes[1].0, successor_id,
+            "B writes only after the stale A frame has become inert"
+        );
+        assert!(
+            successor.terminal().is_none(),
+            "the stale A reply did not resolve B before B's own reply"
+        );
+
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert_eq!(reader.calls, 3, "the next receipt pump gets B's own reply");
+        assert!(matches!(
+            successor.terminal(),
+            Some(RuntimeOutcome::Reply { route, payload })
+                if route == Some(successor_route) && payload.as_slice() == [0x0d]
+        ));
+    }
+
+    #[test]
+    fn stream_source_only_prefix_survives_transient_fault_until_post_h_tail() {
+        let first_route = InquiryRoute(0x55);
+        let successor_route = InquiryRoute(0x56);
+        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
+            TransportKind::Stream,
+            first_route,
+            Duration::from_millis(60),
+        );
+        let mut reader = ScriptedTombstoneReader::new([
+            TombstoneRead::Bytes,
+            TombstoneRead::TransientFault,
+            TombstoneRead::Idle,
+            TombstoneRead::Bytes,
+        ]);
+        let mut decoder = FragmentTrackingDecoder::new([
+            // §18 deliberately discards an unowned *named* terminal at H.
+            // This test's stated source-only-prefix scenario instead remains
+            // ambiguous through the transient fault and post-H idle probe,
+            // then is completed by its next real input read.
+            FragmentDecode::SourceOnlyPrefix,
+            FragmentDecode::ZeroByteNoFrame,
+            FragmentDecode::Frames(vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(first_route),
+                    payload: smallvec::smallvec![0x0e],
+                },
+            )]),
+        ]);
+
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("the transient fault does not abandon the retained prefix");
+
+        assert_eq!(
+            reader.calls, 4,
+            "prefix, transient fault, post-H idle probe, then source-only tail"
+        );
+        assert_eq!(reader.deadlines[0], hold_until);
+        assert!(
+            reader
+                .deadlines
+                .iter()
+                .skip(1)
+                .all(|deadline| *deadline >= hold_until),
+            "the post-H input-first probes may use the bounded positive read ceiling"
+        );
+        assert_eq!(decoder.discarded_fragments, 0, "the tail completed cleanly");
+        assert_eq!(driver.writes.len(), 2, "B writes only after the hold");
+        assert!(successor.terminal().is_none(), "stale A never resolves B");
+    }
+
+    #[test]
+    fn orphaned_stream_prefix_is_discarded_before_successor_correlation_releases() {
+        let first_route = InquiryRoute(0x57);
+        let successor_route = InquiryRoute(0x58);
+        let (mut owner, mut driver, _) = raw_inquiry_tombstone(
+            TransportKind::Stream,
+            first_route,
+            Duration::from_millis(20),
+        );
+        let mut reader = ScriptedTombstoneReader::new([
+            TombstoneRead::Bytes,
+            TombstoneRead::TimeoutAtDeadline,
+            TombstoneRead::Bytes,
+            TombstoneRead::Bytes,
+        ]);
+        let mut decoder = FragmentTrackingDecoder::new([
+            FragmentDecode::Prefix,
+            // A real zero-byte stream decode retains the prefix so the raw
+            // classifier, not a fake malformed decode, discards it at H.
+            // This is the input-first case from issue #542 design review §18.
+            FragmentDecode::ZeroByteNoFrame,
+            // The post-boundary tail is malformed after that explicit discard;
+            // it cannot join A's prefix and look like B's reply.
+            FragmentDecode::Malformed,
+            FragmentDecode::Frames(vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::InquiryReply {
+                    route: Some(successor_route),
+                    payload: smallvec::smallvec![0x10],
+                },
+            )]),
+        ]);
+
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("B writes after the orphaned prefix is removed");
+        assert_eq!(decoder.discarded_fragments, 1);
+        assert_eq!(driver.writes.len(), 2);
+
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .unwrap(),
+            0,
+            "the isolated post-boundary tail is malformed"
+        );
+        assert!(
+            successor.terminal().is_none(),
+            "the isolated tail cannot bind B"
+        );
+        assert_eq!(
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            successor.terminal(),
+            Some(RuntimeOutcome::Reply { route, payload })
+                if route == Some(successor_route) && payload.as_slice() == [0x10]
+        ));
+    }
+
+    #[test]
+    fn tombstone_boundary_poisons_if_decoder_does_not_clear_retained_fragment() {
+        let first_route = InquiryRoute(0x5d);
+        let successor_route = InquiryRoute(0x5e);
+        let (mut owner, mut driver, _) = raw_inquiry_tombstone(
+            TransportKind::Stream,
+            first_route,
+            Duration::from_millis(20),
+        );
+        let mut reader =
+            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
+        let mut decoder = NonClearingFragmentDecoder::default();
+
+        let error = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect_err("a decoder that refuses to clear must fail the session closed");
+
+        assert_eq!(reader.calls, 2, "the boundary follows one prefix read");
+        assert_eq!(
+            decoder.discard_calls, 64,
+            "a non-clearing decoder is bounded by the framing work cap"
+        );
+        let Error::StreamPoisoned { reason } = &error else {
+            panic!("retained framing must poison the stream, got {error:?}");
+        };
+        assert!(reason.contains("correlation release framing work cap exhausted"));
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "B cannot write after the discard postcondition fails"
+        );
+        assert!(matches!(
+            owner.state().boundary_error(),
+            Some(Error::StreamPoisoned { reason })
+                if reason.contains("correlation release framing work cap exhausted")
+        ));
+        assert_eq!(owner.state().active_len(), 0, "poison terminalizes B");
+    }
+
+    #[test]
+    fn tombstone_work_cap_poisons_with_complete_stale_frame_still_queued() {
+        let first_route = InquiryRoute(0x5f);
+        let successor_route = InquiryRoute(0x60);
+        let (mut owner, mut driver, _) =
+            raw_inquiry_tombstone(TransportKind::Stream, first_route, Duration::from_secs(1));
+        let mut reader = QueuedCompleteFramesReader::new(65);
+        let mut decoder = CompleteStaleFrameDecoder { route: first_route };
+
+        let error = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(2)),
+                Duration::from_secs(2),
+                Instant::now() + Duration::from_secs(2),
+            )
+        }
+        .expect_err("cap exhaustion with queued input must fail the session closed");
+
+        assert_eq!(reader.calls, 64, "the receive loop stops at its work cap");
+        assert_eq!(
+            reader.remaining, 1,
+            "the adversarial 65th complete stale reply remains transport-queued"
+        );
+        let Error::StreamPoisoned { reason } = &error else {
+            panic!("ambiguous cap exhaustion must poison the stream, got {error:?}");
+        };
+        assert!(reason.contains("complete input remained pending"));
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "B cannot write while an undrained stale reply remains"
+        );
+        assert!(matches!(
+            owner.state().boundary_error(),
+            Some(Error::StreamPoisoned { reason })
+                if reason.contains("complete input remained pending")
+        ));
+        assert_eq!(owner.state().active_len(), 0, "poison terminalizes B");
+    }
+
+    #[test]
+    fn malformed_stream_frame_does_not_busy_loop_the_tombstone_wait() {
+        let first_route = InquiryRoute(0x59);
+        let successor_route = InquiryRoute(0x5a);
+        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
+            TransportKind::Stream,
+            first_route,
+            Duration::from_millis(15),
+        );
+        let mut reader =
+            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
+        let mut decoder = FragmentTrackingDecoder::new([
+            FragmentDecode::Malformed,
+            // A stream's post-H empty receive still has to decode zero bytes
+            // before it can earn the raw release fence (§18).
+            FragmentDecode::ZeroByteNoFrame,
+        ]);
+
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("one malformed frame is ignored and the bounded hold releases");
+
+        assert_eq!(
+            reader.calls, 2,
+            "a malformed frame is not a post-H empty-input fence"
+        );
+        assert!(
+            Instant::now() >= hold_until,
+            "the owner slept to the hold boundary"
+        );
+        assert_eq!(driver.writes.len(), 2);
+        assert!(successor.terminal().is_none());
+    }
+
+    #[test]
+    fn malformed_datagram_requires_post_h_receive_before_tombstone_release() {
+        let first_route = InquiryRoute(0x5b);
+        let successor_route = InquiryRoute(0x5c);
+        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
+            TransportKind::Datagram,
+            first_route,
+            Duration::from_millis(15),
+        );
+        let mut reader =
+            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
+        let mut decoder = FragmentTrackingDecoder::new([FragmentDecode::Malformed]);
+
+        let successor = {
+            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
+            BlockingControlHost::submit_inquiry_until(
+                &host,
+                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+        }
+        .expect("the malformed datagram is ignored only after the post-H probe");
+
+        assert_eq!(
+            reader.calls, 2,
+            "a malformed datagram requires a real post-H timeout receive"
+        );
+        assert!(Instant::now() >= hold_until);
+        assert_eq!(driver.writes.len(), 2);
+        assert!(successor.terminal().is_none());
     }
 
     #[test]
@@ -3668,8 +4405,15 @@ mod blocking {
             .state_mut()
             .subscribe_applied(Some(CameraId::CAMERA_1), 1)
             .unwrap();
-        let projection =
-            AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[42, -3]).unwrap();
+        let projection = AppliedStateProjection::set(
+            WriteOnlyState::PanTiltLimits,
+            &[
+                i64::from(crate::command::PanTiltLimitCorner::UpRight.to_byte()),
+                42,
+                -3,
+            ],
+        )
+        .unwrap();
         let mut driver = FakeDriver::default();
         let receipt = owner
             .submit(
@@ -4312,40 +5056,77 @@ mod blocking {
     #[test]
     fn deadline_detach_diagnostics_and_buffers_remain_bounded() {
         let mut owner_policy = policy(2, TransportKind::Datagram);
+        // Exercise the detached deadline lifecycle through the no-reader
+        // `wake` seam without pretending that a wake can release raw
+        // correlation. Issue #542 decisions 7 and 18 require real input-first
+        // evidence at that raw boundary; a uniquely sequenced Sony write has
+        // no such release gate and may safely expire at its own ACK deadline.
+        owner_policy.protocol.envelope = EnvelopeKind::Sony;
         owner_policy.limits.diagnostics = 3;
         owner_policy.limits.state_keys_per_target = 2;
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let send_ptr = owner.state_mut().buffers().send.as_ptr();
         let receive_ptr = owner.state_mut().buffers().receive_mut().as_ptr();
-        let mut driver = FakeDriver::default();
-        let base = Instant::now();
+        let mut driver = sony_driver([0x1020_3040]);
         let receipt = owner
             .submit(
                 &mut driver,
                 command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
             )
             .unwrap();
+        let request = receipt.id;
+        assert_eq!(driver.writes.len(), 1, "the request reached the wire");
+        assert!(
+            receipt.terminal().is_none(),
+            "the sequenced write remains live while awaiting its ACK"
+        );
+        assert_eq!(owner.state().active_len(), 1);
+        assert_eq!(owner.state().permits().available(), 1);
+        let ack_deadline = owner
+            .state()
+            .next_wake()
+            .expect("the live request owns an ACK deadline");
+        assert!(
+            matches!(
+                owner.state().request_state(request),
+                Some((Phase::AwaitingAck { deadline, .. }, CancelState::None))
+                    if deadline == ack_deadline
+            ),
+            "the sequenced write owns the engine's next ACK deadline"
+        );
+
         drop(receipt);
-        // Issue #671: a raw command whose ACK is lost quarantines at its ACK
-        // deadline (10ms) rather than poisoning immediately, then fails at the
-        // ambiguity deadline (a further 10ms). Wake once past each so the
-        // detached request drains; the quarantine window is measured from the
-        // wake that processes the ACK deadline. Diagnostics and buffers stay
-        // bounded across both deadline events.
-        owner
-            .wake(&mut driver, base + Duration::from_millis(20))
-            .unwrap();
-        owner
-            .wake(&mut driver, base + Duration::from_millis(50))
-            .unwrap();
+        assert!(
+            matches!(
+                owner.state().request_state(request),
+                Some((Phase::AwaitingAck { deadline, .. }, CancelState::None))
+                    if deadline == ack_deadline
+            ),
+            "detaching the observer does not alter protocol ownership"
+        );
+        assert_eq!(owner.state().active_len(), 1);
+        assert_eq!(owner.state().permits().available(), 1);
+
+        owner.wake(&mut driver, ack_deadline).unwrap();
+
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "RetryPolicy::NEVER must not emit a second transmission"
+        );
+        let metrics = owner.state().metrics();
+        assert_eq!(metrics.ack_timeouts, 1);
+        assert_eq!(metrics.retries_scheduled, 0);
         assert!(owner.state().diagnostics().count() <= 3);
-        assert!(owner.state().metrics().dropped_diagnostics > 0);
+        assert!(metrics.dropped_diagnostics > 0);
         assert_eq!(owner.state_mut().buffers().send.as_ptr(), send_ptr);
         assert_eq!(
             owner.state_mut().buffers().receive_mut().as_ptr(),
             receive_ptr
         );
         assert_eq!(owner.state().active_len(), 0);
+        assert_eq!(owner.state().permits().available(), 2);
+        assert!(owner.state().request_state(request).is_none());
     }
 
     #[test]
@@ -4810,6 +5591,33 @@ mod blocking {
             "the stamped sequence completes this request"
         );
     }
+}
+
+#[test]
+fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
+    let mut cache = TargetStateCache::default();
+    let known = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[0, 12, -4])
+        .expect("valid down-left limit projection");
+    let malformed_set = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[3, 9, 8])
+        .expect("bounded malformed projection");
+    let malformed_clear =
+        AppliedStateProjection::clear_with_values(WriteOnlyState::PanTiltLimits, &[3])
+            .expect("bounded malformed projection");
+
+    cache.apply(known, 1);
+    cache.apply(malformed_set, 1);
+    assert_eq!(
+        cache.get(WriteOnlyState::PanTiltLimits),
+        Some(known),
+        "a malformed set must not replace the known corner"
+    );
+
+    cache.apply(malformed_clear, 1);
+    assert_eq!(
+        cache.get(WriteOnlyState::PanTiltLimits),
+        Some(known),
+        "a malformed clear must not replace the known corner"
+    );
 }
 
 /// Issue #571: the counters a field debugging session reaches for first.

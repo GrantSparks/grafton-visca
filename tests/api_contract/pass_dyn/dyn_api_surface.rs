@@ -20,9 +20,9 @@ use grafton_visca::{
         BlueChannel, BlueTuning, BrightnessLevel, ColorTemp, ContrastLevel, DefogLevel,
         DynamicRangeLevel, ExposureCompensationLevel, ExposureCompensationPosition, FocusPosition,
         GainLevel, GainLimit, IrisLevel, LuminanceLevel, MotionSyncSpeed, NdFilterPreset,
-        NoiseReduction2DLevel, NoiseReduction3DLevel, NoiseReductionLevel, PanSpeed, RedChannel,
-        RedTuning, SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed,
-        ZoomPosition, ZoomSpeed,
+        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, RedChannel, RedTuning,
+        SaturationLevel, SharpnessLevel, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition,
+        ZoomSpeed,
     },
     units::{Degrees, UnitInterval},
     AffectedAxes, Error, ZoomDomain,
@@ -244,20 +244,13 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<bool, Error>> = image.backlight();
     let _: DynFuture<'_, Result<(), Error>> = image.set_backlight(false);
     let _: DynFuture<'_, Result<NoiseReduction2DLevel, Error>> = image.noise_reduction_2d();
-    let _: DynFuture<'_, Result<(), Error>> =
-        image.set_noise_reduction_2d(NoiseReduction2DLevel::MIN);
+    let _: DynFuture<'_, Result<grafton_visca::command::NoiseReduction2DMode, Error>> =
+        image.noise_reduction_2d_mode();
     let _: DynFuture<'_, Result<NoiseReduction3DLevel, Error>> = image.noise_reduction_3d();
-    let _: DynFuture<'_, Result<(), Error>> =
-        image.set_noise_reduction_3d(NoiseReduction3DLevel::MIN);
-    let _: DynFuture<'_, Result<NoiseReductionLevel, Error>> = image.noise_reduction_level();
-    let _: DynFuture<'_, Result<grafton_visca::command::NoiseReductionMode, Error>> =
-        image.noise_reduction_mode();
     let _: DynFuture<'_, Result<(), Error>> = image.disable_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.enable_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.enable_horizontal_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.disable_horizontal_flip();
-    let _: DynFuture<'_, Result<(), Error>> = image.disable_noise_reduction_2d();
-    let _: DynFuture<'_, Result<(), Error>> = image.disable_noise_reduction_3d();
     let _: DynFuture<'_, Result<(), Error>> = image.set_flip_both();
     let _: DynFuture<'_, Result<(), Error>> = image.set_flip_mode(ImageFlipMode::Both);
     let _: DynFuture<'_, Result<(), Error>> = image.freeze_on();

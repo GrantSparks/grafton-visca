@@ -201,14 +201,6 @@ pub mod image {
     #[cfg(test)]
     pub const PICTURE_EFFECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x63];
 
-    /// 2D noise reduction prefix.
-    #[cfg(test)]
-    pub const NOISE_REDUCTION_2D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x53];
-
-    /// 3D noise reduction prefix.
-    #[cfg(test)]
-    pub const NOISE_REDUCTION_3D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x54];
-
     /// Luminance/brightness adjustment prefix.
     #[cfg(test)]
     pub const LUMINANCE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
@@ -570,8 +562,6 @@ mod validation_tests {
             image::BACKLIGHT_PREFIX,
             image::FLIP_COMBINED_PREFIX,
             image::PICTURE_EFFECT_PREFIX,
-            image::NOISE_REDUCTION_2D_PREFIX,
-            image::NOISE_REDUCTION_3D_PREFIX,
             image::LUMINANCE_PREFIX,
             image::CONTRAST_PREFIX,
             image::GAMMA_PREFIX,

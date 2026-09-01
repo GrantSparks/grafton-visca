@@ -15,7 +15,7 @@ use crate::{
     profile::OperationalTuning,
     profile::ProfileSpec,
     protocol::framer::ProtocolFramer,
-    runtime::engine::TransmissionMeta,
+    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
     transport::envelope::FrameSequence,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
     CameraId, Error,
@@ -23,7 +23,7 @@ use crate::{
 
 use super::{
     adapter::{
-        decode_frames_with_routing, owner_policy_for_targets_with_tuning,
+        decode_frames_with_routing, decode_response_target, owner_policy_for_targets_with_tuning,
         validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
     },
     BlockingFrameDecoder, BlockingReadDriver, BlockingReceive, BlockingWireDriver, OwnerBuffers,
@@ -237,6 +237,18 @@ where
     ) -> Result<Vec<crate::runtime::engine::DecodedFrame>, Error> {
         decode_state(&self.state, buffers, received, frame_limit)
     }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        has_buffered_stream_input_state(&self.state)
+    }
+
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        buffered_raw_prefix_evidence_state(&self.state)
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        discard_buffered_stream_input_state(&self.state)
+    }
 }
 
 impl<T> BlockingWireDriver for BlockingTransportWriter<T>
@@ -272,6 +284,18 @@ where
         frame_limit: usize,
     ) -> Result<Vec<crate::runtime::engine::DecodedFrame>, Error> {
         decode_state(&self.state, buffers, received, frame_limit)
+    }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        has_buffered_stream_input_state(&self.state)
+    }
+
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        buffered_raw_prefix_evidence_state(&self.state)
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        discard_buffered_stream_input_state(&self.state)
     }
 }
 
@@ -394,13 +418,77 @@ where
     )
 }
 
+fn has_buffered_stream_input_state<T>(
+    state: &Arc<Mutex<BlockingAdapterState<T>>>,
+) -> Result<bool, Error>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
+    let state = lock_state(state)?;
+    Ok(matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Stream
+    ) && state.framer.has_buffered_data())
+}
+
+fn buffered_raw_prefix_evidence_state<T>(
+    state: &Arc<Mutex<BlockingAdapterState<T>>>,
+) -> Result<Option<RawPrefixEvidence>, Error>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
+    let state = lock_state(state)?;
+    if !matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Stream
+    ) {
+        return Ok(None);
+    }
+    if state.framer.buffered_first_raw_input_is_complete()? {
+        return Ok(Some(RawPrefixEvidence::Complete));
+    }
+    let prefix = state.framer.buffered_first_two_raw_input_bytes()?;
+    let Some(&source) = prefix.first() else {
+        return Ok(None);
+    };
+    let target = decode_response_target(state.routing, &[source])?.ok_or_else(|| {
+        Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
+    })?;
+    let kind = match prefix.get(1).copied() {
+        None => RawIncompletePrefix::SourceOnly,
+        Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
+        Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
+        Some(0x60) => RawIncompletePrefix::SocketlessError,
+        Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S1),
+        Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S2),
+        Some(_) => RawIncompletePrefix::Noncorrelating,
+    };
+    Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
+}
+
+fn discard_buffered_stream_input_state<T>(
+    state: &Arc<Mutex<BlockingAdapterState<T>>>,
+) -> Result<(), Error>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
+    let mut state = lock_state(state)?;
+    if matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Stream
+    ) {
+        state.framer.discard_first_raw_input()?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used, unused_qualifications)]
 mod tests {
     use std::{
         collections::VecDeque,
         sync::{Arc, Mutex},
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use super::*;
@@ -471,6 +559,121 @@ mod tests {
 
         fn send_semantics(&self) -> SendSemantics {
             self.semantics
+        }
+    }
+
+    #[derive(Debug)]
+    enum TombstoneIntegrationRead {
+        Bytes(Vec<u8>),
+        TransientFault,
+        TimedOut,
+        BytesNearDeadline(Vec<u8>),
+        BytesAtDeadline(Vec<u8>),
+    }
+
+    #[derive(Debug)]
+    struct TombstoneIntegrationIo {
+        sent: Vec<Vec<u8>>,
+        reads: VecDeque<TombstoneIntegrationRead>,
+        send_counts_at_read: Vec<usize>,
+    }
+
+    /// Test transport whose only special behavior is delivering one literal
+    /// byte chunk at the exact timeout supplied by the production adapter.
+    /// All framing, decoding, owner scheduling, and correlation remain the
+    /// real blocking implementation.
+    #[derive(Debug)]
+    struct TombstoneIntegrationTransport {
+        config: TransportConfig,
+        io: Arc<Mutex<TombstoneIntegrationIo>>,
+    }
+
+    impl TombstoneIntegrationTransport {
+        fn new(
+            reads: impl IntoIterator<Item = TombstoneIntegrationRead>,
+        ) -> (Self, Arc<Mutex<TombstoneIntegrationIo>>) {
+            Self::new_with_addressing(reads, AddressingMode::Ip)
+        }
+
+        fn new_with_addressing(
+            reads: impl IntoIterator<Item = TombstoneIntegrationRead>,
+            addressing: AddressingMode,
+        ) -> (Self, Arc<Mutex<TombstoneIntegrationIo>>) {
+            let io = Arc::new(Mutex::new(TombstoneIntegrationIo {
+                sent: Vec::new(),
+                reads: reads.into_iter().collect(),
+                send_counts_at_read: Vec::new(),
+            }));
+            (
+                Self {
+                    config: TransportConfig {
+                        addressing,
+                        ..TransportConfig::default()
+                    },
+                    io: Arc::clone(&io),
+                },
+                io,
+            )
+        }
+    }
+
+    impl HasTransportConfig for TombstoneIntegrationTransport {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    impl BlockingTransport for TombstoneIntegrationTransport {
+        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+            self.io.lock().unwrap().sent.push(bytes.to_vec());
+            Ok(())
+        }
+
+        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+            self.recv_into_with_timeout(dst, Duration::from_secs(1))
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            timeout: Duration,
+        ) -> Result<usize, Error> {
+            let read = {
+                let mut io = self.io.lock().unwrap();
+                let sent = io.sent.len();
+                io.send_counts_at_read.push(sent);
+                io.reads
+                    .pop_front()
+                    .ok_or_else(|| Error::InvalidState("integration reads exhausted".into()))?
+            };
+            let bytes = match read {
+                TombstoneIntegrationRead::Bytes(bytes) => bytes,
+                TombstoneIntegrationRead::TransientFault => {
+                    return Err(Error::Io(Arc::new(std::io::Error::from(
+                        std::io::ErrorKind::ConnectionRefused,
+                    ))));
+                }
+                TombstoneIntegrationRead::TimedOut => return Err(Error::Timeout),
+                TombstoneIntegrationRead::BytesNearDeadline(bytes) => {
+                    std::thread::sleep(timeout.saturating_sub(Duration::from_millis(1)));
+                    bytes
+                }
+                TombstoneIntegrationRead::BytesAtDeadline(bytes) => {
+                    std::thread::sleep(timeout);
+                    bytes
+                }
+            };
+            let received = bytes.len().min(dst.len());
+            dst[..received].copy_from_slice(&bytes[..received]);
+            Ok(received)
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Stream
+        }
+
+        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+            Some(self.config.addressing)
         }
     }
 
@@ -653,6 +856,29 @@ mod tests {
             },
             route: crate::runtime::engine::InquiryRoute::UNKNOWN,
         }
+    }
+
+    fn raw_inquiry_with_ambiguity(target: CameraId, ambiguity: Duration) -> RuntimeRequest {
+        let mut request = serial_inquiry(target);
+        let RuntimeRequest::Inquiry { context, .. } = &mut request else {
+            unreachable!("serial_inquiry always constructs an inquiry")
+        };
+        context.timeout.ambiguity = ambiguity;
+        request
+    }
+
+    fn serial_request_with_completion_and_ambiguity(
+        target: CameraId,
+        completion: Duration,
+        ambiguity: Duration,
+    ) -> RuntimeRequest {
+        let mut request = serial_request(target);
+        let RuntimeRequest::Command { context, .. } = &mut request else {
+            unreachable!("serial_request always constructs a command")
+        };
+        context.timeout.completion = completion;
+        context.timeout.ambiguity = ambiguity;
+        request
     }
 
     fn try_terminal(receipt: &super::super::ReceiptCore) -> Option<RuntimeOutcome> {
@@ -883,6 +1109,601 @@ mod tests {
             ));
             assert_eq!(buffers.take_discarded_malformed(), 1, "{payload_type:02x?}");
         }
+    }
+
+    #[test]
+    fn stream_decoder_discards_an_orphaned_prefix_before_a_later_tail() {
+        let mut transport =
+            ScriptedTransport::new(config(), std::iter::empty::<Result<Vec<u8>, Error>>());
+        transport.semantics = SendSemantics::Stream;
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let (_writer, _reader, mut decoder) = adapter.parts();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+        buffers.receive_mut()[..2].copy_from_slice(&[0x90, 0x50]);
+        assert!(decoder.decode(&mut buffers, 2, 4).unwrap().is_empty());
+        assert!(decoder.has_buffered_stream_input().unwrap());
+        assert_eq!(
+            decoder.buffered_raw_prefix_evidence().unwrap(),
+            Some(RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::SocketlessCompletion,
+            })
+        );
+
+        decoder.discard_buffered_stream_input().unwrap();
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+
+        // This would have completed `[90 50 02 FF]` if the stale prefix had
+        // survived. Alone it is one delimited malformed frame and is ignored.
+        buffers.receive_mut()[..2].copy_from_slice(&[0x02, 0xff]);
+        assert!(decoder.decode(&mut buffers, 2, 4).unwrap().is_empty());
+        assert_eq!(buffers.take_discarded_malformed(), 1);
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+
+        buffers.receive_mut()[..4].copy_from_slice(&[0x90, 0x50, 0x03, 0xff]);
+        let frames = decoder.decode(&mut buffers, 4, 4).unwrap();
+        assert_eq!(frames.len(), 1, "a later complete reply remains decodable");
+        assert!(matches!(
+            &frames[0].response,
+            DecodedResponse::InquiryReply { payload, .. } if payload.as_slice() == [0x03]
+        ));
+    }
+
+    #[test]
+    fn production_raw_tombstone_consumes_prefix_fault_tail_before_writing_successor() {
+        let ambiguity = Duration::from_millis(80);
+        let (transport, io) = TombstoneIntegrationTransport::new([
+            // A's own reply creates its raw response-correlation tombstone.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
+            // A second stale reply is split across real stream-framer turns.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x50]),
+            TombstoneIntegrationRead::TransientFault,
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0x02, 0xff]),
+            // Only this complete literal reply belongs to B.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x03, 0xff]),
+        ]);
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        let first = owner
+            .submit(
+                &mut writer,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+            )
+            .unwrap();
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&first),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+        ));
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+
+        let successor = owner
+            .submit_request_until_with_pump(
+                &mut writer,
+                &mut reader,
+                &mut decoder,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("B writes only after the fragmented stale reply is inert");
+
+        {
+            let io = io.lock().unwrap();
+            assert_eq!(io.sent.len(), 2, "A and B each write exactly once");
+            assert_eq!(
+                io.send_counts_at_read,
+                [1, 1, 1, 1],
+                "prefix, transient fault, and completing tail are all observed before B writes"
+            );
+            assert_eq!(io.reads.len(), 1, "B's own reply remains unread");
+        }
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+        assert!(
+            try_terminal(&successor).is_none(),
+            "the stale literal reply cannot resolve B"
+        );
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&successor),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+        ));
+        assert_eq!(
+            io.lock().unwrap().send_counts_at_read,
+            [1, 1, 1, 1, 2],
+            "B's own literal reply is read only after B's write"
+        );
+    }
+
+    /// A stream peer can have more stale complete replies ready than one
+    /// caller-thread tombstone turn is allowed to consume. The production
+    /// adapter must fail closed at that bound: releasing B behind the
+    /// remaining literal A replies would re-open correlation ambiguity.
+    #[test]
+    fn production_raw_tombstone_work_cap_poisons_before_successor_write() {
+        // Keep this coupled to `RAW_TOMBSTONE_PUMP_WORK_LIMIT` in the owner:
+        // the first reply completes A, then these 64 real raw frames all
+        // belong to A's tombstoned correlation interval.
+        const STALE_TOMBSTONE_TURNS: usize = 64;
+        let ambiguity = Duration::from_secs(1);
+        let stale_reply = vec![0x90, 0x50, 0xa1, 0xff];
+        let reads = std::iter::once(TombstoneIntegrationRead::Bytes(stale_reply.clone())).chain(
+            (0..STALE_TOMBSTONE_TURNS)
+                .map(|_| TombstoneIntegrationRead::Bytes(stale_reply.clone())),
+        );
+        let (transport, io) = TombstoneIntegrationTransport::new(reads);
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        let first = owner
+            .submit(
+                &mut writer,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+            )
+            .unwrap();
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&first),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+        ));
+
+        let error = owner
+            .submit_request_until_with_pump(
+                &mut writer,
+                &mut reader,
+                &mut decoder,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                Duration::from_secs(2),
+                Instant::now() + Duration::from_secs(2),
+            )
+            .expect_err("the production tombstone cap must fail closed");
+        assert!(
+            matches!(error, Error::StreamPoisoned { .. }),
+            "got {error:?}"
+        );
+        assert!(matches!(
+            owner.state().boundary_error(),
+            Some(Error::StreamPoisoned { .. })
+        ));
+
+        let io = io.lock().unwrap();
+        assert_eq!(
+            io.sent.len(),
+            1,
+            "B must not write while stale literal replies remain beyond the cap"
+        );
+        assert_eq!(
+            io.send_counts_at_read,
+            vec![1; STALE_TOMBSTONE_TURNS + 1],
+            "every bounded tombstone read occurred before any possible B write"
+        );
+        assert!(
+            io.reads.is_empty(),
+            "the cap consumes its exact bounded turn budget"
+        );
+    }
+
+    /// An inquiry's long unkeyed hold overlaps Y's later exact-S2 quarantine.
+    /// A retained S1 terminal prefix remains X's live input at that exact S2
+    /// expiry; target-only release used to erase `90 51` and strand X until
+    /// its own completion timeout.
+    #[test]
+    fn production_raw_socket_release_preserves_other_live_socket_prefix() {
+        let y_completion = Duration::from_millis(20);
+        let y_ambiguity = Duration::from_millis(80);
+        let inquiry_ambiguity = Duration::from_millis(200);
+        let (transport, io) = TombstoneIntegrationTransport::new([
+            // X receives S1, which opens the second command socket.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x41, 0xff]),
+            // Y receives S2 and will reach its short completion expiry while
+            // X remains live.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x42, 0xff]),
+            // At Y's first completion deadline, complete noncorrelating input
+            // wins, then due work creates its *later* exact-S2 quarantine.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x38, 0xff]),
+            // The concurrent inquiry then establishes the longer unkeyed
+            // first-write hold that overlaps Y's exact socket expiry.
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
+            // This lands at Y's exact-S2 quarantine deadline, before the
+            // inquiry hold expires. X's S1 completion begins without a tail.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x51]),
+            // The tail lands at the later inquiry-hold deadline, so it is
+            // complete input first and settles X before the successor writes.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0xff]),
+        ]);
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        let x = owner
+            .submit(&mut writer, serial_request(CameraId::CAMERA_1))
+            .unwrap();
+        let y = owner
+            .submit(
+                &mut writer,
+                serial_request_with_completion_and_ambiguity(
+                    CameraId::CAMERA_1,
+                    y_completion,
+                    y_ambiguity,
+                ),
+            )
+            .unwrap();
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert_eq!(io.lock().unwrap().sent.len(), 2, "Y writes after X owns S1");
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+
+        let inquiry = owner
+            .submit(
+                &mut writer,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+            )
+            .unwrap();
+        assert_eq!(io.lock().unwrap().sent.len(), 3);
+        // This complete network-change frame is input-first at Y's initial
+        // deadline; it leaves Y in the exact-S2 unconfirmed quarantine.
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        // Now finish the inquiry and retain its longer unkeyed tombstone.
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&inquiry),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+        ));
+
+        let successor = owner
+            .submit_request_until_with_pump(
+                &mut writer,
+                &mut reader,
+                &mut decoder,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("S1 evidence survives Y's exact S2 release");
+        assert_eq!(
+            io.lock().unwrap().sent.len(),
+            4,
+            "the successor writes after due work"
+        );
+        assert!(matches!(
+            try_terminal(&y),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+        ));
+        assert!(matches!(try_terminal(&x), Some(RuntimeOutcome::Applied)));
+        assert!(try_terminal(&successor).is_none());
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+        assert_eq!(
+            io.lock().unwrap().send_counts_at_read,
+            [1, 2, 3, 3, 3, 3],
+            "all boundary input precedes the successor write"
+        );
+    }
+
+    /// The inverse socket case is safe to discard: `90 52` belongs to Y's
+    /// exact expiring S2 correlation, not the live S1 command. The production
+    /// framer must discard just that fragment before it releases the inquiry
+    /// successor, leaving X running rather than consuming Y's stale terminal.
+    #[test]
+    fn production_raw_socket_release_discards_matching_stale_socket_prefix() {
+        let y_completion = Duration::from_millis(20);
+        let y_ambiguity = Duration::from_millis(80);
+        let inquiry_ambiguity = Duration::from_millis(200);
+        let (transport, io) = TombstoneIntegrationTransport::new([
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x41, 0xff]),
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x42, 0xff]),
+            // Complete input first turns Y's initial expiry into the later
+            // exact-S2 unconfirmed quarantine.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x38, 0xff]),
+            TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
+            // This is at the S2 quarantine expiry, while the inquiry's long
+            // target hold is still active.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x52]),
+            // After exact-prefix discard, the old terminator is only a
+            // malformed delimiter at the later inquiry deadline and cannot
+            // settle X or the successor.
+            TombstoneIntegrationRead::BytesAtDeadline(vec![0xff]),
+        ]);
+        let adapter =
+            BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        let x = owner
+            .submit(&mut writer, serial_request(CameraId::CAMERA_1))
+            .unwrap();
+        let y = owner
+            .submit(
+                &mut writer,
+                serial_request_with_completion_and_ambiguity(
+                    CameraId::CAMERA_1,
+                    y_completion,
+                    y_ambiguity,
+                ),
+            )
+            .unwrap();
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        let inquiry = owner
+            .submit(
+                &mut writer,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+            )
+            .unwrap();
+        // Y's first completion timeout creates the exact-S2 quarantine.
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        // The inquiry reply now creates the longer target-scoped dispatch hold.
+        owner
+            .pump_once(&mut writer, &mut reader, &mut decoder)
+            .unwrap();
+        assert!(matches!(
+            try_terminal(&inquiry),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+        ));
+
+        let successor = owner
+            .submit_request_until_with_pump(
+                &mut writer,
+                &mut reader,
+                &mut decoder,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("matching S2 evidence is made inert before dispatch");
+        assert_eq!(io.lock().unwrap().sent.len(), 4);
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+        assert!(matches!(
+            try_terminal(&y),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+        ));
+        assert!(
+            try_terminal(&x).is_none(),
+            "Y's stale S2 prefix cannot settle X"
+        );
+        assert!(try_terminal(&successor).is_none());
+        assert_eq!(
+            io.lock().unwrap().send_counts_at_read,
+            [1, 2, 3, 3, 3, 3],
+            "both exact-S2 and inquiry-boundary input precede successor dispatch"
+        );
+    }
+
+    /// No source-only, ACK, or socketless terminal prefix proves an owner.
+    /// Just before the release boundary the production adapter keeps draining
+    /// those literals, then poisons at the independent 64-turn cap before a
+    /// successor write can make the bytes bindable to new work.
+    #[test]
+    fn production_raw_tombstone_ambiguous_prefixes_poison_before_successor_write() {
+        const AMBIGUOUS_PREFIX_TURNS: usize = 64;
+        for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
+            let ambiguity = Duration::from_millis(200);
+            let reads = std::iter::once(TombstoneIntegrationRead::Bytes(vec![
+                0x90, 0x50, 0xa1, 0xff,
+            ]))
+            .chain(std::iter::once(
+                TombstoneIntegrationRead::BytesNearDeadline(prefix.clone()),
+            ))
+            .chain((1..AMBIGUOUS_PREFIX_TURNS).map(|_| TombstoneIntegrationRead::TimedOut));
+            let (transport, io) = TombstoneIntegrationTransport::new(reads);
+            let adapter =
+                BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+            let (mut writer, mut reader, mut decoder) = adapter.parts();
+            let first = owner
+                .submit(
+                    &mut writer,
+                    raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                )
+                .unwrap();
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap();
+            assert!(matches!(
+                try_terminal(&first),
+                Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+            ));
+
+            let error = owner
+                .submit_request_until_with_pump(
+                    &mut writer,
+                    &mut reader,
+                    &mut decoder,
+                    raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                    Duration::from_secs(1),
+                    Instant::now() + Duration::from_secs(1),
+                )
+                .expect_err("ambiguous retained raw input must fail closed: {prefix:02x?}");
+            assert!(
+                matches!(error, Error::StreamPoisoned { .. }),
+                "{prefix:02x?}: {error:?}"
+            );
+            let io = io.lock().unwrap();
+            assert_eq!(
+                io.sent.len(),
+                1,
+                "{prefix:02x?}: successor must not write before the cap"
+            );
+            assert_eq!(
+                io.send_counts_at_read.len(),
+                AMBIGUOUS_PREFIX_TURNS + 1,
+                "{prefix:02x?}: the initial reply plus every bounded retained-input turn are read"
+            );
+            assert!(
+                io.reads.is_empty(),
+                "{prefix:02x?}: the cap consumes its exact no-data budget"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_serial_tombstone_preserves_other_target_prefix_for_its_later_tail() {
+        let ambiguity = Duration::from_millis(80);
+        let (transport, io) = TombstoneIntegrationTransport::new_with_addressing(
+            [
+                // A's inquiry reply creates only camera 1's tombstone.
+                TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
+                // Camera 2's reply begins at A's exact release boundary.
+                TombstoneIntegrationRead::BytesAtDeadline(vec![0xa0, 0x50]),
+                TombstoneIntegrationRead::Bytes(vec![0x04, 0xff]),
+                // B is a camera 1 command and receives only these own frames.
+                TombstoneIntegrationRead::Bytes(vec![0x90, 0x41, 0xff]),
+                TombstoneIntegrationRead::Bytes(vec![0x90, 0x51, 0xff]),
+            ],
+            AddressingMode::Serial,
+        );
+        let profile = profile();
+        let profiles = [
+            (CameraId::CAMERA_1, &profile),
+            (CameraId::CAMERA_2, &profile),
+        ];
+        let adapter = BlockingTransportAdapter::new_with_targets(
+            transport,
+            &profiles,
+            OperationalTuning::new(),
+            crate::DEFAULT_ADMISSION_CAPACITY,
+        )
+        .unwrap();
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+
+        let first = owner
+            .submit(
+                &mut writer,
+                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+            )
+            .unwrap();
+        let camera_two = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))
+            .expect("camera 2 inquiry queues behind the global raw inquiry flight");
+        assert_eq!(io.lock().unwrap().sent.len(), 1);
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&first),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+        ));
+        assert!(try_terminal(&camera_two).is_none());
+        assert_eq!(
+            io.lock().unwrap().sent.len(),
+            2,
+            "camera 2 writes as soon as A's inquiry flight finishes"
+        );
+
+        let successor = owner
+            .submit_request_until_with_pump(
+                &mut writer,
+                &mut reader,
+                &mut decoder,
+                serial_request(CameraId::CAMERA_1),
+                Duration::from_secs(1),
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("A's target-local hold releases without erasing camera 2 input");
+        assert_eq!(
+            io.lock().unwrap().sent.len(),
+            3,
+            "B writes after A releases"
+        );
+        assert!(decoder.has_buffered_stream_input().unwrap());
+        assert_eq!(
+            decoder.buffered_raw_prefix_evidence().unwrap(),
+            Some(RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_2,
+                kind: RawIncompletePrefix::SocketlessCompletion,
+            }),
+            "camera 2's literal prefix survives camera 1's release"
+        );
+        assert!(try_terminal(&successor).is_none());
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&camera_two),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x04]
+        ));
+        assert!(try_terminal(&successor).is_none());
+        assert!(!decoder.has_buffered_stream_input().unwrap());
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(try_terminal(&successor).is_none(), "B has only ACKed");
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&successor),
+            Some(RuntimeOutcome::Applied)
+        ));
+        assert_eq!(
+            io.lock().unwrap().send_counts_at_read,
+            [1, 2, 3, 3, 3],
+            "camera 2's tail and B's own ACK/completion are read only after B writes"
+        );
     }
 
     #[test]

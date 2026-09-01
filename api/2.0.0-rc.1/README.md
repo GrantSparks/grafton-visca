@@ -62,7 +62,13 @@ impls (`Send`, `Sync`, `Unpin`) — losing one of those on a public type is a re
 break for downstream async callers — and auto-derived impls (`Clone`, `Debug`,
 `Eq`).
 
-No module allowlist is used, so an accidentally public command, value, derive,
-profile, transport, operation, observability, cache, or dynamic item still
-shows up as a diff. A snapshot update must be intentional, regenerated with the
-pinned tool, and reviewed together with the corresponding public API change.
+No module allowlist is used for the non-`#[doc(hidden)]` public surface, so an
+accidentally public command, value, derive, profile, transport, operation,
+observability, cache, or dynamic item still shows up as a diff.
+`cargo-public-api` derives these files from rustdoc, which omits
+`#[doc(hidden)]` items. `__macro_support` and the hidden `visca_range_type!`
+helper macros are intentional macro-expansion scaffolding, not a supported
+direct API; their downstream expansion behavior is guarded by the canonical
+compile contracts and the phase4 renamed-helper test, not by these snapshot
+files. A snapshot update must be intentional, regenerated with the pinned
+tool, and reviewed together with the corresponding public API change.

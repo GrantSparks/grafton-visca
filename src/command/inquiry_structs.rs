@@ -9,7 +9,7 @@ use std::borrow::Cow;
 
 use super::exposure::{AntiFlickerMode, ExposureMode};
 use super::focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone};
-use super::image::{NoiseReductionMode, NoiseReductionSpeed, SharpnessMode};
+use super::image::{NoiseReduction2DMode, SharpnessMode};
 use super::resolution::{NdFilterPosition, PictureEffectMode};
 use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
@@ -95,6 +95,9 @@ pub(crate) enum BuiltinInquiryProfileDecoder {
     Default,
     /// Decode pan/tilt position through the camera profile's coordinate system.
     PanTiltPosition,
+    /// Enforce the source-backed 3D noise-reduction inquiry range for the
+    /// exact built-in profile selected by the session.
+    NoiseReduction3D,
 }
 
 /// Profile gate required before a camera-facing accessor is implemented.
@@ -142,10 +145,9 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) query: BuiltinInquiryQuery,
     /// Whether the query has a typed response conversion.
     ///
-    /// The generated table intentionally keeps the two queryable
-    /// `typed: none` entries (`DefogModeInquiry` and `NrSpeedInquiry`)
-    /// explicit.  Decode-only entries are always untyped for this metadata
-    /// purpose.
+    /// The generated table intentionally keeps the queryable
+    /// `typed: none` entry (`DefogModeInquiry`) explicit. Decode-only entries
+    /// are always untyped for this metadata purpose.
     pub(crate) typed: bool,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
     pub(crate) vendor_specific: bool,
@@ -175,6 +177,9 @@ macro_rules! builtin_inquiry_profile_decoder {
     };
     (pan_tilt_position) => {
         BuiltinInquiryProfileDecoder::PanTiltPosition
+    };
+    (noise_reduction_3d) => {
+        BuiltinInquiryProfileDecoder::NoiseReduction3D
     };
 }
 
@@ -224,6 +229,11 @@ macro_rules! builtin_profile_request_validation {
             }
         }
     };
+    ([noise_reduction_3d], $struct:ident) => {
+        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> crate::Result<()> {
+            validate_builtin_inquiry_profile(stringify!($struct), profile)
+        }
+    };
 }
 
 macro_rules! builtin_profile_decoder_method {
@@ -251,6 +261,34 @@ macro_rules! builtin_profile_decoder_method {
             crate::ResponseDecoder::with_context(profile.pan_tilt_coordinates(), decode)
         }
     };
+    ([noise_reduction_3d], $response_ty:ty, $struct:ident) => {
+        fn decoder_for_profile(
+            &self,
+            profile: &crate::ProfileSpec,
+        ) -> crate::ResponseDecoder<Self::Response> {
+            fn decode(legacy_30x: &bool, payload: &[u8]) -> Result<$response_ty, crate::Error> {
+                let response =
+                    crate::command::parse_inquiry_payload(payload, &InquiryKind::NoiseReduction3D)?;
+                let level = <$struct as ResponseParser>::from_response(response)?;
+                if *legacy_30x || level.value() <= 5 {
+                    Ok(level)
+                } else {
+                    Err(Error::InvalidResponse {
+                        expected: Cow::Borrowed(
+                            "3D noise-reduction inquiry level in 0..=5 for this profile",
+                        ),
+                        actual: vec![level.value()],
+                    })
+                }
+            }
+
+            // `profile_id` is a public inventory claim, not an authority token.
+            // The registry seam compares every profile fact, so only the exact
+            // source-backed legacy profile receives the wider inquiry domain.
+            let legacy_30x = crate::profiles::ProfileId::PtzOptics30X.matches_profile_spec(profile);
+            crate::ResponseDecoder::with_context(legacy_30x, decode)
+        }
+    };
 }
 
 fn validate_builtin_inquiry_surface(
@@ -267,6 +305,9 @@ fn validate_builtin_inquiry_surface(
             capabilities.has_focus_zone_inquiry
         }
         crate::capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
+        crate::capabilities::TypedSupportSurface::ExposureMode => {
+            !capabilities.exposure_modes.is_empty()
+        }
         _ => true,
     };
 
@@ -339,6 +380,15 @@ macro_rules! define_builtin_inquiry_profile_validation {
             $profile: &crate::ProfileSpec,
         ) -> crate::Result<()> {
             match inquiry {
+                // An exposure domain can retain model-specific shutter, gain,
+                // or vendor controls without documenting the shared `04 39`
+                // AE-mode command and inquiry family. Keep its inquiry on the
+                // same source-backed inventory that admits mode changes.
+                "ExposureModeInquiry" if $profile.capabilities().exposure_modes.is_empty() => {
+                    Err(crate::Error::FeatureNotSupported {
+                        feature: "inquiry ExposureModeInquiry",
+                    })
+                }
                 $($arms)*
                 _ => Ok(()),
             }
@@ -817,6 +867,25 @@ macro_rules! define_inquiry_profile_dispatch {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
+            profile_decode: noise_reduction_3d;
+            response: $response:ident;
+            query: $query:expr;
+            vendor_specific: $vendor_specific:expr;
+            rationale: $rationale:expr;
+            typed: $typed:tt;
+        }
+        $($rest:tt)*
+    ) => {
+        // `dispatch_for` returns structural `Response` data. The session-owned
+        // typed decoder applies the selected profile's numeric reply domain.
+        define_inquiry_profile_dispatch!(@query $dispatch_payload [$($arms)*] $($rest)*);
+    };
+    (@query $dispatch_payload:ident [$($arms:tt)*]
+        $(#[$meta:meta])*
+        $struct:ident => {
+            const $bytes_const:ident = [$($byte:expr),+ $(,)?];
+            kind: $kind:ident $body:tt;
+            decode: |$payload:ident| $decode_body:block;
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -1284,14 +1353,17 @@ macro_rules! define_builtin_inquiries {
                         saw_vendor_specific = true;
                     }
 
-                    if matches!(
-                        meta.profile_decoder,
-                        BuiltinInquiryProfileDecoder::PanTiltPosition
-                    ) {
-                        saw_profile_decoder = true;
-                        assert_eq!(meta.kind, InquiryKind::PanTiltPosition);
+                    match meta.profile_decoder {
+                        BuiltinInquiryProfileDecoder::Default => {}
+                        BuiltinInquiryProfileDecoder::PanTiltPosition => {
+                            saw_profile_decoder = true;
+                            assert_eq!(meta.kind, InquiryKind::PanTiltPosition);
+                        }
+                        BuiltinInquiryProfileDecoder::NoiseReduction3D => {
+                            saw_profile_decoder = true;
+                            assert_eq!(meta.kind, InquiryKind::NoiseReduction3D);
+                        }
                     }
-
                 }
 
                 assert!(saw_vendor_specific, "vendor-specific inquiries must be modeled");
@@ -1312,7 +1384,7 @@ macro_rules! define_builtin_inquiries {
                     .collect::<Vec<_>>();
                 untyped.sort_unstable();
 
-                assert_eq!(untyped, ["DefogModeInquiry", "NrSpeedInquiry"]);
+                assert_eq!(untyped, ["DefogModeInquiry"]);
             }
 
             #[test]
@@ -1654,7 +1726,7 @@ macro_rules! builtin_inquiry_table {
             };
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
-                Ok(Response::Inquiry(InquiryData::Iris { position: nibbles.last_nibble() }))
+                Ok(Response::Inquiry(InquiryData::Iris { position: nibbles.u8_pair(2) }))
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
@@ -1968,6 +2040,25 @@ macro_rules! builtin_inquiry_table {
             );
         }
 
+        /// Inquiry command to get the 2D noise reduction mode.
+        NoiseReduction2DModeInquiry => {
+            const NOISE_REDUCTION_2D_MODE = [0x81, 0x09, 0x04, 0x50];
+            kind: NoiseReduction2DMode {
+                /// Current 2D noise reduction mode.
+                mode: NoiseReduction2DMode,
+            };
+            decode: |payload| {
+                require_len(&payload, 1)?;
+                let mode = NoiseReduction2DMode::try_from(payload.as_slice()[0])?;
+                Ok(Response::Inquiry(InquiryData::NoiseReduction2DMode { mode }))
+            };
+            response: true;
+            query: BuiltinInquiryQuery::Queryable;
+            vendor_specific: false;
+            rationale: Some("The PTZOptics inquiry table identifies 04 50 as the 2D noise-reduction Auto/Manual mode register.");
+            typed: (NoiseReduction2DMode, { mode } => Ok(mode));
+        }
+
         /// Inquiry command to get the 2D noise reduction level.
         NoiseReduction2DInquiry => {
             const NOISE_REDUCTION_2D = [0x81, 0x09, 0x04, 0x53];
@@ -1983,7 +2074,7 @@ macro_rules! builtin_inquiry_table {
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
-            rationale: Some("Shares bytes with NrModeInquiry on profiles that expose the same register as an aggregate noise-reduction mode.");
+            rationale: Some("The PTZOptics inquiry table identifies 04 53 as the 2D noise-reduction level register.");
             typed: (
                 crate::types::NoiseReduction2DLevel,
                 { level } => crate::types::NoiseReduction2DLevel::new(level)
@@ -1991,6 +2082,12 @@ macro_rules! builtin_inquiry_table {
         }
 
         /// Inquiry command to get the 3D noise reduction level.
+        ///
+        /// [`ResponseParser::from_response`] is intentionally profile-neutral
+        /// and accepts the public value type's `0..=8` domain. Camera/session
+        /// execution applies the selected profile's source-backed reply range:
+        /// `0..=5` for current PTZOptics G2/G3 and `0..=8` only for the exact
+        /// legacy [`crate::profiles::PtzOptics30X`] profile.
         NoiseReduction3DInquiry => {
             const NOISE_REDUCTION_3D = [0x81, 0x09, 0x04, 0x54];
             kind: NoiseReduction3D {
@@ -2002,10 +2099,11 @@ macro_rules! builtin_inquiry_table {
                 let level = payload.as_slice()[0];
                 Ok(Response::Inquiry(InquiryData::NoiseReduction3D { level }))
             };
+            profile_decode: noise_reduction_3d;
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
-            rationale: Some("Shares bytes with NrSpeedInquiry on profiles that expose the same register as aggregate noise-reduction speed.");
+            rationale: Some("The PTZOptics inquiry table identifies 04 54 as the 3D noise-reduction level register.");
             typed: (
                 crate::types::NoiseReduction3DLevel,
                 { level } => crate::types::NoiseReduction3DLevel::new(level)
@@ -2585,24 +2683,6 @@ macro_rules! builtin_inquiry_table {
             );
         }
 
-        /// Inquiry command to get the noise reduction level.
-        NrLevelInquiry => {
-            const NR_LEVEL = [0x81, 0x09, 0x04, 0x52];
-            kind: NoiseReductionLevel (u8);
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(payload.as_slice()[0])))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
-            typed: (
-                crate::types::NoiseReductionLevel,
-                (val) => crate::types::NoiseReductionLevel::new(val)
-            );
-        }
-
         /// Inquiry command to get the broadcast domain setting.
         BroadcastDomainInquiry => {
             const BROADCAST_DOMAIN = [0x81, 0x09, 0x04, 0x75];
@@ -2663,47 +2743,6 @@ macro_rules! builtin_inquiry_table {
             typed: (MotionSyncPreset, { speed } => Ok(speed));
         }
 
-        /// Inquiry command to get the noise reduction mode setting.
-        NrModeInquiry => {
-            const NR_MODE = [0x81, 0x09, 0x04, 0x53];
-            kind: NoiseReductionMode {
-                /// Current noise reduction mode setting.
-                mode: NoiseReductionMode,
-            };
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                let mode = NoiseReductionMode::try_from(payload.as_slice()[0])?;
-                Ok(Response::Inquiry(InquiryData::NoiseReductionMode { mode }))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: <NoiseReduction2DInquiry as BuiltinInquiryCommandMarker>::METADATA,
-            };
-            vendor_specific: false;
-            rationale: Some("Same wire query as NoiseReduction2DInquiry, interpreted as aggregate noise-reduction mode.");
-            typed: (NoiseReductionMode, { mode } => Ok(mode));
-        }
-
-        /// Inquiry command to get the noise reduction speed setting.
-        NrSpeedInquiry => {
-            const NR_SPEED = [0x81, 0x09, 0x04, 0x54];
-            kind: NoiseReductionSpeed {
-                /// Current noise reduction speed setting.
-                speed: NoiseReductionSpeed,
-            };
-            decode: |payload| {
-                require_len(&payload, 1)?;
-                let speed = NoiseReductionSpeed::try_from(payload.as_slice()[0])?;
-                Ok(Response::Inquiry(InquiryData::NoiseReductionSpeed { speed }))
-            };
-            response: true;
-            query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                canonical: <NoiseReduction3DInquiry as BuiltinInquiryCommandMarker>::METADATA,
-            };
-            vendor_specific: false;
-            rationale: Some("Same wire query as NoiseReduction3DInquiry, interpreted as aggregate noise-reduction speed.");
-            typed: none;
-        }
 
         /// Inquiry command to get the USB audio state.
         UsbAudioInquiry => {
@@ -3074,9 +3113,12 @@ macro_rules! builtin_inquiry_table {
             FocusModeInquiry => focus_mode: FocusMode;
             FocusRangeInquiry => focus_range: FocusRange;
         }
+        ExposureModeInquiryControl {
+            gate: crate::capabilities::HasExposureMode;
+            ExposureModeInquiry => exposure_mode: ExposureMode;
+        }
         ExposureInquiryControl {
             base_gate: crate::capabilities::HasExposure;
-            ExposureModeInquiry => exposure_mode: ExposureMode;
             ShutterInquiry => shutter: crate::types::ShutterSpeed;
             GainInquiry => gain: crate::types::GainLevel;
             GainLimitInquiry => gain_limit: crate::types::GainLimit;
@@ -3179,13 +3221,9 @@ macro_rules! builtin_inquiry_table {
             ImageFlipInquiry => image_flip: crate::command::FlipState;
             FlipStateInquiry => flip_mode: crate::command::FlipState;
         }
-        NoiseReductionInquiryControl {
-            gate: crate::capabilities::HasNoiseReduction;
-            NrLevelInquiry => noise_reduction_level: crate::types::NoiseReductionLevel;
-            NrModeInquiry => noise_reduction_mode: crate::command::NoiseReductionMode;
-        }
         NoiseReduction2DInquiryControl {
             gate: crate::capabilities::HasNoiseReduction2D;
+            NoiseReduction2DModeInquiry => noise_reduction_2d_mode: crate::command::NoiseReduction2DMode;
             NoiseReduction2DInquiry => noise_reduction_2d: crate::types::NoiseReduction2DLevel;
         }
         NoiseReduction3DInquiryControl {
@@ -3222,9 +3260,12 @@ macro_rules! builtin_inquiry_table {
             gate: crate::capabilities::HasAutoWhiteBalanceSensitivity;
             AutoWhiteBalanceSensitivityInquiry => auto_white_balance_sensitivity: AutoWhiteBalanceSensitivity;
         }
+        IrisControlInquiryControl {
+            gate: crate::capabilities::HasIrisControlInquiry;
+            IrisControlInquiry => iris_control: bool;
+        }
         IrisInquiryControl {
             gate: crate::capabilities::HasIrisControl;
-            IrisControlInquiry => iris_control: bool;
             IrisInquiry => iris: crate::types::IrisLevel;
         }
         PanTiltInquiryControl {

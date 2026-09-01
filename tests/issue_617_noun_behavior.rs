@@ -92,9 +92,11 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         camera::TransportKind,
-        command::CommandKind,
+        command::{
+            CommandKind, ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry,
+        },
         profile::ProfileSpec,
-        profiles::{SonyBRC300, SonyFR7},
+        profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, UnitInterval},
@@ -363,6 +365,79 @@ mod blocking_surface {
 
         session.shutdown().expect("shutdown");
     }
+
+    #[test]
+    fn blocking_direct_exposure_command_rejects_before_any_write() {
+        let (session, writes) = open();
+        let camera = session.camera::<SonyFR7>().expect("camera");
+
+        let error = camera
+            .execute(&ExposureCommand::new(ExposureMode::Auto))
+            .expect_err("Sony FR7 does not support the shared exposure-mode command");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "selected exposure mode"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct exposure-mode command must not reach the transport"
+        );
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn blocking_direct_exposure_mode_inquiry_rejects_before_any_write() {
+        let (session, writes) = open();
+        let camera = session.camera::<SonyFR7>().expect("camera");
+
+        let error = camera
+            .inquire(&ExposureModeInquiry)
+            .expect_err("Sony FR7 does not support the shared exposure-mode inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "inquiry ExposureModeInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct exposure-mode inquiry must not reach the transport"
+        );
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn blocking_direct_iris_control_inquiry_rejects_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+            ),
+        )
+        .expect("session");
+        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+
+        let error = camera
+            .inquire(&IrisControlInquiry)
+            .expect_err("G3 does not document the standard iris control-status inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "typed inquiry IrisControlInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct iris control-status inquiry must not reach the transport"
+        );
+
+        session.shutdown().expect("shutdown");
+    }
 }
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
@@ -373,8 +448,9 @@ mod async_surface {
     };
 
     use grafton_visca::{
+        command::{ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry},
         profile::ProfileSpec,
-        profiles::{SonyBRC300, SonyFR7},
+        profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::{
             AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
         },
@@ -693,6 +769,90 @@ mod async_surface {
         session.shutdown().await.expect("shutdown");
     }
 
+    #[tokio::test]
+    async fn async_direct_exposure_command_rejects_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+        )
+        .await;
+        let camera = session.camera::<SonyFR7>().expect("camera");
+
+        let error = camera
+            .execute(&ExposureCommand::new(ExposureMode::Auto))
+            .await
+            .expect_err("Sony FR7 does not support the shared exposure-mode command");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "selected exposure mode"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct exposure-mode command must not reach the transport"
+        );
+
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn async_direct_exposure_mode_inquiry_rejects_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+        )
+        .await;
+        let camera = session.camera::<SonyFR7>().expect("camera");
+
+        let error = camera
+            .inquire(&ExposureModeInquiry)
+            .await
+            .expect_err("Sony FR7 does not support the shared exposure-mode inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "inquiry ExposureModeInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct exposure-mode inquiry must not reach the transport"
+        );
+
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn async_direct_iris_control_inquiry_rejects_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+        )
+        .await;
+        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+
+        let error = camera
+            .inquire(&IrisControlInquiry)
+            .await
+            .expect_err("G3 does not document the standard iris control-status inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "typed inquiry IrisControlInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected direct iris control-status inquiry must not reach the transport"
+        );
+
+        session.shutdown().await.expect("shutdown");
+    }
+
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_unsupported_capability_fails_before_any_write() {
@@ -743,6 +903,35 @@ mod async_surface {
         assert!(
             writes.lock().expect("writes lock").is_empty(),
             "a rejected flicker inquiry must not reach the transport"
+        );
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_iris_control_status_inquiry_requires_its_distinct_marker_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        let error = camera
+            .exposure()
+            .iris_control()
+            .await
+            .expect_err("G3 has no model-specific source-backed iris control-status inquiry");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "typed inquiry IrisControlInquiry"
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "a rejected dynamic iris control-status inquiry must not reach the transport"
         );
         session.shutdown().await.expect("shutdown");
     }

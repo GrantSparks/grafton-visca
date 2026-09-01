@@ -1,0 +1,16 @@
+[package]
+name = "range-macro-provider"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+range-helper-derives = [
+    "grafton-visca/serde",
+    "grafton-visca/schemars",
+    "grafton-visca/ts-rs",
+]
+
+[dependencies]
+grafton-visca = { path = "../../../..", default-features = false }

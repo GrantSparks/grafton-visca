@@ -9,8 +9,8 @@
 /// at the type level. It's useful for creating custom parameter types that
 /// work seamlessly with the VISCA command system.
 ///
-/// The generated types automatically include `serde` and `schemars` support
-/// when the respective features are enabled.
+/// The generated types automatically include `serde`, `schemars`, and `ts-rs`
+/// support when the respective `grafton-visca` features are enabled.
 ///
 /// # Example
 /// ```
@@ -58,53 +58,96 @@ macro_rules! visca_range_type {
             max: $max:expr
         }
     ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-        pub struct $name($inner);
-
-        impl $name {
-            /// Minimum allowed value
-            pub const MIN: $inner = $min;
-            /// Maximum allowed value
-            pub const MAX: $inner = $max;
-
-            /// Create a new instance with validation
-            pub fn new(value: $inner) -> Result<Self, $crate::Error> {
-                if !(Self::MIN..=Self::MAX).contains(&value) {
-                    return Err($crate::Error::InvalidParameter {
-                        parameter: stringify!($name),
-                        value: ::std::borrow::Cow::Owned(format!("{value}")),
-                        reason: {
-                            let min = Self::MIN;
-                            let max = Self::MAX;
-                            ::std::borrow::Cow::Owned(format!("must be between {min} and {max}"))
-                        },
-                    });
-                }
-                Ok(Self(value))
-            }
-
-            /// Get the inner value
-            #[must_use]
-            pub fn value(&self) -> $inner {
-                self.0
+        $crate::__grafton_visca_range_type_decl! {
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
             }
         }
+    };
+}
 
-        impl TryFrom<$inner> for $name {
-            type Error = $crate::Error;
-
-            fn try_from(value: $inner) -> Result<Self, Self::Error> {
-                Self::new(value)
+#[cfg(not(feature = "serde"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            []
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
             }
         }
+    };
+}
 
-        impl From<$name> for $inner {
-            fn from(val: $name) -> Self {
-                val.0
+#[cfg(all(feature = "serde", not(feature = "schemars"), not(feature = "ts-rs")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "schemars", not(feature = "ts-rs")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, schemars]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "ts-rs", not(feature = "schemars")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, ts_rs]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "schemars", feature = "ts-rs"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, schemars, ts_rs]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
             }
         }
     };

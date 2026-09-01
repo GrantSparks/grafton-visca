@@ -43,9 +43,18 @@ The PTZOptics Gen‑2 NDI®\|HX scope covers:
 
 The command set is substantially shared across these models. Optical limits, lens ranges, field of view, and a few path-specific capabilities are model-dependent.
 
-The `PtzOpticsG3` profile has a separate, narrow command-source exception in
-R10 for its retained vendor controls. It does not expand this Gen-2 scope or
-generalize other G3 behavior without model-specific evidence.
+`PtzOpticsG3` has model-specific coverage in R10 and the official current
+G2/G3 Developer Portal (R14). Those sources independently document G3 `04 39`
+AE modes, standard `04 0B`/`04 4B` iris controls, and `09 04 39`/`09 04 4B`
+inquiries, in addition to the retained vendor controls. They do not document
+the distinct `09 04 2B` iris auto/manual status inquiry. This evidence does not
+expand the Gen-2 scope or generalize any other unlisted G3 behavior.
+
+`PtzOptics30X` is the library profile for the legacy PT30X SDI/NDI G2/Gen-2
+line, not for a generic or newer "30X" product. PTZOptics' official G2/Legacy
+index explicitly lists the 12X, 20X, and 30X SDI/NDI G2 models. Neither that
+membership nor a shared name grants these rows to Move, Link, or newer 30X
+models; each typed profile remains source-scoped.
 
 ### 2.2 Validated Axis scope
 
@@ -468,8 +477,26 @@ Final path-specific preset treatment:
 | Hue direct | `81 01 04 4F 00 00 00 0p FF`, `0x0 = −14°`, `0xE = +14°` | Validated. |
 | Picture effect off | `81 01 04 63 00 FF` | Validated from PTZOptics command table. |
 | Picture effect B&W | `81 01 04 63 04 FF` | Validated from PTZOptics command table. |
+| Noise 2D mode | `81 01 04 50 02/03 FF` | R14 current command input: `02` Auto, `03` Manual. |
+| Noise 2D level | `81 01 04 53 0p FF` | R14 current command input: `p = 0` off, `1–5` level. |
+| Noise 3D level | `81 01 04 54 0p FF` | R14 current command input: `p = 0` off, `1–8` level. |
 
-Noise-reduction inquiries are included in section 7.10. The checked PTZOptics source bundle establishes the 2D/3D noise inquiry rows; do not infer additional setter commands unless target firmware documentation or live testing confirms them.
+For the current G2/G3 scope, R14 separately documents these command-input
+domains and the inquiry-output domains in section 7.10. The current `09 04 53`
+and `09 04 54` query rows return `0–5`; that narrower output range does not
+retract the separately documented `04 54` input range through `8`, and no
+set-to-query round-trip identity is promised. R1 is an archived inquiry source,
+not a setter source: it contains the `09 04 50`/`53`/`54` inquiries and records
+a legacy `09 04 54` result range of `0–8`.
+
+Typed session decoding makes that distinction profile-aware. Current
+`PtzOpticsG2`/`PtzOpticsG3` sessions reject `09 04 54` results `6–8`; only the
+exact registry-generated legacy `PtzOptics30X` profile accepts those inquiry
+values. Full profile equality is required, so a mutable `profile_id` cannot
+launder the legacy bound into a custom inventory. Direct structural response
+parsing remains domain-neutral, and the public typed `from_response` conversion
+accepts the value type's `0–8` domain because it has no selected profile; camera
+and session execution applies the source-backed profile limit [R1, R14, R15].
 
 ### 7.9 Flip, OSD, NDI, multicast, and UAC
 
@@ -496,7 +523,13 @@ Noise-reduction inquiries are included in section 7.10. The checked PTZOptics so
 
 ### 7.10 PTZOptics inquiry reference
 
-The following inquiry rows consolidate the PTZOptics Gen‑2 inquiry tables. Replies are shown for single-camera IP use (`90 ...`) where the source table used `y0 ...` placeholders.
+The following inquiry rows consolidate the PTZOptics Gen‑2 inquiry tables.
+Replies are shown for single-camera IP use (`90 ...`) where the source table
+used `y0 ...` placeholders. The R14 noise-reduction rows are current G2/G3
+evidence; R1 is an archived legacy inquiry reference whose distinct 3D output
+range is called out below. Separately, R10/R14 independently document the G3
+AE/iris rows identified below. Entries without their own G3 source row remain
+out of G3 scope.
 
 | Inquiry | Packet | Reply / values |
 |---|---|---|
@@ -507,16 +540,16 @@ The following inquiry rows consolidate the PTZOptics Gen‑2 inquiry tables. Rep
 | WB mode | `81 09 04 35 FF` | `00` auto, `01` indoor, `02` outdoor, `03` one-push, `05` manual, `20` color-temperature mode. |
 | Red gain | `81 09 04 43 FF` | `90 50 00 00 0p 0q FF`; `pq = R Gain`. |
 | Blue gain | `81 09 04 44 FF` | `90 50 00 00 0p 0q FF`; `pq = B Gain`. |
-| AE mode | `81 09 04 39 FF` | `00` full auto, `03` manual, `0A` shutter priority, `0B` iris priority, `0D` bright. |
+| AE mode | `81 09 04 39 FF` | `00` full auto, `03` manual, `0A` shutter priority, `0B` iris priority, `0D` bright. R10/R14 independently document this row for G3. |
 | Shutter position | `81 09 04 4A FF` | `90 50 00 00 0p 0q FF`; `pq = Shutter Position`. |
-| Iris position | `81 09 04 4B FF` | `90 50 00 00 0p 0q FF`; `pq = Iris Position`. |
+| Iris position | `81 09 04 4B FF` | `90 50 00 00 0p 0q FF`; `pq = Iris Position`. R10/R14 independently document this row for G3. |
 | Bright position | `81 09 04 4D FF` | `90 50 00 00 0p 0q FF`; `pq = Bright Position`. |
 | Exposure compensation mode | `81 09 04 3E FF` | `90 50 02 FF` on; `90 50 03 FF` off. |
 | Exposure compensation position | `81 09 04 4E FF` | `90 50 00 00 0p 0q FF`; `pq = ExpComp Position`. |
 | Backlight mode | `81 09 04 33 FF` | `90 50 02 FF` on; `90 50 03 FF` off. |
-| Noise 2D mode | `81 09 04 50 FF` | `90 50 02 FF` auto noise 2D; `90 50 03 FF` manual noise 3D in source table wording. |
-| Noise 2D level | `81 09 04 53 FF` | `90 50 0p FF`; `p = 0–5`. |
-| Noise 3D level | `81 09 04 54 FF` | `90 50 0p FF`; `p = 0–8`. |
+| Noise 2D mode | `81 09 04 50 FF` | R14 current G2/G3 reply: `90 50 02 FF` auto; `90 50 03 FF` manual. The source-table phrase "manual noise 3D" is a label inconsistency, not a distinct register. |
+| Noise 2D level | `81 09 04 53 FF` | R14 current G2/G3 reply: `90 50 0p FF`; `p = 0–5`. |
+| Noise 3D level | `81 09 04 54 FF` | R14 current G2/G3 reply: `90 50 0p FF`; `p = 0–5`. R1's archived legacy inquiry instead records `p = 0–8`. |
 | Flicker mode | `81 09 04 55 FF` | `90 50 0p FF`; `p = 0` off, `1` 50Hz, `2` 60Hz. |
 | Sharpness / aperture mode | `81 09 04 05 FF` | `90 50 02 FF` auto sharpness; `90 50 03 FF` manual sharpness. |
 | Sharpness / aperture gain | `81 09 04 42 FF` | `90 50 00 00 0p 0q FF`; `pq = Aperture Gain`. |
@@ -537,12 +570,16 @@ The following inquiry rows consolidate the PTZOptics Gen‑2 inquiry tables. Rep
 | AWB sensitivity | `81 09 04 A9 FF` | `90 50 00 FF` high, `01` normal, `02` low. |
 | UAC / USB audio | `81 2A 02 A0 04 FF` | `90 50 02 FF` on; `90 50 03 FF` off. |
 
-The iris rows above are part of the shared PTZOptics reference used by the
-G2/G3/30X registry entries. The Sony FR7 profile separately retains the
-standard iris control and `04 4B` inquiry because its profile registry entry
-has matching model evidence. A generic VISCA opcode or an encoder range alone
-does not establish those typed or targeted-inquiry guarantees for the other
-Sony, EVI, or Nearus profiles.
+R10/R14 independently establish the G3 `04 39` AE modes, iris
+reset/up/down/direct (`04 0B`/`04 4B`), and matching `09 04 39`/`09 04 4B`
+queries. Neither source lists the distinct standard `09 04 2B` iris auto/manual
+status query, so that query is not exposed by any built-in profile. Sony's FR7
+command list instead documents a vendor-relative `7E 04 4B` Iris Up/Down family
+and `05 34` Auto Iris inquiry; it does not establish the shared `04 39`
+AE-mode command/inquiry family, standard Iris Direct command, or `09 04 4B`
+position inquiry. A generic VISCA opcode or encoder range alone does not
+establish those typed or targeted-inquiry guarantees for FR7 or the other Sony,
+EVI, or Nearus profiles.
 
 ### 7.11 PTZOptics block inquiries
 
@@ -819,8 +856,8 @@ polling again.
 
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. Fail that one command with `UnsequencedCommandUnconfirmed` (per-request since #671; the session keeps running) and reconcile its camera effect; the `strict_unconfirmed_poison` opt-in poisons the whole session instead. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
-| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target, retain socket concurrency after ACK, and treat an ACK/completion/cancellation ambiguity, a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. `strict_unconfirmed_poison` opts into whole-session `StreamPoisoned`; a conclusive camera rejection may be retried under policy. |
+| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. A receive fault while awaiting ACK likewise never authorizes a replay, but by default leaves an *uncancelled* command in `AwaitingAck`; only a later ACK deadline without an ACK yields the per-request `UnsequencedCommandUnconfirmed` outcome and correlation quarantine. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target and retain socket concurrency after ACK. Treat an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. A receive fault while awaiting ACK also forbids replay but leaves an *uncancelled* command in `AwaitingAck` by default; only its later ACK deadline without an ACK produces that outcome. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 
@@ -997,11 +1034,14 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 **Current treatment:** Background only. Do not present those profiles as fully validated in this PTZOptics/Axis document.
 
 **Narrow registry exception:** The built-in Sony FR7 entry uses the primary
-FR7 command-list evidence in R7 only for its explicitly modeled iris
-control/inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight
-controls. That narrow exception does not generalize
-typed iris or ND support to the other Sony, EVI, Nearus, or generic profiles,
-and it does not make the broader FR7 profile fully validated here.
+FR7 command-list evidence in R7 for variable-ND controls/inquiries and fixed
+`04 3A` spotlight controls. R7 also documents a distinct vendor-relative
+`7E 04 4B` iris Up/Down family and `05 34` Auto Iris inquiry, retained only
+through the raw-command escape hatch until they have their own typed models.
+R7 does not establish the shared `04 39` AE-mode command/inquiry family. That
+narrow exception does not generalize typed ND support to the other Sony, EVI,
+Nearus, or generic profiles, and it does not make the broader FR7 profile fully
+validated here.
 
 **Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
 positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
@@ -1123,12 +1163,14 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R1 | PTZOptics VISCA over IP Commands, Rev 1.2, 8/24/2020 | https://ptzoptics.com/wp-content/uploads/2020/11/PTZOptics-VISCA-over-IP-Rev-1_2-8-20.pdf | PTZOptics raw command packets, ACK/errors, memory table, image-processing packets, vendor extensions. |
+| R1 | PTZOptics VISCA over IP Commands, Rev 1.2, 8/24/2020 (archived) | https://web.archive.org/web/20240616063126id_/https://ptzoptics.com/wp-content/uploads/2020/11/PTZOptics-VISCA-over-IP-Rev-1_2-8-20.pdf | PTZOptics raw command packets, ACK/errors, memory table, image-processing packets, vendor extensions, and the `09 04 50`/`53`/`54` NR inquiry rows. Its legacy `09 04 54` output is `0–8`; it contains no NR setter rows. |
 | R2 | PTZOptics NDI camera page | https://ptzoptics.com/ndi/ | Current PTZOptics NDI model page, focal lengths, ports, presets, firmware links. |
 | R3 | PT30X‑NDI‑xx Data Sheet | https://f.hubspotusercontent20.net/hubfs/418770/PTZOptics%20Documentation/PT30X-NDI-xx/PT30X-NDI-xx%20Data%20Sheet.pdf | PT30X focal length, FOV, presets, dimensions, simultaneous-output limitation. |
 | R4 | PTZOptics Firmware Changelog | https://ptzoptics.com/firmware-changelog/ | Sony VISCA-over-IP firmware support, SRT, image freeze, OnePush AF, Motion Sync, Snap Focus. |
 | R5 | PTZOptics SuperJoy G1 User Manual | https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf | Port separation: PTZOptics UDP `1259`, TCP `5678`, Sony VISCA UDP `52381`. |
-| R10 | PTZOptics Move 4K G3 User Manual (manufacturer manual, reseller-hosted copy) | https://www.rcblogic.co.uk/images/product/PDFDocs/Product-Documentation-PT-4K-xx-G3-User-Manual.pdf | G3-specific anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained by `PtzOpticsG3`. |
+| R10 | PTZOptics Move 4K G3 User Manual (manufacturer manual, reseller-hosted copy) | https://www.rcblogic.co.uk/images/product/PDFDocs/Product-Documentation-PT-4K-xx-G3-User-Manual.pdf | G3-specific `04 39` AE, `04 0B`/`04 4B` iris, and `09 04 39`/`09 04 4B` query rows; plus anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained by `PtzOpticsG3`. It does not list `09 04 2B`. |
+| R14 | PTZOptics Developer Portal, API v1.0 (portal dated 2026-08-31) | https://docs.ptzoptics.com/articles/miscellaneous/misc-cameras/pt-limits-packet-sender/; https://docs.ptzoptics.com/dev/visca-api/exposure/; https://docs.ptzoptics.com/dev/visca-api/queries/ | Official current command portal described by PTZOptics as the full VISCA list for G2 and G3. Used for G2/G3 AE, iris, query, image, and NR rows; it documents `04 39`, `04 0B`/`04 4B`, and `09 04 39`/`09 04 4B`, but not `09 04 2B`. Its Exposure page documents NR command inputs `04 50` Auto/Manual, `04 53` off/`1–5`, and `04 54` off/`1–8`; its Queries page separately documents current `09 04 50` and `09 04 53`/`54` results of `0–5`. |
+| R15 | PTZOptics G2/Legacy camera index | https://docs.ptzoptics.com/docs/cameras/g2-legacy/ | Official legacy-scope index. It explicitly lists the 12X, 20X, and 30X SDI/NDI G2 models used to constrain the legacy `PtzOptics30X` profile; it does not generalize support to newer 30X, Move, or Link models. |
 
 ## C.2 Official Axis source
 
@@ -1140,7 +1182,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 iris control/inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, or a `09 04 4B` position inquiry. |
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, 240 ms post-preset caveat. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
 | R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 fixed `04 3A` spotlight commands; it does not establish the fixed `04 5A` automatic-slow-shutter family. |

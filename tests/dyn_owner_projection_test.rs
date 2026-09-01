@@ -8,15 +8,17 @@
 use std::{future::Future, sync::Arc};
 
 use grafton_visca::{
-    capabilities::{Capabilities, InquirySupport, TypedSupportSet, TypedSupportSurface},
+    capabilities::{
+        Capabilities, InquirySupport, RuntimeShutterSpeed, TypedSupportSet, TypedSupportSurface,
+    },
     dynapi::{DynSessionCamera, DynSessionCameraNouns},
     profile::{PositionInquirySupport, ProfileSpec},
-    profiles::SonyBRC300,
+    profiles::{SonyBRC300, SonyFR7},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
     types::ZoomPosition,
     units::UnitInterval,
-    CameraId, CommandTimeouts, Error, ProfileEnvelope, ProfileTiming, Session, SessionConfig,
-    TransportCompatibility, ZoomDomain,
+    CameraId, CommandTimeouts, Error, ExposureMode, ProfileEnvelope, ProfileTiming, Session,
+    SessionConfig, TransportCompatibility, ZoomDomain,
 };
 use std::time::Duration;
 
@@ -184,6 +186,47 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
         .expect("documented digital zoom profile")
 }
 
+/// This runtime inventory intentionally documents the shared exposure-mode
+/// protocol family while withholding the static/dynamic permission bit. The
+/// complete profile shape proves metadata alone cannot admit the erased noun.
+fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
+    let mut capabilities =
+        Capabilities::runtime_baseline("Documented Exposure Modes", 1).expect("baseline profile");
+    capabilities.has_exposure = true;
+    capabilities.exposure_modes = vec![ExposureMode::Auto];
+    capabilities.shutter_speeds = vec![RuntimeShutterSpeed {
+        label: "1/60".into(),
+        value: 1,
+    }];
+    capabilities.gain_range = 0..=1;
+    capabilities.inquiry_support = InquirySupport::Partial;
+    capabilities.typed_support = TypedSupportSet::empty();
+
+    ProfileSpec::builder(capabilities)
+        .transports(TransportCompatibility::new(Some(5678), None, false))
+        .envelope(ProfileEnvelope::RawVisca)
+        .timing(
+            ProfileTiming::builder()
+                .ack_timeout(Duration::from_millis(100))
+                .command_timeouts(CommandTimeouts::default())
+                .inquiry_timeout(Duration::from_secs(1))
+                .cancellation_timeout(Duration::from_secs(1))
+                .ambiguity_timeout(Duration::from_secs(1))
+                .busy_timeout(Duration::ZERO)
+                .minimum_inquiry_spacing(Duration::ZERO)
+                .minimum_command_spacing(Duration::ZERO)
+                .build()
+                .expect("valid timing"),
+        )
+        .maximum_command_sockets(1)
+        .supports_operation_complete(true)
+        .supports_command_cancel(false)
+        .preset_recall_axes(None)
+        .position_inquiries(PositionInquirySupport::new(false, false, false))
+        .build()
+        .expect("documented exposure-mode profile without typed permission")
+}
+
 async fn dynamic_targeted_polling<E>(runtime: E)
 where
     E: grafton_visca::Executor,
@@ -349,6 +392,119 @@ where
         .expect("supported session shutdown");
 }
 
+async fn dynamic_shared_exposure_modes_require_typed_permission<E>(runtime: E)
+where
+    E: grafton_visca::Executor,
+{
+    // Sony FR7 retains exposure controls, but does not document the shared
+    // `04 39` mode family. The erased noun remains callable and rejects both
+    // projections before the owner reaches its transport.
+    let fr7_profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    assert!(fr7_profile.capabilities().has_exposure);
+    assert!(fr7_profile.capabilities().exposure_modes.is_empty());
+    assert!(!fr7_profile
+        .capabilities()
+        .supports_typed(TypedSupportSurface::ExposureMode));
+
+    let (fr7_transport, fr7_writes) = transport();
+    let fr7_session = Session::open(
+        fr7_transport,
+        SessionConfig::new(fr7_profile),
+        runtime.clone(),
+    )
+    .await
+    .expect("Sony FR7 session");
+    let fr7_camera = DynSessionCamera::from_session(&fr7_session).expect("Sony FR7 camera");
+    let fr7_nouns: &dyn DynSessionCameraNouns = &fr7_camera;
+
+    let error = fr7_nouns
+        .exposure()
+        .set_mode(ExposureMode::Auto)
+        .await
+        .expect_err("FR7 shared exposure-mode command must be rejected");
+    assert!(matches!(
+        error,
+        Error::FeatureNotSupported {
+            feature: "selected exposure mode"
+        }
+    ));
+    let error = fr7_nouns
+        .exposure()
+        .mode()
+        .await
+        .expect_err("FR7 shared exposure-mode inquiry must be rejected");
+    assert!(matches!(
+        error,
+        Error::FeatureNotSupported {
+            feature: "inquiry ExposureModeInquiry"
+        }
+    ));
+    assert!(
+        fr7_writes.lock().expect("Sony FR7 writes lock").is_empty(),
+        "both rejected Sony FR7 exposure-mode noun calls must stay preflight"
+    );
+    fr7_session
+        .shutdown()
+        .await
+        .expect("Sony FR7 session shutdown");
+
+    // This is mutation-sensitive: the runtime profile has every discovery
+    // fact that makes the shared mode family physically plausible, but omits
+    // only its typed permission bit.
+    let partial_profile = documented_exposure_mode_profile_without_typed_permission();
+    assert!(partial_profile.capabilities().has_exposure);
+    assert!(!partial_profile.capabilities().exposure_modes.is_empty());
+    assert!(!partial_profile
+        .capabilities()
+        .supports_typed(TypedSupportSurface::ExposureMode));
+
+    let (partial_transport, partial_writes) = transport();
+    let partial_session = Session::open(
+        partial_transport,
+        SessionConfig::new(partial_profile),
+        runtime,
+    )
+    .await
+    .expect("partial exposure-mode session");
+    let partial_camera =
+        DynSessionCamera::from_session(&partial_session).expect("partial exposure-mode camera");
+    let partial_nouns: &dyn DynSessionCameraNouns = &partial_camera;
+
+    let error = partial_nouns
+        .exposure()
+        .set_mode(ExposureMode::Auto)
+        .await
+        .expect_err("metadata alone must not admit shared exposure-mode command");
+    assert!(matches!(
+        error,
+        Error::FeatureNotSupported {
+            feature: "shared exposure-mode control"
+        }
+    ));
+    let error = partial_nouns
+        .exposure()
+        .mode()
+        .await
+        .expect_err("metadata alone must not admit shared exposure-mode inquiry");
+    assert!(matches!(
+        error,
+        Error::FeatureNotSupported {
+            feature: "typed inquiry ExposureModeInquiry"
+        }
+    ));
+    assert!(
+        partial_writes
+            .lock()
+            .expect("partial exposure-mode writes lock")
+            .is_empty(),
+        "both rejected partial-profile exposure-mode noun calls must stay preflight"
+    );
+    partial_session
+        .shutdown()
+        .await
+        .expect("partial exposure-mode session shutdown");
+}
+
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_dynamic_targeted_projection_uses_owner_settlement_wait() {
@@ -364,6 +520,15 @@ async fn tokio_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
     .await;
 }
 
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn tokio_dynamic_shared_exposure_modes_require_typed_permission() {
+    dynamic_shared_exposure_modes_require_typed_permission(
+        grafton_visca::TokioRuntime::from_current().expect("runtime"),
+    )
+    .await;
+}
+
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_dynamic_targeted_projection_uses_owner_settlement_wait() {
@@ -374,6 +539,14 @@ fn smol_dynamic_targeted_projection_uses_owner_settlement_wait() {
 #[test]
 fn smol_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
     smol::block_on(dynamic_combined_normalized_zoom_respects_typed_permission(
+        grafton_visca::SmolRuntime::new(),
+    ));
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_dynamic_shared_exposure_modes_require_typed_permission() {
+    smol::block_on(dynamic_shared_exposure_modes_require_typed_permission(
         grafton_visca::SmolRuntime::new(),
     ));
 }

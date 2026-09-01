@@ -264,6 +264,70 @@ impl ProtocolFramer {
         !self.buf.is_empty()
     }
 
+    /// The first byte of input retained by the framer.
+    ///
+    /// Raw multi-target owners use the response source byte to keep a partial
+    /// frame for one camera when another camera's correlation hold expires.
+    #[cfg(feature = "async")]
+    pub(crate) fn buffered_first_byte(&self) -> Option<u8> {
+        self.buf.first().copied()
+    }
+
+    /// Whether the first retained raw input already has its frame terminator.
+    ///
+    /// This is intentionally available to both owner implementations. It
+    /// examines only the first delimiter-framed raw input; later retained
+    /// frames do not affect the answer.
+    pub(crate) fn buffered_first_raw_input_is_complete(&self) -> Result<bool, Error> {
+        if self.mode != FramingMode::RawVisca {
+            return Err(Error::InvalidState(
+                "raw input completeness requires a raw VISCA framer".into(),
+            ));
+        }
+        Ok(self.buf.contains(&VISCA_TERMINATOR))
+    }
+
+    /// Borrow up to the first two bytes of the first retained raw input.
+    ///
+    /// The returned slice is zero-copy and never crosses the first `0xFF`
+    /// frame boundary. It lets an owner inspect just enough raw framing
+    /// evidence to defer correlation policy to the shared engine, without
+    /// consuming a fragment or allocating a temporary buffer.
+    pub(crate) fn buffered_first_two_raw_input_bytes(&self) -> Result<&[u8], Error> {
+        if self.mode != FramingMode::RawVisca {
+            return Err(Error::InvalidState(
+                "raw input prefix requires a raw VISCA framer".into(),
+            ));
+        }
+
+        let first_input_len = self
+            .buf
+            .iter()
+            .position(|&byte| byte == VISCA_TERMINATOR)
+            .map_or(self.buf.len(), |terminator| terminator + 1);
+        Ok(&self.buf[..first_input_len.min(2)])
+    }
+
+    /// Discard exactly the first retained raw frame, or the sole incomplete
+    /// raw fragment when no terminator has arrived yet.
+    ///
+    /// Bytes after the first terminator are preserved. That distinction is
+    /// load-bearing for multi-camera serial: an expiring target must not erase
+    /// a later complete response already buffered for another target.
+    pub(crate) fn discard_first_raw_input(&mut self) -> Result<(), Error> {
+        if self.mode != FramingMode::RawVisca {
+            return Err(Error::InvalidState(
+                "target-aware discard requires a raw VISCA framer".into(),
+            ));
+        }
+        if let Some(pos) = self.buf.iter().position(|&byte| byte == VISCA_TERMINATOR) {
+            let _ = self.buf.split_to(pos + 1);
+        } else {
+            self.buf.clear();
+        }
+        Ok(())
+    }
+
     /// Clear the internal buffer, discarding any incomplete frames.
     pub fn clear(&mut self) {
         self.buf.clear();
@@ -406,6 +470,84 @@ mod tests {
             Bytes::from(vec![0x81, 0x01, 0x04, 0x07, VISCA_TERMINATOR])
         );
         assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn raw_first_input_introspection_handles_empty_buffer() {
+        let framer = ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+
+        assert!(framer
+            .buffered_first_two_raw_input_bytes()
+            .unwrap()
+            .is_empty());
+        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+    }
+
+    #[test]
+    fn raw_first_input_introspection_reports_one_byte_fragment() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer.push_slice(&[0x90]).unwrap();
+
+        assert_eq!(framer.buffered_first_two_raw_input_bytes().unwrap(), [0x90]);
+        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+    }
+
+    #[test]
+    fn raw_first_input_introspection_reports_two_byte_fragment() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer.push_slice(&[0x90, 0x51]).unwrap();
+
+        assert_eq!(
+            framer.buffered_first_two_raw_input_bytes().unwrap(),
+            [0x90, 0x51]
+        );
+        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+    }
+
+    #[test]
+    fn raw_first_input_introspection_stops_at_first_complete_frame() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer
+            .push_slice(&[0x90, 0x51, VISCA_TERMINATOR, 0x90, 0x41, VISCA_TERMINATOR])
+            .unwrap();
+
+        assert_eq!(
+            framer.buffered_first_two_raw_input_bytes().unwrap(),
+            [0x90, 0x51]
+        );
+        assert!(framer.buffered_first_raw_input_is_complete().unwrap());
+    }
+
+    #[test]
+    fn raw_first_input_prefix_does_not_cross_a_one_byte_frame_boundary() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer
+            .push_slice(&[0x90, VISCA_TERMINATOR, 0x51, VISCA_TERMINATOR])
+            .unwrap();
+
+        assert_eq!(
+            framer.buffered_first_two_raw_input_bytes().unwrap(),
+            [0x90, VISCA_TERMINATOR]
+        );
+    }
+
+    #[test]
+    fn raw_first_input_introspection_rejects_non_raw_framing() {
+        let framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::SonyEncapsulated);
+
+        assert!(matches!(
+            framer.buffered_first_two_raw_input_bytes(),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(matches!(
+            framer.buffered_first_raw_input_is_complete(),
+            Err(Error::InvalidState(_))
+        ));
     }
 
     /// Malformed/noise raw prefixes may happen to match Sony payload types.

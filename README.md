@@ -53,7 +53,7 @@ transports.
 | Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; physical G2/G3 TCP and UDP validation remains pending — see the [hardware release checklist](docs/hardware_release_checklist.md) |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; all physical profile/transport validation remains pending, including G2, G3, and 30X (every [hardware release checklist](docs/hardware_release_checklist.md) row is `Pending (Not run)`) |
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
 | `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
 
@@ -96,7 +96,9 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| Shared VISCA exposure mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -123,18 +125,44 @@ operations.
 | Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| 2D mode and 2D/3D noise-reduction level inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D mode and 2D/3D noise-reduction level controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | USB audio control and inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 
-The registry keeps model-specific iris ranges in runtime metadata where they
-are useful for discovery, but that metadata alone does not grant the typed
-`IrisControl` surface or a targeted settlement inquiry. Those APIs are enabled
-only for the PTZOptics profiles covered by the shared VISCA reference and the
-Sony FR7 entry with an exact registry-backed inquiry. Other Sony, EVI, Nearus,
-and generic entries remain available through the raw command escape hatch until
-model-specific evidence is added.
+`HasExposure` remains the broad exposure-domain marker. The shared `04 39`
+exposure-mode command and inquiry are separately guarded by `HasExposureMode`;
+only the three PTZOptics profiles have the source-backed shared mode inventory
+that grants this typed surface. A nonempty discovery inventory alone does not
+grant the static operation.
+
+`HasIrisControl` covers standard iris reset/up/down/direct control and the
+distinct `09 04 4B` position inquiry exposed as `iris()`. R10 sources that
+surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
+Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
+for `PtzOpticsG2` and `PtzOpticsG3`; and raw `PtzOptics30X` uses separate
+PTZOptics Gen-2/R1 evidence. `iris_control()` instead sends the separate
+`09 04 2B` auto/manual-status inquiry and requires `HasIrisControlInquiry` /
+`TypedSupportSurface::IrisControlInquiry`; all of those sources omit it, so no
+built-in profile enables it. The Sony FR7 command list instead documents a
+vendor-relative `7E 04 4B` iris Up/Down family and `05 34` Auto Iris inquiry,
+not the shared `04 39` AE-mode command/inquiry family, standard absolute Iris
+Direct command, or `09 04 4B` position inquiry. Those FR7 protocol families
+remain available through the raw command escape hatch until they receive their
+own typed APIs.
+
+Noise-reduction inquiries remain independently gated by
+`HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate
+`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers. The
+control surface restores `set_noise_reduction_2d_mode`,
+`set_noise_reduction_2d`, `disable_noise_reduction_2d`,
+`set_noise_reduction_3d`, and `disable_noise_reduction_3d` only for the three
+profiles in the table. This is exact source-backed scope, not a grant inferred
+from a PTZOptics family grouping: `PtzOptics30X` is the explicitly legacy
+PT30X SDI/NDI G2/Gen-2 profile, and it does not extend to Move, Link, or newer
+30X models. See the separate R14 command-input and query-output domains in
+[`docs/visca_reference.md`](docs/visca_reference.md); a successful set is not
+promised to round-trip through an inquiry with the same numeric value.
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the
@@ -248,7 +276,8 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 ## Bounded Movement Operations
 
 Ordinary noun methods remain the simplest command-completion surface. When a
-caller needs a per-command deadline, cancellation, or a physical settle signal,
+caller needs a per-command deadline, cancellation, or a profile-selected
+protocol-settlement wait,
 submit a built-in movement command and drive its operation handle explicitly.
 
 `submit` manages lifecycle; it does not add profile capability or range
@@ -305,9 +334,12 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
 ```
 
 - `applied` means the exact command was accepted and protocol-completed.
-- `settled` additionally means targeted physical motion ended. Profiles
-  with an operation-complete signal use it; other profiles poll only the affected
-  axes under the same total deadline.
+- `settled` additionally means the targeted operation meets the profile-selected
+  protocol settlement condition: a profile-declared completion-is-settled
+  signal, or two affected-axis position samples within tolerance. It is an
+  intended indication of target rest, not a 2.0.0-rc.1 bench-verified assertion
+  that physical motion ended; exact model/firmware/transport/command evidence
+  remains in the [hardware release checklist](docs/hardware_release_checklist.md).
 - `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
   removable locally; sent work requires profile support and otherwise returns
   `Error::NotSupported`. Success does not prove physical motion stopped, so use
@@ -380,7 +412,14 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   `Session::camera_for::<P>(target)` is for raw-VISCA serial-addressed or
   compatible custom transports.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
-  checked by `Has*` marker bounds and runtime `ProfileSpec` validation.
+  checked by `Has*` marker bounds, the compile-time profile-permission surface,
+  and runtime `ProfileSpec` validation. Direct generic `execute`/`inquire`
+  intentionally have no request-specific `P` bounds: they are the uniform
+  typed/downstream extension boundary. Preparation runs
+  `Request::validate_for_profile` before encoding, owner admission, or I/O, so
+  crate-provided direct requests report `FeatureNotSupported` before writing
+  when unsupported. Raw and other downstream requests remain explicit
+  low-level extensions and may supply their own validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
   `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as

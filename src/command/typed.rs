@@ -15,6 +15,11 @@ pub trait ResponseParser {
     type Response;
 
     /// Convert a generic `Response` into the typed response for this command.
+    ///
+    /// This direct conversion has no camera-profile context. Built-in inquiries
+    /// whose documented reply domain varies by profile perform that narrower
+    /// validation in the session decoder selected during request preparation;
+    /// direct conversion validates only the profile-neutral public value type.
     fn from_response(resp: Response) -> Result<Self::Response, Error>;
 }
 

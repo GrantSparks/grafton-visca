@@ -12,11 +12,40 @@ pub use crate::capabilities::exposure::ShutterSpeed;
 /// literals while still exposing standard [`RangeInclusive`] values for runtime
 /// discovery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CapabilityRange<T> {
     min: T,
     max: T,
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T> serde::Deserialize<'de> for CapabilityRange<T>
+where
+    T: serde::Deserialize<'de> + PartialOrd,
+{
+    fn deserialize<__D>(deserializer: __D) -> Result<Self, __D::Error>
+    where
+        __D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct WireRange<T> {
+            min: T,
+            max: T,
+        }
+
+        let wire = WireRange::<T>::deserialize(deserializer)?;
+        if wire.min <= wire.max {
+            Ok(Self {
+                min: wire.min,
+                max: wire.max,
+            })
+        } else {
+            Err(serde::de::Error::custom(
+                "capability range minimum exceeds maximum",
+            ))
+        }
+    }
 }
 
 macro_rules! impl_capability_range {

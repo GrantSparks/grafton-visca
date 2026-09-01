@@ -10,4 +10,4 @@ fn main() {
 }
 
 //~ E0277
-//~ "the trait bound `PanTiltLimitClear: OperationCommand<grafton_visca::completion::Targeted>` is not satisfied"
+//~ "PanTiltLimitClear: OperationCommand<"

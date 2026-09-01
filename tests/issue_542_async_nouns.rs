@@ -6,9 +6,10 @@ use std::future::Future;
 
 use grafton_visca::{
     capabilities::{
-        HasFocusZoneInquiry, HasImageFlip, HasImageProcessing, HasPtzOpticsAntiFlicker,
-        HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
-        HasPtzOpticsSettingsSave, HasSonyAutoSlowShutter, HasSonySpotlight, HasUsbAudio,
+        HasExposureMode, HasFocusZoneInquiry, HasImageFlip, HasImageProcessing,
+        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
+        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasSonyAutoSlowShutter,
+        HasSonySpotlight, HasUsbAudio,
     },
     completion::{AppliedOnly, Targeted},
     profiles::{
@@ -47,17 +48,21 @@ where
 fn baseline_surface<P: CompileTimeProfile>(camera: &Camera<P>) {
     plain(camera.power().on());
     plain(camera.power().off());
-    plain(
-        camera
-            .exposure()
-            .set_mode(grafton_visca::ExposureMode::Auto),
-    );
     plain(camera.white_balance().auto());
     plain(camera.menu().display(true));
     targeted(camera.pan_tilt().home());
     applied(camera.pan_tilt().stop());
     applied(camera.zoom().stop());
     applied(camera.focus().stop());
+}
+
+fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camera<P>) {
+    plain(
+        camera
+            .exposure()
+            .set_mode(grafton_visca::ExposureMode::Auto),
+    );
+    inquiry(camera.exposure().mode());
 }
 
 /// The image rows were originally included in `baseline_surface` while
@@ -170,6 +175,7 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) =
         assert_camera_is_profile_typed::<profile_fixtures::NonDefaultCompileTimeProfile>;
     let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = image_flip_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOptics30X>) = focus_zone_inquiry_gate::<PtzOptics30X>;

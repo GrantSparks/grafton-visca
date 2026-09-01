@@ -30,51 +30,58 @@ release-candidate posture is therefore:
 
 ## Size
 
-The answer is yes: v2 is larger in source and in a small linked blocking
-consumer. Source and integration-test figures are physical `wc -l` totals over
-the stated Rust files. Reproduce the line rows from the root of either
-checkout with `find src grafton-visca-macros/src -type f -name '*.rs'
--print0 | xargs -0 wc -l`, `find src/runtime -type f -name '*.rs' -print0 |
-xargs -0 wc -l`, and `find tests -type f -name '*.rs' -print0 | xargs -0
-wc -l`, using each command's trailing `total` row. Both optimized library
-builds and both preserved consumer fixtures use Rust 1.98
-(`cargo +1.98.0`), fresh separate target directories, and blocking-only
-features; the consumer manifests retain their existing release
-`strip = "symbols"` setting. The library commands are `cargo +1.98.0 build
---release --no-default-features --locked` for 1.2.0 and the same command with
-`--features blocking` for v2 RC; inspect `release/libgrafton_visca.rlib`.
-The consumer command is `cargo +1.98.0 build --manifest-path <fixture>/Cargo.toml
---release --locked`; inspect the resulting `release/grafton-size-consumer-*`
-executable.
+This is a source-only audit snapshot, measured on 2026-09-01 against the 1.2.0
+base `6c7a9d3783861189745536372c4d21de24d4252d` and the then-current review
+tree at `HEAD` `888aa07a66ecec0b493b84e402915c636bdeeed1` plus its pending
+changes. The selected current Rust-file content digest was
+`718b9df45eef5d59f96d2a78cdfe51af7d4f37e41c0220339e7c575263caa196`; it
+includes the then-untracked `grafton-visca-macros/src/range_type.rs`. These are
+not claims about a later worktree or release commit: remeasure after any source
+change.
 
-| Measure | 1.2.0 | v2 RC | Change |
-| --- | ---: | ---: | ---: |
-| Rust lines under `src/` plus macro `src/` | 84,146 | 103,926 | +23.5% |
-| Rust lines under `src/runtime/` | 17,848 | 30,949 | +73.4% |
-| Rust lines under `tests/` (integration-test tree) | 19,563 | 25,865 | +32.2% |
-| Optimized library `.rlib` (blocking-only) | 8,887,736 B | 11,092,160 B | +24.8% |
-| Stripped minimal TCP/power/zoom blocking consumer | 767,680 B | 1,022,544 B | +33.2% |
+For each checkout/tree, obtain the three line rows from its root with
+`find src grafton-visca-macros/src -type f -name '*.rs' -print0 | xargs -0 wc
+-l`, `find src/runtime -type f -name '*.rs' -print0 | xargs -0 wc -l`, and
+`find tests -type f -name '*.rs' -print0 | xargs -0 wc -l`, using each
+command's trailing `total` row. The current-tree source delta was measured as
+`git diff --numstat 6c7a9d3783861189745536372c4d21de24d4252d -- src
+grafton-visca-macros/src`, plus every untracked Rust file reported by `comm
+-13 <(git ls-files -- src grafton-visca-macros/src | sort) <(find src
+grafton-visca-macros/src -type f -name '*.rs' -print | sort) | xargs -r wc
+-l`. At this snapshot that contribution was the 293-line `range_type.rs`; a
+future clean checkout needs only the `git diff` command.
 
-The final executable measurement is illustrative rather than a universal
-application-size promise: monomorphization, enabled features, linker settings,
-and which API paths a program calls all affect the result. It does establish
-that the increase is not merely comments or tests.
+| Measure                                           |   1.2.0 base | 2026-09-01 review snapshot |  Change |
+| ------------------------------------------------- | -----------: | -------------------------: | ------: |
+| Rust lines under `src/` plus macro `src/`         |       84,146 |                    127,370 |  +51.4% |
+| Rust lines under `src/runtime/`                   |       17,848 |                     46,614 | +161.2% |
+| Rust lines under `tests/` (integration-test tree) |       19,563 |                     31,162 |  +59.3% |
+| Optimized library `.rlib` (blocking-only)         | not measured |               not measured |       — |
+| Stripped minimal TCP/power/zoom blocking consumer | not measured |               not measured |       — |
 
-Growth is concentrated in the new lifecycle/owner implementation, not in a
-second set of camera opcodes. The command, protocol, and transport trees grew
-only modestly; the runtime tree grew by 13,101 lines (roughly 13.1k). The main
-additions are the deterministic engine, separate mode-native owner drivers, typed
-preparation and operation state, bounded admission/cancellation boundaries,
-multi-target state, settlement polling, state cache, diagnostics/metrics, and
-the parity/release gates around them. The proc-macro crate also gained
-`proc-macro-crate` so derives work when a downstream user renames the
-dependency; its TOML parser stack is a compile-time cost, not an async runtime
-linked into blocking applications.
+No fresh binary artifacts were retained for this source-only snapshot, so the
+table deliberately makes no `.rlib` or executable-size claim. When a release
+measurement is needed, use Rust 1.98 (`cargo +1.98.0`) with fresh separate
+target directories and blocking-only features: `cargo +1.98.0 build --release
+--no-default-features --locked` for 1.2.0, the same command with `--features
+blocking` for v2, and `cargo +1.98.0 build --manifest-path <fixture>/Cargo.toml
+--release --locked` for the preserved consumer fixture. Record the exact
+commit, features, linker settings, and resulting artifact sizes alongside that
+measurement; monomorphization and called API paths make it illustrative rather
+than a universal application-size promise.
 
-Crucially, the size increase is not Tokio hidden behind the blocking facade.
-`blocking` calls `BlockingTransport` synchronously and its normal dependency
-graph contains no Tokio, smol, async executor, or pollster. A CI dependency
-gate now enforces that for blocking network and serial configurations.
+The snapshot establishes substantial source growth, including 28,766 additional
+runtime lines. Its main additions include the deterministic engine, separate
+mode-native owner drivers, typed preparation and operation state, bounded
+admission/cancellation boundaries, multi-target state, settlement polling,
+state cache, diagnostics/metrics, and parity/release gates. The proc-macro
+crate also gained `proc-macro-crate` so derives work when a downstream user
+renames the dependency; its TOML parser stack is a compile-time cost, not an
+async runtime linked into blocking applications.
+
+The blocking facade remains synchronous through `BlockingTransport`; its normal
+dependency graph contains no Tokio, smol, async executor, or pollster. The CI
+dependency gate covers blocking network and serial configurations.
 
 ## Design comparison
 
@@ -100,15 +107,18 @@ terminal-state rules belong in shared pure code.
 
 ## Reuse audit
 
-The concern about rewriting battle-tested functionality is justified. Across
-the production source comparison against main at `6c7a9d37`, including the
-current working-tree corrections, 62,223 lines were added and 42,443 deleted
-(`git diff --numstat` over the package and macro `src/` trees). Git cannot
-recognize most of the new facade/runtime files as renames.
+The concern about rewriting battle-tested functionality is justified. In the
+2026-09-01 source snapshot defined above, the production-tree comparison with
+the 1.2.0 base had 87,141 added and 43,917 deleted lines (the documented
+`git diff --numstat` command plus the then-untracked 293-line range macro).
+Git cannot recognize most of the new facade/runtime files as renames. Those
+counts are snapshot evidence, not a claim about subsequent working-tree
+corrections.
 Several capabilities then had to be restored after parity review, including
 direction helpers, normalized zoom and ND-filter conveniences, menu toggling,
-horizontal-flip disable, 2D/3D noise-reduction disable, serial single-camera
-constructors, live tuning, and submission priority.
+horizontal-flip disable, independently gated 2D/3D noise-reduction inquiries
+and controls, serial single-camera constructors, live tuning, and submission
+priority.
 
 The high-quality boundary is:
 
@@ -118,7 +128,11 @@ The high-quality boundary is:
   types; they do not reproduce byte vectors.
 - **Share new semantics once.** `prepared` performs profile-aware lowering for
   both modes, the engine owns lifecycle transitions for both modes, and the
-  noun table generates all public facade variants.
+  noun table generates all public facade variants. Profile-dependent response
+  facts follow the same seam: preparation selects an immutable owned decoder,
+  so blocking, async, and dynamic facades cannot disagree. The legacy PTZOptics
+  3D noise-reduction inquiry bound is granted only after exact registry-profile
+  equality, never from the mutable `ProfileId` inventory claim alone.
 - **Rewrite only where ownership semantics changed.** The sole-owner engine,
   bounded admission, typed settlement, multi-target registry, and recoverable
   cancellation could not be obtained safely by merely renaming the 1.x client
@@ -203,21 +217,39 @@ encoding.
    assignment and so cannot be mis-attributed. Only when no socket is free is
    the ACK inert with `SocketConflict`; a socketless ACK likewise selects the
    first free registered socket. Sony sequencing retains pre-ACK pipelining and
-   exact sequence correlation.
+   exact sequence correlation. Raw correlation holds follow the same evidence
+   boundary: cancellation and unconfirmed-correlation holds for an owned S1/S2
+   release only that exact target/socket, while pre-ACK or otherwise unowned
+   ambiguity remains unkeyed. These scopes remain distinct when simultaneous.
+   A terminal `NoReply`/`CompletionOnly` tombstone is instead a broad
+   target-response hold. A raw inquiry terminal hold blocks new same-target
+   response-bearing successor dispatch and filters stale unkeyed inquiry
+   data/reply and socketless-error evidence, while live attributable
+   ACK/completion (including a uniquely attributable socketless completion) and
+   exact named socket terminals remain eligible.
 8. A successfully sent raw command is never automatically replayed after an
-   ACK, completion, or cancellation ambiguity timeout, a raw receive fault while
-   awaiting ACK, or an active retry-budget expiry in `Sending`, `AwaitingAck`,
-   `AwaitingCompletion`, or `Executing` — a raw command may already have
-   reached the camera.
+   ACK, completion, or cancellation ambiguity timeout, or an active retry-budget
+   expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` — a
+   raw command may already have reached the camera. A transient raw receive fault
+   while the command awaits ACK likewise never authorizes a replay, but it does
+   not itself terminalize the command by default: the command remains awaiting
+   ACK, and only a later ACK deadline without an ACK enters the unconfirmed
+   recovery below. The `strict_unconfirmed_poison` opt-in instead poisons the
+   session on that receive fault only when no cancel intent is recorded; a
+   recorded cancel follows cancellation-driven late-ACK resolution and poisons
+   only if that deadline remains unconfirmed. It still never replays the
+   command.
    **Ratified per-request default (issue #671, superseding the earlier
-   whole-session poison rule and the #565/#566 narrowing):** each such event
-   fails only that one command with `UnsequencedCommandUnconfirmed` — a
+   whole-session poison rule and the #565/#566 narrowing):** each resulting
+   unconfirmed-recovery trigger — an ACK, completion, or cancellation ambiguity
+   timeout, or an active retry-budget expiry — fails only that one command with
+   `UnsequencedCommandUnconfirmed` — a
    per-request outcome the session survives (its `requires_new_session()` is
    `false`) — and quarantines the correlation still at stake (the owned socket,
    or the command's place as the sole unacknowledged raw command) until the
-   ambiguity deadline, so a late ACK or completion cannot bind to a later
-   command; a late reply arriving during the quarantine is ignored, never
-   applied. The session and every unrelated request keep running. Whole-session
+   ambiguity deadline, so a late response in that hold cannot bind to a later
+   command; the hold filters only the evidence within its own scope. The session
+   and every unrelated request keep running. Whole-session
    poison is retained only behind the opt-in `strict_unconfirmed_poison`
    `OperationalTuning` mode (default off), which restores the pre-fix behavior
    and surfaces it as `StreamPoisoned` so a poisoned session still requires a
@@ -294,6 +326,22 @@ encoding.
     force temporal raw command attribution, ambiguous raw replay, fixed retry
     timing, or another superseded behavior back into production merely because
     1.x once implemented it.
+18. At a byte-stream correlation-expiry boundary, complete buffered frames are
+    correlated before the due release; partial bytes are not decoded as frames.
+    Unless the due release also includes the broad target-response tombstone
+    from a `NoReply` or `CompletionOnly` terminal, a named completion/error
+    prefix may survive another socket's release only when it names a still-live
+    non-releasing target/socket owner. Matching stale socket evidence may be
+    discarded and other-target serial input is retained. That broad tombstone
+    instead discards every response-shaped partial prefix for its target,
+    including source-only, ACK, socketless `0x50`/`0x60`, and named terminal
+    prefixes; noncorrelating evidence and other-target serial input are
+    preserved. Source-only, ACK (whose socket nibble is assignment preference
+    rather than ownership), and socketless `0x50`/`0x60` prefixes remain
+    ambiguous for narrower inquiry/pre-ACK/unkeyed or socket-scoped releases,
+    so input continues to drain first. If 64 bounded turns cannot resolve them,
+    the owner fails closed before successor dispatch rather than discard or
+    misbind them.
 
 ## Release-candidate boundary
 

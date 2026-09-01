@@ -361,6 +361,24 @@ fn test_parse_iris_inquiry() {
 }
 
 #[test]
+fn test_parse_iris_inquiry_preserves_both_position_nibbles() {
+    let data = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x0E, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::Iris);
+    assert!(
+        result.is_ok(),
+        "Failed to parse multi-nibble iris response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::Iris { position }) => {
+            assert_eq!(position, 0x1E, "Iris position mismatch");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
 fn test_parse_shutter_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x07, 0xFF];
     let result = Response::parse_with_type(&data, &InquiryKind::Shutter);
@@ -411,6 +429,20 @@ fn test_parse_noise_reduction_3d_inquiry() {
             assert_eq!(level, 0x05, "3D NR level mismatch");
         }
         _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
+fn test_parse_noise_reduction_3d_inquiry_current_reply_domain() {
+    for (wire, expected_level) in [(0x00, 0x00), (0x05, 0x05)] {
+        let response =
+            Response::parse_with_type(&[0x90, 0x50, wire, 0xFF], &InquiryKind::NoiseReduction3D)
+                .expect("current 3D NR inquiry reply must parse");
+
+        assert!(matches!(
+            response,
+            Response::Inquiry(InquiryData::NoiseReduction3D { level }) if level == expected_level
+        ));
     }
 }
 

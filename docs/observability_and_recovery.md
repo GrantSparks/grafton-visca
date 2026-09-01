@@ -98,8 +98,11 @@ because completion is ordered after transport release. If the shutdown signal is
 `RuntimeShutdown` terminal result is returned as success; a transport close, or
 a stream / strict-opt-in session poison that wins the source ordering, is
 returned unchanged. An immediate error while sending `close()`'s signal is
-also preserved. Dropping a view or calling `shutdown()` alone is not a
-transport-release barrier.
+also preserved. Dropping a non-final view or calling `shutdown()` alone is not
+a transport-release barrier. Dropping the final async `Session`/camera-view
+owner handle may release the actor and transport, but provides no completion
+barrier and does not issue a protocol STOP; use `close()` when release must be
+observed before reopening an endpoint.
 
 On either facade, `shutdown()`/`close()` called on a session the *engine* has
 already terminated — a deadline expiry, the strict `strict_unconfirmed_poison`
@@ -154,31 +157,41 @@ it is the camera's verdict on the command.
 For Sony-encapsulated traffic, a lost ACK or post-ACK completion timeout may be
 retried with the same sequence number, preserving the logical request's
 identity. Raw VISCA has no such key. After a raw command was successfully sent,
-an ACK timeout, completion timeout, unresolved cancellation, receive fault
-while awaiting ACK, or active retry-budget expiry while an attempt is in
-`Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` leaves both its
-physical outcome and any later reply ownership uncertain. The engine never replays it (that would
-risk a duplicate relative move or preset). By default (issue #671) it fails only
-that one command with `Error::UnsequencedCommandUnconfirmed` — a per-request
-outcome the session survives — and holds the correlation still at stake (its
-owned socket, or its place as the sole unacknowledged command) quarantined until
-the ambiguity deadline, so a late ACK or completion is ignored rather than bound
-to a later command. The session and every unrelated request keep running; the
-caller reconciles that one command's camera effect rather than replacing the
-session. Deployments that would rather hard-fail an entire session than risk a
-subtle correlation error can opt into `OperationalTuning::strict_unconfirmed_poison`,
-which restores the whole-session poison (surfaced as `Error::StreamPoisoned`,
-which requires a replacement session). This rule deliberately covers
-non-idempotent relative motion and presets rather than asking a retry class to
-guess whether a particular payload is harmless.
+an ACK timeout, completion timeout, unresolved cancellation, or active
+retry-budget expiry while an attempt is in `Sending`, `AwaitingAck`,
+`AwaitingCompletion`, or `Executing` leaves both its physical outcome and any
+later reply ownership uncertain. The engine never replays it (that would risk a
+duplicate relative move or preset). By default (issue #671) it fails only that
+one command with `Error::UnsequencedCommandUnconfirmed` — a per-request outcome
+the session survives — and holds the correlation still at stake (its owned
+socket, or its place as the sole unacknowledged command) quarantined until the
+ambiguity deadline, so a late ACK or completion is ignored rather than bound to
+a later command. A transient raw receive fault while the command awaits its ACK
+does not itself produce that outcome: it leaves the command awaiting ACK, so a
+subsequent ACK may still establish ownership; only a later ACK deadline without
+an ACK enters this unconfirmed recovery. The session and every unrelated request
+keep running; the caller reconciles that one command's camera effect rather than
+replacing the session. Deployments that would rather hard-fail an entire session
+than risk a subtle correlation error can opt into
+`OperationalTuning::strict_unconfirmed_poison`, which restores the whole-session
+poison (surfaced as `Error::StreamPoisoned`, which requires a replacement
+session). This rule deliberately covers non-idempotent relative motion and
+presets rather than asking a retry class to guess whether a particular payload
+is harmless.
 
 Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
 inquiry per target, so a reply, terminal error/timeout, or retry release/requeue
 holds that target's response correlation for the profile ambiguity timeout
-before same-target response-bearing successor work can send. Frames received
-during the hold are ignored; at the exact deadline they are still processed
-before the due pass releases a successor. This bounded single-flight policy
-does not claim that a wider raw FIFO can identify duplicate replies.
+before same-target response-bearing successor work can send. The hold does not
+ignore every same-target frame: it filters stale unkeyed inquiry reply/data and
+socketless-error evidence, while an already-live attributable ACK or completion
+(including a uniquely attributable socketless completion) and a named exact
+socket error remain eligible for the ordinary resolver. At the exact deadline,
+complete input is still processed before the due pass releases a successor;
+retained partial evidence follows the [byte-stream ambiguity-expiry
+rule](architecture_2_0.md#engine-transition-and-ordering). This bounded
+single-flight policy does not claim that a wider raw FIFO can identify duplicate
+replies.
 
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
@@ -247,12 +260,15 @@ ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retr
 a sequenced Sony command still waiting for its ACK under that command's bounded
 policy. A raw command waiting for its ACK has no sequence to replay, but a
 transient receive fault consumes nothing and cannot desynchronize raw framing,
-so by default (issue #671) the owner does not terminalize it on the fault at
-all: it is left to ride to its own ACK deadline, where — if no ACK arrives — it
-fails per-request and quarantines its slot rather than poisoning the session.
-The strict `strict_unconfirmed_poison` opt-in instead ends the whole session
-(surfaced as `StreamPoisoned`) on such a fault. Neither path ever replays the
-command.
+so by default (issue #671) the owner does not terminalize an *uncancelled*
+command on the fault at all: it is left to ride to its own ACK deadline, where
+— if no ACK arrives — it fails per-request and quarantines its slot rather than
+poisoning the session. The strict `strict_unconfirmed_poison` opt-in instead
+ends the whole session (surfaced as `StreamPoisoned`) on that fault only with no
+recorded cancel. If cancel intent was already recorded, the command stays on
+the cancellation-driven late-ACK path; its ACK may still assign a socket and
+issue the cancel, and strict mode poisons only if that resolution deadline
+remains unconfirmed. Neither path ever replays the command.
 When no such raw command is awaiting ACK, a read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
 `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the

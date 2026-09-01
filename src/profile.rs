@@ -41,7 +41,7 @@ fn retry_budget_is_representable(now: Instant, deadline: Duration) -> bool {
         .is_some_and(|budget| monotonic_duration_is_representable(now, budget))
 }
 
-/// Position inquiries available for profile-aware physical settlement.
+/// Position inquiries available for profile-selected protocol settlement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -624,7 +624,7 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides the complete physical-settlement budget for targeted
+    /// Overrides the complete profile-selected protocol-settlement budget for targeted
     /// operations. This is independent of the protocol response deadline.
     #[must_use]
     pub const fn settlement_timeout(mut self, timeout: Duration) -> Self {
@@ -674,14 +674,24 @@ impl OperationalTuning {
     /// and quarantines its socket or its unacknowledged-command slot for the
     /// ambiguity window, so a late ACK or completion cannot bind to a later
     /// command while the session and every unrelated request keep running.
-    /// Setting `true` restores the conservative behavior in which any such
-    /// event — a lost ACK/completion, a spent retry budget, or an expired
-    /// cancellation-ambiguity window — poisons the whole session, for
-    /// deployments that would rather hard-fail an entire session than risk a
-    /// subtle correlation error. The flag has no effect on the Sony envelope,
-    /// whose sequence correlation never needs the quarantine. Like the wire
-    /// envelope, it is applied when the session is built and is not changed by a
-    /// later runtime reconfiguration.
+    /// Setting `true` restores the conservative behavior in which an
+    /// *uncancelled* raw command's transient receive fault while awaiting ACK,
+    /// a lost ACK/completion, a spent retry budget, or an expired
+    /// cancellation-ambiguity window poisons the whole session. If cancellation
+    /// was already recorded, a receive fault follows the cancellation-driven
+    /// late-ACK path; strict mode poisons only if that resolution remains
+    /// unconfirmed at its deadline. This is for deployments that would rather
+    /// hard-fail an entire session than risk a subtle correlation error. The
+    /// flag has no effect on the Sony envelope, whose sequence correlation never
+    /// needs the quarantine.
+    ///
+    /// This is a construction-only setting: put it in
+    /// [`SessionConfig::with_tuning`](crate::SessionConfig::with_tuning) before
+    /// opening the session. A runtime `set_tuning` call that explicitly sets it
+    /// is rejected, because the engine's recovery policy is fixed when the
+    /// session is built. A runtime update that leaves it unset preserves a
+    /// construction-time strict opt-in in the live tuning reported by the
+    /// session.
     #[must_use]
     pub const fn strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
         self.strict_unconfirmed_poison = Some(enabled);
@@ -748,6 +758,17 @@ impl OperationalTuning {
 
     pub(crate) const fn strict_unconfirmed_poison_override(self) -> Option<bool> {
         self.strict_unconfirmed_poison
+    }
+
+    /// Rejects construction-only policy changes from runtime reconfiguration.
+    pub(crate) fn validate_runtime_reconfiguration(self) -> Result<()> {
+        if self.strict_unconfirmed_poison.is_some() {
+            return Err(Error::InvalidRequest(
+                "strict_unconfirmed_poison is construction-only; configure it before opening the session"
+                    .into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -1489,9 +1510,7 @@ impl ProfileSpec {
                 && (!capabilities.exposure_modes.is_empty()
                     || !capabilities.shutter_speeds.is_empty()
                     || capabilities.gain_range != (0..=0)))
-            || (capabilities.has_exposure
-                && (capabilities.exposure_modes.is_empty()
-                    || capabilities.shutter_speeds.is_empty()))
+            || (capabilities.has_exposure && capabilities.shutter_speeds.is_empty())
             || (!capabilities.has_white_balance && !capabilities.white_balance_modes.is_empty())
             || (capabilities.has_white_balance && capabilities.white_balance_modes.is_empty())
             || (capabilities.supports_hue != capabilities.hue_range.is_some())
@@ -1533,7 +1552,7 @@ impl ProfileSpec {
                 .any(|(index, mode)| capabilities.white_balance_modes[..index].contains(mode))
         {
             return Err(Error::InvalidRequest(
-                "profile mode and shutter inventories must be non-empty and duplicate-free".into(),
+                "profile shutter inventory must be non-empty and profile inventories must be duplicate-free".into(),
             ));
         }
         for surface in capabilities.typed_support.iter() {
@@ -1547,7 +1566,13 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::DigitalZoomRange => {
                     capabilities.has_zoom && capabilities.zoom_range_digital.is_some()
                 }
+                capabilities::TypedSupportSurface::ExposureMode => {
+                    capabilities.has_exposure && !capabilities.exposure_modes.is_empty()
+                }
                 capabilities::TypedSupportSurface::IrisControl => {
+                    capabilities.has_exposure && capabilities.iris_range.is_some()
+                }
+                capabilities::TypedSupportSurface::IrisControlInquiry => {
                     capabilities.has_exposure && capabilities.iris_range.is_some()
                 }
                 capabilities::TypedSupportSurface::OnePushFocus => {
@@ -1660,13 +1685,16 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::GammaControl => {
                     capabilities.has_image_processing && capabilities.gamma_range.is_some()
                 }
-                capabilities::TypedSupportSurface::NoiseReduction => {
-                    capabilities.has_image_processing && capabilities.has_noise_reduction
-                }
                 capabilities::TypedSupportSurface::NoiseReduction2D => {
                     capabilities.has_image_processing && capabilities.has_2d_nr
                 }
                 capabilities::TypedSupportSurface::NoiseReduction3D => {
+                    capabilities.has_image_processing && capabilities.has_3d_nr
+                }
+                capabilities::TypedSupportSurface::NoiseReduction2DControl => {
+                    capabilities.has_image_processing && capabilities.has_2d_nr
+                }
+                capabilities::TypedSupportSurface::NoiseReduction3DControl => {
                     capabilities.has_image_processing && capabilities.has_3d_nr
                 }
                 capabilities::TypedSupportSurface::PictureEffect => {
@@ -2392,6 +2420,25 @@ mod tests {
         // scalar inquiry fact.
         assert!(runtime_builder(iris_metadata.clone()).build().is_ok());
 
+        // A source-declared `09 04 2B` status inquiry is independently valid:
+        // it is neither a direct iris command nor a targeted position-settlement
+        // path, so it must not borrow `IrisControl` permission or its inquiry
+        // requirement.
+        let mut typed_iris_status = iris_metadata.clone();
+        typed_iris_status.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry);
+        let source_declared_status = runtime_builder(typed_iris_status)
+            .build()
+            .expect("source-declared iris control-status inquiry profile");
+        assert!(source_declared_status
+            .capabilities()
+            .supports_typed(TypedSupportSurface::IrisControlInquiry));
+        crate::Request::validate_for_profile(
+            &crate::command::IrisControlInquiry,
+            &source_declared_status,
+        )
+        .expect("source-declared iris control-status inquiry must validate");
+
         let mut typed_iris = iris_metadata;
         typed_iris.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::IrisControl);
         assert!(runtime_builder(typed_iris).build().is_err());
@@ -2404,6 +2451,40 @@ mod tests {
         let mut typed_nd = nd_metadata;
         typed_nd.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::NdFilter);
         assert!(runtime_builder(typed_nd).build().is_err());
+    }
+
+    #[test]
+    fn runtime_builder_allows_exposure_without_shared_ae_modes() {
+        let mut capabilities = valid_runtime_capabilities();
+        capabilities.has_exposure = true;
+        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
+            label: "1/60".into(),
+            value: 1,
+        });
+        capabilities.gain_range = 0..=1;
+
+        let profile = runtime_builder(capabilities)
+            .build()
+            .expect("model-specific exposure can omit the shared AE-mode family");
+        assert!(profile.capabilities().exposure_modes.is_empty());
+    }
+
+    #[test]
+    fn runtime_builder_requires_mode_inventory_for_typed_shared_ae_support() {
+        let mut capabilities = valid_runtime_capabilities();
+        capabilities.has_exposure = true;
+        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
+            label: "1/60".into(),
+            value: 1,
+        });
+        capabilities.gain_range = 0..=1;
+        capabilities.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::ExposureMode);
+
+        assert!(runtime_builder(capabilities.clone()).build().is_err());
+
+        capabilities.exposure_modes.push(ExposureMode::Auto);
+        assert!(runtime_builder(capabilities).build().is_ok());
     }
 
     #[test]

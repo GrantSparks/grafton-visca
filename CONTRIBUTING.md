@@ -128,6 +128,7 @@ PTZ cameras involve physical movement that can cause damage or injury if not han
 4. **Emergency Stop**: Ensure stop commands are easily accessible
 
 Example safety documentation:
+
 ```rust
 /// Moves the camera to absolute pan/tilt position.
 ///
@@ -342,9 +343,24 @@ issue number, hides the reversal from the record and is not allowed.
 For historical 1.x behavior decisions, add or update a direct v2 regression or
 wire/decode golden in the production owner, engine, or parser path and update
 `docs/behavioral_parity_1x.md` when the decision is useful to future
-maintainers. Those direct v2 tests and goldens are authoritative. A new
-behavior needs direct review in the implementation, tests, and changelog; the
-historical guide is not an executable manifest, validator, or CI gate.
+maintainers. Those direct v2 tests and goldens are authoritative and the twelve
+historical families are enforced by the executable 1.x provenance corpus. From
+a full (non-shallow) clone, run:
+
+```bash
+bash .github/scripts/validate-behavioral-parity.sh
+```
+
+The gate reads the pinned 1.x source object and checks every current mapping
+against validator-owned source, exact libtest-path, command,
+envelope/profile/receipt pins. It removes comments and literals before checking
+code evidence, then proves each exact path reported `ok` rather than accepting
+Cargo's zero-match, ignored-test, or suffix-collision exit status. This is
+audited traceability, not a protocol semantic model, so review the pinned test's
+assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
+substitute. A new behavior needs direct review in the implementation, tests,
+and changelog; update the corpus and its validator-pinned family and target sets
+together when it changes the covered 1.x contract.
 
 ### Code Documentation
 
@@ -355,7 +371,7 @@ historical guide is not an executable manifest, validator, or CI gate.
 
 ### Example Documentation
 
-```rust
+````rust
 /// Return a camera to its home position and wait for physical settling.
 ///
 /// # Examples
@@ -373,7 +389,7 @@ historical guide is not an executable manifest, validator, or CI gate.
 ///
 /// Returns an error if submission, protocol completion, fallback settling, or
 /// shutdown fails.
-```
+````
 
 ## Pull Request Process
 
@@ -397,6 +413,7 @@ historical guide is not an executable manifest, validator, or CI gate.
    - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
    - [ ] Formatted: `cargo +nightly fmt --all -- --check`
    - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
+   - [ ] 1.x provenance corpus passes from full Git history: `bash .github/scripts/validate-behavioral-parity.sh`
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)
    - [ ] Safety documented for movement commands

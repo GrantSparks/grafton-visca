@@ -497,12 +497,36 @@ profile_capability_marker! {
 }
 
 profile_capability_marker! {
-    /// Marker trait indicating support for direct iris control and iris-priority
-    /// exposure mode.
+    /// Marker trait indicating support for the shared VISCA exposure-mode
+    /// command and inquiry family.
+    pub trait HasExposureMode {
+        message: "profile `{Self}` does not declare shared exposure-mode support",
+        label: "profile `{Self}` does not implement `HasExposureMode`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed shared `04 39` exposure-mode control and inquiry support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for standard iris reset/up/down/direct
+    /// control and the `09 04 4B` iris-position inquiry.
     pub trait HasIrisControl {
         message: "profile `{Self}` does not declare iris control support",
         label: "profile `{Self}` does not implement `HasIrisControl`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for the standard `09 04 2B` iris
+    /// auto/manual status inquiry.
+    ///
+    /// This is intentionally separate from [`HasIrisControl`]: a source may
+    /// document iris movement, direct position control, and `09 04 4B` position
+    /// inquiry without documenting the distinct status response.
+    pub trait HasIrisControlInquiry {
+        message: "profile `{Self}` does not declare iris control-status inquiry support",
+        label: "profile `{Self}` does not implement `HasIrisControlInquiry`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with model-specific source-backed `09 04 2B` inquiry support",
     }
 }
 
@@ -721,29 +745,38 @@ profile_capability_marker! {
 }
 
 profile_capability_marker! {
-    /// Marker trait indicating support for aggregate noise-reduction inquiry.
-    pub trait HasNoiseReduction {
-        message: "profile `{Self}` does not declare aggregate noise-reduction inquiry support",
-        label: "profile `{Self}` does not implement `HasNoiseReduction`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for 2D noise-reduction control and inquiry.
+    /// Marker trait indicating support for 2D noise-reduction mode and level inquiries.
     pub trait HasNoiseReduction2D {
-        message: "profile `{Self}` does not declare 2D noise-reduction support",
+        message: "profile `{Self}` does not declare 2D noise-reduction inquiry support",
         label: "profile `{Self}` does not implement `HasNoiseReduction2D`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
     }
 }
 
 profile_capability_marker! {
-    /// Marker trait indicating support for 3D noise-reduction control and inquiry.
+    /// Marker trait indicating support for 3D noise-reduction level inquiry.
     pub trait HasNoiseReduction3D {
-        message: "profile `{Self}` does not declare 3D noise-reduction support",
+        message: "profile `{Self}` does not declare 3D noise-reduction inquiry support",
         label: "profile `{Self}` does not implement `HasNoiseReduction3D`",
         note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for 2D noise-reduction mode and level controls.
+    pub trait HasNoiseReduction2DControl {
+        message: "profile `{Self}` does not declare 2D noise-reduction control support",
+        label: "profile `{Self}` does not implement `HasNoiseReduction2DControl`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; inquiry support does not grant this control surface",
+    }
+}
+
+profile_capability_marker! {
+    /// Marker trait indicating support for 3D noise-reduction level controls.
+    pub trait HasNoiseReduction3DControl {
+        message: "profile `{Self}` does not declare 3D noise-reduction control support",
+        label: "profile `{Self}` does not implement `HasNoiseReduction3DControl`",
+        note: "see the built-in marker matrix in docs/camera_profile_support.md; inquiry support does not grant this control surface",
     }
 }
 

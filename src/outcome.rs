@@ -41,8 +41,8 @@ pub enum CancellationOutcome {
 /// it exactly as dropping the handle always does. Use the explicit accessors
 /// when the handle is worth keeping.
 ///
-/// Recovering the handle never stops the camera by itself. As everywhere else
-/// in this crate, physical motion ends when a typed STOP is applied —
+/// Recovering the handle never stops the camera by itself. To request that a
+/// continuous drive end, submit a typed STOP —
 /// `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
 /// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`.
 ///

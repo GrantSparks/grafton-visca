@@ -88,18 +88,73 @@ struct DeferredCompletion {
 /// A bounded raw-VISCA correlation hold left behind by a terminal response
 /// whose wire frame has no request identity.
 ///
-/// Raw frames carry no request identity. Once a `NoReply`, `CompletionOnly`,
-/// or inquiry response correlation is released, a delayed response cannot
-/// safely be distinguished from a response to later work on the same target.
-/// The engine therefore reserves that target's raw response/correlation lane
-/// until the request's bounded ambiguity deadline.
+/// Raw frames carry no request identity. `NoReply`/`CompletionOnly` terminals
+/// and inquiry terminals leave different evidence behind: the former can
+/// imitate every response shape, while the latter can only imitate a raw
+/// inquiry reply or socketless error.  Keep their deadlines independently so
+/// one cannot accidentally broaden or shorten the other.
 ///
 /// This is deliberately not an `Entry`: the caller has already received its
 /// terminal outcome, and these holds have no observer, retry, or cancellation
 /// lifecycle of their own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RawTerminalTombstone {
-    deadline: Instant,
+    /// A terminal from an uncorrelatable command can imitate any raw response.
+    terminal_deadline: Option<Instant>,
+    /// An inquiry response has no request identity, but cannot imitate a
+    /// socket-owned command terminal.
+    inquiry_deadline: Option<Instant>,
+}
+
+impl RawTerminalTombstone {
+    const fn terminal(deadline: Instant) -> Self {
+        Self {
+            terminal_deadline: Some(deadline),
+            inquiry_deadline: None,
+        }
+    }
+
+    const fn inquiry(deadline: Instant) -> Self {
+        Self {
+            terminal_deadline: None,
+            inquiry_deadline: Some(deadline),
+        }
+    }
+
+    const fn is_active(self) -> bool {
+        self.terminal_deadline.is_some() || self.inquiry_deadline.is_some()
+    }
+
+    /// A response-bearing successor must wait until every active scope has
+    /// expired, not merely the earliest one.
+    fn dispatch_deadline(self) -> Option<Instant> {
+        self.terminal_deadline
+            .into_iter()
+            .chain(self.inquiry_deadline)
+            .max()
+    }
+
+    fn next_deadline(self) -> Option<Instant> {
+        self.terminal_deadline
+            .into_iter()
+            .chain(self.inquiry_deadline)
+            .min()
+    }
+
+    fn expire_at(&mut self, now: Instant) {
+        if self
+            .terminal_deadline
+            .is_some_and(|deadline| deadline <= now)
+        {
+            self.terminal_deadline = None;
+        }
+        if self
+            .inquiry_deadline
+            .is_some_and(|deadline| deadline <= now)
+        {
+            self.inquiry_deadline = None;
+        }
+    }
 }
 
 /// The one authoritative lifecycle record for an admitted request.
@@ -534,6 +589,17 @@ impl ProtocolEngine {
         self.drain_pending_cancellations(turn.now, &mut effects);
         self.debug_assert_invariants();
         effects
+    }
+
+    /// Ends an ordered external-input turn without running due work, pending
+    /// cancellation, or dispatch. The blocking raw-tombstone wait uses this
+    /// only while it still has to inspect retained stream framing; it follows
+    /// with one ordinary dispatch-suppressed due pass after that framing has
+    /// completed or been discarded.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn finish_input_turn_without_due(&mut self, _turn: InputTurn) -> Vec<Effect> {
+        self.debug_assert_invariants();
+        Vec::new()
     }
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
@@ -1197,7 +1263,8 @@ impl ProtocolEngine {
     /// bounded tombstone interval.
     fn raw_target_correlation_quarantined(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
-            && self.raw_target_tombstones[target.id() as usize].is_some()
+            && self.raw_target_tombstones[target.id() as usize]
+                .is_some_and(RawTerminalTombstone::is_active)
     }
 
     /// Whether a target terminal tombstone prevents this ready request from
@@ -1221,7 +1288,8 @@ impl ProtocolEngine {
         let target = entry.request.context().target;
         self.raw_tombstone_blocks_dispatch(entry, target)
             .then(|| {
-                self.raw_target_tombstones[target.id() as usize].map(|tombstone| tombstone.deadline)
+                self.raw_target_tombstones[target.id() as usize]
+                    .and_then(RawTerminalTombstone::dispatch_deadline)
             })
             .flatten()
     }
@@ -1235,7 +1303,8 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
-        self.raw_target_tombstones[target.id() as usize].is_some()
+        self.raw_target_tombstones[target.id() as usize]
+            .is_some_and(RawTerminalTombstone::is_active)
     }
 
     /// Raw VISCA has no request identity before the camera assigns a socket.
@@ -1250,15 +1319,8 @@ impl ProtocolEngine {
     fn raw_command_unacknowledged(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
-                !entry.request.is_inquiry()
-                    && entry.request.context().target == target
-                    && matches!(
-                        entry.phase,
-                        Phase::Sending { .. }
-                            | Phase::AwaitingAck { .. }
-                            | Phase::AwaitingCompletion { .. }
-                            | Phase::AwaitingLateAck { .. }
-                    )
+                entry.request.context().target == target
+                    && raw_unacknowledged_command_candidate(entry)
             })
     }
 
@@ -1795,7 +1857,10 @@ impl ProtocolEngine {
     /// arrives — it quarantines per-request rather than poisoning the session.
     /// The read-side pause/escalation the owner already performs handles the
     /// transport itself. The strict opt-in mode instead poisons the whole
-    /// session with [`Error::StreamPoisoned`]. The classic case
+    /// session with [`Error::StreamPoisoned`] only when no cancellation intent
+    /// is recorded. A cancellation already in flight follows its own late-ACK
+    /// ambiguity resolution and poisons under strict mode only if that deadline
+    /// remains unconfirmed. The classic case
     /// is a UDP `recv` returning ECONNREFUSED because an earlier datagram drew
     /// an ICMP port-unreachable.
     ///
@@ -2068,17 +2133,59 @@ impl ProtocolEngine {
     /// Whether an unsequenced raw response must be ignored because a released
     /// terminal predecessor still owns the target's available correlation
     /// evidence.
+    ///
+    /// A `NoReply`/`CompletionOnly` hold is broad because it has no response
+    /// identity at all.  An inquiry hold is intentionally narrower: inquiry
+    /// data and socketless errors are unkeyed, but an exact live socket remains
+    /// authoritative for a concurrently executing command.  This matters for
+    /// raw two-socket cameras, where an inquiry can legitimately finish while
+    /// another command is executing on S1 or S2.
     fn raw_terminal_response_quarantined(&self, frame: &DecodedFrame) -> bool {
         let target = frame.target;
         let target_index = target.id() as usize;
-        self.raw_target_tombstones[target_index].is_some()
-            && matches!(
+        let Some(tombstone) = self.raw_target_tombstones[target_index] else {
+            return false;
+        };
+        if tombstone.terminal_deadline.is_some() {
+            return matches!(
                 &frame.response,
                 DecodedResponse::Ack { .. }
                     | DecodedResponse::Completion { .. }
                     | DecodedResponse::InquiryReply { .. }
                     | DecodedResponse::Error { .. }
-            )
+            );
+        }
+        if tombstone.inquiry_deadline.is_none() {
+            return false;
+        }
+        match &frame.response {
+            // A live unique pre-ACK request was admitted before this inquiry
+            // hold. Its complete ACK is still attributable; the hold prevents
+            // a successor from becoming a competing candidate.
+            DecodedResponse::Ack { .. } => self.unique_raw_command_candidate(target).is_none(),
+            // An inquiry reply is target/data-correlated and a socketless error
+            // has no command/inquiry discriminator, so both remain inert.
+            DecodedResponse::InquiryReply { .. } | DecodedResponse::Error { socket: None, .. } => {
+                true
+            }
+            // A named terminal is safe only when the exact socket is still
+            // owned. An unowned named frame must not fall through to any
+            // successor or inquiry FIFO while this hold is active.
+            DecodedResponse::Completion {
+                socket: Some(socket),
+            }
+            | DecodedResponse::Error {
+                socket: Some(socket),
+                ..
+            } => self.socket_owner(target, *socket).is_none(),
+            // Socketless completion is safe solely when an already-live socket
+            // owner makes it uniquely attributable. It cannot be stale inquiry
+            // data and no successor can dispatch under this hold.
+            DecodedResponse::Completion { socket: None } => {
+                self.sole_socket_holder(target).is_none()
+            }
+            DecodedResponse::NetworkChange | DecodedResponse::Unknown => false,
+        }
     }
 
     fn resolve_raw(&self, frame: &DecodedFrame) -> Option<RequestId> {
@@ -2525,9 +2632,7 @@ impl ProtocolEngine {
         }) else {
             return;
         };
-        let tombstone = RawTerminalTombstone {
-            deadline: add_duration(now, ambiguity),
-        };
+        let tombstone = RawTerminalTombstone::terminal(add_duration(now, ambiguity));
         let target_index = target.id() as usize;
         extend_tombstone(&mut self.raw_target_tombstones[target_index], tombstone);
     }
@@ -2560,9 +2665,7 @@ impl ProtocolEngine {
         };
         extend_tombstone(
             &mut self.raw_target_tombstones[target.id() as usize],
-            RawTerminalTombstone {
-                deadline: add_duration(now, ambiguity),
-            },
+            RawTerminalTombstone::inquiry(add_duration(now, ambiguity)),
         );
     }
 
@@ -3451,6 +3554,144 @@ impl ProtocolEngine {
         self.next_wake_inner(true)
     }
 
+    /// Raw correlation scopes which can be released by advancing at `now`.
+    ///
+    /// Byte-stream owners use this typed projection before a due pass.  It
+    /// keeps an exact socket release distinct from target-only ambiguity, so a
+    /// split S1 completion survives an S2 release on the same camera.  The
+    /// matching [`Self::raw_prefix_disposition`] is the sole policy authority
+    /// for the owner-side retained-prefix decision.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
+        let mut releases = RawCorrelationReleaseSet::default();
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return releases;
+        }
+        // Keep this explicit list aligned with the target-indexed tombstone
+        // table: the zero slot is inert and slots one through eight represent
+        // every valid `CameraId`, including broadcast.  Iterating the typed
+        // IDs avoids re-validating an internal table index with `expect`.
+        for (target, tombstone) in [
+            CameraId::CAMERA_1,
+            CameraId::CAMERA_2,
+            CameraId::CAMERA_3,
+            CameraId::CAMERA_4,
+            CameraId::CAMERA_5,
+            CameraId::CAMERA_6,
+            CameraId::CAMERA_7,
+            CameraId::BROADCAST,
+        ]
+        .into_iter()
+        .zip(self.raw_target_tombstones.iter().skip(1))
+        {
+            let Some(tombstone) = tombstone else {
+                continue;
+            };
+            let release = releases.for_target_mut(target);
+            if tombstone
+                .terminal_deadline
+                .is_some_and(|deadline| deadline <= now)
+            {
+                release.release_terminal_all();
+            }
+            if tombstone
+                .inquiry_deadline
+                .is_some_and(|deadline| deadline <= now)
+            {
+                release.release_inquiry_unkeyed();
+            }
+        }
+        for entry in self.entries.values() {
+            // Ordinary response deadlines may *install* a new tombstone in the
+            // due pass. They do not release existing correlation before that
+            // input-first turn, so a split valid frame must remain intact here.
+            let due = cancellation_ambiguity(entry.cancellation)
+                .is_some_and(|deadline| deadline <= now)
+                || matches!(
+                    entry.phase,
+                    Phase::AwaitingCancellationResolution { deadline, .. }
+                        | Phase::AwaitingLateAck { deadline }
+                        if deadline <= now
+                );
+            if !due {
+                continue;
+            }
+            let release = releases.for_target_mut(entry.request.context().target);
+            match entry.phase {
+                Phase::Executing { socket, .. }
+                | Phase::AwaitingCancellationResolution { socket, .. } => {
+                    release.release_exact_socket(socket);
+                }
+                Phase::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
+                Phase::Sending { .. }
+                | Phase::AwaitingAck { .. }
+                | Phase::AwaitingCompletion { .. }
+                | Phase::AwaitingLateAck { .. } => release.release_pre_ack_unkeyed(),
+                Phase::Ready { .. } | Phase::Backoff { .. } => {}
+            }
+        }
+        releases
+    }
+
+    /// Classifies retained raw stream bytes before the owner advances a due
+    /// turn.  This is intentionally conservative: an incomplete source, ACK,
+    /// socketless completion, or socketless error cannot establish ownership,
+    /// so it never permits release plus successor dispatch.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn raw_prefix_disposition(
+        &self,
+        releases: RawCorrelationReleaseSet,
+        evidence: RawPrefixEvidence,
+    ) -> RawPrefixDisposition {
+        if releases.is_empty() {
+            return RawPrefixDisposition::NoRelease;
+        }
+        let RawPrefixEvidence::Incomplete { target, kind } = evidence else {
+            // Complete frames are always input-first, even exactly at a due
+            // boundary. The owner feeds this into `handle` before advancing.
+            return RawPrefixDisposition::Defer;
+        };
+        let release = releases.for_target(target);
+        if release.is_empty() {
+            // A retained frame for another target cannot be claimed by this
+            // target's correlation release.
+            return RawPrefixDisposition::ReleasePreserving;
+        }
+        if release.terminal_all() {
+            // The broad NoReply/CompletionOnly hold makes every response shape
+            // ambiguous. Retain its established conservative behavior.
+            return match kind {
+                RawIncompletePrefix::Noncorrelating => RawPrefixDisposition::ReleasePreserving,
+                RawIncompletePrefix::SourceOnly
+                | RawIncompletePrefix::Ack
+                | RawIncompletePrefix::SocketlessCompletion
+                | RawIncompletePrefix::SocketlessError
+                | RawIncompletePrefix::NamedCompletionOrError(_) => RawPrefixDisposition::Discard,
+            };
+        }
+        match kind {
+            RawIncompletePrefix::SourceOnly
+            | RawIncompletePrefix::Ack
+            | RawIncompletePrefix::SocketlessCompletion
+            | RawIncompletePrefix::SocketlessError => RawPrefixDisposition::Defer,
+            RawIncompletePrefix::NamedCompletionOrError(socket) => {
+                if release.exact_socket(socket) {
+                    RawPrefixDisposition::Discard
+                } else if self.socket_owner(target, socket).is_some() {
+                    // An explicit still-live socket owner is authoritative,
+                    // including when a different exact or unkeyed scope is
+                    // released on this target.
+                    RawPrefixDisposition::ReleasePreserving
+                } else {
+                    // A pre-ACK/inquiry hold has no named successor that could
+                    // safely receive an unowned terminal frame.
+                    RawPrefixDisposition::Discard
+                }
+            }
+            RawIncompletePrefix::Noncorrelating => RawPrefixDisposition::ReleasePreserving,
+        }
+    }
+
     /// Earliest wake that must be serviced while ordinary dispatch is
     /// suppressed.  The blocking pre-ACK drain still needs protocol deadlines
     /// (including retry/backoff promotion and cancellation/quarantine
@@ -3501,7 +3742,7 @@ impl ProtocolEngine {
         self.raw_target_tombstones
             .iter()
             .flatten()
-            .map(|tombstone| tombstone.deadline)
+            .filter_map(|tombstone| tombstone.next_deadline())
             .min()
     }
 
@@ -3513,8 +3754,11 @@ impl ProtocolEngine {
             return;
         }
         for tombstone in &mut self.raw_target_tombstones {
-            if tombstone.is_some_and(|value| value.deadline <= now) {
-                *tombstone = None;
+            if let Some(value) = tombstone {
+                value.expire_at(now);
+                if !value.is_active() {
+                    *tombstone = None;
+                }
             }
         }
     }
@@ -3845,25 +4089,18 @@ impl ProtocolEngine {
         // Issue #671 / D8: audit the raw single-candidate rule that correlation
         // safety depends on. Raw dispatch keeps at most one command per target in
         // the window where a reply is attributed positionally rather than by an
-        // owned socket — `Sending`, `AwaitingAck`, and the late-ACK quarantine
-        // `AwaitingLateAck`. A second such command would make an incoming raw ACK
-        // impossible to attribute without guessing, which is exactly what
-        // `unique_raw_command_candidate`, `raw_command_unacknowledged`, and the
-        // per-request unconfirmed quarantine rely on never happening. The socket
-        // quarantine (`AwaitingCancellationResolution` with `CancelState::None`)
-        // is deliberately excluded: it owns a socket, so its correlation stays
-        // exact and it does not consume the positional slot.
+        // owned socket. Keep this audit on the same predicate as dispatch:
+        // completion-only `AwaitingCompletion` is uncorrelated for its entire
+        // lifetime, while the socket quarantine
+        // (`AwaitingCancellationResolution` with `CancelState::None`) is excluded
+        // because its correlation stays exact. See issue_542_design_review.md,
+        // “Decisions from this review”, item 7, and architecture_2_0.md,
+        // “Correlation before ACK is envelope-specific” and “Operational
+        // invariants”.
         if self.policy.envelope == EnvelopeKind::Raw {
             let mut unacknowledged = [0_u8; 9];
             for entry in self.entries.values() {
-                if entry.request.is_inquiry()
-                    || !matches!(
-                        entry.phase,
-                        Phase::Sending { .. }
-                            | Phase::AwaitingAck { .. }
-                            | Phase::AwaitingLateAck { .. }
-                    )
-                {
+                if !raw_unacknowledged_command_candidate(entry) {
                     continue;
                 }
                 let target = usize::from(entry.request.context().target.id());
@@ -3908,6 +4145,23 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
     at.checked_add(duration).unwrap_or(at)
 }
 
+/// A raw command which has no socket identity and therefore occupies the
+/// target's single positional-correlation slot.
+///
+/// The raw dispatch gate and its invariant audit intentionally share this
+/// predicate, so extending one cannot leave the other with a divergent phase
+/// list.
+fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
+    !entry.request.is_inquiry()
+        && matches!(
+            entry.phase,
+            Phase::Sending { .. }
+                | Phase::AwaitingAck { .. }
+                | Phase::AwaitingCompletion { .. }
+                | Phase::AwaitingLateAck { .. }
+        )
+}
+
 /// The one admission-relative retry-budget deadline while it governs `entry`.
 ///
 /// Cancellation and ambiguity/quarantine phases have their own deadline and
@@ -3920,13 +4174,28 @@ fn retry_budget_deadline(entry: &Entry) -> Option<Instant> {
     .then(|| add_duration(entry.submitted_at, total_budget))
 }
 
-/// Extends one bounded terminal tombstone without replacing a newer hold for
-/// the same fixed target slot.
+/// Extends one bounded terminal tombstone scope without replacing a newer hold
+/// of the same provenance for the same fixed target slot.
 fn extend_tombstone(slot: &mut Option<RawTerminalTombstone>, tombstone: RawTerminalTombstone) {
-    *slot = Some(match *slot {
-        Some(existing) if existing.deadline >= tombstone.deadline => existing,
-        _ => tombstone,
+    let mut merged = slot.unwrap_or(RawTerminalTombstone {
+        terminal_deadline: None,
+        inquiry_deadline: None,
     });
+    if let Some(deadline) = tombstone.terminal_deadline {
+        merged.terminal_deadline = Some(
+            merged
+                .terminal_deadline
+                .map_or(deadline, |existing| existing.max(deadline)),
+        );
+    }
+    if let Some(deadline) = tombstone.inquiry_deadline {
+        merged.inquiry_deadline = Some(
+            merged
+                .inquiry_deadline
+                .map_or(deadline, |existing| existing.max(deadline)),
+        );
+    }
+    *slot = Some(merged);
 }
 
 fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {

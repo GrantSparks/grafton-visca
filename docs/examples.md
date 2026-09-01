@@ -15,7 +15,7 @@ The maintained examples in `examples/` fall into these categories:
 | Transport setup | `transport_builder_demo`, `transports`, `builder_api`, `serial_async_demo` | Demonstrate current `CameraConfig`, `Connect`, or caller-owned `Session::open` paths. |
 | Operational patterns | `concurrent_control`, `error_handling`, `runtime_demo`, `runtime_agnostic` | Demonstrate runtime and application patterns without relying on private runtime internals. |
 | Presets | `preset_demo` | One owner-backed blocking preset operation selected on the command line: `set`, `recall` (targeted, so it waits for settled), or `clear`. Closes the session on every path. |
-| Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, physical settled waits, explicit detach paired with a bounded stop, a session that is closed on every path, and the caller-written stop-on-exit guard that bounds movement to a scope. |
+| Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, profile-selected protocol-settlement waits, explicit detach paired with a bounded stop, a session that is closed on every path, and the caller-written stop-on-exit guard that bounds movement to a scope. |
 | Cancellation and safety | `cancellation`, `motion_safety` | Tokio `.cancel()` — both the supported `Cancellation`/`outcome` path and the PTZOptics G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery — and the blocking `motion()` safety view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite. |
 | Custom requests and profiles | `custom_request` | A downstream custom `PlainCommand` and `OperationCommand`, encoded with `write_into` and submitted through `execute`/`submit`, plus a runtime `ProfileSpec` value. Runs its encoding and profile parts without a camera. |
 | Dynamic API | `dyn_quickstart` | The profile-erased `DynSessionCamera`: a `DynTargetedOperation` (has `settled`) and a `DynAppliedOperation` (no `settled`), with `supports_typed` capability discovery. Requires `dyn-api`. |
@@ -46,7 +46,8 @@ The maintained examples in `examples/` fall into these categories:
   operational pattern, not a broad hardware tour.
 - Use ordinary noun methods when command completion is sufficient. Use
   `submit` plus `applied` or `settled` when the example needs an exact
-  operation lifecycle, cancellation, detach, or a physical-settle signal.
+  operation lifecycle, cancellation, detach, or a profile-selected
+  protocol-settlement wait.
 - Propagate command, task-join, and shutdown errors in operational examples.
   A deliberate best-effort cleanup must report its failure rather than silently
   discarding it.

@@ -70,8 +70,17 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     }
 
     let features = compile_fail::active_grafton_visca_features();
-    compile_fail::assert_compile_fail_fixtures(
-        &["tests/api_contract/fail_no_canonical"],
-        &features,
-    );
+    // The base directory and no-canonical directory are defined for every
+    // pure surface. The test-utils absence contract belongs only to pure
+    // builds that do not expose `grafton_visca::testing`. The no-default CI
+    // leg runs this smoke target rather than `api_stability_test`, so keep it
+    // from silently skipping the shared 50-fixture public-contract set.
+    let mut fail_dirs = vec![
+        "tests/api_contract/fail",
+        "tests/api_contract/fail_no_canonical",
+    ];
+    if !cfg!(feature = "test-utils") {
+        fail_dirs.push("tests/api_contract/fail_no_test_utils");
+    }
+    compile_fail::assert_compile_fail_fixtures(&fail_dirs, &features);
 }

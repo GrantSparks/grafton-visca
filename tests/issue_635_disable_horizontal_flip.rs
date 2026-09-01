@@ -10,15 +10,24 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 /// `CAM_LR_Reverse On` — the frame `enable_horizontal_flip` writes.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 const MIRROR_ON: &[u8] = &[0x81, 0x01, 0x04, 0x61, 0x02, 0xFF];
 
 /// `CAM_LR_Reverse Off` — the frame `disable_horizontal_flip` must write.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 const MIRROR_OFF: &[u8] = &[0x81, 0x01, 0x04, 0x61, 0x03, 0xFF];
 
 /// Splits a written frame into its optional Sony header and VISCA payload.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 fn visca_payload(bytes: &[u8]) -> (Option<u32>, &[u8]) {
     let sony = bytes.len() > 8
         && bytes[0] == 0x01
@@ -33,7 +42,10 @@ fn visca_payload(bytes: &[u8]) -> (Option<u32>, &[u8]) {
 }
 
 /// Wraps a VISCA reply in the Sony reply envelope when one is in use.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 fn envelope(sequence: Option<u32>, payload: Vec<u8>) -> Vec<u8> {
     let Some(sequence) = sequence else {
         return payload;

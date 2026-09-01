@@ -3,7 +3,7 @@
 //! These values are intentionally thin wrappers around the root async
 //! lifecycle handles. They erase only the closed completion marker; the owner
 //! remains the sole authority for admission, deadlines, cancellation, and
-//! physical settlement.
+//! profile-selected protocol settlement.
 
 #![cfg(feature = "dyn-api")]
 
@@ -26,7 +26,7 @@ use super::DynFuture;
 /// This wrapper erases the runtime profile, transport, executor, and target
 /// details while retaining the root [`Operation<Targeted>`] as its only
 /// lifecycle implementation. Targeted operations additionally expose
-/// physical-settlement waits.
+/// profile-selected protocol-settlement waits.
 ///
 /// Dropping this handle without resolving it is exactly `detach`: it
 /// relinquishes observation and never stops hardware, as documented on
@@ -79,14 +79,15 @@ impl DynTargetedOperation {
         }
     }
 
-    /// Waits for exact application and physical settling using the owner's
-    /// prepared settlement plan.
+    /// Waits for exact application and the owner's profile-selected protocol
+    /// settlement condition.
     pub async fn settled(self) -> Result<(), Error> {
         self.inner.settled().await
     }
 
-    /// Waits for exact application and physical settling using an explicit
-    /// observer deadline. The owner retains all polling and deadline logic.
+    /// Waits for exact application and the profile-selected protocol settlement
+    /// condition using an explicit observer deadline. The owner retains all
+    /// polling and deadline logic.
     pub async fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
         self.inner.settled_with_timeout(timeout).await
     }

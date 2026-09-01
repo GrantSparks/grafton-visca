@@ -31,7 +31,10 @@ use super::{
     RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, SessionState,
     ShutdownReason, TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
 };
-use crate::runtime::engine::{Effect, IgnoreReason, TransportKind};
+use crate::runtime::engine::{
+    Effect, IgnoreReason, RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence,
+    TransportKind,
+};
 
 /// Pause applied after the first transient receive fault so a transport that
 /// fails immediately cannot spin the actor. 1.x used the same bound.
@@ -39,6 +42,11 @@ const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
 
 /// Ceiling on the escalating transient-fault pause.
 const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
+
+/// Independent cap for work deferred/discarded while one due raw correlation
+/// release waits behind retained stream framing. This is intentionally not the
+/// per-receive frame batch limit: several legal batches may already be buffered.
+const RAW_CORRELATION_RELEASE_WORK_LIMIT: usize = 64;
 
 /// Consecutive transient receive faults, with no successful read between them,
 /// after which the session ends with the underlying transport error.
@@ -117,6 +125,10 @@ impl TransientFaultRun {
 enum TurnOutcome {
     /// Keep running with protocol input first.
     Continue,
+    /// Keep protocol input first because the stream framer still retains
+    /// ordered input. This uses its own fixed work bound rather than the
+    /// ordinary receive fairness ceiling.
+    ContinueBuffered,
     /// This receive turn made no protocol progress, so poll the ordered
     /// boundary sources first on the next selection after one cooperative
     /// executor handoff.
@@ -140,7 +152,7 @@ enum SourcePhase {
 impl TurnOutcome {
     const fn next_source_phase(self) -> Option<SourcePhase> {
         match self {
-            Self::Continue => Some(SourcePhase::ReceiveFirst),
+            Self::Continue | Self::ContinueBuffered => Some(SourcePhase::ReceiveFirst),
             Self::YieldBoundaries => Some(SourcePhase::BoundariesFirst),
             Self::Stop => None,
         }
@@ -290,6 +302,28 @@ pub(crate) trait AsyncOwnerDriver: Send {
         buffers: &mut super::OwnerBuffers,
         frame_limit: usize,
     ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send;
+
+    /// Whether this byte-stream driver retains input that has not yet been
+    /// delivered to the engine. Datagram and stateless test drivers retain
+    /// nothing by default.
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    /// Classify the first retained raw stream input. Complete frames defer to
+    /// the ordinary decode/ignore path without early source attribution.
+    /// Incomplete raw evidence is deliberately limited to the first two bytes
+    /// and remains inert until the shared engine decides whether it belongs to
+    /// an expiring correlation scope. `None` means no input is buffered.
+    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        Ok(None)
+    }
+
+    /// Discard exactly the first raw frame/fragment retained from an old
+    /// correlation interval, preserving later framed input when possible.
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 /// The one-way decision for an admission constrained by an outer deadline.
@@ -402,6 +436,12 @@ struct AdmissionBoundary {
     reply: flume::Sender<Result<RequestId, Error>>,
     /// Present only for a caller deadline that applies before admission.
     validity: Option<AdmissionValidity>,
+    /// The actor has already won the caller's pre-admission deadline race,
+    /// but a raw-correlation release gate has retained this boundary until it
+    /// can safely enter the engine.  Keeping that one-way answer on the
+    /// boundary preserves the caller's established admission promise without
+    /// letting the deferred admission run a due/dispatch turn early.
+    validity_claimed: bool,
 }
 
 /// A rejection that happened before the async handle could allocate any
@@ -531,6 +571,21 @@ struct CancellationBoundary {
     reply: flume::Sender<Result<CancellationCore, RejectedCancellation>>,
 }
 
+/// A boundary removed from its channel only because a due raw-correlation
+/// release must first receive/frame one exact input turn. It is deliberately
+/// not yet engine input: both admission and cancellation normally end an input
+/// turn, which would otherwise run the due release and dispatch a successor
+/// behind unresolved raw evidence.
+///
+/// `AdmissionBoundary` keeps its request inline so accepting an admission does
+/// not add a heap allocation at the actor-channel boundary.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+enum DeferredRawBoundary {
+    Admission(AdmissionBoundary),
+    Cancellation(CancellationBoundary),
+}
+
 #[derive(Debug)]
 enum ControlBoundary {
     /// Internal coalesced wake-up for a handle-side rejection that happened
@@ -550,9 +605,11 @@ enum ControlBoundary {
     /// This lane is what makes the update serialized: the actor is the only
     /// writer of the shared tuning cell, so two handles reconfiguring at the
     /// same time resolve last-writer-wins in the order the actor accepted them
-    /// and no reader ever observes a mixture of the two.
+    /// and no reader ever observes a mixture of the two. Facade validation is
+    /// carried in the same message so a terminal actor selects its retained
+    /// cause before returning a proposed update's validation error (#690).
     Reconfigure {
-        tuning: Box<crate::OperationalTuning>,
+        validated_tuning: Box<Result<crate::OperationalTuning, Error>>,
         reply: flume::Sender<Result<(), Error>>,
     },
 }
@@ -1485,11 +1542,14 @@ impl AsyncOwnerHandle {
     /// This future resolves once the owner has applied it, which is what makes
     /// "the next request I prepare uses the new values" a guarantee rather than
     /// a race.
-    pub(crate) async fn reconfigure(&self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+    pub(crate) async fn reconfigure(
+        &self,
+        validated_tuning: Result<crate::OperationalTuning, Error>,
+    ) -> Result<(), Error> {
         let (reply, receiver) = flume::bounded(1);
         self.control
             .send_async(ControlBoundary::Reconfigure {
-                tuning: Box::new(tuning),
+                validated_tuning: Box::new(validated_tuning),
                 reply,
             })
             .await
@@ -1628,6 +1688,7 @@ impl AsyncOwnerHandle {
             observer,
             reply,
             validity,
+            validity_claimed: false,
         };
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
@@ -1741,6 +1802,11 @@ where
     /// pause so an immediately-returning idle read cannot hot-spin the actor,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receive_run: u32,
+    /// Number of due raw-correlation wake turns deferred so already-buffered
+    /// complete input can be decoded first. Bounded independently of ordinary
+    /// receive fairness so an adversarial decoder cannot postpone due work
+    /// forever.
+    raw_release_deferral_run: usize,
     runtime: Arc<R>,
 }
 
@@ -1801,6 +1867,7 @@ where
                 terminal_error,
                 faults: TransientFaultRun::default(),
                 idle_receive_run: 0,
+                raw_release_deferral_run: 0,
                 runtime,
             },
         ))
@@ -1863,6 +1930,18 @@ where
         let read_timeout = self.state.policy().read_timeout;
         let mut source_phase = SourcePhase::ReceiveFirst;
         let mut receive_first_streak: usize = 0;
+        let mut buffered_receive_streak: usize = 0;
+        let mut raw_buffered_cap_latched = false;
+        // A ready `NoData`/non-consuming fault at an exact raw release is a
+        // linearized proof that the one mandatory input probe found no frame.
+        // It is deliberately scoped to the typed release set, not merely a
+        // boolean: a new due raw scope must receive its own probe.
+        let mut raw_release_no_input_fence: Option<RawCorrelationReleaseSet> = None;
+        // Admission and cancellation are normally engine input turns.  Keep a
+        // selected boundary here while the raw-release coordinator drains its
+        // one mandatory input probe; otherwise `state.input` would run due
+        // work and dispatch behind the unresolved evidence.
+        let mut deferred_raw_boundary: Option<DeferredRawBoundary> = None;
         // The control lane normally precedes the timer. A due wake permits one
         // control observation, then wins the tail until it is advanced. Keep
         // the deadline that consumed that allowance rather than a bare bool:
@@ -1881,10 +1960,15 @@ where
             // boundary the receive still wins this turn, so a busy transport is
             // never stalled — only guaranteed to yield the front periodically.
             let yielded_boundary_turn = source_phase == SourcePhase::BoundariesFirst;
+            let buffered_cap_reached =
+                buffered_receive_streak >= RAW_CORRELATION_RELEASE_WORK_LIMIT;
             let forced_boundary_turn = source_phase == SourcePhase::ReceiveFirst
-                && receive_first_streak >= fairness_ceiling;
+                && (receive_first_streak >= fairness_ceiling
+                    || buffered_cap_reached
+                    || raw_buffered_cap_latched);
             if forced_boundary_turn {
                 receive_first_streak = 0;
+                buffered_receive_streak = 0;
             }
             if forced_boundary_turn || yielded_boundary_turn {
                 // Polling boundaries first alone is not a cooperative handoff:
@@ -1912,6 +1996,20 @@ where
                     (duration, duration.is_zero())
                 },
             );
+            let raw_releases_due = self.state.raw_correlation_releases_due(now);
+            let has_raw_release_due = !raw_releases_due.is_empty();
+            if !has_raw_release_due
+                || raw_release_no_input_fence.is_some_and(|fenced| fenced != raw_releases_due)
+            {
+                raw_release_no_input_fence = None;
+            }
+            let raw_release_is_fenced =
+                raw_release_no_input_fence.is_some_and(|fenced| fenced == raw_releases_due);
+            if wake_is_due && has_raw_release_due && buffered_cap_reached {
+                raw_buffered_cap_latched = true;
+            } else if !wake_is_due || !has_raw_release_due {
+                raw_buffered_cap_latched = false;
+            }
             // A retune or another higher-priority boundary can make the prior
             // wake irrelevant. Do not carry a consumed allowance over to an
             // absent, future, or replaced timer — including a replacement that
@@ -1969,15 +2067,223 @@ where
                     if !wake_is_due {
                         Executor::sleep(runtime.as_ref(), wake_duration).await;
                     }
-                    ActorEvent::Wake
+                    ActorEvent::Wake {
+                        raw_buffered_cap_exhausted: raw_buffered_cap_latched,
+                    }
                 };
                 let control_or_wake = select_control_or_wake(wake_precedes_control, control, wake);
                 let boundaries = future::or(
                     shutdown,
                     future::or(cancellation, future::or(admission, control_or_wake)),
                 );
-                select_source(effective_phase, receive, boundaries).await
+                if raw_buffered_cap_latched {
+                    // Shutdown is still the outer lifecycle priority.  Every
+                    // other boundary, including cancellation/admission, must
+                    // stay out of the engine once the retained-input cap has
+                    // latched: fail closed before any successor can write.
+                    future::or(
+                        async {
+                            match self.shutdown.recv_async().await {
+                                Ok(()) => ActorEvent::Shutdown,
+                                Err(_) => future::pending().await,
+                            }
+                        },
+                        std::future::ready(ActorEvent::Wake {
+                            raw_buffered_cap_exhausted: true,
+                        }),
+                    )
+                    .await
+                } else if has_raw_release_due {
+                    if raw_release_is_fenced {
+                        // The exact probe already returned no input.  Do not
+                        // give an immediately-idle driver another chance to
+                        // spin; wake now, still behind an explicit shutdown.
+                        future::or(
+                            async {
+                                match self.shutdown.recv_async().await {
+                                    Ok(()) => ActorEvent::Shutdown,
+                                    Err(_) => future::pending().await,
+                                }
+                            },
+                            std::future::ready(ActorEvent::Wake {
+                                raw_buffered_cap_exhausted: false,
+                            }),
+                        )
+                        .await
+                    } else {
+                        // The exact raw-release invariant: before due work can
+                        // release correlation or dispatch, poll receive once
+                        // left-biased against an already-ready wake.  A pending
+                        // receive therefore lets Wake linearize the release;
+                        // a ready complete stale frame wins first even after a
+                        // prior `YieldBoundaries` turn.
+                        future::or(
+                            async {
+                                match self.shutdown.recv_async().await {
+                                    Ok(()) => ActorEvent::Shutdown,
+                                    Err(_) => future::pending().await,
+                                }
+                            },
+                            future::or(
+                                receive,
+                                std::future::ready(ActorEvent::Wake {
+                                    raw_buffered_cap_exhausted: false,
+                                }),
+                            ),
+                        )
+                        .await
+                    }
+                } else if let Some(deferred) = deferred_raw_boundary.take() {
+                    // The selected boundary predates the just-cleared raw
+                    // gate.  Preserve shutdown's established priority without
+                    // re-entering any channel ahead of it.  A signal arriving
+                    // after this nonblocking check races exactly as it did with
+                    // an ordinary already-selected boundary; the final drain
+                    // retains the deferred payload if shutdown wins here.
+                    match self.shutdown.try_recv() {
+                        Ok(()) => {
+                            deferred_raw_boundary = Some(deferred);
+                            ActorEvent::Shutdown
+                        }
+                        Err(flume::TryRecvError::Empty | flume::TryRecvError::Disconnected) => {
+                            match deferred {
+                                DeferredRawBoundary::Admission(admission) => {
+                                    ActorEvent::Admission(Ok(admission))
+                                }
+                                DeferredRawBoundary::Cancellation(cancellation) => {
+                                    ActorEvent::Cancellation(cancellation)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    select_source(effective_phase, receive, boundaries).await
+                }
             };
+
+            // A raw release can mature while the ordinary selection is parked
+            // (for example, concurrently with a ready cancellation or
+            // admission).  Such a selected boundary has not touched engine
+            // state yet, so retain it and restart at the coordinator instead
+            // of allowing its normal `state.input` finish turn to advance due
+            // work behind unread/raw-buffered evidence.
+            // One sampled instant is carried through the selected boundary's
+            // engine turn.  If it is still before H, that turn cannot cross H
+            // merely because a later `Executor::now()` call happens a few
+            // instructions later; the next loop then enters the raw-release
+            // coordinator.  If it is at/after H, the checks below gate it.
+            let selected_at = Executor::now(runtime.as_ref());
+            let raw_releases_due_after_selection =
+                self.state.raw_correlation_releases_due(selected_at);
+            let event = if !raw_releases_due_after_selection.is_empty() {
+                match event {
+                    ActorEvent::Wake { .. } if !has_raw_release_due => {
+                        // The raw deadline matured while an ordinary
+                        // boundary-first selection was parked.  This Wake was
+                        // selected from the pre-expiry view, so it has not yet
+                        // earned the exact input-first release pass. Restart
+                        // through the coordinator; its next selection polls
+                        // receive left-biased against the now-ready wake.
+                        source_phase = SourcePhase::ReceiveFirst;
+                        continue;
+                    }
+                    ActorEvent::Admission(Ok(mut admission)) => {
+                        if self.claim_admission_boundary(&mut admission, selected_at) {
+                            debug_assert!(deferred_raw_boundary.is_none());
+                            deferred_raw_boundary = Some(DeferredRawBoundary::Admission(admission));
+                        }
+                        // Do not reset the retained-input work counters: this
+                        // boundary is intentionally invisible to scheduling
+                        // until the raw coordinator has resolved the release.
+                        source_phase = SourcePhase::ReceiveFirst;
+                        continue;
+                    }
+                    ActorEvent::Cancellation(cancellation) => {
+                        if let Some(observation) = cancellation.receipt.completion.try_recv() {
+                            let _ = cancellation.reply.try_send(Ok(cancellation_receipt_for(
+                                cancellation.receipt,
+                                Some(observation),
+                            )));
+                        } else {
+                            debug_assert!(deferred_raw_boundary.is_none());
+                            deferred_raw_boundary =
+                                Some(DeferredRawBoundary::Cancellation(cancellation));
+                        }
+                        // See the admission case above: a cancellation receipt
+                        // may be observed, but a live cancellation must not
+                        // enter its due-running engine turn yet.
+                        source_phase = SourcePhase::ReceiveFirst;
+                        continue;
+                    }
+                    event => event,
+                }
+            } else {
+                event
+            };
+
+            // The special probe is intentionally one poll only.  A ready
+            // no-input result fences this exact typed release set so the next
+            // turn may wake without an immediate-NoData spin.  A transient
+            // receive fault, by contrast, cannot prove the transport has no
+            // ready stale input behind it: keep its engine input out of the due
+            // pass, then take one fresh receive-vs-Wake arbitration.
+            // The receive event records *when the read completed*.  Do not
+            // mistake a later executor resume for a post-H input probe: a
+            // `NoData` stamped H−ε but handled at H cannot fence a stale frame
+            // which became ready during that gap.  Only the release set at
+            // `received_at` proves an input result was actually sampled at or
+            // after H.
+            let raw_releases_due_at_receive = match &event {
+                ActorEvent::Receive { received_at, .. } => {
+                    self.state.raw_correlation_releases_due(*received_at)
+                }
+                _ => RawCorrelationReleaseSet::default(),
+            };
+            let receive_crossed_into_raw_release =
+                !has_raw_release_due && !raw_releases_due_at_receive.is_empty();
+            let raw_release_probe =
+                (has_raw_release_due && !raw_release_is_fenced && !raw_buffered_cap_latched)
+                    || receive_crossed_into_raw_release;
+            let raw_release_probe_set = if receive_crossed_into_raw_release {
+                raw_releases_due_at_receive
+            } else {
+                raw_releases_due
+            };
+            let raw_probe_no_input = raw_release_probe
+                && match &event {
+                    ActorEvent::Receive {
+                        result: Ok(AsyncReceive::NoData),
+                        ..
+                    } => true,
+                    ActorEvent::Receive {
+                        result: Ok(AsyncReceive::Fault(error)),
+                        ..
+                    } => super::receive_reported_no_data(error),
+                    _ => false,
+                };
+            // A normalized idle fault is semantically identical to `NoData`:
+            // it consumed no bytes and is the exact no-input proof that lets
+            // the due Wake proceed.  A genuine transient fault is different:
+            // it cannot prove there is no ready stale frame behind it, so its
+            // input turn must suppress due and force one fresh probe.
+            let raw_probe_transient_fault = raw_release_probe
+                && matches!(
+                    &event,
+                    ActorEvent::Receive {
+                        result: Ok(AsyncReceive::Fault(error)),
+                        ..
+                    } if !super::receive_reported_no_data(error)
+                );
+            if raw_probe_no_input {
+                raw_release_no_input_fence = Some(raw_release_probe_set);
+            }
+            if matches!(&event, ActorEvent::Wake { .. }) {
+                // A wake either advances the release or deliberately defers it
+                // behind retained framing.  In both cases the following turn
+                // needs a fresh receive probe rather than reusing a prior
+                // no-input observation.
+                raw_release_no_input_fence = None;
+            }
 
             // A receive that keeps the session running and makes protocol
             // progress is the only thing that lengthens the streak; any boundary
@@ -1998,19 +2304,40 @@ where
                         .filter(|wake| *wake <= observed_at)
                 })
                 .flatten();
-            let wake_won = matches!(&event, ActorEvent::Wake);
+            let wake_won = matches!(&event, ActorEvent::Wake { .. });
             let outcome = self
-                .handle_event(event, &mut driver, runtime.as_ref())
+                .handle_event(
+                    event,
+                    &mut driver,
+                    runtime.as_ref(),
+                    selected_at,
+                    raw_probe_transient_fault,
+                )
                 .await;
             if wake_won {
                 control_allowance_consumed_for = None;
             } else if let Some(wake) = control_consumed_due_wake {
                 control_allowance_consumed_for = Some(wake);
             }
-            if event_was_receive && outcome == TurnOutcome::Continue {
-                receive_first_streak = receive_first_streak.saturating_add(1);
+            if event_was_receive {
+                match outcome {
+                    TurnOutcome::Continue => {
+                        receive_first_streak = receive_first_streak.saturating_add(1);
+                        buffered_receive_streak = 0;
+                        raw_buffered_cap_latched = false;
+                    }
+                    TurnOutcome::ContinueBuffered => {
+                        receive_first_streak = 0;
+                        buffered_receive_streak = buffered_receive_streak.saturating_add(1);
+                    }
+                    TurnOutcome::YieldBoundaries | TurnOutcome::Stop => {
+                        receive_first_streak = 0;
+                        buffered_receive_streak = 0;
+                    }
+                }
             } else {
                 receive_first_streak = 0;
+                buffered_receive_streak = 0;
             }
             match outcome.next_source_phase() {
                 Some(next) => source_phase = next,
@@ -2023,6 +2350,9 @@ where
             .unwrap_or(Error::RuntimeShutdown);
         self.publish_terminal_error(boundary_error.clone());
         self.flush_pre_admission_rejections(true);
+        if let Some(deferred) = deferred_raw_boundary.take() {
+            self.drain_deferred_raw_boundary(deferred, boundary_error.clone());
+        }
         self.drain_boundaries(boundary_error);
         #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
         let snapshot = self.snapshot_now();
@@ -2041,18 +2371,21 @@ where
         event: ActorEvent,
         driver: &mut D,
         runtime: &R,
+        selected_at: Instant,
+        suppress_due_for_raw_probe_fault: bool,
     ) -> TurnOutcome
     where
         D: AsyncOwnerDriver,
     {
         match event {
             ActorEvent::Shutdown => {
-                self.terminate(driver, runtime, ShutdownReason::Explicit)
+                self.terminate_at(driver, runtime, ShutdownReason::Explicit, selected_at)
                     .await;
                 TurnOutcome::Stop
             }
             ActorEvent::Cancellation(cancel) => {
-                self.handle_cancellation(cancel, driver, runtime).await;
+                self.handle_cancellation(cancel, driver, runtime, selected_at)
+                    .await;
                 TurnOutcome::Continue
             }
             ActorEvent::Control(control) => {
@@ -2060,16 +2393,140 @@ where
                 TurnOutcome::Continue
             }
             ActorEvent::Admission(Ok(admission)) => {
-                self.handle_admission(admission, driver, runtime).await;
+                self.handle_admission(admission, driver, runtime, selected_at)
+                    .await;
                 TurnOutcome::Continue
             }
             ActorEvent::Admission(Err(_)) => {
-                self.terminate(driver, runtime, ShutdownReason::Explicit)
+                self.terminate_at(driver, runtime, ShutdownReason::Explicit, selected_at)
                     .await;
                 TurnOutcome::Stop
             }
-            ActorEvent::Wake => {
-                let effects = self.state.advance(Executor::now(runtime));
+            ActorEvent::Wake {
+                raw_buffered_cap_exhausted,
+            } => {
+                let now = selected_at;
+                if raw_buffered_cap_exhausted {
+                    let error = Error::InvalidState(
+                        "async raw correlation release retained-input work cap exhausted".into(),
+                    );
+                    self.terminate_at(
+                        driver,
+                        runtime,
+                        ShutdownReason::FramingFailure {
+                            reason: error.to_string().into_boxed_str(),
+                        },
+                        now,
+                    )
+                    .await;
+                    return TurnOutcome::Stop;
+                }
+                // A due raw-correlation release is the last point at which
+                // input retained by a byte-stream framer can still belong to
+                // the old request. Receive-first selection above gives a
+                // simultaneously ready completing tail precedence. If the
+                // tail is not ready, remove the orphaned prefix before the due
+                // pass can dispatch a successor; otherwise that successor
+                // could consume the old frame after its tail arrives.
+                let releases = self.state.raw_correlation_releases_due(now);
+                if !releases.is_empty() {
+                    let work_limit = RAW_CORRELATION_RELEASE_WORK_LIMIT;
+                    let framing = (|| -> Result<bool, Error> {
+                        let mut discarded = 0_usize;
+                        loop {
+                            let buffered = driver.has_buffered_stream_input()?;
+                            let input = driver.buffered_stream_input()?;
+                            if !buffered {
+                                if input.is_some() {
+                                    return Err(Error::InvalidState(
+                                        "async stream decoder attributed absent buffered input"
+                                            .into(),
+                                    ));
+                                }
+                                return Ok(false);
+                            }
+                            let input = input.ok_or_else(|| {
+                                Error::InvalidState(
+                                    "async raw stream input could not be attributed before correlation release"
+                                        .into(),
+                                )
+                            })?;
+                            match self.state.raw_prefix_disposition(releases, input) {
+                                // A complete buffered frame remains ordinary
+                                // protocol input even at exact equality. The
+                                // same applies to incomplete evidence whose
+                                // identity is too weak to release safely.
+                                RawPrefixDisposition::Defer => return Ok(true),
+                                // This prefix belongs to a different serial
+                                // target or a still-live non-releasing socket.
+                                // It cannot revive the released scope, so due
+                                // work may progress without altering bytes.
+                                RawPrefixDisposition::NoRelease
+                                | RawPrefixDisposition::ReleasePreserving => return Ok(false),
+                                RawPrefixDisposition::Discard => {
+                                    if discarded >= work_limit {
+                                        return Err(Error::InvalidState(
+                                            "async raw correlation release framing work cap exhausted"
+                                                .into(),
+                                        ));
+                                    }
+                                    // Drop exactly the first framed fragment,
+                                    // then ask the shared engine again. This
+                                    // preserves later serial input and prevents
+                                    // a stale fragment from crossing into a
+                                    // successor's correlation interval.
+                                    driver.discard_buffered_stream_input()?;
+                                    discarded = discarded.saturating_add(1);
+                                }
+                            }
+                        }
+                    })();
+                    let defer_due = match framing {
+                        Ok(defer_due) => defer_due,
+                        Err(error) => {
+                            self.terminate_at(
+                                driver,
+                                runtime,
+                                ShutdownReason::FramingFailure {
+                                    reason: error.to_string().into_boxed_str(),
+                                },
+                                now,
+                            )
+                            .await;
+                            return TurnOutcome::Stop;
+                        }
+                    };
+                    if defer_due {
+                        self.raw_release_deferral_run =
+                            self.raw_release_deferral_run.saturating_add(1);
+                        // The 64th unresolved due turn is the cap, not one
+                        // extra grace turn: the design promise is to fail
+                        // closed *within* 64 bounded input-first deferrals.
+                        // Letting this branch continue on `== work_limit`
+                        // leaves a 65th ordinary boundary opportunity in
+                        // which a successor can be dispatched behind the
+                        // retained ambiguity.
+                        if self.raw_release_deferral_run < work_limit {
+                            return TurnOutcome::ContinueBuffered;
+                        }
+                        let error = Error::InvalidState(
+                            "async raw correlation release buffered-frame drain cap exhausted"
+                                .into(),
+                        );
+                        self.terminate_at(
+                            driver,
+                            runtime,
+                            ShutdownReason::FramingFailure {
+                                reason: error.to_string().into_boxed_str(),
+                            },
+                            now,
+                        )
+                        .await;
+                        return TurnOutcome::Stop;
+                    }
+                }
+                self.raw_release_deferral_run = 0;
+                let effects = self.state.advance(now);
                 self.drive(driver, effects, runtime).await;
                 TurnOutcome::Continue
             }
@@ -2088,7 +2545,7 @@ where
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::NoData),
-                ..
+                received_at,
             } => {
                 // An expired idle read timeout is not a fault: nothing was
                 // consumed, nothing failed, and no request's retry budget is
@@ -2096,7 +2553,13 @@ where
                 // run before another idle read (#625). A driver that returns
                 // NoData immediately would otherwise spin the actor, so pace the
                 // idle-read rate (#675).
-                self.absorb_idle_receive(runtime).await
+                match driver.has_buffered_stream_input() {
+                    Ok(buffered) => self.absorb_idle_receive(runtime, buffered).await,
+                    Err(error) => {
+                        self.discard_undecodable_receive(driver, runtime, &error, received_at)
+                            .await
+                    }
+                }
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Frames(frames)),
@@ -2126,16 +2589,54 @@ where
                     // frames that were discarded above. The framer holds any
                     // partial frame; keep pumping so the rest of it can arrive in
                     // a later read.
-                    return TurnOutcome::YieldBoundaries;
+                    return match driver.has_buffered_stream_input() {
+                        Ok(true) => TurnOutcome::ContinueBuffered,
+                        Ok(false) => TurnOutcome::YieldBoundaries,
+                        Err(error) => {
+                            self.discard_undecodable_receive(driver, runtime, &error, received_at)
+                                .await
+                        }
+                    };
                 }
                 let turn = self.state.begin_input_turn(received_at);
                 for frame in frames {
                     let effects = self.state.input_in_turn(&turn, Input::Frame(frame));
                     self.drive_in_turn(driver, &turn, effects, runtime).await;
                 }
-                let due = self.state.finish_input_turn(turn);
+                let buffered = match driver.has_buffered_stream_input() {
+                    Ok(buffered) => buffered,
+                    Err(error) => {
+                        let inert = self.state.finish_input_turn_without_due(turn);
+                        self.drive(driver, inert, runtime).await;
+                        return self
+                            .discard_undecodable_receive(driver, runtime, &error, received_at)
+                            .await;
+                    }
+                };
+                // A frame-limit batch can leave a complete frame followed by
+                // an incomplete stale prefix in the production framer. Do not
+                // run due work until each complete retained frame has taken
+                // its ordered input turn and any final orphan is classified at
+                // the raw release boundary.
+                let due = if buffered {
+                    self.state.finish_input_turn_without_due(turn)
+                } else {
+                    self.state.finish_input_turn(turn)
+                };
                 self.drive(driver, due, runtime).await;
-                TurnOutcome::Continue
+                if buffered {
+                    TurnOutcome::ContinueBuffered
+                } else {
+                    // A completed input turn drained the retained fragment
+                    // before due work ran. If that input settled the old raw
+                    // correlation at an exact boundary, `finish_input_turn`
+                    // released it without another Wake turn, so its next
+                    // independent hold must start with a fresh deferral
+                    // budget. Do not reset for an empty/partial receive: its
+                    // unresolved prefix still needs the same bounded run.
+                    self.raw_release_deferral_run = 0;
+                    TurnOutcome::Continue
+                }
             }
             ActorEvent::Receive {
                 result: Ok(AsyncReceive::Fault(error)),
@@ -2146,7 +2647,13 @@ where
                     // means "no bytes arrived". Normalizing here as well as at
                     // the adapter keeps every driver on one contract (#637), and
                     // paces the idle-read rate so it cannot hot-spin (#675).
-                    return self.absorb_idle_receive(runtime).await;
+                    return match driver.has_buffered_stream_input() {
+                        Ok(buffered) => self.absorb_idle_receive(runtime, buffered).await,
+                        Err(error) => {
+                            self.discard_undecodable_receive(driver, runtime, &error, received_at)
+                                .await
+                        }
+                    };
                 }
                 if !super::receive_fault_is_transient(&error) {
                     self.terminate_at(
@@ -2187,7 +2694,29 @@ where
                 // against hot-looping on an immediately failing transport; it
                 // grows with the run and is clamped to the next scheduler
                 // deadline exactly as the blocking owner clamps to its caller's.
-                let effects = self.state.input(Input::ReceiveFault { error }, received_at);
+                let buffered = match driver.has_buffered_stream_input() {
+                    Ok(buffered) => buffered,
+                    Err(framing_error) => {
+                        return self
+                            .discard_undecodable_receive(
+                                driver,
+                                runtime,
+                                &framing_error,
+                                received_at,
+                            )
+                            .await;
+                    }
+                };
+                let effects = if buffered || suppress_due_for_raw_probe_fault {
+                    let turn = self.state.begin_input_turn(received_at);
+                    let mut effects = self
+                        .state
+                        .input_in_turn(&turn, Input::ReceiveFault { error });
+                    effects.extend(self.state.finish_input_turn_without_due(turn));
+                    effects
+                } else {
+                    self.state.input(Input::ReceiveFault { error }, received_at)
+                };
                 self.drive(driver, effects, runtime).await;
                 let pause = clamp_transient_pause(
                     transient_receive_pause(length),
@@ -2197,7 +2726,11 @@ where
                 if !pause.is_zero() {
                     Executor::sleep(runtime, pause).await;
                 }
-                TurnOutcome::YieldBoundaries
+                if buffered {
+                    TurnOutcome::ContinueBuffered
+                } else {
+                    TurnOutcome::YieldBoundaries
+                }
             }
             ActorEvent::Receive {
                 result: Err(error),
@@ -2261,7 +2794,11 @@ where
     /// receive-fault pause — but it records no fault, does not clear an existing
     /// fault run, and spends no retry budget. Only a successful read or the
     /// five-second fault gap proves transient failures stopped accumulating.
-    async fn absorb_idle_receive(&mut self, runtime: &R) -> TurnOutcome {
+    async fn absorb_idle_receive(
+        &mut self,
+        runtime: &R,
+        buffered_stream_input: bool,
+    ) -> TurnOutcome {
         self.idle_receive_run = self.idle_receive_run.saturating_add(1);
         let pause = clamp_transient_pause(
             transient_receive_pause(self.idle_receive_run),
@@ -2271,14 +2808,57 @@ where
         if !pause.is_zero() {
             Executor::sleep(runtime, pause).await;
         }
-        TurnOutcome::YieldBoundaries
+        if buffered_stream_input {
+            TurnOutcome::ContinueBuffered
+        } else {
+            TurnOutcome::YieldBoundaries
+        }
+    }
+
+    /// Claims the one-way pre-admission deadline race before this boundary is
+    /// either staged immediately or held behind an exact raw-release gate.
+    /// Returning `false` means this method already answered the caller.
+    fn claim_admission_boundary(
+        &mut self,
+        admission: &mut AdmissionBoundary,
+        now: Instant,
+    ) -> bool {
+        if admission.validity_claimed {
+            return true;
+        }
+        let target = admission.request.context().target;
+        let lane = if admission.request.is_inquiry() {
+            RequestLane::Inquiry
+        } else {
+            RequestLane::Command
+        };
+        let Some(validity) = admission.validity.as_ref() else {
+            return true;
+        };
+        match validity.claim_for_admission(now) {
+            AdmissionClaim::Claimed => {
+                admission.validity_claimed = true;
+                true
+            }
+            AdmissionClaim::ExpiredHere => {
+                let error = Error::Timeout;
+                self.state.record_admission_rejection(target, lane, &error);
+                let _ = admission.reply.try_send(Err(error));
+                false
+            }
+            AdmissionClaim::ExpiredElsewhere => {
+                let _ = admission.reply.try_send(Err(Error::Timeout));
+                false
+            }
+        }
     }
 
     async fn handle_admission<D>(
         &mut self,
-        admission: AdmissionBoundary,
+        mut admission: AdmissionBoundary,
         driver: &mut D,
         runtime: &R,
+        accepted_at: Instant,
     ) where
         D: AsyncOwnerDriver,
     {
@@ -2289,26 +2869,8 @@ where
         // winner records the rejection exactly once: caller-expiry already
         // entered the handle-side ingress, while actor-expiry records directly
         // into the serialized owner state.
-        let target = admission.request.context().target;
-        let lane = if admission.request.is_inquiry() {
-            RequestLane::Inquiry
-        } else {
-            RequestLane::Command
-        };
-        if let Some(validity) = admission.validity.as_ref() {
-            match validity.claim_for_admission(Executor::now(runtime)) {
-                AdmissionClaim::Claimed => {}
-                AdmissionClaim::ExpiredHere => {
-                    let error = Error::Timeout;
-                    self.state.record_admission_rejection(target, lane, &error);
-                    let _ = admission.reply.try_send(Err(error));
-                    return;
-                }
-                AdmissionClaim::ExpiredElsewhere => {
-                    let _ = admission.reply.try_send(Err(Error::Timeout));
-                    return;
-                }
-            }
+        if !self.claim_admission_boundary(&mut admission, accepted_at) {
+            return;
         }
         let input = self.state.stage_admission_with(
             admission.request,
@@ -2316,7 +2878,7 @@ where
             admission.observer,
             admission.reply,
         );
-        let effects = self.state.input(input, Executor::now(runtime));
+        let effects = self.state.input(input, accepted_at);
         self.drive(driver, effects, runtime).await;
     }
 
@@ -2325,6 +2887,7 @@ where
         cancellation: CancellationBoundary,
         driver: &mut D,
         runtime: &R,
+        accepted_at: Instant,
     ) where
         D: AsyncOwnerDriver,
     {
@@ -2337,9 +2900,7 @@ where
             return;
         }
         let registration = self.state.register_cancellation(id);
-        let effects = self
-            .state
-            .input(Input::Cancel { id }, Executor::now(runtime));
+        let effects = self.state.input(Input::Cancel { id }, accepted_at);
         self.drive(driver, effects, runtime).await;
         // A refusal leaves the original request scheduled, so the receipt
         // travels back to the caller instead of dying here (#612).
@@ -2402,8 +2963,14 @@ where
                 let result = self.state.subscribe_diagnostics(capacity);
                 let _ = reply.try_send(result);
             }
-            ControlBoundary::Reconfigure { tuning, reply } => {
-                let result = self.state.retune(*tuning);
+            ControlBoundary::Reconfigure {
+                validated_tuning,
+                reply,
+            } => {
+                let result = match self.state.boundary_error() {
+                    Some(error) => Err(error),
+                    None => (*validated_tuning).and_then(|tuning| self.state.retune(tuning)),
+                };
                 let _ = reply.try_send(result);
             }
         }
@@ -2489,9 +3056,25 @@ where
                     Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                     Err(error) => Err(error),
                 };
-                let produced =
+                let finished_at = Executor::now(runtime);
+                // A write can complete while the actor is awaiting the
+                // transport and cross a raw correlation deadline.  Its
+                // transmission-result input is real ordered protocol input,
+                // but it must not run the due/dispatch tail before the loop's
+                // raw-release coordinator has taken its mandatory receive
+                // probe.  `drive_in_turn` already has this property by using
+                // the active input turn; this is the equivalent seam for a
+                // standalone effect chain.
+                let produced = if self
+                    .state
+                    .raw_correlation_releases_due(finished_at)
+                    .is_empty()
+                {
+                    self.state.finish_write(&staged, write_result, finished_at)
+                } else {
                     self.state
-                        .finish_write(&staged, write_result, Executor::now(runtime));
+                        .finish_write_without_due(&staged, write_result, finished_at)
+                };
                 // The exact completion is recursively processed before the
                 // next source effect or any channel input.
                 prepend_effects(&mut effects, produced);
@@ -2533,14 +3116,6 @@ where
         }
     }
 
-    async fn terminate<D>(&mut self, driver: &mut D, runtime: &R, reason: ShutdownReason)
-    where
-        D: AsyncOwnerDriver,
-    {
-        self.terminate_at(driver, runtime, reason, Executor::now(runtime))
-            .await;
-    }
-
     async fn terminate_at<D>(
         &mut self,
         driver: &mut D,
@@ -2554,6 +3129,30 @@ where
             let effects = self.state.input(Input::Shutdown(reason), observed_at);
             self.drive(driver, effects, runtime).await;
         }
+    }
+
+    /// Answer a boundary which the raw-release coordinator had already removed
+    /// from its channel when the session became terminal.  The ordinary queue
+    /// drain cannot see this payload, so retaining its exact cancellation
+    /// observation semantics here closes the same lifecycle edge.
+    fn drain_deferred_raw_boundary(&mut self, deferred: DeferredRawBoundary, error: Error) {
+        match deferred {
+            DeferredRawBoundary::Admission(admission) => {
+                let _ = admission.reply.try_send(Err(error));
+            }
+            DeferredRawBoundary::Cancellation(cancellation) => {
+                let buffered = cancellation.receipt.completion.try_recv();
+                let result = match buffered {
+                    Some(observation) => Ok(cancellation_receipt_for(
+                        cancellation.receipt,
+                        Some(observation),
+                    )),
+                    None => Err(RejectedCancellation::kept(cancellation.receipt, error)),
+                };
+                let _ = cancellation.reply.try_send(result);
+            }
+        }
+        self.state.fail_unstaged_boundary(1);
     }
 
     /// Answer every queued boundary message with the session's terminal error.
@@ -2676,6 +3275,9 @@ where
     }
 }
 
+/// Admission events retain the inline request owned by the actor channel; boxing
+/// it here would add a heap allocation to every accepted admission.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 enum ActorEvent {
     Admission(Result<AdmissionBoundary, flume::RecvError>),
@@ -2686,7 +3288,9 @@ enum ActorEvent {
         result: Result<AsyncReceive, Error>,
         received_at: Instant,
     },
-    Wake,
+    Wake {
+        raw_buffered_cap_exhausted: bool,
+    },
 }
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -2730,6 +3334,9 @@ mod tests {
     struct ManualRuntime {
         executor: TokioRuntime,
         now: Arc<Mutex<Instant>>,
+        sleep_wakers: Arc<Mutex<Vec<std::task::Waker>>>,
+        sleep_started: Option<flume::Sender<Duration>>,
+        advance_after_next_now: Arc<Mutex<Option<Duration>>>,
         polling_sleeps: bool,
     }
 
@@ -2746,17 +3353,56 @@ mod tests {
             Self::with_sleep_behavior(now, true)
         }
 
+        /// Returns a manual clock plus a one-shot-friendly proof that an actor
+        /// actually polled a sleep.  Raw-boundary tests use it to inject input
+        /// *during* a clamped idle sleep, without trusting a wall-clock delay.
+        fn with_polling_sleeps_and_sleep_barrier(
+            now: Instant,
+        ) -> (Self, flume::Receiver<Duration>) {
+            let mut runtime = Self::with_polling_sleeps(now);
+            let (sleep_started, observed) = flume::unbounded();
+            runtime.sleep_started = Some(sleep_started);
+            (runtime, observed)
+        }
+
         fn with_sleep_behavior(now: Instant, polling_sleeps: bool) -> Self {
             Self {
                 executor: TokioRuntime::from_current().unwrap(),
                 now: Arc::new(Mutex::new(now)),
+                sleep_wakers: Arc::new(Mutex::new(Vec::new())),
+                sleep_started: None,
+                advance_after_next_now: Arc::new(Mutex::new(None)),
                 polling_sleeps,
             }
         }
 
         fn advance(&self, duration: Duration) {
+            self.advance_silently(duration);
+            // A manually advanced deadline must also wake an actor currently
+            // parked inside its executor-neutral sleep future.  Tests use this
+            // as a deterministic sleep-entered/read-consumed barrier rather
+            // than a wall-clock delay.
+            let wakers = std::mem::take(&mut *self.sleep_wakers.lock().unwrap());
+            for waker in wakers {
+                waker.wake();
+            }
+        }
+
+        /// Advance the virtual clock without waking a parked timer.  A focused
+        /// boundary race can then make a receive ready at H and use that
+        /// receive's own waker to poll the already-due timer in the same
+        /// selection, reproducing the real all-ready linearization exactly.
+        fn advance_silently(&self, duration: Duration) {
             let mut now = self.now.lock().unwrap();
             *now = now.checked_add(duration).unwrap();
+        }
+
+        /// Make exactly the next clock sample return the current instant, then
+        /// advance the virtual clock for the following sample.  This models a
+        /// receive completing just before H while the executor resumes the
+        /// actor's boundary handler just after H, without a scheduler sleep.
+        fn advance_after_next_now(&self, duration: Duration) {
+            *self.advance_after_next_now.lock().unwrap() = Some(duration);
         }
     }
 
@@ -2787,11 +3433,21 @@ mod tests {
                 now.checked_add(duration).unwrap_or(now)
             };
             let now = Arc::clone(&self.now);
+            let sleep_wakers = Arc::clone(&self.sleep_wakers);
+            let sleep_started = self.sleep_started.clone();
             let polling_sleeps = self.polling_sleeps;
-            std::future::poll_fn(move |_| {
+            let mut announced = false;
+            std::future::poll_fn(move |context| {
+                if !announced {
+                    if let Some(observed) = sleep_started.as_ref() {
+                        let _ = observed.try_send(duration);
+                    }
+                    announced = true;
+                }
                 if polling_sleeps && *now.lock().unwrap() >= deadline {
                     std::task::Poll::Ready(())
                 } else {
+                    sleep_wakers.lock().unwrap().push(context.waker().clone());
                     std::task::Poll::Pending
                 }
             })
@@ -2810,7 +3466,12 @@ mod tests {
         }
 
         fn now(&self) -> Instant {
-            *self.now.lock().unwrap()
+            let mut now = self.now.lock().unwrap();
+            let observed = *now;
+            if let Some(duration) = self.advance_after_next_now.lock().unwrap().take() {
+                *now = now.checked_add(duration).unwrap();
+            }
+            observed
         }
     }
 
@@ -2886,6 +3547,10 @@ mod tests {
             Some(SourcePhase::ReceiveFirst),
         );
         assert_eq!(
+            TurnOutcome::ContinueBuffered.next_source_phase(),
+            Some(SourcePhase::ReceiveFirst),
+        );
+        assert_eq!(
             TurnOutcome::YieldBoundaries.next_source_phase(),
             Some(SourcePhase::BoundariesFirst),
         );
@@ -2931,11 +3596,45 @@ mod tests {
         owner
     }
 
+    /// Two independently registered raw targets used to make an unrelated
+    /// write park across target 1's exact ambiguity release.  The regression
+    /// must exercise `drive()` itself, rather than a synthetic Wake, because
+    /// only an awaited transmission completion recursively enters the engine
+    /// between source selections.
+    #[cfg(feature = "runtime-tokio")]
+    fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
+        let protocol = ProtocolPolicy {
+            capacity: 3,
+            envelope: EnvelopeKind::Raw,
+            transport,
+            inquiry_capacity: 1,
+            command_spacing: Duration::ZERO,
+            inquiry_spacing: Duration::ZERO,
+            inquiry_cooldown: Duration::ZERO,
+            strict_unconfirmed_poison: false,
+        };
+        let target = TargetPolicy {
+            command_sockets: 2,
+            cancellation: CancellationPolicy::Supported,
+        };
+        let mut targets = [None; 9];
+        targets[usize::from(CameraId::CAMERA_1.id())] = Some(target);
+        targets[usize::from(CameraId::CAMERA_2.id())] = Some(target);
+        OwnerPolicy::with_targets(protocol, targets).unwrap()
+    }
+
     fn command() -> RuntimeRequest {
+        command_for(CameraId::CAMERA_1)
+    }
+
+    fn command_for(target: CameraId) -> RuntimeRequest {
         RuntimeRequest::Command {
-            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
+            wire: Arc::new(
+                EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x01, 0x04, 0x00, 0xff])
+                    .unwrap(),
+            ),
             context: RequestContext {
-                target: CameraId::CAMERA_1,
+                target,
                 timeout: TimeoutPolicy {
                     ack: Duration::from_secs(5),
                     completion: Duration::from_secs(5),
@@ -2975,11 +3674,44 @@ mod tests {
         }
     }
 
-    fn inquiry() -> RuntimeRequest {
-        RuntimeRequest::Inquiry {
-            wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x00, 0xff]).unwrap()),
+    /// A raw command with an individually chosen completion deadline and a
+    /// wire marker visible in the production transport script.  The marker is
+    /// deliberately carried in the otherwise inert fixture wire so assertions
+    /// can prove a successor did not write before the retained frame settled.
+    #[cfg(feature = "runtime-tokio")]
+    fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> RuntimeRequest {
+        RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
             context: RequestContext {
                 target: CameraId::CAMERA_1,
+                timeout: TimeoutPolicy {
+                    ack: Duration::from_secs(5),
+                    completion,
+                    inquiry: Duration::from_secs(5),
+                    cancellation: Duration::from_secs(1),
+                    ambiguity: Duration::from_secs(1),
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy::default(),
+                cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
+            },
+            applied_state: None,
+        }
+    }
+
+    fn inquiry() -> RuntimeRequest {
+        inquiry_for(CameraId::CAMERA_1)
+    }
+
+    fn inquiry_for(target: CameraId) -> RuntimeRequest {
+        RuntimeRequest::Inquiry {
+            wire: Arc::new(
+                EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x09, 0x04, 0x00, 0xff])
+                    .unwrap(),
+            ),
+            context: RequestContext {
+                target,
                 timeout: TimeoutPolicy {
                     ack: Duration::from_secs(5),
                     completion: Duration::from_secs(5),
@@ -3619,7 +4351,7 @@ mod tests {
         let writes = Arc::clone(&harness.writes);
         let mut driver = harness.driver;
         actor
-            .handle_admission(boundary, &mut driver, &runtime)
+            .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
             .await;
 
         assert!(matches!(reply.recv_async().await, Ok(Err(Error::Timeout))));
@@ -3819,7 +4551,7 @@ mod tests {
             .try_recv()
             .expect("the staged inquiry must be waiting for the actor");
         actor
-            .handle_admission(admission, &mut driver, &runtime)
+            .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
             .await;
         assert!(admitted.recv_async().await.unwrap().is_ok());
         assert_eq!(actor.state.active_len(), 1);
@@ -3903,7 +4635,7 @@ mod tests {
             .try_recv()
             .expect("the staged inquiry must be waiting for the actor");
         actor
-            .handle_admission(admission, &mut driver, &runtime)
+            .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
             .await;
         assert!(admitted.recv_async().await.unwrap().is_ok());
         let deadline = actor
@@ -4260,6 +4992,8 @@ mod tests {
                 },
                 &mut driver,
                 &runtime,
+                Executor::now(&runtime),
+                false,
             )
             .await;
         assert_eq!(outcome, TurnOutcome::Stop);
@@ -4533,6 +5267,2066 @@ mod tests {
         fn send_semantics(&self) -> crate::transport::SendSemantics {
             crate::transport::SendSemantics::Stream
         }
+
+        fn addressing_mode_hint(&self) -> Option<crate::transport::builder::AddressingMode> {
+            Some(self.config.addressing)
+        }
+    }
+
+    /// Driver-level stream script for raw-correlation boundary tests. `Tail`
+    /// only produces a frame while an earlier `Prefix` remains buffered, which
+    /// models the production framer closely enough to distinguish a completed
+    /// boundary frame from a tail delivered after an orphan reset.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    enum BoundaryStreamRead {
+        Prefix,
+        Tail(DecodedFrame),
+        Complete(DecodedFrame),
+        NoData,
+        Fault(Error),
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct BoundaryStreamDriver {
+        reads: flume::Receiver<BoundaryStreamRead>,
+        reads_observed: flume::Sender<()>,
+        writes: flume::Sender<RequestId>,
+        buffered: Arc<std::sync::atomic::AtomicBool>,
+        discards: Arc<std::sync::atomic::AtomicUsize>,
+        refuse_discard: bool,
+        prefix_kind: crate::runtime::engine::RawIncompletePrefix,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for BoundaryStreamDriver {
+        fn write(
+            &mut self,
+            write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            let id = write.request;
+            let writes = self.writes.clone();
+            async move {
+                writes
+                    .send_async(id)
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                Ok(TransmissionMeta { sequence: None })
+            }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = self.reads.clone();
+            let reads_observed = self.reads_observed.clone();
+            let buffered = Arc::clone(&self.buffered);
+            async move {
+                let read = reads
+                    .recv_async()
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                let _ = reads_observed.try_send(());
+                Ok(match read {
+                    BoundaryStreamRead::Prefix => {
+                        buffered.store(true, Ordering::Release);
+                        AsyncReceive::Frames(Vec::new())
+                    }
+                    BoundaryStreamRead::Tail(frame) => {
+                        if buffered.swap(false, Ordering::AcqRel) {
+                            AsyncReceive::Frames(vec![frame])
+                        } else {
+                            AsyncReceive::Frames(Vec::new())
+                        }
+                    }
+                    BoundaryStreamRead::Complete(frame) => {
+                        buffered.store(false, Ordering::Release);
+                        AsyncReceive::Frames(vec![frame])
+                    }
+                    BoundaryStreamRead::NoData => AsyncReceive::NoData,
+                    BoundaryStreamRead::Fault(error) => AsyncReceive::Fault(error),
+                })
+            }
+        }
+
+        fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+            Ok(self.buffered.load(Ordering::Acquire))
+        }
+
+        fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+            Ok(self
+                .buffered
+                .load(Ordering::Acquire)
+                .then_some(RawPrefixEvidence::Incomplete {
+                    target: CameraId::CAMERA_1,
+                    // The fixture defaults to an exact named terminal, keeping
+                    // its original stale-prefix tests about discard mechanics.
+                    // A focused actor test may override this with ambiguous
+                    // evidence to exercise the local deferral budget.
+                    kind: self.prefix_kind,
+                }))
+        }
+
+        fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+            self.discards.fetch_add(1, Ordering::Relaxed);
+            if !self.refuse_discard {
+                self.buffered.store(false, Ordering::Release);
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    fn raw_inquiry_reply(payload: u8) -> DecodedFrame {
+        DecodedFrame {
+            target: CameraId::CAMERA_1,
+            sequence: None,
+            response: DecodedResponse::InquiryReply {
+                route: None,
+                payload: smallvec::smallvec![payload],
+            },
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    struct BoundaryStreamHarness {
+        driver: Option<BoundaryStreamDriver>,
+        reads: flume::Sender<BoundaryStreamRead>,
+        reads_observed: flume::Receiver<()>,
+        writes: flume::Receiver<RequestId>,
+        buffered: Arc<std::sync::atomic::AtomicBool>,
+        discards: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    fn boundary_stream_harness(refuse_discard: bool) -> BoundaryStreamHarness {
+        let (read_tx, reads) = flume::bounded(128);
+        let (read_observed_tx, reads_observed) = flume::unbounded();
+        let (writes, write_rx) = flume::bounded(16);
+        let buffered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let discards = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        BoundaryStreamHarness {
+            driver: Some(BoundaryStreamDriver {
+                reads,
+                reads_observed: read_observed_tx,
+                writes,
+                buffered: Arc::clone(&buffered),
+                discards: Arc::clone(&discards),
+                refuse_discard,
+                prefix_kind: crate::runtime::engine::RawIncompletePrefix::NamedCompletionOrError(
+                    ViscaSocket::S1,
+                ),
+            }),
+            reads: read_tx,
+            reads_observed,
+            writes: write_rx,
+            buffered,
+            discards,
+        }
+    }
+
+    /// Minimal raw receive/write script used to prove the exact-release probe
+    /// on both stream and datagram policies.  The read-consumed channel is an
+    /// actor-side barrier: a test never infers consumption from a scheduler
+    /// yield or wall-clock sleep.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    enum RawReleaseProbeRead {
+        NoData,
+        NoDataThenComplete(DecodedFrame),
+        Empty,
+        Fault(Error),
+        RepeatingFault(Error),
+        Complete(DecodedFrame),
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct RawReleaseProbeDriver {
+        reads: flume::Receiver<RawReleaseProbeRead>,
+        reads_observed: flume::Sender<()>,
+        receive_polled: flume::Sender<()>,
+        after_no_data: Arc<Mutex<Option<DecodedFrame>>>,
+        repeating_fault: Arc<Mutex<Option<Error>>>,
+        writes: flume::Sender<RequestId>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for RawReleaseProbeDriver {
+        fn write(
+            &mut self,
+            write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            let writes = self.writes.clone();
+            let id = write.request;
+            async move {
+                writes
+                    .send_async(id)
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                Ok(TransmissionMeta { sequence: None })
+            }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = self.reads.clone();
+            let reads_observed = self.reads_observed.clone();
+            let receive_polled = self.receive_polled.clone();
+            let after_no_data = Arc::clone(&self.after_no_data);
+            let repeating_fault = Arc::clone(&self.repeating_fault);
+            async move {
+                let _ = receive_polled.try_send(());
+                if let Some(frame) = after_no_data.lock().unwrap().take() {
+                    let _ = reads_observed.try_send(());
+                    return Ok(AsyncReceive::Frames(vec![frame]));
+                }
+                if let Some(error) = repeating_fault.lock().unwrap().as_ref().cloned() {
+                    let _ = reads_observed.try_send(());
+                    return Ok(AsyncReceive::Fault(error));
+                }
+                let read = reads
+                    .recv_async()
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                let _ = reads_observed.try_send(());
+                Ok(match read {
+                    RawReleaseProbeRead::NoData => AsyncReceive::NoData,
+                    RawReleaseProbeRead::NoDataThenComplete(frame) => {
+                        *after_no_data.lock().unwrap() = Some(frame);
+                        AsyncReceive::NoData
+                    }
+                    RawReleaseProbeRead::Empty => AsyncReceive::Frames(Vec::new()),
+                    RawReleaseProbeRead::Fault(error) => AsyncReceive::Fault(error),
+                    RawReleaseProbeRead::RepeatingFault(error) => {
+                        *repeating_fault.lock().unwrap() = Some(error.clone());
+                        AsyncReceive::Fault(error)
+                    }
+                    RawReleaseProbeRead::Complete(frame) => AsyncReceive::Frames(vec![frame]),
+                })
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    struct RawReleaseProbeHarness {
+        driver: Option<RawReleaseProbeDriver>,
+        reads: flume::Sender<RawReleaseProbeRead>,
+        reads_observed: flume::Receiver<()>,
+        receive_polled: flume::Receiver<()>,
+        repeating_fault: Arc<Mutex<Option<Error>>>,
+        writes: flume::Receiver<RequestId>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    fn raw_release_probe_harness() -> RawReleaseProbeHarness {
+        let (read_tx, reads) = flume::bounded(16);
+        let (read_observed_tx, reads_observed) = flume::unbounded();
+        let (receive_polled_tx, receive_polled) = flume::unbounded();
+        let (writes, write_rx) = flume::bounded(16);
+        let after_no_data = Arc::new(Mutex::new(None));
+        let repeating_fault = Arc::new(Mutex::new(None));
+        RawReleaseProbeHarness {
+            driver: Some(RawReleaseProbeDriver {
+                reads,
+                reads_observed: read_observed_tx,
+                receive_polled: receive_polled_tx,
+                after_no_data,
+                repeating_fault: Arc::clone(&repeating_fault),
+                writes,
+            }),
+            reads: read_tx,
+            reads_observed,
+            receive_polled,
+            repeating_fault,
+            writes: write_rx,
+        }
+    }
+
+    /// A raw driver whose target-2 write deliberately parks.  It models the
+    /// production `drive()` seam: target 1 has an expired correlation
+    /// tombstone, but the actor is inside an unrelated transport write when H
+    /// is crossed.  The read-consumed channel makes the return-to-coordinator
+    /// ordering observable without relying on task scheduling.
+    #[cfg(feature = "runtime-tokio")]
+    #[derive(Debug)]
+    struct ParkedWriteRawReleaseDriver {
+        reads: flume::Receiver<RawReleaseProbeRead>,
+        reads_observed: flume::Sender<()>,
+        writes: flume::Sender<RequestId>,
+        target_two_gate: flume::Receiver<Result<TransmissionMeta, Error>>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    impl AsyncOwnerDriver for ParkedWriteRawReleaseDriver {
+        fn write(
+            &mut self,
+            write: WireWrite<'_>,
+        ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+            let request = write.request;
+            // The raw request fixture encodes Camera 2 as the first wire byte
+            // (0x80 + target id).  Read it before returning the future, while
+            // `WireWrite` is still borrowed from the owner.
+            let target_two = write.bytes.first() == Some(&0x82);
+            let writes = self.writes.clone();
+            let target_two_gate = self.target_two_gate.clone();
+            async move {
+                writes
+                    .send_async(request)
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                if target_two {
+                    target_two_gate
+                        .recv_async()
+                        .await
+                        .unwrap_or(Err(Error::RuntimeShutdown))
+                } else {
+                    Ok(TransmissionMeta { sequence: None })
+                }
+            }
+        }
+
+        fn receive(
+            &mut self,
+            _buffers: &mut super::super::OwnerBuffers,
+            _frame_limit: usize,
+        ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+            let reads = self.reads.clone();
+            let reads_observed = self.reads_observed.clone();
+            async move {
+                let read = reads
+                    .recv_async()
+                    .await
+                    .map_err(|_| Error::RuntimeShutdown)?;
+                let _ = reads_observed.try_send(());
+                Ok(match read {
+                    RawReleaseProbeRead::NoData | RawReleaseProbeRead::NoDataThenComplete(_) => {
+                        AsyncReceive::NoData
+                    }
+                    RawReleaseProbeRead::Empty => AsyncReceive::Frames(Vec::new()),
+                    RawReleaseProbeRead::Fault(error)
+                    | RawReleaseProbeRead::RepeatingFault(error) => AsyncReceive::Fault(error),
+                    RawReleaseProbeRead::Complete(frame) => AsyncReceive::Frames(vec![frame]),
+                })
+            }
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    struct ParkedWriteRawReleaseHarness {
+        driver: Option<ParkedWriteRawReleaseDriver>,
+        reads: flume::Sender<RawReleaseProbeRead>,
+        reads_observed: flume::Receiver<()>,
+        writes: flume::Receiver<RequestId>,
+        target_two_gate: flume::Sender<Result<TransmissionMeta, Error>>,
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    fn parked_write_raw_release_harness() -> ParkedWriteRawReleaseHarness {
+        let (read_tx, reads) = flume::bounded(16);
+        let (reads_observed_tx, reads_observed) = flume::unbounded();
+        let (writes, writes_rx) = flume::bounded(16);
+        let (target_two_gate, target_two_gates) = flume::bounded(1);
+        ParkedWriteRawReleaseHarness {
+            driver: Some(ParkedWriteRawReleaseDriver {
+                reads,
+                reads_observed: reads_observed_tx,
+                writes,
+                target_two_gate: target_two_gates,
+            }),
+            reads: read_tx,
+            reads_observed,
+            writes: writes_rx,
+            target_two_gate,
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    async fn establish_raw_inquiry_tombstone_with_probe_driver(
+        handle: &AsyncOwnerHandle,
+        harness: &RawReleaseProbeHarness,
+    ) -> ReceiptCore {
+        let predecessor = handle.submit(inquiry()).await.unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        ));
+
+        let successor = handle.submit(inquiry()).await.unwrap();
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "the raw tombstone must retain the successor before its boundary"
+        );
+        successor
+    }
+
+    /// Exercises the H-δ idle path that used to let a boundary-first Wake
+    /// release B before an already-ready stale A was even framed.  The
+    /// read-consumed and sleep-entered barriers make the ordering independent
+    /// of Tokio task timing: stale A is injected only after NoData has started
+    /// its clamp-to-H sleep, then H is advanced explicitly.
+    #[cfg(feature = "runtime-tokio")]
+    async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: OwnerPolicy) {
+        let initial = Instant::now();
+        let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = raw_release_probe_harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+
+        // The predecessor installed its one-second raw inquiry tombstone at
+        // `initial`.  At H−1ms, consume an idle read; its escalating pause is
+        // clamped to exactly the release boundary.
+        runtime.advance(Duration::from_millis(999));
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::NoData)
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        loop {
+            if sleeps.recv_async().await.unwrap() == Duration::from_millis(1) {
+                break;
+            }
+        }
+
+        // A is now transport-ready but cannot have been framed while the
+        // actor is parked in the clamped idle sleep.  A pre-fix boundary-first
+        // Wake would dispatch B at H before consuming this message.
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+        assert!(
+            harness.reads_observed.try_recv().is_err(),
+            "the stale frame must remain unframed until H wakes the actor"
+        );
+        runtime.advance(Duration::from_millis(1));
+
+        enum BoundaryOrder {
+            StaleRead,
+            SuccessorWrite,
+        }
+        let first_after_h = future::or(
+            async {
+                harness.reads_observed.recv_async().await.unwrap();
+                BoundaryOrder::StaleRead
+            },
+            async {
+                let _ = harness.writes.recv_async().await.unwrap();
+                BoundaryOrder::SuccessorWrite
+            },
+        )
+        .await;
+        assert!(
+            matches!(first_after_h, BoundaryOrder::StaleRead),
+            "the exact raw-release probe must consume stale A before B writes"
+        );
+
+        assert_eq!(
+            harness.writes.recv_async().await.unwrap(),
+            successor.id,
+            "only the post-A due pass may dispatch B"
+        );
+        let snapshot = handle.snapshot().await.unwrap();
+        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )));
+
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// Datagram input has no retained framer, but the pre-H idle/readiness
+    /// race is the same actor-level source-order bug as the stream path.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_datagram_release_probe_precedes_stale_frame_after_idle_sleep() {
+        assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy(1)).await;
+    }
+
+    /// The stream path must use the identical exact-release probe before its
+    /// own framing-specific retained-prefix rules are considered.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_release_probe_precedes_stale_frame_after_idle_sleep() {
+        assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(stream_policy(1)).await;
+    }
+
+    /// A read's timestamp, rather than the later time at which the actor
+    /// handles its event, defines whether it discharged the exact-H probe. A
+    /// pre-H `NoData` can resume after H with an old frame already waiting; it
+    /// must cause another receive-first pass, not fence the due Wake.
+    #[cfg(feature = "runtime-tokio")]
+    async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerPolicy) {
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = raw_release_probe_harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+
+        // Put the actor in an ordinary H-δ boundary selection with a receive
+        // already pending.  This avoids any scheduler sleep assumption: the
+        // driver's poll notification is the exact barrier.
+        while harness.receive_polled.try_recv().is_ok() {}
+        runtime.advance(Duration::from_millis(999));
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Empty)
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        harness.receive_polled.recv_async().await.unwrap();
+
+        // The scripted receive is stamped at H-ε, then `now()` advances the
+        // virtual clock before the selected event is handled.  It leaves a
+        // complete stale A ready for the next receive.  Keying the fence on
+        // `selected_at` would let B write first; keying it on `received_at`
+        // makes that next probe consume A first.
+        runtime.advance_after_next_now(Duration::from_millis(1));
+        harness
+            .reads
+            .try_send(RawReleaseProbeRead::NoDataThenComplete(raw_inquiry_reply(
+                0xa1,
+            )))
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+
+        enum BoundaryOrder {
+            StaleRead,
+            SuccessorWrite,
+        }
+        let first_after_h = future::or(
+            async {
+                harness.reads_observed.recv_async().await.unwrap();
+                BoundaryOrder::StaleRead
+            },
+            async {
+                let _ = harness.writes.recv_async().await.unwrap();
+                BoundaryOrder::SuccessorWrite
+            },
+        )
+        .await;
+        assert!(
+            matches!(first_after_h, BoundaryOrder::StaleRead),
+            "a pre-H NoData resumed at H must not fence the stale-frame probe"
+        );
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        assert!(handle
+            .snapshot()
+            .await
+            .unwrap()
+            .diagnostics
+            .iter()
+            .any(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+            )));
+
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_datagram_pre_h_idle_read_resumed_at_h_requires_fresh_probe() {
+        assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy(1)).await;
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_pre_h_idle_read_resumed_at_h_requires_fresh_probe() {
+        assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(stream_policy(1)).await;
+    }
+
+    /// A custom async driver may report an idle read timeout through its
+    /// `Fault` result instead of `NoData`.  That path is normalized by the
+    /// owner, so an exact-H timeout must install the same no-input fence.  The
+    /// driver repeats the idle fault forever after its first result: without
+    /// the fence a left-biased receive probe hot-loops and B never writes.
+    #[cfg(feature = "runtime-tokio")]
+    async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
+        let initial = Instant::now();
+        let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = raw_release_probe_harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+
+        runtime.advance(Duration::from_millis(999));
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::NoData)
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        loop {
+            if sleeps.recv_async().await.unwrap() == Duration::from_millis(1) {
+                break;
+            }
+        }
+
+        // This fault is the documented non-consuming idle condition, not a
+        // transient ConnectionRefused-style error.  It is queued before H so
+        // the exact coordinator consumes it on the first post-H probe.
+        harness
+            .reads
+            .try_send(RawReleaseProbeRead::RepeatingFault(Error::Timeout))
+            .unwrap();
+        runtime.advance(Duration::from_millis(1));
+        harness.reads_observed.recv_async().await.unwrap();
+
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), harness.writes.recv_async())
+                .await
+                .expect("an exact idle fault must fence once rather than hot-loop")
+                .unwrap(),
+            successor.id
+        );
+
+        // Stop the intentionally adversarial fixture before terminating its
+        // owner; real idle transports become pending between reads, whereas
+        // this test's value is specifically that it would otherwise stay
+        // perpetually ready if the fence were removed.
+        *harness.repeating_fault.lock().unwrap() = None;
+        handle.shutdown().await.unwrap();
+        // The actor may have started its ordinary post-write idle pacing sleep
+        // just before the fixture was cleared; wake that sleep so the queued
+        // shutdown boundary is observed without depending on wall clock.
+        runtime.advance(Duration::from_secs(1));
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_datagram_release_idle_fault_fences_once() {
+        assert_raw_release_idle_fault_fences_once(policy(1)).await;
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_release_idle_fault_fences_once() {
+        assert_raw_release_idle_fault_fences_once(stream_policy(1)).await;
+    }
+
+    /// A parked target-2 write may finish exactly as target 1's raw tombstone
+    /// expires.  `finish_write` used to run an ordinary due/dispatch tail
+    /// recursively from `drive()`, allowing B to write before the actor ever
+    /// returned to receive stale A.  The async no-due completion path must
+    /// instead return to the top-level raw coordinator, where stale A wins the
+    /// left-biased input probe before B's due pass.
+    #[cfg(feature = "runtime-tokio")]
+    async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: OwnerPolicy) {
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = parked_write_raw_release_harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+
+        let predecessor = handle.submit(inquiry()).await.unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        ));
+
+        let successor = handle.submit(inquiry()).await.unwrap();
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "target-1's raw tombstone must hold B before H"
+        );
+
+        // C is independent target-2 work.  Its driver write begins at H-δ
+        // and is held there while stale A becomes transport-ready; therefore
+        // no receive can consume A before C's `finish_write` executes at H.
+        runtime.advance(Duration::from_millis(999));
+        let parked = handle
+            .submit(command_for(CameraId::CAMERA_2))
+            .await
+            .unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), parked.id);
+        harness
+            .reads
+            .try_send(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
+            .unwrap();
+        runtime.advance_silently(Duration::from_millis(1));
+        harness
+            .target_two_gate
+            .try_send(Ok(TransmissionMeta { sequence: None }))
+            .unwrap();
+
+        enum BoundaryOrder {
+            StaleRead,
+            SuccessorWrite,
+        }
+        let first_after_parked_write = future::or(
+            async {
+                harness.reads_observed.recv_async().await.unwrap();
+                BoundaryOrder::StaleRead
+            },
+            async {
+                let _ = harness.writes.recv_async().await.unwrap();
+                BoundaryOrder::SuccessorWrite
+            },
+        )
+        .await;
+        assert!(
+            matches!(first_after_parked_write, BoundaryOrder::StaleRead),
+            "a parked write completion crossing H must return to the raw receive probe before B writes"
+        );
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        assert!(handle
+            .snapshot()
+            .await
+            .unwrap()
+            .diagnostics
+            .iter()
+            .any(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+            )));
+
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_datagram_parked_cross_target_write_returns_to_raw_coordinator() {
+        assert_parked_cross_target_write_returns_to_raw_coordinator(two_target_raw_policy(
+            TransportKind::Datagram,
+        ))
+        .await;
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_parked_cross_target_write_returns_to_raw_coordinator() {
+        assert_parked_cross_target_write_returns_to_raw_coordinator(two_target_raw_policy(
+            TransportKind::Stream,
+        ))
+        .await;
+    }
+
+    /// Reproduces the other temporal hole: an ordinary boundary-first
+    /// selection begins at H−δ, then a transient receive fault wakes that
+    /// selection after H alongside the due timer.  The fault itself cannot
+    /// authorize a raw release; stale A behind it must be read before B can
+    /// write.  Both read barriers must therefore beat B's write barrier.
+    #[cfg(feature = "runtime-tokio")]
+    async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: OwnerPolicy) {
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = raw_release_probe_harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+
+        // The actor is normally already blocked in receive after B's admission.
+        // Drain its old poll notification, then use an empty nonzero receive to
+        // enter `YieldBoundaries` without the idle-read sleep path.
+        while harness.receive_polled.try_recv().is_ok() {}
+        runtime.advance(Duration::from_millis(999));
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Empty)
+            .await
+            .unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+        harness.receive_polled.recv_async().await.unwrap();
+
+        // Move virtual time to H without waking its timer, then make the
+        // already-pending receive ready with a transient fault followed by
+        // stale A.  That receive wake polls the due timer in the same
+        // all-ready boundary-first selection; no wall-clock timing is involved.
+        runtime.advance_silently(Duration::from_millis(1));
+        harness
+            .reads
+            .try_send(RawReleaseProbeRead::Fault(Error::Io(Arc::new(
+                std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+            ))))
+            .unwrap();
+        harness
+            .reads
+            .try_send(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
+            .unwrap();
+
+        enum BoundaryOrder {
+            Read,
+            SuccessorWrite,
+        }
+        for description in ["the fault", "stale A"] {
+            let next = future::or(
+                async {
+                    harness.reads_observed.recv_async().await.unwrap();
+                    BoundaryOrder::Read
+                },
+                async {
+                    let _ = harness.writes.recv_async().await.unwrap();
+                    BoundaryOrder::SuccessorWrite
+                },
+            )
+            .await;
+            assert!(
+                matches!(next, BoundaryOrder::Read),
+                "{description} must be consumed before the due release can write B"
+            );
+        }
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        let snapshot = handle.snapshot().await.unwrap();
+        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )));
+
+        harness
+            .reads
+            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_datagram_release_fault_then_stale_frame_stays_input_first() {
+        assert_raw_release_fault_then_stale_frame_stays_input_first(policy(1)).await;
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_release_fault_then_stale_frame_stays_input_first() {
+        assert_raw_release_fault_then_stale_frame_stays_input_first(stream_policy(1)).await;
+    }
+
+    /// The retained-stream cap must be terminal before an admission channel is
+    /// allowed to end an ordinary engine input turn.  This reaches the actual
+    /// `raw_buffered_cap_latched` path: 63 retained empty reads occur before
+    /// H, the 64th crosses H, and C is already queued when the forced boundary
+    /// turn runs.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_buffered_cap_preempts_queued_admission_before_any_write() {
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let mut policy = stream_policy(3);
+        // Raw inquiry tombstones are intentionally a single-flight production
+        // rule, independent of the broader admission capacity used here to
+        // queue C behind B.
+        policy.protocol.inquiry_capacity = 1;
+        policy.limits.frames_per_receive = RAW_CORRELATION_RELEASE_WORK_LIMIT + 1;
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+        while harness.reads_observed.try_recv().is_ok() {}
+
+        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+            harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
+        }
+        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+            harness.reads_observed.recv_async().await.unwrap();
+        }
+
+        // Do not wake the old timer yet.  The already-pending receive observes
+        // both this final retained fragment and C, at H, in one deterministic
+        // source race; receive-first consumes the fragment and arms the cap.
+        runtime.advance_silently(Duration::from_secs(1));
+        let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), successor.terminal())
+                .await
+                .expect("the latched retained-input cap must terminate"),
+            Ok(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), c_admitted.recv_async())
+                .await
+                .expect("the queued admission must be answered by terminal drain"),
+            Ok(Err(Error::StreamPoisoned { .. }))
+        ));
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "neither B nor queued C may write after the retained-input cap latches"
+        );
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+    }
+
+    /// The same cap must preempt a valid cancellation boundary.  A cancellation
+    /// is normally an engine input turn too; if it ran first it could release
+    /// B/emit a cancellation write before the stream is poisoned.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_buffered_cap_preempts_valid_cancellation_before_any_write() {
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let mut policy = stream_policy(2);
+        policy.protocol.inquiry_capacity = 1;
+        policy.limits.frames_per_receive = RAW_CORRELATION_RELEASE_WORK_LIMIT + 1;
+        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+        while harness.reads_observed.try_recv().is_ok() {}
+
+        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+            harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
+        }
+        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+            harness.reads_observed.recv_async().await.unwrap();
+        }
+
+        runtime.advance_silently(Duration::from_secs(1));
+        let (cancellation_reply, cancellation_result) = flume::bounded(1);
+        handle
+            .cancellations
+            .try_send(CancellationBoundary {
+                receipt: successor,
+                reply: cancellation_reply,
+            })
+            .unwrap();
+        harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
+        harness.reads_observed.recv_async().await.unwrap();
+
+        let cancellation =
+            tokio::time::timeout(Duration::from_secs(1), cancellation_result.recv_async())
+                .await
+                .expect("the queued cancellation must be answered by terminal drain")
+                .unwrap()
+                .expect("a terminal request observation remains a valid cancellation receipt");
+        assert!(matches!(
+            cancellation.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+        ));
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "the retained-input cap must poison before B or a cancellation can write"
+        );
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    async fn establish_raw_inquiry_tombstone(
+        handle: &AsyncOwnerHandle,
+        harness: &BoundaryStreamHarness,
+    ) -> ReceiptCore {
+        let predecessor = handle.submit(inquiry()).await.unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+        harness
+            .reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        ));
+
+        let successor = handle.submit(inquiry()).await.unwrap();
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "the raw tombstone must retain the successor before its boundary"
+        );
+        successor
+    }
+
+    /// Start two raw commands on the same target and assign their distinct
+    /// camera sockets through the real async transport/framer. X remains live
+    /// on S1 while Y's shorter completion deadline will enter its exact-S2
+    /// ambiguity quarantine. Z is queued so the boundary test can prove when
+    /// dispatch becomes legal.
+    #[cfg(feature = "runtime-tokio")]
+    async fn establish_production_two_socket_boundary(
+        handle: &AsyncOwnerHandle,
+        chunks: &flume::Sender<Vec<u8>>,
+        sent: &flume::Receiver<Vec<u8>>,
+    ) -> (ReceiptCore, ReceiptCore, ReceiptCore) {
+        let x = handle
+            .submit(raw_command_with_completion_deadline(
+                0x11,
+                Duration::from_secs(30),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            sent.recv_async().await.unwrap(),
+            vec![0x81, 0x01, 0x04, 0x11, 0xff],
+            "X must be the first physical write",
+        );
+        chunks.send_async(vec![0x90, 0x41, 0xff]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+
+        let y = handle
+            .submit(raw_command_with_completion_deadline(
+                0x22,
+                Duration::from_secs(5),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(
+            sent.recv_async().await.unwrap(),
+            vec![0x81, 0x01, 0x04, 0x22, 0xff],
+            "X's ACK must free the second raw camera socket",
+        );
+        chunks.send_async(vec![0x90, 0x42, 0xff]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+
+        let z = handle
+            .submit(raw_command_with_completion_deadline(
+                0x33,
+                Duration::from_secs(30),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            sent.try_recv().is_err(),
+            "both raw camera sockets are occupied before Y's quarantine releases",
+        );
+        (x, y, z)
+    }
+
+    /// Let Y first cross its completion deadline into the exact-S2 quarantine,
+    /// leaving only the one-second ambiguity release for the test to race.
+    #[cfg(feature = "runtime-tokio")]
+    async fn enter_production_s2_quarantine(handle: &AsyncOwnerHandle, runtime: &ManualRuntime) {
+        runtime.advance(Duration::from_secs(5));
+        let _ = handle.snapshot().await.unwrap();
+        // The first control may consume its one documented allowance ahead of
+        // the mature timer. The next selection makes that timer precede another
+        // control, so this second round-trip is an observable barrier: Y has
+        // entered its S2 ambiguity quarantine before a test installs bytes for
+        // the later exact-release boundary.
+        let _ = handle.snapshot().await.unwrap();
+    }
+
+    /// A tail ready at the exact raw tombstone expiry is decoded and made
+    /// inert before the due pass releases the successor. This is the original
+    /// split-tail correlation regression.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        runtime.advance(Duration::from_secs(1));
+        reads
+            .send_async(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+        assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// Retained stream input survives a transient-fault turn. Even when both
+    /// fault and tail are queued at the exact boundary, the completing tail
+    /// keeps receive precedence until it has been made inert.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        runtime.advance(Duration::from_secs(1));
+        reads
+            .send_async(BoundaryStreamRead::Fault(Error::Io(Arc::new(
+                std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
+            ))))
+            .await
+            .unwrap();
+        reads
+            .send_async(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// The idle/no-data classification also preserves a positively identified
+    /// prefix instead of yielding the due raw boundary ahead of its ready tail.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        runtime.advance(Duration::from_secs(1));
+        reads.send_async(BoundaryStreamRead::NoData).await.unwrap();
+        reads
+            .send_async(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// If no completing tail is ready at release, the old prefix is discarded
+    /// before the successor writes. A later tail therefore cannot become the
+    /// successor's response.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        runtime.advance(Duration::from_secs(1));
+        let _ = handle.snapshot().await.unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
+        assert_eq!(
+            harness.discards.load(Ordering::Relaxed),
+            1,
+            "the orphaned fragment is discarded exactly once"
+        );
+
+        reads
+            .send_async(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
+            .await
+            .unwrap();
+        reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A decoder that claims to discard but retains the old prefix makes safe
+    /// correlation release impossible. Fail closed instead of dispatching the
+    /// successor behind unverifiable framing state.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_nonclearing_decoder_poisons_at_release() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(true);
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        runtime.advance(Duration::from_secs(1));
+        let _ = handle.snapshot().await.unwrap();
+
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        ));
+        assert_eq!(
+            harness.discards.load(Ordering::Relaxed),
+            64,
+            "a non-clearing decoder is retried only to the bounded framing work cap"
+        );
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+    }
+
+    /// The retained-input work bound is fail-closed. It never falls back to a
+    /// boundary-first correlation release while a completing tail is already
+    /// queued, so no successor write can occur behind adversarial no-progress
+    /// receive turns.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_buffered_receive_cap_poisons_before_successor_dispatch() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        // Only an identity-weak prefix is unresolved at an inquiry release.
+        // The default named-terminal fixture is intentionally discarded by
+        // policy, which is correct for its other stale-prefix tests but cannot
+        // exercise this fail-closed deferral cap.
+        harness.driver.as_mut().unwrap().prefix_kind =
+            crate::runtime::engine::RawIncompletePrefix::SourceOnly;
+        let reads = harness.reads.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+
+        reads.send_async(BoundaryStreamRead::Prefix).await.unwrap();
+        while !harness.buffered.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+        // Move to H without waking the old timer, then make the already
+        // pending read ready. Every NoData is an exact no-input fence followed
+        // by one Wake that sees the same unresolved prefix. At the 64th such
+        // bounded deferral the owner must poison *before* it can consume the
+        // queued completing tail or dispatch B.
+        runtime.advance_silently(Duration::from_secs(1));
+        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT {
+            reads.try_send(BoundaryStreamRead::NoData).unwrap();
+        }
+        reads
+            .try_send(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
+            .unwrap();
+
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(1), successor.terminal())
+                .await
+                .expect("64 unresolved exact-boundary deferrals must fail closed")
+                .unwrap(),
+            RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        ));
+        assert!(
+            harness.writes.try_recv().is_err(),
+            "the successor must not write when retained-input work is exhausted"
+        );
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+    }
+
+    /// A completed tail can perform the due release from `finish_input_turn`,
+    /// without another `Wake` arm. Its former ambiguous-prefix deferrals must
+    /// not be charged to a later, independent raw hold.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn raw_stream_completed_tail_resets_next_hold_deferral_budget() {
+        const DEFERRALS_PER_HOLD: usize = RAW_CORRELATION_RELEASE_WORK_LIMIT / 2 + 1;
+
+        let initial = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(initial);
+        let (handle, mut actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+        let mut harness = boundary_stream_harness(false);
+        let mut driver = harness.driver.take().unwrap();
+        // Make retained bytes deliberately unkeyed: each due wake must defer
+        // rather than discard, so this test exercises the actor-local budget.
+        driver.prefix_kind = crate::runtime::engine::RawIncompletePrefix::SourceOnly;
+
+        // Admit and finish A, which installs A's inquiry tombstone. B remains
+        // queued behind it.
+        let (a_completion, a_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let a_boundary = actor.admissions.try_recv().unwrap();
+        actor
+            .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
+            .await;
+        let a = a_admitted.recv_async().await.unwrap().unwrap();
+        assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+        let now = Executor::now(&runtime);
+        assert!(matches!(
+            actor
+                .handle_event(
+                    ActorEvent::Receive {
+                        result: batch(vec![raw_inquiry_reply(0xa1)]),
+                        received_at: now,
+                    },
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::Continue
+        ));
+        assert!(matches!(
+            a_completion.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+        ));
+
+        let (b_completion, b_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let b_boundary = actor.admissions.try_recv().unwrap();
+        actor
+            .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
+            .await;
+        let _b = b_admitted.recv_async().await.unwrap().unwrap();
+        assert!(harness.writes.try_recv().is_err());
+
+        driver.buffered.store(true, Ordering::Release);
+        runtime.advance(Duration::from_secs(1));
+        for _ in 0..DEFERRALS_PER_HOLD {
+            assert_eq!(
+                actor
+                    .handle_event(
+                        ActorEvent::Wake {
+                            raw_buffered_cap_exhausted: false,
+                        },
+                        &mut driver,
+                        &runtime,
+                        Executor::now(&runtime),
+                        false,
+                    )
+                    .await,
+                TurnOutcome::ContinueBuffered
+            );
+        }
+        assert_eq!(actor.raw_release_deferral_run, DEFERRALS_PER_HOLD);
+
+        // The completing tail is real decoded input. Because no fragment is
+        // retained, this turn runs the due release and dispatches B directly.
+        driver.buffered.store(false, Ordering::Release);
+        let now = Executor::now(&runtime);
+        assert_eq!(
+            actor
+                .handle_event(
+                    ActorEvent::Receive {
+                        result: batch(vec![raw_inquiry_reply(0xa1)]),
+                        received_at: now,
+                    },
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::Continue
+        );
+        assert_eq!(actor.raw_release_deferral_run, 0);
+        assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
+
+        // Finish B and create its own tombstone. C now waits behind that new
+        // hold. Each hold uses 33 deferrals (below 64), but together they
+        // exceed the limit; an inherited counter would poison in this loop.
+        let now = Executor::now(&runtime);
+        let _ = actor
+            .handle_event(
+                ActorEvent::Receive {
+                    result: batch(vec![raw_inquiry_reply(0xb2)]),
+                    received_at: now,
+                },
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
+            .await;
+        assert!(matches!(
+            b_completion.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
+        ));
+
+        let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let c_boundary = actor.admissions.try_recv().unwrap();
+        actor
+            .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
+            .await;
+        let c = c_admitted.recv_async().await.unwrap().unwrap();
+        assert!(harness.writes.try_recv().is_err());
+
+        driver.buffered.store(true, Ordering::Release);
+        runtime.advance(Duration::from_secs(1));
+        for _ in 0..DEFERRALS_PER_HOLD {
+            assert_eq!(
+                actor
+                    .handle_event(
+                        ActorEvent::Wake {
+                            raw_buffered_cap_exhausted: false,
+                        },
+                        &mut driver,
+                        &runtime,
+                        Executor::now(&runtime),
+                        false,
+                    )
+                    .await,
+                TurnOutcome::ContinueBuffered,
+                "each independent hold retains its full bounded budget"
+            );
+        }
+
+        driver.buffered.store(false, Ordering::Release);
+        let now = Executor::now(&runtime);
+        assert_eq!(
+            actor
+                .handle_event(
+                    ActorEvent::Receive {
+                        result: batch(vec![raw_inquiry_reply(0xb2)]),
+                        received_at: now,
+                    },
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::Continue
+        );
+        assert_eq!(actor.raw_release_deferral_run, 0);
+        assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+    }
+
+    /// Production adapter/framer coverage for the original literal-byte hole:
+    /// a raw reply split at the exact tombstone boundary remains attributed to
+    /// the old interval, and only B's own later reply settles B.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let mut actor_policy = adapter.policy().clone();
+        actor_policy.limits.frames_per_receive = 1;
+        let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        ));
+
+        let successor = handle.submit(inquiry()).await.unwrap();
+        assert!(sent_rx.try_recv().is_err());
+        chunk_tx.send_async(vec![0x90, 0x50]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        runtime.advance(Duration::from_secs(1));
+        chunk_tx.send_async(vec![0xa1, 0xff]).await.unwrap();
+
+        let _ = sent_rx.recv_async().await.unwrap();
+        let boundary_snapshot = handle.snapshot().await.unwrap();
+        assert!(boundary_snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )));
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A byte-stream release must fail closed when the retained bytes cannot
+    /// identify an owner. This runs the actual async transport adapter and
+    /// `ProtocolFramer` for every deliberately ambiguous literal: source-only,
+    /// ACK (whose nibble is not ownership), and socketless completion. A
+    /// mutation that classifies any of these as stale would let the queued
+    /// successor write instead of reaching the independent 64-turn poison cap.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_ambiguous_prefixes_poison_before_successor_write() {
+        for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
+            let now = Instant::now();
+            let runtime = ManualRuntime::with_polling_sleeps(now);
+            let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+                .expect("generic raw profile");
+            let (chunk_tx, chunks) = flume::bounded(16);
+            let (sent, sent_rx) = flume::bounded(16);
+            let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+                ChunkedStreamTransport {
+                    config: crate::transport::builder::TransportConfig::default(),
+                    chunks,
+                    sent,
+                },
+                &profile,
+                CameraId::CAMERA_1,
+            )
+            .unwrap();
+            let mut actor_policy = adapter.policy().clone();
+            actor_policy.limits.frames_per_receive = 1;
+            let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+            let actor_task = tokio::spawn(actor.run(adapter));
+
+            let predecessor = handle.submit(inquiry()).await.unwrap();
+            let _ = sent_rx.recv_async().await.unwrap();
+            chunk_tx
+                .send_async(vec![0x90, 0x50, 0xa1, 0xff])
+                .await
+                .unwrap();
+            assert!(matches!(
+                predecessor.terminal().await.unwrap(),
+                RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+            ));
+            let successor = handle.submit(inquiry()).await.unwrap();
+            assert!(sent_rx.try_recv().is_err());
+
+            chunk_tx.send_async(prefix.clone()).await.unwrap();
+            let _ = handle.snapshot().await.unwrap();
+            runtime.advance(Duration::from_secs(1));
+            // Wake the manually-clocked actor once; the due tombstone remains
+            // mature during each input-first retry, so it reaches the bounded
+            // cap without any fabricated driver classification.
+            let _ = handle.snapshot().await.unwrap();
+            assert!(matches!(
+                tokio::time::timeout(Duration::from_secs(1), successor.terminal())
+                    .await
+                    .expect("ambiguous raw input must reach its bounded terminal")
+                    .unwrap(),
+                RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+            ));
+            assert!(
+                sent_rx.try_recv().is_err(),
+                "{prefix:02x?} must poison before the successor receives a write",
+            );
+            assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+        }
+    }
+
+    /// A source-only fragment cannot prove which same-target socket it belongs
+    /// to. At Y/S2's ambiguity expiry it must therefore keep input first; when
+    /// its exact S1 tail arrives at equality, X settles before Z is allowed to
+    /// write. This is the target-mask deletion bug that motivated the typed
+    /// release set: `[90]` followed by `[51 FF]` must never be erased merely
+    /// because another socket on camera A releases.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (handle, actor) =
+            AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+        let (x, _y, _z) =
+            establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
+
+        enter_production_s2_quarantine(&handle, &runtime).await;
+        chunk_tx.send_async(vec![0x90]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        runtime.advance(Duration::from_secs(1));
+        // Receive is deliberately ready at the same manual instant as the due
+        // release. The actor's fixed ordering must decode this tail before
+        // `advance` can free Y/S2 and write Z.
+        chunk_tx.send_async(vec![0x51, 0xff]).await.unwrap();
+
+        assert!(matches!(
+            x.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+        assert_eq!(
+            sent_rx.recv_async().await.unwrap(),
+            vec![0x81, 0x01, 0x04, 0x33, 0xff],
+            "Z may write only after X's equal-boundary completion is correlated",
+        );
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// An already-buffered named S1 prefix is exact evidence for live X, not
+    /// stale evidence for Y/S2. The due pass may release Y while preserving
+    /// `[90 51]`; its trailing terminator still completes X through the real
+    /// `ProtocolFramer` after Z has been dispatched.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (handle, actor) =
+            AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+        let (x, _y, _z) =
+            establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
+
+        enter_production_s2_quarantine(&handle, &runtime).await;
+        chunk_tx.send_async(vec![0x90, 0x51]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        runtime.advance(Duration::from_secs(1));
+        let _ = handle.snapshot().await.unwrap();
+
+        assert_eq!(
+            sent_rx.recv_async().await.unwrap(),
+            vec![0x81, 0x01, 0x04, 0x33, 0xff],
+            "Y/S2 may release without deleting live X/S1 evidence",
+        );
+        chunk_tx.send_async(vec![0xff]).await.unwrap();
+        assert!(matches!(
+            x.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// Conversely, a named prefix for the releasing S2 is stale. It is
+    /// discarded one raw fragment before Z writes; a later terminator must not
+    /// turn the old fragment into a completion for either X or Z.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let (handle, actor) =
+            AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+        let (x, _y, _z) =
+            establish_production_two_socket_boundary(&handle, &chunk_tx, &sent_rx).await;
+
+        enter_production_s2_quarantine(&handle, &runtime).await;
+        chunk_tx.send_async(vec![0x90, 0x52]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        runtime.advance(Duration::from_secs(1));
+        let _ = handle.snapshot().await.unwrap();
+        assert_eq!(
+            sent_rx.recv_async().await.unwrap(),
+            vec![0x81, 0x01, 0x04, 0x33, 0xff],
+            "the exact stale S2 fragment is removed before successor dispatch",
+        );
+
+        // If the stale prefix survived, this byte would finish `[90 52 FF]`.
+        // On its own it is malformed and ignored, so only X's explicit S1
+        // completion below may settle X.
+        chunk_tx.send_async(vec![0xff]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), x.terminal())
+                .await
+                .is_err(),
+            "the stale S2 tail must not complete live X/S1",
+        );
+        chunk_tx.send_async(vec![0x90, 0x51, 0xff]).await.unwrap();
+        assert!(matches!(
+            x.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// Raw serial holds are target-local. Expiring A while camera C has a
+    /// retained partial reply must preserve C's prefix; its later literal tail
+    /// still resolves C before the globally single-flight inquiry lane admits
+    /// A's queued successor.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_serial_a_release_preserves_c_partial_reply() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let config = crate::transport::builder::TransportConfig {
+            addressing: crate::transport::builder::AddressingMode::Serial,
+            ..crate::transport::builder::TransportConfig::default()
+        };
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
+            ChunkedStreamTransport {
+                config,
+                chunks,
+                sent,
+            },
+            &[
+                (CameraId::CAMERA_1, &profile),
+                (CameraId::CAMERA_3, &profile),
+            ],
+            crate::OperationalTuning::new(),
+            std::num::NonZeroUsize::new(4).unwrap(),
+        )
+        .unwrap();
+        let (handle, actor) =
+            AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let predecessor = handle
+            .submit(inquiry_for(CameraId::CAMERA_1))
+            .await
+            .unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
+            .await
+            .unwrap();
+        let _ = predecessor.terminal().await.unwrap();
+
+        let camera_c = handle
+            .submit(inquiry_for(CameraId::CAMERA_3))
+            .await
+            .unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        let successor = handle
+            .submit(inquiry_for(CameraId::CAMERA_1))
+            .await
+            .unwrap();
+        assert!(sent_rx.try_recv().is_err());
+
+        chunk_tx.send_async(vec![0xb0, 0x50]).await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        runtime.advance(Duration::from_secs(1));
+        // The control allowance wakes the actor at the new manual instant; the
+        // following due turn sees C's target and leaves its prefix untouched.
+        let _ = handle.snapshot().await.unwrap();
+        chunk_tx.send_async(vec![0xc3, 0xff]).await.unwrap();
+        assert!(matches!(
+            camera_c.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
+        ));
+
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A frame-limit batch can leave a complete camera-C reply ahead of an
+    /// incomplete camera-A prefix. The async owner must decode C without due
+    /// work, then keep the ambiguous socketless A prefix input-first until its
+    /// tail is delimited before releasing A's successor. This covers hidden
+    /// suffix ordering, the fail-closed socketless rule, and target-local raw
+    /// serial framing through the production adapter and `ProtocolFramer`.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let config = crate::transport::builder::TransportConfig {
+            addressing: crate::transport::builder::AddressingMode::Serial,
+            buffer_config: crate::transport::buffer::BufferConfig {
+                recv_buffer_size: 512,
+                ..crate::transport::buffer::BufferConfig::default()
+            },
+            ..crate::transport::builder::TransportConfig::default()
+        };
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
+            ChunkedStreamTransport {
+                config,
+                chunks,
+                sent,
+            },
+            &[
+                (CameraId::CAMERA_1, &profile),
+                (CameraId::CAMERA_3, &profile),
+            ],
+            crate::OperationalTuning::new(),
+            std::num::NonZeroUsize::new(4).unwrap(),
+        )
+        .unwrap();
+        let frame_limit = adapter.policy().limits.frames_per_receive;
+        let (handle, actor) =
+            AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let predecessor = handle
+            .submit(inquiry_for(CameraId::CAMERA_1))
+            .await
+            .unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        ));
+
+        let camera_c = handle
+            .submit(inquiry_for(CameraId::CAMERA_3))
+            .await
+            .unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        let successor = handle
+            .submit(inquiry_for(CameraId::CAMERA_1))
+            .await
+            .unwrap();
+        assert!(sent_rx.try_recv().is_err());
+
+        runtime.advance(Duration::from_secs(1));
+        let mut burst = Vec::new();
+        for _ in 0..frame_limit {
+            burst.extend_from_slice(&[0xb0, 0x38, 0xff]);
+        }
+        // C's complete reply is the first retained item after the frame-limit
+        // batch. A's socketless prefix sits behind it and must not reach B
+        // until it becomes a complete, ordinary input frame.
+        burst.extend_from_slice(&[0xb0, 0x50, 0xc3, 0xff]);
+        burst.extend_from_slice(&[0x90, 0x50]);
+        chunk_tx.send_async(burst).await.unwrap();
+        // Queue the tail before yielding the actor: after it drains the
+        // frame-limited batch and C's retained complete reply, receive-first
+        // must consume this tail rather than spinning the already-due,
+        // socketless prefix to the fail-closed cap.
+        chunk_tx.send_async(vec![0xa1, 0xff]).await.unwrap();
+
+        assert!(matches!(
+            camera_c.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
+        ));
+        // The complete old inquiry reply is consumed on the ordinary input
+        // path before due work. It is inert under its terminal hold, after
+        // which A's successor may write.
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
+    /// A complete malformed stream frame retained behind the frame limit is
+    /// still handled by #672's ordinary delimited-frame discard path. The raw
+    /// release hook checks completeness before source attribution, so a forced
+    /// boundary wake cannot turn this recoverable input into framing poison.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
+        let now = Instant::now();
+        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic raw profile");
+        let (chunk_tx, chunks) = flume::bounded(16);
+        let (sent, sent_rx) = flume::bounded(16);
+        let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+            ChunkedStreamTransport {
+                config: crate::transport::builder::TransportConfig::default(),
+                chunks,
+                sent,
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let mut actor_policy = adapter.policy().clone();
+        actor_policy.limits.frames_per_receive = 1;
+        let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let actor_task = tokio::spawn(actor.run(adapter));
+
+        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
+            .await
+            .unwrap();
+        let _ = predecessor.terminal().await.unwrap();
+        let successor = handle.submit(inquiry()).await.unwrap();
+        assert!(sent_rx.try_recv().is_err());
+
+        runtime.advance(Duration::from_secs(1));
+        chunk_tx
+            .send_async(vec![
+                0x90, 0x38, 0xff, // one valid frame fills the batch
+                0x80, 0x50, 0xdd, 0xff, // complete but invalid response source
+            ])
+            .await
+            .unwrap();
+
+        let _ = sent_rx.recv_async().await.unwrap();
+        assert_eq!(
+            handle.snapshot().await.unwrap().state,
+            SessionState::Running
+        );
+        chunk_tx
+            .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+            .await
+            .unwrap();
+        assert!(matches!(
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        ));
+
+        handle.shutdown().await.unwrap();
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Shutdown);
+        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+        )));
     }
 
     /// Regression test for a reply split across two stream reads (#560). A read

@@ -704,29 +704,6 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_noise_reduction_level_response() {
-        // Test NoiseReductionLevel 0
-        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
-        match response {
-            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
-                assert_eq!(level, 0x00);
-            }
-            _ => panic!("Expected NoiseReductionLevel inquiry response"),
-        }
-
-        // Test NoiseReductionLevel 5
-        let response_bytes = &[0x90, 0x50, 0x05, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
-        match response {
-            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
-                assert_eq!(level, 0x05);
-            }
-            _ => panic!("Expected NoiseReductionLevel inquiry response"),
-        }
-    }
-
-    #[test]
     fn test_parse_night_day_position_response() {
         // Test NightDayPosition 0
         let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];

@@ -772,7 +772,8 @@ where
     }
 }
 
-/// A raw operation with a meaningful physical target and settlement.
+/// A raw operation with a meaningful target state and profile-selected protocol
+/// settlement.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Targeted {
     wire: Wire,

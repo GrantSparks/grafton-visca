@@ -15,9 +15,10 @@
 //! methods are the object-safe counterparts of the static accessor surface
 //! and return [`DynFuture`] values containing either an inquiry result, `()`,
 //! [`DynAppliedOperation`], or [`DynTargetedOperation`]. Applied-only
-//! operations intentionally have no physical-settlement wait; targeted
-//! operations retain that wait through their dynamic handle. Custom typed
-//! operations use [`DynCustomOperations`] and the same owner admission path.
+//! operations intentionally have no protocol-settlement wait. Targeted
+//! operations retain their profile-selected wait through the dynamic handle;
+//! custom typed operations use [`DynCustomOperations`] and the same owner
+//! admission path.
 
 #![cfg(feature = "dyn-api")]
 

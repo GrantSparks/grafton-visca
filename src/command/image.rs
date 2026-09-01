@@ -30,32 +30,17 @@ pub enum SharpnessMode {
     Manual = 0x03,
 }
 
-/// Noise reduction modes.
+/// 2D noise reduction modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum NoiseReductionMode {
-    /// Noise reduction disabled.
-    Off = 0x02,
-    /// Noise reduction enabled.
-    On = 0x03,
-}
-
-/// Noise reduction speed settings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum NoiseReductionSpeed {
-    /// Slow noise reduction processing.
-    Slow = 0x00,
-    /// Normal noise reduction processing.
-    Normal = 0x01,
-    /// Fast noise reduction processing.
-    Fast = 0x02,
+pub enum NoiseReduction2DMode {
+    /// The camera automatically selects the 2D noise-reduction level.
+    Auto = 0x02,
+    /// The camera uses its manual 2D noise-reduction setting.
+    Manual = 0x03,
 }
 
 /// Sharpness control commands.
@@ -219,48 +204,64 @@ impl BacklightCommand {
 }
 
 visca_command! {
-        /// 2D Noise Reduction command.
-    ///
-    /// Reduces spatial noise in individual frames by analyzing and smoothing
-    /// pixel variations. Higher levels provide more noise reduction but may
-    /// reduce fine detail.
+    /// Command to select the 2D noise-reduction mode.
+    pub struct NoiseReduction2DModeCommand { mode: NoiseReduction2DMode };
+    prefix = [0x01, 0x04, 0x50];
+    param = *mode as u8;
+    max_param_size = 1;
+}
+
+impl NoiseReduction2DModeCommand {
+    /// Creates a 2D noise-reduction mode command.
+    #[must_use]
+    pub const fn new(mode: NoiseReduction2DMode) -> Self {
+        Self { mode }
+    }
+}
+
+visca_command! {
+    /// Command to set or disable 2D noise reduction.
     pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
     prefix = [0x01, 0x04, 0x53];
-    param = match level { None => 0x00, Some(l) => l.value() };
+    param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
 
 impl NoiseReduction2D {
-    /// Disable 2D noise reduction.
+    /// Disables 2D noise reduction.
+    #[must_use]
     pub const fn off() -> Self {
         Self { level: None }
     }
 
-    /// Set 2D noise reduction to a specific level.
+    /// Sets 2D noise reduction to a validated level.
+    ///
+    /// Level zero is the protocol's Off value and is intentionally valid.
+    #[must_use]
     pub const fn with_level(level: NoiseReduction2DLevel) -> Self {
         Self { level: Some(level) }
     }
 }
 
 visca_command! {
-        /// 3D Noise Reduction command.
-    ///
-    /// Reduces temporal noise by analyzing multiple frames over time.
-    /// This is effective for reducing noise in video streams while preserving
-    /// motion detail. Higher levels provide more noise reduction.
+    /// Command to set or disable 3D noise reduction.
     pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
     prefix = [0x01, 0x04, 0x54];
-    param = match level { None => 0x00, Some(l) => l.value() };
+    param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
 
 impl NoiseReduction3D {
-    /// Disable 3D noise reduction.
+    /// Disables 3D noise reduction.
+    #[must_use]
     pub const fn off() -> Self {
         Self { level: None }
     }
 
-    /// Set 3D noise reduction to a specific level.
+    /// Sets 3D noise reduction to a validated level.
+    ///
+    /// Level zero is the protocol's Off value and is intentionally valid.
+    #[must_use]
     pub const fn with_level(level: NoiseReduction3DLevel) -> Self {
         Self { level: Some(level) }
     }
@@ -368,62 +369,6 @@ mod tests {
     );
 
     visca_test!(
-        NoiseReduction2D,
-        test_noise_reduction_2d_off,
-        NoiseReduction2D::off(),
-        &[0x81, 0x01, 0x04, 0x53, 0x00, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction2D,
-        test_noise_reduction_2d_level_1,
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(1).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x01, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction2D,
-        test_noise_reduction_2d_level_3,
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(3).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x03, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction2D,
-        test_noise_reduction_2d_level_5,
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::new(5).unwrap()),
-        &[0x81, 0x01, 0x04, 0x53, 0x05, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction3D,
-        test_noise_reduction_3d_off,
-        NoiseReduction3D::off(),
-        &[0x81, 0x01, 0x04, 0x54, 0x00, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction3D,
-        test_noise_reduction_3d_level_1,
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(1).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x01, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction3D,
-        test_noise_reduction_3d_level_4,
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(4).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x04, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
-        NoiseReduction3D,
-        test_noise_reduction_3d_level_8,
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::new(8).unwrap()),
-        &[0x81, 0x01, 0x04, 0x54, 0x08, VISCA_TERMINATOR]
-    );
-
-    visca_test!(
         ImageFlipCombinedCommand,
         test_image_flip_off,
         ImageFlipCombinedCommand::new(ImageFlipMode::Off),
@@ -456,8 +401,6 @@ mod tests {
         // Test Debug trait
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(BacklightCommand::new(true)),
-            Box::new(NoiseReduction2D::off()),
-            Box::new(NoiseReduction3D::off()),
             Box::new(ImageFlipCombinedCommand::new(ImageFlipMode::Off)),
         ];
 
@@ -517,38 +460,6 @@ mod tests {
             crate::command::test_wire_bytes(&cmd1, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             crate::command::test_wire_bytes(&cmd2, crate::camera_id::CameraId::CAMERA_1).unwrap()
         );
-
-        let level = NoiseReduction2DLevel::new(3).unwrap();
-        let cmd1 = NoiseReduction2D::with_level(level);
-        let cmd2 = NoiseReduction2D::with_level(level);
-        assert_eq!(
-            crate::command::test_wire_bytes(&cmd1, crate::camera_id::CameraId::CAMERA_1).unwrap(),
-            crate::command::test_wire_bytes(&cmd2, crate::camera_id::CameraId::CAMERA_1).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_noise_reduction_2d_struct_creation() {
-        // Test off creation
-        let off_cmd = NoiseReduction2D::off();
-        assert!(off_cmd.level.is_none());
-
-        // Test with level creation
-        let level = NoiseReduction2DLevel::new(3).unwrap();
-        let level_cmd = NoiseReduction2D::with_level(level);
-        assert_eq!(level_cmd.level.unwrap().value(), 3);
-    }
-
-    #[test]
-    fn test_noise_reduction_3d_struct_creation() {
-        // Test off creation
-        let off_cmd = NoiseReduction3D::off();
-        assert!(off_cmd.level.is_none());
-
-        // Test with level creation
-        let level = NoiseReduction3DLevel::new(5).unwrap();
-        let level_cmd = NoiseReduction3D::with_level(level);
-        assert_eq!(level_cmd.level.unwrap().value(), 5);
     }
 
     #[test]

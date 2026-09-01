@@ -19,7 +19,10 @@ Cargo feature a snippet needs.
 | Tokio serial | `runtime-tokio,transport-serial-tokio` |
 | Dynamic async views | `dyn-api` plus `runtime-tokio` or `runtime-smol` |
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
-| Deterministic test transports | `test-utils` |
+| Testkit steps and helpers | `test-utils` |
+| Scripted blocking transport | `test-utils,blocking` |
+| Async scripted transport and deterministic clock/executor | `test-utils,async` |
+| VISCA camera simulator | `test-utils,runtime-tokio` |
 
 Runtime features imply the canonical `async` facade. `runtime-tokio`
 and `runtime-smol` may be enabled together; each session still receives one
@@ -145,12 +148,17 @@ The equivalent builder form is `SessionConfig::for_target(...).with_target(...)`
 `SessionConfig::from_compile_time::<P>()` creates a reusable camera-1 config
 from a static profile. `register_target` and `with_target` accept only IDs 1
 through 7, reject broadcast and duplicate IDs, and cap the registry at seven
-targets. Registration is immutable after the session starts; tuning is not —
-`Session::set_tuning` replaces it at runtime, and `Session::tuning` reads back
-the live value. Every request prepared after the update uses the new deadlines,
-retry budget and pacing; a request already in flight keeps the deadlines it was
-admitted with. See
-[Reconfiguring timeouts at runtime](migration_2_0.md#reconfiguring-timeouts-at-runtime).
+targets. Registration is immutable after the session starts; runtime-mutable
+tuning is not — `Session::set_tuning` replaces it at runtime, and
+`Session::tuning` reads back the live value. Every request prepared after the
+update uses the new deadlines, retry budget and pacing; a request already in
+flight keeps the deadlines it was admitted with. The
+`strict_unconfirmed_poison` recovery policy is the construction-only exception:
+configure it with `SessionConfig::with_tuning` before opening, because any
+runtime `set_tuning` override — `true` or `false` — is rejected. Leaving it unset
+in a runtime update preserves the construction-time policy. See [Operational
+tuning](#operational-tuning) and [Reconfiguring timeouts at
+runtime](migration_2_0.md#reconfiguring-timeouts-at-runtime).
 
 For one target, prefer the single-camera constructors: they name the profile
 once and return a `CameraSession<P>` whose `camera()` is bound to that same `P`
@@ -204,7 +212,10 @@ minimum pacing, raise its socket limit, undercut a profile command category,
 or use zero timeouts. When targets have different profile minima, the strictest
 applicable pacing and capacity policy wins. A settlement timeout is separate
 from protocol completion: a targeted operation may be acknowledged before the
-camera physically settles. Inquiries always use `inquiry_timeout`.
+profile-selected protocol settlement condition is met. This is not a
+bench-verified assertion of physical rest; see the
+[hardware release checklist](hardware_release_checklist.md). Inquiries always
+use `inquiry_timeout`.
 
 ## Caller-owned transports and executors
 
@@ -296,8 +307,11 @@ it; see the scoped stop-on-exit guard in
 `schemars` adds JSON Schema; `ts-rs` generates TypeScript declarations. These
 features describe data interchange and do not change protocol semantics.
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
-derive entry points. `test-utils` exposes deterministic transports, clocks,
-and executors for tests; it is not required by production applications.
+derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
+tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
+`ScriptedTransport`, `DeterministicClock`, and `DeterministicExecutor`; and add
+`runtime-tokio` for `ViscaCameraSimulator`. It is not required by production
+applications.
 
 See [`architecture_2_0.md`](architecture_2_0.md) for ownership/order
 invariants and [`observability_and_recovery.md`](observability_and_recovery.md)

@@ -62,8 +62,8 @@ impl Request for SetVendorTone {
     }
 }
 
-/// A custom applied-only operation: a vendor actuation with no meaningful
-/// physical rest state, so it exposes `applied` but never `settled`.
+/// A custom applied-only operation: a vendor actuation with no meaningful target
+/// state, so it exposes `applied` but never `settled`.
 struct VendorNudge;
 
 impl Request for VendorNudge {

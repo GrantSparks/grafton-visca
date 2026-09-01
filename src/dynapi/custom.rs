@@ -375,7 +375,7 @@ impl OperationCommand<AppliedOnly> for AppliedRequestAdapter<'_> {
 /// Submits one object-safe targeted request through the canonical owner path.
 ///
 /// Preparation, profile validation, encoding, admission, cancellation, and
-/// physical settling remain in the same implementation used by static camera
+/// profile-selected protocol settlement remain in the same implementation used by static camera
 /// views.  This helper only erases the request type and maps the resulting
 /// canonical handle to [`DynTargetedOperation`].
 pub fn submit_targeted<'a>(

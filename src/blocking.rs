@@ -174,15 +174,15 @@ where
 }
 
 impl Operation<'_, completion::Targeted> {
-    /// Waits for exact application and physical settling using the configured
-    /// settlement plan and observer deadline.
+    /// Waits for exact application and the profile-selected protocol settlement
+    /// condition using the configured settlement plan and observer deadline.
     pub fn settled(self) -> Result<(), Error> {
         let (receipt, control) = self.take_parts()?;
         receipt.settled(control).wait().map(drop)
     }
 
-    /// Waits for exact application and physical settling using an explicit
-    /// observer deadline.
+    /// Waits for exact application and the profile-selected protocol settlement
+    /// condition using an explicit observer deadline.
     pub fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
         let (receipt, control) = self.take_parts()?;
         receipt
@@ -540,7 +540,9 @@ pub use construction::{
 ///
 /// The transport is moved into one serialized owner at construction. Camera
 /// views borrow that owner and may coexist on the caller thread; retaining
-/// multiple operation handles never creates a second protocol authority.
+/// multiple operation handles never creates a second protocol authority. This
+/// value is the RAII owner of its caller-thread host: dropping it releases
+/// the host and transport without sending shutdown or a protocol STOP.
 #[derive(Debug)]
 pub struct Session {
     host: BlockingSessionHost,
@@ -627,21 +629,27 @@ impl Session {
     /// covered work in flight. To widen a deadline for a command that is
     /// already running, cancel it and resubmit.
     ///
-    /// The update is not a merge: `tuning` replaces the previous value whole,
-    /// so a field left unset returns to its profile default rather than keeping
-    /// the value a previous call installed.
+    /// The update is not a merge for runtime-mutable values: a field left unset
+    /// returns to its profile default rather than keeping the value a previous
+    /// call installed. [`OperationalTuning::strict_unconfirmed_poison`] is a
+    /// construction-only recovery policy, so setting it here is rejected; an
+    /// update that leaves it unset retains a construction-time strict opt-in in
+    /// [`Self::tuning`].
     ///
     /// # Errors
     ///
-    /// Rejects exactly what construction rejects — tuning that weakens a
-    /// registered profile's pacing minima, raises its socket limit, undercuts
-    /// its deadlines, or specifies incoherent retry timing — leaving the
+    /// Rejects tuning that construction would reject for a registered profile:
+    /// values that weaken pacing minima, raise a socket limit, undercut a
+    /// deadline, or specify incoherent retry timing. It also rejects an
+    /// explicit construction-only strict recovery setting, leaving the
     /// session's current tuning untouched. Also returns
     /// [`Error::TransportBusy`] if called re-entrantly from inside another
-    /// owner turn, and the session's terminal error if the owner is gone.
+    /// owner turn, and the session's terminal error if the owner is gone. A
+    /// retained terminal error takes precedence over validation of the proposed
+    /// update.
     pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
-        self.config.validate_tuning(tuning)?;
-        self.host.reconfigure(tuning)
+        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        self.host.reconfigure(validated_tuning)
     }
 
     /// Requests owner shutdown.
@@ -682,9 +690,10 @@ impl Session {
 /// profile naming (`session.camera::<P>()?`) has no equivalent here, so a
 /// profile mismatch is not expressible.
 ///
-/// The value owns its session, so it is self-sufficient: dropping it drops the
-/// owner and its transport. Use [`close`](Self::close) for the explicit
-/// teardown that mirrors [`Session::close`].
+/// The value owns its session, so it is self-sufficient: dropping it releases
+/// the owner and its transport by RAII, without sending a protocol STOP. Use
+/// [`close`](Self::close) for the explicit shutdown that mirrors
+/// [`Session::close`].
 ///
 /// The blocking [`Camera`] borrows its session, so the view is handed out by
 /// [`camera`](Self::camera) rather than stored; the async facade's owned
@@ -1214,6 +1223,18 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
 
     /// Executes a plain command through this camera's shared owner.
     ///
+    /// This intentionally has no request-specific `P: Has*` bound. Noun and
+    /// accessor methods carry the `Has*` marker bounds that define the
+    /// compile-time profile-permission surface; this direct method is the
+    /// uniform typed/downstream extension boundary.
+    ///
+    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// encoding, owner admission, or transport I/O. Crate-provided requests
+    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
+    /// when the selected profile lacks their required feature. Raw and other
+    /// downstream requests are explicit low-level extensions and may provide
+    /// their own profile validation.
+    ///
     /// Ordinary commands wait for their terminal protocol application. A raw
     /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
     /// local transport write succeeds; it does not claim camera application.
@@ -1242,6 +1263,18 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
     }
 
     /// Sends an inquiry and decodes its response through the shared owner.
+    ///
+    /// This intentionally has no request-specific `P: Has*` bound. Noun and
+    /// accessor methods carry the `Has*` marker bounds that define the
+    /// compile-time profile-permission surface; this direct method is the
+    /// uniform typed/downstream extension boundary.
+    ///
+    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// encoding, owner admission, or transport I/O. Crate-provided inquiries
+    /// submitted directly return [`crate::Error::FeatureNotSupported`] there
+    /// when the selected profile lacks their required feature. Raw and other
+    /// downstream requests are explicit low-level extensions and may provide
+    /// their own profile validation.
     pub fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,

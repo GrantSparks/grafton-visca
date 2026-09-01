@@ -222,6 +222,55 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
     );
 }
 
+/// Standard VISCA assigns `0x00` to the down-left limit corner and `0x01` to
+/// the up-right corner.  These public request-path vectors are independently
+/// hand-derived, pinning the discriminator in both set and clear frames.
+#[test]
+fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
+    use grafton_visca::{capabilities::PanTiltWireCodec, units::Degrees};
+
+    let profile = ptz_optics_profile();
+    let conversion = profile
+        .pan_tilt_coordinates()
+        .expect("PtzOptics G2 declares a pan/tilt coordinate conversion");
+    assert_eq!(conversion.wire_codec(), PanTiltWireCodec::StandardVisca);
+
+    for (corner, label, set_golden, clear_golden) in [
+        (
+            PanTiltLimitCorner::DownLeft,
+            "Standard VISCA down-left limit",
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x0F, 0x0F, 0x0B, 0x08,
+                0xFF,
+            ][..],
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+                0xFF,
+            ][..],
+        ),
+        (
+            PanTiltLimitCorner::UpRight,
+            "Standard VISCA up-right limit",
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x00, 0x09, 0x00, 0x0F, 0x0F, 0x0B, 0x08,
+                0xFF,
+            ][..],
+            &[
+                0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+                0xFF,
+            ][..],
+        ),
+    ] {
+        let set = PanTiltLimitSet::for_profile(corner, Degrees(10.0), Degrees(-5.0), &profile)
+            .expect("standard VISCA limit position");
+        assert_golden(&format!("{label} set"), &set, set_golden);
+
+        let clear =
+            PanTiltLimitClear::for_profile(corner, &profile).expect("standard VISCA limit clear");
+        assert_golden(&format!("{label} clear"), &clear, clear_golden);
+    }
+}
+
 /// Sony BRC-300 uses one speed byte, a fixed `00`, then five pan and four
 /// tilt nibbles. The manual (pp. 12 and 22) gives the endpoint polarity and
 /// approximates one degree as `0xD0`: positive raw pan is left and positive

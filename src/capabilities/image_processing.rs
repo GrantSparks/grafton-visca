@@ -199,7 +199,7 @@ pub trait ImageProcessingExt: ImageProcessing {
 // Automatic implementation for all types that support image processing
 impl<T: ImageProcessing> ImageProcessingExt for T {}
 
-// Note: ImageFlipMode, SharpnessMode, and NoiseReductionLevel enums are defined
+// Note: ImageFlipMode, SharpnessMode, and NoiseReduction2DMode enums are defined
 // in the command module and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]

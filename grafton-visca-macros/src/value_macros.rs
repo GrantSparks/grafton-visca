@@ -281,10 +281,10 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         quote! {
             const VALID_VALUES: &[#inner_type] = &#values_tokens;
             if !VALID_VALUES.contains(&value) {
-                return Err(#crate_path::Error::InvalidParameter {
-                    parameter: stringify!(#name),
-                    value: ::std::borrow::Cow::Owned(format!("{value}")),
-                    reason: ::std::borrow::Cow::Owned(format!("must be one of {:?}", VALID_VALUES)),
+                return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
+                    parameter: ::core::stringify!(#name),
+                    value: ::std::borrow::Cow::Owned(::std::format!("{value}")),
+                    reason: ::std::borrow::Cow::Owned(::std::format!("must be one of {:?}", VALID_VALUES)),
                 });
             }
         }
@@ -293,8 +293,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         let max_tokens = &max.value;
         quote! {
             if !(#min_tokens..=#max_tokens).contains(&value) {
-                return Err(#crate_path::Error::ParameterOutOfRange {
-                    parameter: stringify!(#name),
+                return ::core::result::Result::Err(#crate_path::Error::ParameterOutOfRange {
+                    parameter: ::core::stringify!(#name),
                     value: value as i32,
                     min: #min_tokens as i32,
                     max: #max_tokens as i32,
@@ -358,33 +358,33 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         "hex" => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{:#02x}", self.#inner_field_index)
+                    ::core::write!(f, "{:#02x}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {:#02x}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {:#02x}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
         "binary" => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{:#b}", self.#inner_field_index)
+                    ::core::write!(f, "{:#b}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {:#b}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {:#b}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
         _ => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{}", self.#inner_field_index)
+                    ::core::write!(f, "{}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
@@ -398,9 +398,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             ///
             /// # Errors
             /// Returns an error if the value is out of range or invalid.
-            pub fn new(value: #inner_type) -> Result<Self, #crate_path::Error> {
+            pub fn new(value: #inner_type) -> ::core::result::Result<Self, #crate_path::Error> {
                 #validation
-                Ok(Self(value))
+                ::core::result::Result::Ok(Self(value))
             }
 
             /// Get the raw value.
@@ -410,22 +410,25 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl TryFrom<#inner_type> for #name {
+        impl ::core::convert::TryFrom<#inner_type> for #name {
             type Error = #crate_path::Error;
 
-            fn try_from(value: #inner_type) -> Result<Self, Self::Error> {
+            fn try_from(value: #inner_type) -> ::core::result::Result<Self, Self::Error> {
                 Self::new(value)
             }
         }
 
-        impl From<#name> for #inner_type {
+        impl ::core::convert::From<#name> for #inner_type {
             fn from(val: #name) -> Self {
                 val.value()
             }
         }
 
-        impl std::fmt::Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl ::core::fmt::Display for #name {
+            fn fmt(
+                &self,
+                f: &mut ::core::fmt::Formatter<'_>,
+            ) -> ::core::fmt::Result {
                 #display_impl
             }
         }

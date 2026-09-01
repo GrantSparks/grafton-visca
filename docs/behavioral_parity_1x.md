@@ -22,17 +22,51 @@ engine, framer, encoder, and public facade. It does not introduce a second
 scheduler or compatibility shim whose behavior could drift from what users
 receive.
 
+## Executable provenance gate
+
+The guide is backed by the executable corpus at
+`.github/behavioral-parity-1x/manifest.json`. It pins the complete 1.x oracle
+commit `6c7a9d3783861189745536372c4d21de24d4252d`, the old source symbols that
+establish each of its twelve required behavior families, and direct current-v2
+production-path tests. The validator rejects a missing or duplicate family,
+unreachable test definition, absent or ambiguous source symbol, invalid
+raw/Sony envelope/profile/receipt evidence, unapproved intentional change, a
+zero-match cargo filter, or an ignored mapped test. Every mapping is checked
+against validator-owned pins for its source, exact canonical libtest path,
+command, envelope, profile, and receipt class. Rust comments and
+string/character literals are lexically removed before code evidence is
+checked, and every grouped command must report the exact canonical path as
+`ok`; suffix matches do not count.
+
+The gate provides audited executable traceability and code evidence. It is not
+a Rust semantic analyzer and does not reproduce the VISCA protocol or scheduler
+as a second model. Reviewers remain responsible for confirming that the pinned
+production-path test asserts the intended behavior; the validator keeps that
+reviewed chain from drifting or being satisfied by prose.
+
+Run the complete gate from a non-shallow clone:
+
+```text
+bash .github/scripts/validate-behavioral-parity.sh
+```
+
+`--skip-tests` is useful only while editing the corpus; it checks provenance
+and mappings without executing Cargo and is never the CI command. The dedicated
+required CI job uses `fetch-depth: 0` so `git show` reads the pinned object
+rather than relying on whatever history happens to be present on a runner. The
+corpus is CI machinery and is intentionally excluded from the crate payload.
+
 ## Retained behavior families
 
-| Family | Decision carried into v2 | Direct v2 evidence |
-| --- | --- | --- |
-| Wire bytes and reply decoding | Built-in commands retain their documented VISCA bytes; fixed replies are length- and socket-strict, while a delimited malformed frame is discarded and a genuine framing-position loss poisons a stream. | `tests/issue_633_golden_wire_bytes.rs`; `tests/issue_672_674_681_decode_consequence.rs` |
-| Retry budgets | Retry counts remain category-based and one admission-to-terminal wall-clock budget covers every later noncancelled phase. Sony retries reuse the same sequence; an ambiguous raw send is never replayed. | `src/runtime/engine/tests.rs`: `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, and the raw expiry tests |
-| Raw correlation | Raw VISCA admits one unacknowledged command per target before ACK, never guesses by FIFO or recency, and reopens socket concurrency only after ownership is established. | `src/runtime/engine/tests.rs`: `raw_gate_serializes_pre_ack_while_sony_allows_pipeline`, `raw_error_policy_requires_unique_socketless_evidence`, `raw_ack_in_awaiting_ack_uses_the_unique_command_candidate` |
-| ACK socket assignment | A named ACK is exact when its socket is free. If that socket is occupied but another target socket is free, the uniquely identified candidate falls back to that socket; the ACK is inert only when no socket is free. Socketless ACKs retain first-free compatibility. | `src/runtime/engine/tests.rs`: `socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one`, `ack_naming_an_occupied_socket_falls_back_to_the_free_socket` |
-| Raw uncertainty | By default, an unconfirmable raw command fails only that request with `UnsequencedCommandUnconfirmed`, quarantines its correlation, and leaves the session live. `strict_unconfirmed_poison` opts into whole-session `StreamPoisoned`. | `src/runtime/engine/tests.rs`: `raw_active_retry_budget_expiry_quarantines_and_fails_per_request`, `raw_active_retry_budget_expiry_poisons_under_strict_opt_in`, `raw_receive_fault_leaves_unacked_command_and_keeps_the_session`, `raw_receive_fault_poisons_under_strict_opt_in`; `tests/issue_565_transport_faults_blocking.rs` and `tests/issue_565_transport_faults_async.rs` |
-| Receive and write failures | A fatal receive closure is normalized to `ConnectionClosed` with the cause text retained. `StreamPoisoned` is reserved for an unknowable stream framing or write position; datagram write failure remains per-request. | `src/runtime/owner/tests.rs`: `fatal_blocking_read_fault_closes_the_stream_session`; `src/runtime/engine/tests.rs`: `stream_write_failure_poisons_with_the_transport_cause_in_the_reason`; `tests/issue_565_transport_faults_blocking.rs` |
-| Cancellation and lifecycle | Cancellation is an intent and an observable outcome, not an implicit timeout or detach. Close, shutdown, poison, and old operation handles retain their distinct terminal behavior. | `src/runtime/owner/tests.rs` cancellation/close tests; `tests/issue_680_engine_poison_session_error.rs`; `tests/issue_554_owner_cancellation_blocking.rs` |
+| Family                        | Decision carried into v2                                                                                                                                                                                                                                                                                                                                                              | Direct v2 evidence                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Wire bytes and reply decoding | Built-in commands retain their documented VISCA bytes; fixed replies are length- and socket-strict, while a delimited malformed frame is discarded and a genuine framing-position loss poisons a stream.                                                                                                                                                                              | `tests/issue_633_golden_wire_bytes.rs`; `tests/issue_672_674_681_decode_consequence.rs`                                                                                                                                                                                                                                                                                                                                                                  |
+| Retry budgets                 | Retry counts remain category-based and one admission-to-terminal wall-clock budget covers every later noncancelled phase. Sony retries reuse the same sequence; an ambiguous raw send is never replayed.                                                                                                                                                                              | `src/runtime/engine/tests.rs`: `retry_budget_expires_while_awaiting_sony_ack`, `retry_budget_expires_while_executing_sony_command`, `retry_budget_expires_while_awaiting_inquiry_reply`, and the raw expiry tests                                                                                                                                                                                                                                        |
+| Raw correlation               | Raw VISCA admits one unacknowledged command per target before ACK, never guesses by FIFO or recency, and reopens socket concurrency only after ownership is established.                                                                                                                                                                                                              | `src/runtime/engine/tests.rs`: `raw_gate_serializes_pre_ack_while_sony_allows_pipeline`, `raw_error_policy_requires_unique_socketless_evidence`, `raw_ack_in_awaiting_ack_uses_the_unique_command_candidate`                                                                                                                                                                                                                                             |
+| ACK socket assignment         | A named ACK is exact when its socket is free. If that socket is occupied but another target socket is free, the uniquely identified candidate falls back to that socket; the ACK is inert only when no socket is free. Socketless ACKs retain first-free compatibility.                                                                                                               | `src/runtime/engine/tests.rs`: `socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one`, `ack_naming_an_occupied_socket_falls_back_to_the_free_socket`                                                                                                                                                                                                                                                                         |
+| Raw uncertainty               | By default, an unconfirmable raw command fails only that request with `UnsequencedCommandUnconfirmed`, quarantines its correlation, and leaves the session live. `strict_unconfirmed_poison` opts into whole-session `StreamPoisoned`; a receive fault poisons immediately only before cancel intent is recorded, while a recorded cancel resolves through its own late-ACK deadline. | `src/runtime/engine/tests.rs`: `raw_active_retry_budget_expiry_quarantines_and_fails_per_request`, `raw_active_retry_budget_expiry_poisons_under_strict_opt_in`, `raw_receive_fault_leaves_unacked_command_and_keeps_the_session`, `raw_receive_fault_poisons_under_strict_opt_in`, `strict_raw_receive_fault_after_cancel_uses_cancellation_resolution`; `tests/issue_565_transport_faults_blocking.rs` and `tests/issue_565_transport_faults_async.rs` |
+| Receive and write failures    | A fatal receive closure is normalized to `ConnectionClosed` with the cause text retained. `StreamPoisoned` is reserved for an unknowable stream framing or write position; datagram write failure remains per-request.                                                                                                                                                                | `src/runtime/owner/tests.rs`: `fatal_blocking_read_fault_closes_the_stream_session`; `src/runtime/engine/tests.rs`: `stream_write_failure_poisons_with_the_transport_cause_in_the_reason`; `tests/issue_565_transport_faults_blocking.rs`                                                                                                                                                                                                                |
+| Cancellation and lifecycle    | Cancellation is an intent and an observable outcome, not an implicit timeout or detach. Close, shutdown, poison, and old operation handles retain their distinct terminal behavior.                                                                                                                                                                                                   | `src/runtime/owner/tests.rs` cancellation/close tests; `tests/issue_680_engine_poison_session_error.rs`; `tests/issue_554_owner_cancellation_blocking.rs`                                                                                                                                                                                                                                                                                                |
 
 ## Decisions that need particular care
 
@@ -48,14 +82,16 @@ is an independent framing unit.
 
 ### Raw uncertainty and issue #671
 
-An ACK/completion/cancellation ambiguity, a transient receive fault while raw
-work awaits ACK, or active retry-budget expiry after a raw send does not justify
-replaying a possibly executed physical action. The default result is
-`UnsequencedCommandUnconfirmed` for that request only. Its socket or sole raw
-candidate slot remains quarantined until the ambiguity deadline so a late reply
-cannot bind to later work. Reconcile the camera effect before deliberately
-resubmitting. The strict opt-in restores a whole-session poison and reports
-`StreamPoisoned`.
+An ACK/completion/cancellation ambiguity or active retry-budget expiry after a
+raw send does not justify replaying a possibly executed physical action. The
+default result is `UnsequencedCommandUnconfirmed` for that request only. Its
+socket or sole raw candidate slot remains quarantined until the ambiguity
+deadline so a late reply cannot bind to later work. A transient receive fault
+while raw work awaits ACK likewise never authorizes a replay, but by default it
+leaves the command in `AwaitingAck`; only a subsequent ACK deadline without an
+ACK produces that unconfirmed result. Reconcile the camera effect before
+deliberately resubmitting. The strict opt-in instead poisons the whole session
+on that receive fault and reports `StreamPoisoned`.
 
 ### Receive taxonomy
 
@@ -70,7 +106,7 @@ failure mode: its byte position cannot be established, so it reports
 
 The request-policy audit reads the built-in command ledger and the concrete
 request declarations; it does not maintain a second semantic registry. The
-current ledger has 149 command rows, 65 queryable inquiry rows, and 11
+current ledger has 150 command rows, 62 queryable inquiry rows, and 11
 decode-only response rows. Every queryable row uses the generated inquiry
 policy, with an inquiry-specific deadline and the interim 1 s response default.
 The historical comparison is the 1.x timeout category in the original command
@@ -79,22 +115,26 @@ replay, while the timeout category controls the retry count.
 
 The rows with an intentional timeout-category decision are:
 
-| v2 rows | 1.x category | v2 policy | Decision |
-| --- | --- | --- | --- |
-| `PanTiltStop`, `ZoomStop`, `FocusStop` | Movement | Quick / Movement | Urgent stop deadline; retain movement retry/error semantics. |
-| `PanTiltLimitSet`, `PanTiltLimitClear` | Movement | Quick / Standard | Plain limit-state edits are not actuation. |
-| `FocusAuto`, `FocusManual`, `FocusToggle` | Movement | Quick / Standard | Focus-mode settings are plain configuration. |
-| `FocusOnePush`, `FocusSnap` | Movement | Quick / Movement | Applied-only focus triggers retain movement retry/error semantics with an urgent deadline. |
-| `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect` | Quick | Movement / Movement | Targeted physical aperture operations have exact iris settlement inquiries. |
-| `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement / Movement | Targeted physical filter operations have exact ND settlement inquiries. |
-| `Sharpness*`, `Gamma`, `NoiseReduction2d*`, `NoiseReduction3d*`, `ImageFlipBoth`, `ImageFlipCombined` | Custom | Quick / Standard | The old `Custom` value was the uncategorized 60 s fallback; these are explicit quick configuration writes in v2. |
-| 65 queryable built-in inquiries | Quick | Inquiry / Inquiry | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget. |
+| v2 rows                                                                                                                                           | 1.x category            | v2 policy           | Decision                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PanTiltStop`, `ZoomStop`, `FocusStop`                                                                                                            | Movement                | Quick / Movement    | Urgent stop deadline; retain movement retry/error semantics.                                                                                                                                                                                |
+| `PanTiltLimitSet`, `PanTiltLimitClear`                                                                                                            | Movement                | Quick / Standard    | Plain limit-state edits are not actuation.                                                                                                                                                                                                  |
+| `FocusAuto`, `FocusManual`, `FocusToggle`                                                                                                         | Movement                | Quick / Standard    | Focus-mode settings are plain configuration.                                                                                                                                                                                                |
+| `FocusOnePush`, `FocusSnap`                                                                                                                       | Movement                | Quick / Movement    | Applied-only focus triggers retain movement retry/error semantics with an urgent deadline.                                                                                                                                                  |
+| `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect`                                                                                                   | Quick                   | Movement / Movement | Targeted iris operations use profile-selected protocol settlement inquiries.                                                                                                                                                                |
+| `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown`                                                                                            | Quick                   | Movement / Movement | Targeted ND-filter operations use profile-selected protocol settlement inquiries.                                                                                                                                                           |
+| `Sharpness*`, `Gamma`, `NoiseReduction2d`, `NoiseReduction2dOff`, `NoiseReduction3d`, `NoiseReduction3dOff`, `ImageFlipBoth`, `ImageFlipCombined` | Custom                  | Quick / Standard    | The old `Custom` value was the uncategorized 60 s fallback; these are explicit quick configuration writes in v2. The NR level/off rows are restored 1.x controls, and the v1.0.0/v1.1.0 release-tag declarations classify them as `Custom`. |
+| 62 queryable built-in inquiries                                                                                                                   | Quick                   | Inquiry / Inquiry   | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget.                                                                                                             |
+| `NoiseReduction2dMode`                                                                                                                            | No 1.x command category | Quick / Standard    | New v2 `01 04 50` control. 1.x exposed an NR-mode inquiry but no corresponding setter, so this row is neither a preserved category nor an intentional category change.                                                                      |
 
-The remaining 120 command rows retain their 1.x timeout category, and every
-command row has an explicit retry class. The semantic unit test
-`intentional_timeout_category_changes_account_for_the_preserved_remainder`
-checks the 149-row universe and the 29 changed / 120 preserved split. Update
-this table and its explanation whenever that direct test's changed set moves.
+The remaining 120 command rows retain their 1.x timeout category. Every command
+row has an explicit retry class. The semantic unit test
+`timeout_category_partition_preserves_the_1x_provenance_boundary` checks the
+150-row universe and the 29 changed / 1 new-v2-without-1.x-category / 120
+preserved partition. It additionally pins the current v2 `Quick`/`Standard`
+policy for the four restored NR rows and the new-v2 mode control; it does not
+reconstruct the historical category. Update this table and its explanation
+whenever an explicit partition set moves.
 `CommandCancel` remains `Quick`/`Never`; `PushAfPress` and `PushAfRelease`
 retain movement error handling; and `PresetSet`/`PresetReset` retain their
 preset timeout and retry behavior even though their v2 semantic class is plain.

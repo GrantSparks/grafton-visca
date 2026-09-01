@@ -629,6 +629,9 @@ impl ViscaCameraSimulator {
                 Some(vec![0x90, 0x50, flip_mode, VISCA_TERMINATOR])
             }
 
+            // Noise reduction 2D mode inquiry: 0x81 0x09 0x04 0x50 0xFF
+            (Some(0x04), Some(0x50)) => Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]),
+
             // Noise reduction 2D inquiry: 0x81 0x09 0x04 0x53 0xFF
             (Some(0x04), Some(0x53)) => {
                 Some(vec![0x90, 0x50, state.noise_reduction_2d, VISCA_TERMINATOR])

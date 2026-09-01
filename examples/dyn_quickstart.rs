@@ -48,7 +48,7 @@ async fn dynamic_control(session: &Session) -> Result<(), Error> {
         camera.supports_typed(TypedSupportSurface::DirectZoom)
     );
 
-    // A targeted dynamic operation exposes `settled` (waits for physical rest).
+    // A targeted dynamic operation exposes `settled` (profile-selected protocol settlement).
     let home: DynTargetedOperation = camera.pan_tilt().home().await?;
     home.settled_with_timeout(Duration::from_secs(20)).await?;
 

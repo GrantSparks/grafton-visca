@@ -575,6 +575,7 @@ pub enum BuiltinCommand {
     Contrast,
     Gamma,
     Backlight,
+    NoiseReduction2dMode,
     NoiseReduction2d,
     NoiseReduction2dOff,
     NoiseReduction3d,
@@ -819,6 +820,7 @@ impl BuiltinCommand {
         Self::Contrast,
         Self::Gamma,
         Self::Backlight,
+        Self::NoiseReduction2dMode,
         Self::NoiseReduction2d,
         Self::NoiseReduction2dOff,
         Self::NoiseReduction3d,
@@ -976,6 +978,7 @@ impl BuiltinCommand {
             | Self::Contrast
             | Self::Gamma
             | Self::Backlight
+            | Self::NoiseReduction2dMode
             | Self::NoiseReduction2d
             | Self::NoiseReduction2dOff
             | Self::NoiseReduction3d
@@ -1166,6 +1169,7 @@ impl BuiltinCommand {
             | Self::Contrast
             | Self::Gamma
             | Self::Backlight
+            | Self::NoiseReduction2dMode
             | Self::NoiseReduction2d
             | Self::NoiseReduction2dOff
             | Self::NoiseReduction3d
@@ -1435,17 +1439,18 @@ mod tests {
         }));
     }
 
-    /// Machine-checks the timeout-policy count documented in
-    /// `docs/behavioral_parity_1x.md`: of the 149 `BuiltinCommand` rows,
-    /// exactly 29 carry an intentional timeout-category change and the
-    /// remaining 120 preserve their 1.x category. Pinning the universe size and
-    /// the changed set here means adding a command or editing the changed list
-    /// fails this test until that guide's table and count are updated to match
-    /// (issue #689). It does not re-derive the 1.x categories; it keeps the
-    /// documented decision count from silently rotting the way it did when
-    /// `ImageFlipBoth` was omitted (miscounting 120 as 121).
+    /// Machine-checks the timeout-policy partition documented in
+    /// `docs/behavioral_parity_1x.md`: of the 150 `BuiltinCommand` rows,
+    /// 29 carry an intentional 1.x timeout-category change, one is a new-v2
+    /// command without a 1.x category, and 120 preserve their 1.x category.
+    /// Pinning the universe size and the two explicit sets here means adding a
+    /// command or editing either decision set fails this test until that guide's
+    /// table and counts are updated to match (issue #689). It does not re-derive
+    /// the 1.x categories; it keeps the documented partition from silently
+    /// rotting the way it did when `ImageFlipBoth` was omitted (miscounting 120
+    /// as 121).
     #[test]
-    fn intentional_timeout_category_changes_account_for_the_preserved_remainder() {
+    fn timeout_category_partition_preserves_the_1x_provenance_boundary() {
         // The rows whose v2 `TimeoutClass` intentionally differs from their 1.x
         // timeout category, grouped exactly as the migration table lists them.
         const TIMEOUT_CATEGORY_CHANGES: &[BuiltinCommand] = &[
@@ -1486,17 +1491,72 @@ mod tests {
             BuiltinCommand::ImageFlipCombined,
         ];
 
-        // Universe size is pinned; a new command must be triaged into the
-        // changed or preserved count (and the doc updated) rather than silently
-        // shifting the total.
+        // `01 04 50` is a v2 control added from current vendor evidence. 1.x
+        // exposed only an NR-mode inquiry, not a matching setter, so it has no
+        // 1.x command timeout category to preserve or intentionally change.
+        const NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY: &[BuiltinCommand] =
+            &[BuiltinCommand::NoiseReduction2dMode];
+
+        fn assert_current_policy<R: crate::Request>(
+            command: BuiltinCommand,
+            expected_timeout: crate::TimeoutClass,
+            expected_retry: crate::RetryClass,
+        ) {
+            assert_eq!(
+                R::TIMEOUT_CLASS,
+                expected_timeout,
+                "{command:?} v2 timeout policy"
+            );
+            assert_eq!(
+                R::RETRY_CLASS,
+                expected_retry,
+                "{command:?} v2 retry policy"
+            );
+        }
+
+        // These literal v2 policies cover the four restored 1.x rows and the
+        // v2-only companion control. This verifies their present request policy;
+        // the historical 1.x category remains documented evidence, not an oracle
+        // reconstructed by this test.
+        assert_current_policy::<crate::command::NoiseReduction2D>(
+            BuiltinCommand::NoiseReduction2d,
+            crate::TimeoutClass::Quick,
+            crate::RetryClass::Standard,
+        );
+        assert_current_policy::<crate::command::NoiseReduction2D>(
+            BuiltinCommand::NoiseReduction2dOff,
+            crate::TimeoutClass::Quick,
+            crate::RetryClass::Standard,
+        );
+        assert_current_policy::<crate::command::NoiseReduction3D>(
+            BuiltinCommand::NoiseReduction3d,
+            crate::TimeoutClass::Quick,
+            crate::RetryClass::Standard,
+        );
+        assert_current_policy::<crate::command::NoiseReduction3D>(
+            BuiltinCommand::NoiseReduction3dOff,
+            crate::TimeoutClass::Quick,
+            crate::RetryClass::Standard,
+        );
+        assert_current_policy::<crate::command::NoiseReduction2DModeCommand>(
+            BuiltinCommand::NoiseReduction2dMode,
+            crate::TimeoutClass::Quick,
+            crate::RetryClass::Standard,
+        );
+
+        // Universe size is pinned; a new command must be triaged as changed,
+        // preserved, or explicitly without 1.x provenance (and the doc updated)
+        // rather than silently shifting the total.
         assert_eq!(
             BuiltinCommand::ALL.len(),
-            149,
+            150,
             "BuiltinCommand universe changed; re-derive the parity counts in \
              docs/behavioral_parity_1x.md"
         );
 
-        // The changed set is distinct and every entry is a real command row.
+        // The explicit changed/new-v2 sets are distinct and contain only real
+        // command rows. The preserved set is their complement, so it does not
+        // duplicate the source-derived command inventory as a second oracle.
         let mut seen = HashSet::new();
         for command in TIMEOUT_CATEGORY_CHANGES {
             assert!(
@@ -1508,12 +1568,27 @@ mod tests {
                 "{command:?} is not a BuiltinCommand row"
             );
         }
+        for command in NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY {
+            assert!(
+                seen.insert(*command),
+                "{command:?} is listed in more than one timeout-category partition"
+            );
+            assert!(
+                BuiltinCommand::ALL.contains(command),
+                "{command:?} is not a BuiltinCommand row"
+            );
+        }
 
         let changed = TIMEOUT_CATEGORY_CHANGES.len();
-        let preserved = BuiltinCommand::ALL.len() - changed;
+        let new_v2_without_1x_category = NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY.len();
+        let preserved = BuiltinCommand::ALL.len() - changed - new_v2_without_1x_category;
         assert_eq!(
             changed, 29,
             "documented intentional timeout-category changes"
+        );
+        assert_eq!(
+            new_v2_without_1x_category, 1,
+            "new-v2 command rows without a 1.x timeout category"
         );
         assert_eq!(
             preserved, 120,

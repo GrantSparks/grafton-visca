@@ -1,65 +1,32 @@
-//! Issue #651: every noun surface can turn noise reduction off.
-//!
-//! `set_noise_reduction_2d` / `_3d` shipped without their twins.  The level
-//! newtypes are bounded `1..=5` and `1..=8`, so the parameter cannot express
-//! off, and the `0x00` wire value is produced only by `NoiseReduction2D::off()`
-//! / `NoiseReduction3D::off()` — which no noun method called.  1.x paired each
-//! setter with `disable_noise_reduction_2d` / `_3d`.
-//!
-//! These tests drive the restored disable methods on all three noun surfaces
-//! against a scripted transport and assert the absolute VISCA frame, so the
-//! `0x00` parameter is pinned rather than inferred.
+//! Issue #651: every generated noun surface exposes the source-backed NR controls.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-/// `CAM_NR2D` at level 3 — the frame `set_noise_reduction_2d` writes.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
+const NR_MODE_MANUAL: &[u8] = &[0x81, 0x01, 0x04, 0x50, 0x03, 0xFF];
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 const NR_2D_LEVEL_3: &[u8] = &[0x81, 0x01, 0x04, 0x53, 0x03, 0xFF];
-
-/// `CAM_NR2D Off` — the frame `disable_noise_reduction_2d` must write.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 const NR_2D_OFF: &[u8] = &[0x81, 0x01, 0x04, 0x53, 0x00, 0xFF];
-
-/// `CAM_NR3D` at level 5 — the frame `set_noise_reduction_3d` writes.
-#[allow(dead_code)]
-const NR_3D_LEVEL_5: &[u8] = &[0x81, 0x01, 0x04, 0x54, 0x05, 0xFF];
-
-/// `CAM_NR3D Off` — the frame `disable_noise_reduction_3d` must write.
-#[allow(dead_code)]
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
+const NR_3D_LEVEL_8: &[u8] = &[0x81, 0x01, 0x04, 0x54, 0x08, 0xFF];
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 const NR_3D_OFF: &[u8] = &[0x81, 0x01, 0x04, 0x54, 0x00, 0xFF];
-
-/// Splits a written frame into its optional Sony header and VISCA payload.
-#[allow(dead_code)]
-fn visca_payload(bytes: &[u8]) -> (Option<u32>, &[u8]) {
-    let sony = bytes.len() > 8
-        && bytes[0] == 0x01
-        && matches!(bytes[1], 0x00 | 0x10 | 0x02 | 0x20)
-        && usize::from(u16::from_be_bytes([bytes[2], bytes[3]])) == bytes.len() - 8;
-    if sony {
-        let sequence = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-        (Some(sequence), &bytes[8..])
-    } else {
-        (None, bytes)
-    }
-}
-
-/// Wraps a VISCA reply in the Sony reply envelope when one is in use.
-#[allow(dead_code)]
-fn envelope(sequence: Option<u32>, payload: Vec<u8>) -> Vec<u8> {
-    let Some(sequence) = sequence else {
-        return payload;
-    };
-    let mut frame = Vec::with_capacity(payload.len() + 8);
-    frame.extend_from_slice(&[0x01, 0x11]);
-    frame.extend_from_slice(
-        &u16::try_from(payload.len())
-            .expect("reply length")
-            .to_be_bytes(),
-    );
-    frame.extend_from_slice(&sequence.to_be_bytes());
-    frame.extend_from_slice(&payload);
-    frame
-}
 
 #[cfg(feature = "blocking")]
 mod blocking_surface {
@@ -72,22 +39,23 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         camera::TransportKind,
-        command::CommandKind,
+        capabilities::{HasImageProcessing, HasNoiseReduction3D},
+        command::{CommandKind, NoiseReduction2DMode},
         profile::ProfileSpec,
-        profiles::SonyFR7,
+        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-        Error,
+        CompileTimeProfile, Error,
     };
 
-    use super::{envelope, visca_payload, NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_5, NR_3D_OFF};
+    use super::{NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL};
 
-    /// Records every frame and always answers ACK + completion.
     #[derive(Debug)]
     struct RecordingTransport {
         config: TransportConfig,
         responses: VecDeque<Vec<u8>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        inquiry_level: u8,
     }
 
     impl RecordingTransport {
@@ -98,9 +66,16 @@ mod blocking_surface {
                     config: TransportConfig::default(),
                     responses: VecDeque::new(),
                     writes: Arc::clone(&writes),
+                    inquiry_level: 5,
                 },
                 writes,
             )
+        }
+
+        fn with_inquiry_level(inquiry_level: u8) -> Self {
+            let (mut transport, _) = Self::new();
+            transport.inquiry_level = inquiry_level;
+            transport
         }
     }
 
@@ -116,15 +91,17 @@ mod blocking_surface {
 
     impl BlockingTransport for RecordingTransport {
         fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
-            let (sequence, payload) = visca_payload(bytes);
             self.writes
                 .lock()
                 .expect("writes lock")
-                .push(payload.to_vec());
-            self.responses
-                .push_back(envelope(sequence, vec![0x90, 0x41, 0xFF]));
-            self.responses
-                .push_back(envelope(sequence, vec![0x90, 0x51, 0xFF]));
+                .push(bytes.to_vec());
+            if bytes == [0x81, 0x09, 0x04, 0x54, 0xFF] {
+                self.responses
+                    .push_back(vec![0x90, 0x50, self.inquiry_level, 0xFF]);
+            } else {
+                self.responses.push_back(vec![0x90, 0x41, 0xFF]);
+                self.responses.push_back(vec![0x90, 0x51, 0xFF]);
+            }
             Ok(())
         }
 
@@ -148,43 +125,89 @@ mod blocking_surface {
     }
 
     fn one_frame(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<u8> {
-        let mut guard = writes.lock().expect("writes lock");
-        let mut frames = std::mem::take(&mut *guard);
-        assert_eq!(frames.len(), 1, "expected exactly one written frame");
-        frames.remove(0)
+        let mut writes = writes.lock().expect("writes lock");
+        assert_eq!(writes.len(), 1, "one noun call must write one frame");
+        writes.remove(0)
     }
 
-    fn session(profile: ProfileSpec) -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let (transport, writes) = RecordingTransport::new();
-        let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
-        (session, writes)
+    fn inquire_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    where
+        P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction3D,
+    {
+        let session = Session::open(
+            RecordingTransport::with_inquiry_level(level),
+            SessionConfig::new(ProfileSpec::from_compile_time::<P>().expect("built-in profile")),
+        )
+        .expect("session");
+        let result = session
+            .camera::<P>()
+            .expect("matching camera profile")
+            .image()
+            .noise_reduction_3d();
+        session.shutdown().expect("shutdown");
+        result
     }
 
     #[test]
-    fn blocking_noun_turns_noise_reduction_off() {
-        let (session, writes) =
-            session(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"));
-        let camera = session.camera::<SonyFR7>().expect("camera");
+    fn blocking_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
+        let (transport, writes) = RecordingTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2")),
+        )
+        .expect("session");
+        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera");
 
+        camera
+            .image()
+            .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
+            .expect("2D manual mode");
+        assert_eq!(one_frame(&writes), NR_MODE_MANUAL);
         camera
             .image()
             .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
-            .expect("2D on");
+            .expect("2D set");
         assert_eq!(one_frame(&writes), NR_2D_LEVEL_3);
-
         camera.image().disable_noise_reduction_2d().expect("2D off");
         assert_eq!(one_frame(&writes), NR_2D_OFF);
-
         camera
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::new(5).expect("3D level"))
-            .expect("3D on");
-        assert_eq!(one_frame(&writes), NR_3D_LEVEL_5);
-
+            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+            .expect("3D set");
+        assert_eq!(one_frame(&writes), NR_3D_LEVEL_8);
         camera.image().disable_noise_reduction_3d().expect("3D off");
         assert_eq!(one_frame(&writes), NR_3D_OFF);
 
         session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn blocking_session_enforces_the_selected_profiles_nr3d_reply_domain() {
+        for result in [
+            inquire_3d::<PtzOpticsG2>(0x05),
+            inquire_3d::<PtzOpticsG3>(0x05),
+        ] {
+            assert_eq!(result.expect("current documented inquiry level").value(), 5);
+        }
+        for level in [0x06, 0x07, 0x08] {
+            for result in [
+                inquire_3d::<PtzOpticsG2>(level),
+                inquire_3d::<PtzOpticsG3>(level),
+            ] {
+                assert!(matches!(
+                    result,
+                    Err(Error::InvalidResponse { expected, actual })
+                        if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
+                            && actual == [level]
+                ));
+            }
+        }
+        assert_eq!(
+            inquire_3d::<PtzOptics30X>(0x08)
+                .expect("documented legacy 30X inquiry level")
+                .value(),
+            8,
+        );
     }
 }
 
@@ -196,85 +219,92 @@ mod async_surface {
     };
 
     use grafton_visca::{
+        capabilities::{HasImageProcessing, HasNoiseReduction3D},
+        command::NoiseReduction2DMode,
         profile::ProfileSpec,
-        profiles::SonyFR7,
+        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
         transport::{
             AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
         },
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
-        Error, Session, SessionConfig, TokioRuntime,
+        CompileTimeProfile, Error, Session, SessionConfig, TokioRuntime,
     };
 
-    use super::{envelope, visca_payload, NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_5, NR_3D_OFF};
+    use super::{NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL};
 
-    /// Records every frame and always answers ACK + completion.
     #[derive(Debug)]
-    pub(super) struct ProbeTransport {
+    pub(super) struct RecordingTransport {
         config: TransportConfig,
-        responses: flume::Receiver<Vec<u8>>,
-        response_tx: flume::Sender<Vec<u8>>,
+        replies: flume::Receiver<Vec<u8>>,
+        reply_tx: flume::Sender<Vec<u8>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        inquiry_level: u8,
     }
 
-    impl ProbeTransport {
+    impl RecordingTransport {
         pub(super) fn new() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-            let (response_tx, responses) = flume::unbounded();
+            let (reply_tx, replies) = flume::unbounded();
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
                     config: TransportConfig::default(),
-                    responses,
-                    response_tx,
+                    replies,
+                    reply_tx,
                     writes: Arc::clone(&writes),
+                    inquiry_level: 5,
                 },
                 writes,
             )
         }
+
+        pub(super) fn with_inquiry_level(inquiry_level: u8) -> Self {
+            let (mut transport, _) = Self::new();
+            transport.inquiry_level = inquiry_level;
+            transport
+        }
     }
 
-    impl HasTransportConfig for ProbeTransport {
+    impl HasTransportConfig for RecordingTransport {
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
     }
 
-    impl AsyncTransport for ProbeTransport {
+    impl AsyncTransport for RecordingTransport {
         fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let (sequence, payload) = visca_payload(bytes);
             self.writes
                 .lock()
                 .expect("writes lock")
-                .push(payload.to_vec());
-            let response_tx = self.response_tx.clone();
-            let replies = [
-                envelope(sequence, vec![0x90, 0x41, 0xFF]),
-                envelope(sequence, vec![0x90, 0x51, 0xFF]),
-            ];
+                .push(bytes.to_vec());
+            let reply_tx = self.reply_tx.clone();
+            let inquiry_level = self.inquiry_level;
+            let is_nr3d_inquiry = bytes == [0x81, 0x09, 0x04, 0x54, 0xFF];
             async move {
-                for reply in replies {
-                    response_tx
-                        .send_async(reply)
+                if is_nr3d_inquiry {
+                    return reply_tx
+                        .send_async(vec![0x90, 0x50, inquiry_level, 0xFF])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::ConnectionClosed { reason: None });
                 }
-                Ok(())
+                reply_tx
+                    .send_async(vec![0x90, 0x41, 0xFF])
+                    .await
+                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                reply_tx
+                    .send_async(vec![0x90, 0x51, 0xFF])
+                    .await
+                    .map_err(|_| Error::ConnectionClosed { reason: None })
             }
         }
 
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            destination: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
-            async move {
-                let response = self
-                    .responses
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
-                destination[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
-            }
+        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
+            let reply = self
+                .replies
+                .recv_async()
+                .await
+                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            destination[..reply.len()].copy_from_slice(&reply);
+            Ok(reply.len())
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -286,14 +316,10 @@ mod async_surface {
         }
     }
 
-    pub(super) fn one_frame(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<u8> {
-        let mut guard = writes.lock().expect("writes lock");
-        let mut frames = std::mem::take(&mut *guard);
-        assert_eq!(frames.len(), 1, "expected exactly one written frame");
-        frames.remove(0)
-    }
-
-    pub(super) async fn open(transport: ProbeTransport, profile: ProfileSpec) -> Session {
+    pub(super) async fn open_with_profile(
+        transport: RecordingTransport,
+        profile: ProfileSpec,
+    ) -> Session {
         Session::open(
             transport,
             SessionConfig::new(profile),
@@ -303,37 +329,69 @@ mod async_surface {
         .expect("session")
     }
 
-    #[tokio::test]
-    async fn async_noun_turns_noise_reduction_off() {
-        let (transport, writes) = ProbeTransport::new();
-        let session = open(
+    pub(super) async fn open(transport: RecordingTransport) -> Session {
+        open_with_profile(
             transport,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+        )
+        .await
+    }
+
+    pub(super) fn one_frame(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<u8> {
+        let mut writes = writes.lock().expect("writes lock");
+        assert_eq!(writes.len(), 1, "one noun call must write one frame");
+        writes.remove(0)
+    }
+
+    async fn inquire_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    where
+        P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction3D,
+    {
+        let session = open_with_profile(
+            RecordingTransport::with_inquiry_level(level),
+            ProfileSpec::from_compile_time::<P>().expect("built-in profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let result = session
+            .camera::<P>()
+            .expect("matching camera profile")
+            .image()
+            .noise_reduction_3d()
+            .await;
+        session.shutdown().await.expect("shutdown");
+        result
+    }
 
+    #[tokio::test]
+    async fn async_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
+        let (transport, writes) = RecordingTransport::new();
+        let session = open(transport).await;
+        let camera = session.camera::<PtzOpticsG2>().expect("G2 camera");
+
+        camera
+            .image()
+            .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
+            .await
+            .expect("2D manual mode");
+        assert_eq!(one_frame(&writes), NR_MODE_MANUAL);
         camera
             .image()
             .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
             .await
-            .expect("2D on");
+            .expect("2D set");
         assert_eq!(one_frame(&writes), NR_2D_LEVEL_3);
-
         camera
             .image()
             .disable_noise_reduction_2d()
             .await
             .expect("2D off");
         assert_eq!(one_frame(&writes), NR_2D_OFF);
-
         camera
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::new(5).expect("3D level"))
+            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
             .await
-            .expect("3D on");
-        assert_eq!(one_frame(&writes), NR_3D_LEVEL_5);
-
+            .expect("3D set");
+        assert_eq!(one_frame(&writes), NR_3D_LEVEL_8);
         camera
             .image()
             .disable_noise_reduction_3d()
@@ -343,60 +401,210 @@ mod async_surface {
 
         session.shutdown().await.expect("shutdown");
     }
+
+    #[tokio::test]
+    async fn async_session_enforces_the_selected_profiles_nr3d_reply_domain() {
+        for result in [
+            inquire_3d::<PtzOpticsG2>(0x05).await,
+            inquire_3d::<PtzOpticsG3>(0x05).await,
+        ] {
+            assert_eq!(result.expect("current documented inquiry level").value(), 5);
+        }
+        for level in [0x06, 0x07, 0x08] {
+            for result in [
+                inquire_3d::<PtzOpticsG2>(level).await,
+                inquire_3d::<PtzOpticsG3>(level).await,
+            ] {
+                assert!(matches!(
+                    result,
+                    Err(Error::InvalidResponse { expected, actual })
+                        if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
+                            && actual == [level]
+                ));
+            }
+        }
+        assert_eq!(
+            inquire_3d::<PtzOptics30X>(0x08)
+                .await
+                .expect("documented legacy 30X inquiry level")
+                .value(),
+            8,
+        );
+    }
 }
 
-#[cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
+#[cfg(all(feature = "async", feature = "dyn-api", feature = "runtime-tokio"))]
 mod dyn_surface {
     use grafton_visca::{
+        capabilities::TypedSupportSurface,
+        command::NoiseReduction2DMode,
         dynapi::{DynSessionCamera, DynSessionCameraNouns},
         profile::ProfileSpec,
-        profiles::SonyFR7,
+        profiles::PtzOpticsG2,
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
+        Error,
     };
 
     use super::{
-        async_surface::{one_frame, open, ProbeTransport},
-        NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_5, NR_3D_OFF,
+        async_surface::{one_frame, open, open_with_profile, RecordingTransport},
+        NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
     };
 
+    fn inquiry_only_noise_reduction_profile() -> ProfileSpec {
+        let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let coordinates = source
+            .pan_tilt_coordinates()
+            .expect("G2 pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "NR inquiry without NR control".into();
+        capabilities.typed_support = capabilities
+            .typed_support
+            .without(TypedSupportSurface::NoiseReduction2DControl)
+            .without(TypedSupportSurface::NoiseReduction3DControl);
+
+        ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .preset_recall_axes(source.preset_recall_axes())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect("inquiry-only NR runtime profile")
+    }
+
     #[tokio::test]
-    async fn dynamic_noun_turns_noise_reduction_off() {
-        let (transport, writes) = ProbeTransport::new();
-        let session = open(
-            transport,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
-        )
-        .await;
+    async fn dynamic_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
+        let (transport, writes) = RecordingTransport::new();
+        let session = open(transport).await;
         let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         nouns
             .image()
+            .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
+            .await
+            .expect("2D manual mode");
+        assert_eq!(one_frame(&writes), NR_MODE_MANUAL);
+        nouns
+            .image()
             .set_noise_reduction_2d(NoiseReduction2DLevel::new(3).expect("2D level"))
             .await
-            .expect("2D on");
+            .expect("2D set");
         assert_eq!(one_frame(&writes), NR_2D_LEVEL_3);
-
         nouns
             .image()
             .disable_noise_reduction_2d()
             .await
             .expect("2D off");
         assert_eq!(one_frame(&writes), NR_2D_OFF);
-
         nouns
             .image()
-            .set_noise_reduction_3d(NoiseReduction3DLevel::new(5).expect("3D level"))
+            .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
             .await
-            .expect("3D on");
-        assert_eq!(one_frame(&writes), NR_3D_LEVEL_5);
-
+            .expect("3D set");
+        assert_eq!(one_frame(&writes), NR_3D_LEVEL_8);
         nouns
             .image()
             .disable_noise_reduction_3d()
             .await
             .expect("3D off");
         assert_eq!(one_frame(&writes), NR_3D_OFF);
+
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn dynamic_controls_reject_an_inquiry_only_runtime_profile_before_transport_write() {
+        let (transport, writes) = RecordingTransport::new();
+        let session = open_with_profile(transport, inquiry_only_noise_reduction_profile()).await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let nouns: &dyn DynSessionCameraNouns = &camera;
+
+        let mode = nouns
+            .image()
+            .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
+            .await
+            .expect_err("inquiry support must not grant 2D control");
+        assert!(matches!(
+            mode,
+            Error::FeatureNotSupported {
+                feature: "2D noise reduction control"
+            }
+        ));
+        for error in [
+            nouns
+                .image()
+                .set_noise_reduction_2d(NoiseReduction2DLevel::MAX)
+                .await
+                .expect_err("inquiry support must not grant 2D control"),
+            nouns
+                .image()
+                .disable_noise_reduction_2d()
+                .await
+                .expect_err("inquiry support must not grant 2D control"),
+        ] {
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "2D noise reduction control"
+                }
+            ));
+        }
+        for error in [
+            nouns
+                .image()
+                .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
+                .await
+                .expect_err("inquiry support must not grant 3D control"),
+            nouns
+                .image()
+                .disable_noise_reduction_3d()
+                .await
+                .expect_err("inquiry support must not grant 3D control"),
+        ] {
+            assert!(matches!(
+                error,
+                Error::FeatureNotSupported {
+                    feature: "3D noise reduction control"
+                }
+            ));
+        }
+        assert!(writes.lock().expect("writes lock").is_empty());
+
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn dynamic_session_does_not_grant_the_legacy_reply_domain_to_a_mutated_profile() {
+        let session = open_with_profile(
+            RecordingTransport::with_inquiry_level(0x08),
+            inquiry_only_noise_reduction_profile(),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let nouns: &dyn DynSessionCameraNouns = &camera;
+
+        let error = nouns
+            .image()
+            .noise_reduction_3d()
+            .await
+            .expect_err("a mutable runtime inventory must not inherit legacy 30X reply bounds");
+        assert!(matches!(
+            error,
+            Error::InvalidResponse { expected, actual }
+                if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
+                    && actual == [0x08]
+        ));
 
         session.shutdown().await.expect("shutdown");
     }

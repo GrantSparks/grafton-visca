@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 65);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 63);
             $(
                 let inquiry = <$inquiry>::default();
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -147,6 +147,10 @@ assert_generated_inquiry_inventory!(
     ("GainLimitInquiry", grafton_visca::command::GainLimitInquiry),
     ("BacklightInquiry", grafton_visca::command::BacklightInquiry),
     ("ImageFlipInquiry", grafton_visca::command::ImageFlipInquiry),
+    (
+        "NoiseReduction2DModeInquiry",
+        grafton_visca::command::NoiseReduction2DModeInquiry
+    ),
     (
         "NoiseReduction2DInquiry",
         grafton_visca::command::NoiseReduction2DInquiry
@@ -228,7 +232,6 @@ assert_generated_inquiry_inventory!(
         "SharpnessPositionInquiry",
         grafton_visca::command::SharpnessPositionInquiry
     ),
-    ("NrLevelInquiry", grafton_visca::command::NrLevelInquiry),
     (
         "BroadcastDomainInquiry",
         grafton_visca::command::BroadcastDomainInquiry
@@ -241,8 +244,6 @@ assert_generated_inquiry_inventory!(
         "MotionSyncPresetInquiry",
         grafton_visca::command::MotionSyncPresetInquiry
     ),
-    ("NrModeInquiry", grafton_visca::command::NrModeInquiry),
-    ("NrSpeedInquiry", grafton_visca::command::NrSpeedInquiry),
     ("UsbAudioInquiry", grafton_visca::command::UsbAudioInquiry),
     (
         "TwoToneModeInquiry",

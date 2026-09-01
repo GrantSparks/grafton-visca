@@ -2,16 +2,16 @@
 
 use std::env;
 
-use grafton_visca::{blocking::Connect, profiles::GenericVisca, Error};
+use grafton_visca::{blocking::Connect, profiles::PtzOpticsG2, Error};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = env::args()
         .nth(1)
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
         .unwrap_or_else(|| "192.168.0.110".to_string());
-    let session = Connect::open_tcp::<GenericVisca>(&address)?;
+    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let result = {
-        let camera = session.camera::<GenericVisca>()?;
+        let camera = session.camera::<PtzOpticsG2>()?;
         let power = camera.power().state()?;
         let zoom = camera.zoom().position()?;
         let mode = camera.exposure().mode()?;

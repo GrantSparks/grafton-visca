@@ -5,7 +5,10 @@ mod compile_fail;
 fn visca_value_attributes_are_checked_downstream() {
     let features = compile_fail::active_grafton_visca_features();
     compile_fail::assert_compile_pass_fixture_paths(
-        &["tests/api_contract/pass/visca_value_valid_range.rs"],
+        &[
+            "tests/api_contract/pass/visca_range_type_downstream.rs",
+            "tests/api_contract/pass/visca_value_valid_range.rs",
+        ],
         &features,
     );
     compile_fail::assert_compile_fail_fixture_paths(

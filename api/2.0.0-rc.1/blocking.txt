@@ -216,16 +216,16 @@ pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_limit
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_reset(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_up(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris(&self) -> grafton_visca::Result<grafton_visca::types::IrisLevel> where P: grafton_visca::capabilities::HasIrisControl
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_control(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasIrisControl
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_control(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasIrisControlInquiry
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_direct(&self, grafton_visca::types::IrisLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode>
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode> where P: grafton_visca::capabilities::HasExposureMode
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_dynamic_range(&self, grafton_visca::types::DynamicRangeLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasWideDynamicRange
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_gain_limit(&self, grafton_visca::types::GainLimit) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureMode
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter(&self) -> grafton_visca::Result<grafton_visca::types::ShutterSpeed>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter_direct(&self, grafton_visca::types::ShutterSpeed) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter_down(&self) -> grafton_visca::Result<()>
@@ -285,8 +285,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_shar
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3DControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -298,9 +298,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::hue(&self) ->
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::increase_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::luminance(&self) -> grafton_visca::Result<grafton_visca::types::LuminanceLevel> where P: grafton_visca::capabilities::HasLuminanceControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_2d(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReduction2DLevel> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_2d_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReduction2DMode> where P: grafton_visca::capabilities::HasNoiseReduction2D
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_3d(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReduction3DLevel> where P: grafton_visca::capabilities::HasNoiseReduction3D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_level(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReductionLevel> where P: grafton_visca::capabilities::HasNoiseReduction
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReductionMode> where P: grafton_visca::capabilities::HasNoiseReduction
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::picture_effect(&self) -> grafton_visca::Result<grafton_visca::PictureEffectMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::reset_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
@@ -311,8 +310,9 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_mode
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_luminance(&self, grafton_visca::types::LuminanceLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasLuminanceControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d(&self, grafton_visca::types::NoiseReduction2DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_3d(&self, grafton_visca::types::NoiseReduction3DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d(&self, grafton_visca::types::NoiseReduction2DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d_mode(&self, grafton_visca::command::NoiseReduction2DMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_3d(&self, grafton_visca::types::NoiseReduction3DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3DControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_picture_effect(&self, grafton_visca::PictureEffectMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_saturation(&self, grafton_visca::types::SaturationLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_sharpness(&self, grafton_visca::types::SharpnessLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
@@ -1121,6 +1121,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
@@ -1131,9 +1132,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
@@ -1294,6 +1296,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
@@ -1304,9 +1307,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
@@ -1467,6 +1471,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -1476,9 +1481,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
@@ -1784,9 +1790,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -1938,7 +1941,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -2095,11 +2097,7 @@ impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
@@ -3746,6 +3744,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::DigitalZoomToggle
 pub grafton_visca::capabilities::TypedSupportSurface::DirectMenu
 pub grafton_visca::capabilities::TypedSupportSurface::DirectZoom
 pub grafton_visca::capabilities::TypedSupportSurface::ExposureCompensation
+pub grafton_visca::capabilities::TypedSupportSurface::ExposureMode
 pub grafton_visca::capabilities::TypedSupportSurface::FocusLock
 pub grafton_visca::capabilities::TypedSupportSurface::FocusNearLimitInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::FocusZone
@@ -3755,12 +3754,14 @@ pub grafton_visca::capabilities::TypedSupportSurface::HueControl
 pub grafton_visca::capabilities::TypedSupportSurface::ImageFlip
 pub grafton_visca::capabilities::TypedSupportSurface::ImageMirror
 pub grafton_visca::capabilities::TypedSupportSurface::IrisControl
+pub grafton_visca::capabilities::TypedSupportSurface::IrisControlInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::LuminanceControl
 pub grafton_visca::capabilities::TypedSupportSurface::MotionSync
 pub grafton_visca::capabilities::TypedSupportSurface::NdFilter
-pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction
 pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction2D
+pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction2DControl
 pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction3D
+pub grafton_visca::capabilities::TypedSupportSurface::NoiseReduction3DControl
 pub grafton_visca::capabilities::TypedSupportSurface::OnePushFocus
 pub grafton_visca::capabilities::TypedSupportSurface::OnePushWhiteBalance
 pub grafton_visca::capabilities::TypedSupportSurface::PictureEffect
@@ -3782,7 +3783,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::UsbAudio
 pub grafton_visca::capabilities::TypedSupportSurface::VariableSpeed
 pub grafton_visca::capabilities::TypedSupportSurface::WideDynamicRange
 impl grafton_visca::capabilities::TypedSupportSurface
-pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 48]
+pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 51]
 impl core::clone::Clone for grafton_visca::capabilities::TypedSupportSurface
 pub fn grafton_visca::capabilities::TypedSupportSurface::clone(&self) -> grafton_visca::capabilities::TypedSupportSurface
 impl core::cmp::Eq for grafton_visca::capabilities::TypedSupportSurface
@@ -4343,6 +4344,10 @@ impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::cam
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasExposureMode
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG3
 pub trait grafton_visca::capabilities::HasFocus
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::focus::Focus> grafton_visca::capabilities::HasFocus for T
 pub trait grafton_visca::capabilities::HasFocusLock
@@ -4401,7 +4406,7 @@ pub trait grafton_visca::capabilities::HasIrisControl
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasIrisControlInquiry
 pub trait grafton_visca::capabilities::HasLuminanceControl
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
@@ -4411,25 +4416,22 @@ impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabiliti
 pub trait grafton_visca::capabilities::HasMotionSync
 pub trait grafton_visca::capabilities::HasNdFilter
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
-pub trait grafton_visca::capabilities::HasNoiseReduction
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasNoiseReduction2D
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasNoiseReduction2DControl
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG3
 pub trait grafton_visca::capabilities::HasNoiseReduction3D
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasNoiseReduction3DControl
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG3
 pub trait grafton_visca::capabilities::HasOnePushFocus
 pub trait grafton_visca::capabilities::HasOnePushWhiteBalance
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
@@ -6051,13 +6053,10 @@ pub grafton_visca::command::InquiryData::NightDaySwitch
 pub grafton_visca::command::InquiryData::NightDaySwitch::enabled: bool
 pub grafton_visca::command::InquiryData::NoiseReduction2D
 pub grafton_visca::command::InquiryData::NoiseReduction2D::level: u8
+pub grafton_visca::command::InquiryData::NoiseReduction2DMode
+pub grafton_visca::command::InquiryData::NoiseReduction2DMode::mode: grafton_visca::command::NoiseReduction2DMode
 pub grafton_visca::command::InquiryData::NoiseReduction3D
 pub grafton_visca::command::InquiryData::NoiseReduction3D::level: u8
-pub grafton_visca::command::InquiryData::NoiseReductionLevel(u8)
-pub grafton_visca::command::InquiryData::NoiseReductionMode
-pub grafton_visca::command::InquiryData::NoiseReductionMode::mode: grafton_visca::command::NoiseReductionMode
-pub grafton_visca::command::InquiryData::NoiseReductionSpeed
-pub grafton_visca::command::InquiryData::NoiseReductionSpeed::speed: grafton_visca::command::NoiseReductionSpeed
 pub grafton_visca::command::InquiryData::PanTiltPosition
 pub grafton_visca::command::InquiryData::PanTiltPosition::pan: i32
 pub grafton_visca::command::InquiryData::PanTiltPosition::tilt: i32
@@ -6171,10 +6170,8 @@ pub grafton_visca::command::InquiryKind::NightDayMode
 pub grafton_visca::command::InquiryKind::NightDayPosition
 pub grafton_visca::command::InquiryKind::NightDaySwitch
 pub grafton_visca::command::InquiryKind::NoiseReduction2D
+pub grafton_visca::command::InquiryKind::NoiseReduction2DMode
 pub grafton_visca::command::InquiryKind::NoiseReduction3D
-pub grafton_visca::command::InquiryKind::NoiseReductionLevel
-pub grafton_visca::command::InquiryKind::NoiseReductionMode
-pub grafton_visca::command::InquiryKind::NoiseReductionSpeed
 pub grafton_visca::command::InquiryKind::PanTiltPosition
 pub grafton_visca::command::InquiryKind::PictureEffect
 pub grafton_visca::command::InquiryKind::Power
@@ -6496,59 +6493,32 @@ impl core::marker::Unpin for grafton_visca::command::NightDayMode
 impl core::marker::UnsafeUnpin for grafton_visca::command::NightDayMode
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NightDayMode
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NightDayMode
-pub enum grafton_visca::command::NoiseReductionMode
-pub grafton_visca::command::NoiseReductionMode::Off = 2
-pub grafton_visca::command::NoiseReductionMode::On = 3
-impl grafton_visca::command::NoiseReductionMode
-pub const fn grafton_visca::command::NoiseReductionMode::is_valid_discriminant(u8) -> bool
-impl core::clone::Clone for grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NoiseReductionMode::clone(&self) -> grafton_visca::command::NoiseReductionMode
-impl core::cmp::Eq for grafton_visca::command::NoiseReductionMode
-impl core::cmp::PartialEq for grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NoiseReductionMode::eq(&self, &grafton_visca::command::NoiseReductionMode) -> bool
-impl core::convert::From<grafton_visca::command::NoiseReductionMode> for u8
-pub fn u8::from(grafton_visca::command::NoiseReductionMode) -> Self
-impl core::convert::TryFrom<u8> for grafton_visca::command::NoiseReductionMode
-pub type grafton_visca::command::NoiseReductionMode::Error = grafton_visca::Error
-pub fn grafton_visca::command::NoiseReductionMode::try_from(u8) -> core::result::Result<Self, Self::Error>
-impl core::fmt::Debug for grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NoiseReductionMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::NoiseReductionMode
-impl core::marker::StructuralPartialEq for grafton_visca::command::NoiseReductionMode
-impl core::marker::Freeze for grafton_visca::command::NoiseReductionMode
-impl core::marker::Send for grafton_visca::command::NoiseReductionMode
-impl core::marker::Sync for grafton_visca::command::NoiseReductionMode
-impl core::marker::Unpin for grafton_visca::command::NoiseReductionMode
-impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReductionMode
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReductionMode
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReductionMode
-pub enum grafton_visca::command::NoiseReductionSpeed
-pub grafton_visca::command::NoiseReductionSpeed::Fast = 2
-pub grafton_visca::command::NoiseReductionSpeed::Normal = 1
-pub grafton_visca::command::NoiseReductionSpeed::Slow = 0
-impl grafton_visca::command::NoiseReductionSpeed
-pub const fn grafton_visca::command::NoiseReductionSpeed::is_valid_discriminant(u8) -> bool
-impl core::clone::Clone for grafton_visca::command::NoiseReductionSpeed
-pub fn grafton_visca::command::NoiseReductionSpeed::clone(&self) -> grafton_visca::command::NoiseReductionSpeed
-impl core::cmp::Eq for grafton_visca::command::NoiseReductionSpeed
-impl core::cmp::PartialEq for grafton_visca::command::NoiseReductionSpeed
-pub fn grafton_visca::command::NoiseReductionSpeed::eq(&self, &grafton_visca::command::NoiseReductionSpeed) -> bool
-impl core::convert::From<grafton_visca::command::NoiseReductionSpeed> for u8
-pub fn u8::from(grafton_visca::command::NoiseReductionSpeed) -> Self
-impl core::convert::TryFrom<u8> for grafton_visca::command::NoiseReductionSpeed
-pub type grafton_visca::command::NoiseReductionSpeed::Error = grafton_visca::Error
-pub fn grafton_visca::command::NoiseReductionSpeed::try_from(u8) -> core::result::Result<Self, Self::Error>
-impl core::fmt::Debug for grafton_visca::command::NoiseReductionSpeed
-pub fn grafton_visca::command::NoiseReductionSpeed::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::StructuralPartialEq for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::Freeze for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::Send for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::Sync for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::Unpin for grafton_visca::command::NoiseReductionSpeed
-impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReductionSpeed
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReductionSpeed
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReductionSpeed
+pub enum grafton_visca::command::NoiseReduction2DMode
+pub grafton_visca::command::NoiseReduction2DMode::Auto = 2
+pub grafton_visca::command::NoiseReduction2DMode::Manual = 3
+impl grafton_visca::command::NoiseReduction2DMode
+pub const fn grafton_visca::command::NoiseReduction2DMode::is_valid_discriminant(u8) -> bool
+impl core::clone::Clone for grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DMode::clone(&self) -> grafton_visca::command::NoiseReduction2DMode
+impl core::cmp::Eq for grafton_visca::command::NoiseReduction2DMode
+impl core::cmp::PartialEq for grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DMode::eq(&self, &grafton_visca::command::NoiseReduction2DMode) -> bool
+impl core::convert::From<grafton_visca::command::NoiseReduction2DMode> for u8
+pub fn u8::from(grafton_visca::command::NoiseReduction2DMode) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::NoiseReduction2DMode
+pub type grafton_visca::command::NoiseReduction2DMode::Error = grafton_visca::Error
+pub fn grafton_visca::command::NoiseReduction2DMode::try_from(u8) -> core::result::Result<Self, Self::Error>
+impl core::fmt::Debug for grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::StructuralPartialEq for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::Freeze for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::Send for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::Sync for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::Unpin for grafton_visca::command::NoiseReduction2DMode
+impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReduction2DMode
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReduction2DMode
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction2DMode
 pub enum grafton_visca::command::PanTilt
 pub grafton_visca::command::PanTilt::AbsolutePosition
 pub grafton_visca::command::PanTilt::AbsolutePosition::pan: grafton_visca::types::PanPosition
@@ -9241,6 +9211,70 @@ impl core::marker::Unpin for grafton_visca::command::NoiseReduction2DInquiry
 impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReduction2DInquiry
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReduction2DInquiry
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction2DInquiry
+pub struct grafton_visca::command::NoiseReduction2DModeCommand
+pub grafton_visca::command::NoiseReduction2DModeCommand::mode: grafton_visca::command::NoiseReduction2DMode
+impl grafton_visca::command::NoiseReduction2DModeCommand
+pub const fn grafton_visca::command::NoiseReduction2DModeCommand::new(grafton_visca::command::NoiseReduction2DMode) -> Self
+impl core::clone::Clone for grafton_visca::command::NoiseReduction2DModeCommand
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::clone(&self) -> grafton_visca::command::NoiseReduction2DModeCommand
+impl core::fmt::Debug for grafton_visca::command::NoiseReduction2DModeCommand
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::command::NoiseReduction2DModeCommand
+impl grafton_visca::Request for grafton_visca::command::NoiseReduction2DModeCommand
+pub type grafton_visca::command::NoiseReduction2DModeCommand::Class = grafton_visca::request::Plain
+pub const grafton_visca::command::NoiseReduction2DModeCommand::CONTROL_CLASS: grafton_visca::ControlClass
+pub const grafton_visca::command::NoiseReduction2DModeCommand::MAX_SIZE: usize
+pub const grafton_visca::command::NoiseReduction2DModeCommand::RETRY_CLASS: grafton_visca::RetryClass
+pub const grafton_visca::command::NoiseReduction2DModeCommand::TIMEOUT_CLASS: grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::control_class(&self) -> grafton_visca::ControlClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::encoded_size(&self) -> usize
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::retry_class(&self) -> grafton_visca::RetryClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::timeout_class(&self) -> grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+impl core::marker::Freeze for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::marker::Send for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::marker::Sync for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::marker::Unpin for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReduction2DModeCommand
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction2DModeCommand
+pub struct grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::clone::Clone for grafton_visca::command::NoiseReduction2DModeInquiry
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::clone(&self) -> grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::default::Default for grafton_visca::command::NoiseReduction2DModeInquiry
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::default() -> grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::fmt::Debug for grafton_visca::command::NoiseReduction2DModeInquiry
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::command::NoiseReduction2DModeInquiry
+impl grafton_visca::Inquiry for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Response = grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::route(&self) -> grafton_visca::InquiryRoute
+impl grafton_visca::Request for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Class = grafton_visca::request::Inquiry
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::MAX_SIZE: usize
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::control_class(&self) -> grafton_visca::ControlClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::encoded_size(&self) -> usize
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+impl grafton_visca::command::ResponseParser for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Response = grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
+impl core::marker::Freeze for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::marker::Send for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::marker::Sync for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::marker::Unpin for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReduction2DModeInquiry
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction2DModeInquiry
 pub struct grafton_visca::command::NoiseReduction3D
 pub grafton_visca::command::NoiseReduction3D::level: core::option::Option<grafton_visca::types::NoiseReduction3DLevel>
 impl grafton_visca::command::NoiseReduction3D
@@ -9306,108 +9340,6 @@ impl core::marker::Unpin for grafton_visca::command::NoiseReduction3DInquiry
 impl core::marker::UnsafeUnpin for grafton_visca::command::NoiseReduction3DInquiry
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseReduction3DInquiry
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction3DInquiry
-pub struct grafton_visca::command::NrLevelInquiry
-impl core::clone::Clone for grafton_visca::command::NrLevelInquiry
-pub fn grafton_visca::command::NrLevelInquiry::clone(&self) -> grafton_visca::command::NrLevelInquiry
-impl core::default::Default for grafton_visca::command::NrLevelInquiry
-pub fn grafton_visca::command::NrLevelInquiry::default() -> grafton_visca::command::NrLevelInquiry
-impl core::fmt::Debug for grafton_visca::command::NrLevelInquiry
-pub fn grafton_visca::command::NrLevelInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::NrLevelInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Response = grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::command::NrLevelInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrLevelInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrLevelInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrLevelInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrLevelInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrLevelInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrLevelInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrLevelInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrLevelInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrLevelInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrLevelInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrLevelInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrLevelInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Response = grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::command::NrLevelInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::NrLevelInquiry
-impl core::marker::Send for grafton_visca::command::NrLevelInquiry
-impl core::marker::Sync for grafton_visca::command::NrLevelInquiry
-impl core::marker::Unpin for grafton_visca::command::NrLevelInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::NrLevelInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NrLevelInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NrLevelInquiry
-pub struct grafton_visca::command::NrModeInquiry
-impl core::clone::Clone for grafton_visca::command::NrModeInquiry
-pub fn grafton_visca::command::NrModeInquiry::clone(&self) -> grafton_visca::command::NrModeInquiry
-impl core::default::Default for grafton_visca::command::NrModeInquiry
-pub fn grafton_visca::command::NrModeInquiry::default() -> grafton_visca::command::NrModeInquiry
-impl core::fmt::Debug for grafton_visca::command::NrModeInquiry
-pub fn grafton_visca::command::NrModeInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::NrModeInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Response = grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NrModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrModeInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrModeInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrModeInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrModeInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Response = grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NrModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::NrModeInquiry
-impl core::marker::Send for grafton_visca::command::NrModeInquiry
-impl core::marker::Sync for grafton_visca::command::NrModeInquiry
-impl core::marker::Unpin for grafton_visca::command::NrModeInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::NrModeInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NrModeInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NrModeInquiry
-pub struct grafton_visca::command::NrSpeedInquiry
-impl core::clone::Clone for grafton_visca::command::NrSpeedInquiry
-pub fn grafton_visca::command::NrSpeedInquiry::clone(&self) -> grafton_visca::command::NrSpeedInquiry
-impl core::default::Default for grafton_visca::command::NrSpeedInquiry
-pub fn grafton_visca::command::NrSpeedInquiry::default() -> grafton_visca::command::NrSpeedInquiry
-impl core::fmt::Debug for grafton_visca::command::NrSpeedInquiry
-pub fn grafton_visca::command::NrSpeedInquiry::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::command::NrSpeedInquiry
-impl grafton_visca::Inquiry for grafton_visca::command::NrSpeedInquiry
-pub type grafton_visca::command::NrSpeedInquiry::Response = grafton_visca::command::Response
-pub fn grafton_visca::command::NrSpeedInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrSpeedInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Request for grafton_visca::command::NrSpeedInquiry
-pub type grafton_visca::command::NrSpeedInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrSpeedInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrSpeedInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrSpeedInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrSpeedInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrSpeedInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrSpeedInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrSpeedInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrSpeedInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrSpeedInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrSpeedInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrSpeedInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl core::marker::Freeze for grafton_visca::command::NrSpeedInquiry
-impl core::marker::Send for grafton_visca::command::NrSpeedInquiry
-impl core::marker::Sync for grafton_visca::command::NrSpeedInquiry
-impl core::marker::Unpin for grafton_visca::command::NrSpeedInquiry
-impl core::marker::UnsafeUnpin for grafton_visca::command::NrSpeedInquiry
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NrSpeedInquiry
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NrSpeedInquiry
 pub struct grafton_visca::command::OnePushTriggerCommand
 impl grafton_visca::command::OnePushTriggerCommand
 pub fn grafton_visca::command::OnePushTriggerCommand::new() -> Self
@@ -11173,15 +11105,12 @@ pub fn grafton_visca::command::NightDayModeInquiry::from_response(grafton_visca:
 impl grafton_visca::command::ResponseParser for grafton_visca::command::NoiseReduction2DInquiry
 pub type grafton_visca::command::NoiseReduction2DInquiry::Response = grafton_visca::types::NoiseReduction2DLevel
 pub fn grafton_visca::command::NoiseReduction2DInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
+impl grafton_visca::command::ResponseParser for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Response = grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
 impl grafton_visca::command::ResponseParser for grafton_visca::command::NoiseReduction3DInquiry
 pub type grafton_visca::command::NoiseReduction3DInquiry::Response = grafton_visca::types::NoiseReduction3DLevel
 pub fn grafton_visca::command::NoiseReduction3DInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Response = grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::command::NrLevelInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
-impl grafton_visca::command::ResponseParser for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Response = grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NrModeInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
 impl grafton_visca::command::ResponseParser for grafton_visca::command::PanTiltPositionInquiry
 pub type grafton_visca::command::PanTiltPositionInquiry::Response = grafton_visca::camera::PanTiltPosition
 pub fn grafton_visca::command::PanTiltPositionInquiry::from_response(grafton_visca::command::Response) -> core::result::Result<Self::Response, grafton_visca::Error>
@@ -12468,16 +12397,16 @@ pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_limit
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_reset(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::gain_up(&self) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris(&self) -> grafton_visca::Result<grafton_visca::types::IrisLevel> where P: grafton_visca::capabilities::HasIrisControl
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_control(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasIrisControl
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_control(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasIrisControlInquiry
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_direct(&self, grafton_visca::types::IrisLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::iris_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasIrisControl
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode>
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::mode(&self) -> grafton_visca::Result<grafton_visca::command::ExposureMode> where P: grafton_visca::capabilities::HasExposureMode
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_anti_flicker(&self, grafton_visca::command::AntiFlickerMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsAntiFlicker
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_dynamic_range(&self, grafton_visca::types::DynamicRangeLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasWideDynamicRange
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_gain_limit(&self, grafton_visca::types::GainLimit) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()>
+pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::set_mode(&self, grafton_visca::command::ExposureMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasExposureMode
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter(&self) -> grafton_visca::Result<grafton_visca::types::ShutterSpeed>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter_direct(&self, grafton_visca::types::ShutterSpeed) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::shutter_down(&self) -> grafton_visca::Result<()>
@@ -12713,8 +12642,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::decrease_shar
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::disable_noise_reduction_3d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3DControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
@@ -12726,9 +12655,8 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::hue(&self) ->
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::increase_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::luminance(&self) -> grafton_visca::Result<grafton_visca::types::LuminanceLevel> where P: grafton_visca::capabilities::HasLuminanceControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_2d(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReduction2DLevel> where P: grafton_visca::capabilities::HasNoiseReduction2D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_2d_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReduction2DMode> where P: grafton_visca::capabilities::HasNoiseReduction2D
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_3d(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReduction3DLevel> where P: grafton_visca::capabilities::HasNoiseReduction3D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_level(&self) -> grafton_visca::Result<grafton_visca::types::NoiseReductionLevel> where P: grafton_visca::capabilities::HasNoiseReduction
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::noise_reduction_mode(&self) -> grafton_visca::Result<grafton_visca::command::NoiseReductionMode> where P: grafton_visca::capabilities::HasNoiseReduction
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::picture_effect(&self) -> grafton_visca::Result<grafton_visca::PictureEffectMode> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::reset_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::saturation(&self) -> grafton_visca::Result<grafton_visca::types::SaturationLevel> where P: grafton_visca::capabilities::HasSaturationControl
@@ -12739,8 +12667,9 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_flip_mode
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_gamma(&self, grafton_visca::types::GammaLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasGammaControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_hue(&self, grafton_visca::types::HueLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasHueControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_luminance(&self, grafton_visca::types::LuminanceLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasLuminanceControl
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d(&self, grafton_visca::types::NoiseReduction2DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2D
-pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_3d(&self, grafton_visca::types::NoiseReduction3DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3D
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d(&self, grafton_visca::types::NoiseReduction2DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_2d_mode(&self, grafton_visca::command::NoiseReduction2DMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
+pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_noise_reduction_3d(&self, grafton_visca::types::NoiseReduction3DLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction3DControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_picture_effect(&self, grafton_visca::PictureEffectMode) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPictureEffect
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_saturation(&self, grafton_visca::types::SaturationLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSaturationControl
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::set_sharpness(&self, grafton_visca::types::SharpnessLevel) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
@@ -13332,6 +13261,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
@@ -13342,9 +13272,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
@@ -13505,6 +13436,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
@@ -13515,9 +13447,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
@@ -13678,6 +13611,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -13687,9 +13621,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
@@ -14117,9 +14052,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -14271,7 +14203,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -14428,11 +14359,7 @@ impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
@@ -15556,6 +15483,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOptics30X
@@ -15566,9 +15494,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOptics30X
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOptics30X
@@ -15729,6 +15658,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasFocusZoneInquiry for grafton_visca::camera::profiles::PtzOpticsG2
@@ -15739,9 +15669,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG2
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG2
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG2
@@ -15902,6 +15833,7 @@ impl grafton_visca::capabilities::HasCombinedImageFlip for grafton_visca::camera
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusLock for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasFocusZone for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::PtzOpticsG3
@@ -15911,9 +15843,10 @@ impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOpticsG3
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction2DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasNoiseReduction3DControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPictureEffect for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasPtzOpticsAntiFlicker for grafton_visca::camera::profiles::PtzOpticsG3
@@ -16219,9 +16152,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -16373,7 +16303,6 @@ impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -16530,11 +16459,7 @@ impl grafton_visca::capabilities::HasHueControl for grafton_visca::camera::profi
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasNdFilter for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction2D for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasNoiseReduction3D for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasRgbGain for grafton_visca::camera::profiles::SonyFR7
@@ -18754,38 +18679,6 @@ impl core::marker::Unpin for grafton_visca::types::NdiQuality
 impl core::marker::UnsafeUnpin for grafton_visca::types::NdiQuality
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::NdiQuality
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::NdiQuality
-pub enum grafton_visca::types::NoiseReductionStrength
-pub grafton_visca::types::NoiseReductionStrength::Light
-pub grafton_visca::types::NoiseReductionStrength::Maximum
-pub grafton_visca::types::NoiseReductionStrength::Medium
-pub grafton_visca::types::NoiseReductionStrength::Minimal
-pub grafton_visca::types::NoiseReductionStrength::Off
-pub grafton_visca::types::NoiseReductionStrength::Strong
-impl grafton_visca::types::NoiseReductionStrength
-pub fn grafton_visca::types::NoiseReductionStrength::to_2d_level(self) -> core::result::Result<u8, grafton_visca::Error>
-pub fn grafton_visca::types::NoiseReductionStrength::to_3d_level(self) -> core::result::Result<u8, grafton_visca::Error>
-impl core::clone::Clone for grafton_visca::types::NoiseReductionStrength
-pub fn grafton_visca::types::NoiseReductionStrength::clone(&self) -> grafton_visca::types::NoiseReductionStrength
-impl core::cmp::Eq for grafton_visca::types::NoiseReductionStrength
-impl core::cmp::PartialEq for grafton_visca::types::NoiseReductionStrength
-pub fn grafton_visca::types::NoiseReductionStrength::eq(&self, &grafton_visca::types::NoiseReductionStrength) -> bool
-impl core::convert::TryFrom<grafton_visca::types::NoiseReductionStrength> for grafton_visca::types::NoiseReduction2DLevel
-pub type grafton_visca::types::NoiseReduction2DLevel::Error = grafton_visca::Error
-pub fn grafton_visca::types::NoiseReduction2DLevel::try_from(grafton_visca::types::NoiseReductionStrength) -> core::result::Result<Self, Self::Error>
-impl core::convert::TryFrom<grafton_visca::types::NoiseReductionStrength> for grafton_visca::types::NoiseReduction3DLevel
-pub type grafton_visca::types::NoiseReduction3DLevel::Error = grafton_visca::Error
-pub fn grafton_visca::types::NoiseReduction3DLevel::try_from(grafton_visca::types::NoiseReductionStrength) -> core::result::Result<Self, Self::Error>
-impl core::fmt::Debug for grafton_visca::types::NoiseReductionStrength
-pub fn grafton_visca::types::NoiseReductionStrength::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::types::NoiseReductionStrength
-impl core::marker::StructuralPartialEq for grafton_visca::types::NoiseReductionStrength
-impl core::marker::Freeze for grafton_visca::types::NoiseReductionStrength
-impl core::marker::Send for grafton_visca::types::NoiseReductionStrength
-impl core::marker::Sync for grafton_visca::types::NoiseReductionStrength
-impl core::marker::Unpin for grafton_visca::types::NoiseReductionStrength
-impl core::marker::UnsafeUnpin for grafton_visca::types::NoiseReductionStrength
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::NoiseReductionStrength
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::NoiseReductionStrength
 pub enum grafton_visca::types::SpeedLevel
 pub grafton_visca::types::SpeedLevel::Fast
 pub grafton_visca::types::SpeedLevel::Fastest
@@ -19092,6 +18985,8 @@ impl core::cmp::PartialEq for grafton_visca::types::ExposureCompensationLevel
 pub fn grafton_visca::types::ExposureCompensationLevel::eq(&self, &grafton_visca::types::ExposureCompensationLevel) -> bool
 impl core::cmp::PartialOrd for grafton_visca::types::ExposureCompensationLevel
 pub fn grafton_visca::types::ExposureCompensationLevel::partial_cmp(&self, &grafton_visca::types::ExposureCompensationLevel) -> core::option::Option<core::cmp::Ordering>
+impl core::convert::From<grafton_visca::types::ExposureCompensationLevel> for i8
+pub fn i8::from(grafton_visca::types::ExposureCompensationLevel) -> Self
 impl core::convert::TryFrom<i8> for grafton_visca::types::ExposureCompensationLevel
 pub type grafton_visca::types::ExposureCompensationLevel::Error = grafton_visca::Error
 pub fn grafton_visca::types::ExposureCompensationLevel::try_from(i8) -> core::result::Result<Self, Self::Error>
@@ -19468,9 +19363,6 @@ impl core::cmp::PartialEq for grafton_visca::types::NoiseReduction2DLevel
 pub fn grafton_visca::types::NoiseReduction2DLevel::eq(&self, &grafton_visca::types::NoiseReduction2DLevel) -> bool
 impl core::convert::From<grafton_visca::types::NoiseReduction2DLevel> for u8
 pub fn u8::from(grafton_visca::types::NoiseReduction2DLevel) -> Self
-impl core::convert::TryFrom<grafton_visca::types::NoiseReductionStrength> for grafton_visca::types::NoiseReduction2DLevel
-pub type grafton_visca::types::NoiseReduction2DLevel::Error = grafton_visca::Error
-pub fn grafton_visca::types::NoiseReduction2DLevel::try_from(grafton_visca::types::NoiseReductionStrength) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<u8> for grafton_visca::types::NoiseReduction2DLevel
 pub type grafton_visca::types::NoiseReduction2DLevel::Error = grafton_visca::Error
 pub fn grafton_visca::types::NoiseReduction2DLevel::try_from(u8) -> core::result::Result<Self, Self::Error>
@@ -19500,9 +19392,6 @@ impl core::cmp::PartialEq for grafton_visca::types::NoiseReduction3DLevel
 pub fn grafton_visca::types::NoiseReduction3DLevel::eq(&self, &grafton_visca::types::NoiseReduction3DLevel) -> bool
 impl core::convert::From<grafton_visca::types::NoiseReduction3DLevel> for u8
 pub fn u8::from(grafton_visca::types::NoiseReduction3DLevel) -> Self
-impl core::convert::TryFrom<grafton_visca::types::NoiseReductionStrength> for grafton_visca::types::NoiseReduction3DLevel
-pub type grafton_visca::types::NoiseReduction3DLevel::Error = grafton_visca::Error
-pub fn grafton_visca::types::NoiseReduction3DLevel::try_from(grafton_visca::types::NoiseReductionStrength) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<u8> for grafton_visca::types::NoiseReduction3DLevel
 pub type grafton_visca::types::NoiseReduction3DLevel::Error = grafton_visca::Error
 pub fn grafton_visca::types::NoiseReduction3DLevel::try_from(u8) -> core::result::Result<Self, Self::Error>
@@ -19519,35 +19408,6 @@ impl core::marker::Unpin for grafton_visca::types::NoiseReduction3DLevel
 impl core::marker::UnsafeUnpin for grafton_visca::types::NoiseReduction3DLevel
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::NoiseReduction3DLevel
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::NoiseReduction3DLevel
-pub struct grafton_visca::types::NoiseReductionLevel(_)
-impl grafton_visca::types::NoiseReductionLevel
-pub const grafton_visca::types::NoiseReductionLevel::MAX: Self
-pub const grafton_visca::types::NoiseReductionLevel::MIN: Self
-pub fn grafton_visca::types::NoiseReductionLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
-pub const fn grafton_visca::types::NoiseReductionLevel::value(self) -> u8
-impl core::clone::Clone for grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::types::NoiseReductionLevel::clone(&self) -> grafton_visca::types::NoiseReductionLevel
-impl core::cmp::Eq for grafton_visca::types::NoiseReductionLevel
-impl core::cmp::PartialEq for grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::types::NoiseReductionLevel::eq(&self, &grafton_visca::types::NoiseReductionLevel) -> bool
-impl core::convert::From<grafton_visca::types::NoiseReductionLevel> for u8
-pub fn u8::from(grafton_visca::types::NoiseReductionLevel) -> Self
-impl core::convert::TryFrom<u8> for grafton_visca::types::NoiseReductionLevel
-pub type grafton_visca::types::NoiseReductionLevel::Error = grafton_visca::Error
-pub fn grafton_visca::types::NoiseReductionLevel::try_from(u8) -> core::result::Result<Self, Self::Error>
-impl core::fmt::Debug for grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::types::NoiseReductionLevel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::fmt::Display for grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::types::NoiseReductionLevel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::types::NoiseReductionLevel
-impl core::marker::StructuralPartialEq for grafton_visca::types::NoiseReductionLevel
-impl core::marker::Freeze for grafton_visca::types::NoiseReductionLevel
-impl core::marker::Send for grafton_visca::types::NoiseReductionLevel
-impl core::marker::Sync for grafton_visca::types::NoiseReductionLevel
-impl core::marker::Unpin for grafton_visca::types::NoiseReductionLevel
-impl core::marker::UnsafeUnpin for grafton_visca::types::NoiseReductionLevel
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::NoiseReductionLevel
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::NoiseReductionLevel
 pub struct grafton_visca::types::PanPosition(_)
 impl grafton_visca::types::PanPosition
 pub const grafton_visca::types::PanPosition::CENTER: Self
@@ -22333,22 +22193,14 @@ impl grafton_visca::Inquiry for grafton_visca::command::NoiseReduction2DInquiry
 pub type grafton_visca::command::NoiseReduction2DInquiry::Response = grafton_visca::types::NoiseReduction2DLevel
 pub fn grafton_visca::command::NoiseReduction2DInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
 pub fn grafton_visca::command::NoiseReduction2DInquiry::route(&self) -> grafton_visca::InquiryRoute
+impl grafton_visca::Inquiry for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Response = grafton_visca::command::NoiseReduction2DMode
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::route(&self) -> grafton_visca::InquiryRoute
 impl grafton_visca::Inquiry for grafton_visca::command::NoiseReduction3DInquiry
 pub type grafton_visca::command::NoiseReduction3DInquiry::Response = grafton_visca::types::NoiseReduction3DLevel
 pub fn grafton_visca::command::NoiseReduction3DInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
 pub fn grafton_visca::command::NoiseReduction3DInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Response = grafton_visca::types::NoiseReductionLevel
-pub fn grafton_visca::command::NrLevelInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrLevelInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Response = grafton_visca::command::NoiseReductionMode
-pub fn grafton_visca::command::NrModeInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrModeInquiry::route(&self) -> grafton_visca::InquiryRoute
-impl grafton_visca::Inquiry for grafton_visca::command::NrSpeedInquiry
-pub type grafton_visca::command::NrSpeedInquiry::Response = grafton_visca::command::Response
-pub fn grafton_visca::command::NrSpeedInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
-pub fn grafton_visca::command::NrSpeedInquiry::route(&self) -> grafton_visca::InquiryRoute
 impl grafton_visca::Inquiry for grafton_visca::command::PanTiltPositionInquiry
 pub type grafton_visca::command::PanTiltPositionInquiry::Response = grafton_visca::camera::PanTiltPosition
 pub fn grafton_visca::command::PanTiltPositionInquiry::decoder(&self) -> grafton_visca::ResponseDecoder<Self::Response>
@@ -23447,6 +23299,32 @@ pub fn grafton_visca::command::NoiseReduction2DInquiry::retry_class(&self) -> gr
 pub fn grafton_visca::command::NoiseReduction2DInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::command::NoiseReduction2DInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::NoiseReduction2DInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+impl grafton_visca::Request for grafton_visca::command::NoiseReduction2DModeCommand
+pub type grafton_visca::command::NoiseReduction2DModeCommand::Class = grafton_visca::request::Plain
+pub const grafton_visca::command::NoiseReduction2DModeCommand::CONTROL_CLASS: grafton_visca::ControlClass
+pub const grafton_visca::command::NoiseReduction2DModeCommand::MAX_SIZE: usize
+pub const grafton_visca::command::NoiseReduction2DModeCommand::RETRY_CLASS: grafton_visca::RetryClass
+pub const grafton_visca::command::NoiseReduction2DModeCommand::TIMEOUT_CLASS: grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::control_class(&self) -> grafton_visca::ControlClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::encoded_size(&self) -> usize
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::retry_class(&self) -> grafton_visca::RetryClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::timeout_class(&self) -> grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::command::NoiseReduction2DModeCommand::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
+impl grafton_visca::Request for grafton_visca::command::NoiseReduction2DModeInquiry
+pub type grafton_visca::command::NoiseReduction2DModeInquiry::Class = grafton_visca::request::Inquiry
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::MAX_SIZE: usize
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
+pub const grafton_visca::command::NoiseReduction2DModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::control_class(&self) -> grafton_visca::ControlClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::encoded_size(&self) -> usize
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
+pub fn grafton_visca::command::NoiseReduction2DModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::command::NoiseReduction3D
 pub type grafton_visca::command::NoiseReduction3D::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::NoiseReduction3D::CONTROL_CLASS: grafton_visca::ControlClass
@@ -23473,45 +23351,6 @@ pub fn grafton_visca::command::NoiseReduction3DInquiry::retry_class(&self) -> gr
 pub fn grafton_visca::command::NoiseReduction3DInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::command::NoiseReduction3DInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::NoiseReduction3DInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::NrLevelInquiry
-pub type grafton_visca::command::NrLevelInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrLevelInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrLevelInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrLevelInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrLevelInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrLevelInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrLevelInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrLevelInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrLevelInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrLevelInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrLevelInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrLevelInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::NrModeInquiry
-pub type grafton_visca::command::NrModeInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrModeInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrModeInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrModeInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrModeInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrModeInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrModeInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrModeInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrModeInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrModeInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrModeInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrModeInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
-impl grafton_visca::Request for grafton_visca::command::NrSpeedInquiry
-pub type grafton_visca::command::NrSpeedInquiry::Class = grafton_visca::request::Inquiry
-pub const grafton_visca::command::NrSpeedInquiry::CONTROL_CLASS: grafton_visca::ControlClass
-pub const grafton_visca::command::NrSpeedInquiry::MAX_SIZE: usize
-pub const grafton_visca::command::NrSpeedInquiry::RETRY_CLASS: grafton_visca::RetryClass
-pub const grafton_visca::command::NrSpeedInquiry::TIMEOUT_CLASS: grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrSpeedInquiry::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::command::NrSpeedInquiry::encoded_size(&self) -> usize
-pub fn grafton_visca::command::NrSpeedInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
-pub fn grafton_visca::command::NrSpeedInquiry::retry_class(&self) -> grafton_visca::RetryClass
-pub fn grafton_visca::command::NrSpeedInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::NrSpeedInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::command::NrSpeedInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::command::OnePushTriggerCommand
 pub type grafton_visca::command::OnePushTriggerCommand::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::OnePushTriggerCommand::CONTROL_CLASS: grafton_visca::ControlClass

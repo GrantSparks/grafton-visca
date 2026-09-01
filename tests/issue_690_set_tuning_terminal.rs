@@ -6,7 +6,8 @@
 //! poisoned or closed session — a silent no-op contradicting its contract. It
 //! now takes the same `enter` turn every submission does: a live session still
 //! reconfigures, a re-entrant call is `TransportBusy`, and a terminated session
-//! yields its terminal error.
+//! yields its terminal error. Profile validation failures travel through that
+//! turn too, so an invalid proposal cannot mask an existing terminal cause.
 
 #![cfg(feature = "blocking")]
 
@@ -126,6 +127,26 @@ fn set_tuning_on_a_live_session_still_succeeds() {
 }
 
 #[test]
+fn set_tuning_on_a_live_session_rejects_invalid_tuning_without_changing_it() {
+    let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
+    let installed = OperationalTuning::new().command_spacing(Duration::from_millis(40));
+    session
+        .set_tuning(installed)
+        .expect("a live session accepts valid tuning");
+
+    let error = session
+        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
+        .expect_err("a live session still rejects a zero protocol timeout");
+    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+    assert_eq!(
+        session.tuning(),
+        installed,
+        "a rejected live update leaves the installed tuning unchanged"
+    );
+    session.shutdown().expect("owner shutdown");
+}
+
+#[test]
 fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
     let config = raw_config()
         .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
@@ -143,15 +164,25 @@ fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
         assert!(matches!(error, Error::StreamPoisoned { .. }));
     }
 
-    // Before the fix this returned Ok(()) even though the session was poisoned.
+    // A strict-valued update is invalid on a live owner, but the retained
+    // terminal cause has precedence once the owner is poisoned. A facade-level
+    // validation would incorrectly return InvalidRequest here.
     let error = session
-        .set_tuning(OperationalTuning::new())
+        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(false))
         .expect_err("set_tuning must not silently succeed on a poisoned session");
     assert!(
         matches!(error, Error::StreamPoisoned { .. }),
         "set_tuning surfaces the session's terminal error, got {error:?}"
     );
     assert!(error.requires_new_session());
+
+    let error = session
+        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
+        .expect_err("profile validation cannot mask an existing poison");
+    assert!(
+        matches!(error, Error::StreamPoisoned { .. }),
+        "set_tuning gives the poison precedence over InvalidRequest, got {error:?}"
+    );
 }
 
 #[test]
@@ -159,12 +190,21 @@ fn set_tuning_on_a_closed_session_returns_the_terminal_error() {
     let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
     session.shutdown().expect("clean shutdown");
 
-    // The session is Shutdown; a retune must report that, not succeed silently.
+    // The session is Shutdown; even an otherwise-invalid strict policy change
+    // must report that retained terminal cause rather than InvalidRequest.
     let error = session
-        .set_tuning(OperationalTuning::new())
+        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
         .expect_err("set_tuning must not silently succeed on a closed session");
     assert!(
         matches!(error, Error::RuntimeShutdown),
         "set_tuning surfaces the shutdown boundary, got {error:?}"
+    );
+
+    let error = session
+        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
+        .expect_err("profile validation cannot mask a completed shutdown");
+    assert!(
+        matches!(error, Error::RuntimeShutdown),
+        "set_tuning gives shutdown precedence over InvalidRequest, got {error:?}"
     );
 }

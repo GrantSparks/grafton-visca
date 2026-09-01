@@ -700,12 +700,27 @@ pub trait Request: Send + Sync {
     }
 
     /// Writes the complete terminated VISCA request into `buffer`.
+    ///
+    /// This is only the profile-free encoding hook: it receives the explicit
+    /// target address, but not a [`crate::ProfileSpec`]. Do not use it for
+    /// capability or profile-range validation. Shared preparation calls
+    /// [`Self::validate_for_profile`] first and encodes only after that check
+    /// succeeds.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError>;
 
     /// Validates value-specific capability and range facts before encoding.
     ///
-    /// Custom requests with no profile-specific constraints may use the default.
-    /// Built-ins and derives that carry constrained values override this hook.
+    /// Every request submitted through a direct generic or noun path reaches
+    /// this hook during preparation, before encoding, owner admission, or
+    /// transport I/O. Crate-provided requests override it to return
+    /// [`Error::FeatureNotSupported`] when the selected profile lacks a
+    /// required feature.
+    ///
+    /// Raw and other downstream requests are explicit low-level extensions:
+    /// they may override this hook with their own profile validation, while a
+    /// custom request with no profile-specific constraints may use the default.
+    /// The direct generic APIs intentionally do not replace the noun/accessor
+    /// `Has*` marker bounds with request-specific compile-time `P` bounds.
     fn validate_for_profile(&self, _profile: &crate::ProfileSpec) -> Result<()> {
         Ok(())
     }

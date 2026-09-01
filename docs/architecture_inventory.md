@@ -42,14 +42,15 @@ The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
 `AutoTrackingWhiteBalance`, `AutoWhiteBalanceSensitivity`, `ColorTemperature`,
 `RgbGain`, `RgbTuning`, `ImageFlip`, `ImageMirror`, `CombinedImageFlip`,
 `ContrastControl`, `SharpnessControl`, `SaturationControl`, `HueControl`,
-`LuminanceControl`, `GammaControl`, `NoiseReduction`, `NoiseReduction2D`,
+`LuminanceControl`, `GammaControl`, `NoiseReduction2D`,
 `NoiseReduction3D`, `PictureEffect`, `Tally`, `DirectMenu`, `NdFilter`,
 `VariableSpeed`, `MotionSync`, `FocusZoneInquiry`, `UsbAudio`,
 `PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
 `PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
-`PtzOpticsMulticastStreaming`, and `PtzOpticsNdiQuality`. The generated
-profile registry remains the single source for marker implementations and
-runtime discovery facts.
+`PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
+`IrisControlInquiry`, `NoiseReduction2DControl`, and
+`NoiseReduction3DControl`. The generated profile registry remains the single
+source for marker implementations and runtime discovery facts.
 
 ## Static nouns and controls
 
@@ -61,6 +62,8 @@ The noun inventory is `PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
 noun names with mode-native return types. The authoritative method inventory is
 the closed semantic ledger and the generated static noun surface; profile-gated
 methods require their corresponding `Has*` marker.
+In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
+`HasExposureMode` rather than inheriting broad `HasExposure` permission.
 
 ## Dynamic controls
 
@@ -68,7 +71,7 @@ The dynamic surface is `DynSessionCamera` plus the object-safe
 `DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
 and `DynMotion`. It also exposes `DynTargetedOperation`,
 `DynAppliedOperation`, and `DynCancellation`. Its checked inventory covers
-146 target-facing command methods and 63 typed inquiry methods, with the same
+147 target-facing command methods and 62 typed inquiry methods, with the same
 semantic classes as the static surface. Dynamic projection erases profile and
 request types only; it does not introduce another runtime, owner, cancellation,
 deadline, outcome, or settling policy. Because it carries no compile-time

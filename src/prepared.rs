@@ -77,13 +77,13 @@ impl ClassSelection {
     }
 }
 
-/// Complete erased physical-settlement selection made before admission.
+/// Complete erased protocol-settlement selection made before admission.
 // The poll plan is intentionally kept inline: moving it behind a box would
 // add an allocation to every targeted preparation.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub(crate) enum SettlementPlan {
-    /// Applied protocol completion is also physical settlement.
+    /// The profile declares the applied protocol completion as settlement evidence.
     CompletionIsSettled {
         target: CameraId,
         default_budget: Duration,
@@ -1072,9 +1072,10 @@ mod tests {
     use crate::{
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
-            BrightnessInquiry, FocusNearLimitInquiry, FocusZoneInquiry, NdFilterPosition, PanTilt,
-            PanTiltLimitCorner, PanTiltPositionInquiry, PictureEffectInquiry, PowerInquiry,
-            UsbAudioInquiry, VersionInquiry, ZoomPositionInquiry, VISCA_TERMINATOR,
+            BrightnessInquiry, ExposureModeInquiry, FocusNearLimitInquiry, FocusZoneInquiry,
+            NdFilterPosition, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
+            PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
+            ZoomPositionInquiry, VISCA_TERMINATOR,
         },
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisReset,
@@ -1547,6 +1548,87 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         assert_rejected_before_encoding(&BrightnessInquiry, &sony_fr7, "BrightnessInquiry");
         assert_rejected_before_encoding(&PictureEffectInquiry, &sony_fr7, "PictureEffectInquiry");
+        assert_rejected_before_encoding(&IrisInquiry, &sony_fr7, "IrisInquiry");
+        assert_rejected_before_encoding(&ExposureModeInquiry, &sony_fr7, "ExposureModeInquiry");
+
+        let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic profile");
+        assert_rejected_before_encoding(
+            &ExposureModeInquiry,
+            &generic,
+            "ExposureModeInquiry without typed shared-AE support",
+        );
+    }
+
+    #[test]
+    fn fr7_raw_auto_iris_inquiry_and_stepped_iris_command_remain_available() {
+        fn decode_raw(payload: &[u8]) -> crate::Result<Vec<u8>> {
+            Ok(payload.to_vec())
+        }
+
+        let fr7 =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
+        let auto_iris = crate::raw::Inquiry::from_fn(
+            [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
+            crate::InquiryRoute::RAW,
+            decode_raw,
+            TimeoutClass::Inquiry,
+            RetryClass::Inquiry,
+            ControlClass::Normal,
+        )
+        .expect("valid raw FR7 auto-iris inquiry");
+        let prepared_inquiry = prepare_inquiry(
+            &auto_iris,
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("raw FR7 auto-iris inquiry remains profile-agnostic");
+        assert_eq!(
+            prepared_inquiry.wire.as_bytes(),
+            &[0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR]
+        );
+
+        let iris_step = crate::raw::Plain::new(
+            [
+                0x81,
+                0x01,
+                0x7E,
+                0x04,
+                0x4B,
+                0x02,
+                0x00,
+                0x01,
+                VISCA_TERMINATOR,
+            ],
+            TimeoutClass::Quick,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect("valid raw FR7 iris-step command");
+        let prepared_command = prepare_command(
+            &iris_step,
+            CameraId::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("raw FR7 iris-step command remains profile-agnostic");
+        assert_eq!(
+            prepared_command.wire.as_bytes(),
+            &[
+                0x81,
+                0x01,
+                0x7E,
+                0x04,
+                0x4B,
+                0x02,
+                0x00,
+                0x01,
+                VISCA_TERMINATOR,
+            ]
+        );
     }
 
     /// Issue #684: a base-domain inquiry (`power().state()`, `zoom().position()`,
@@ -1824,30 +1906,38 @@ mod tests {
     }
 
     #[test]
-    fn iris_and_nd_position_plans_use_only_exact_supported_wires() {
+    fn fr7_rejects_iris_position_plans_but_keeps_its_nd_wire() {
         let fr7 =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
-        let axes = AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER);
-        let plan =
-            prepare_position_queries(CameraId::CAMERA_2, &fr7, OperationalTuning::new(), axes)
-                .expect("FR7 supports both scalar position inquiries");
+        let error = prepare_position_queries(
+            CameraId::CAMERA_2,
+            &fr7,
+            OperationalTuning::new(),
+            AffectedAxes::IRIS,
+        )
+        .expect_err("FR7 has no standard iris position inquiry");
+        assert!(matches!(error, Error::FeatureNotSupported { .. }));
+
+        let error = prepare_position_queries(
+            CameraId::CAMERA_2,
+            &fr7,
+            OperationalTuning::new(),
+            AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER),
+        )
+        .expect_err("FR7 cannot combine an unsupported iris inquiry with ND");
+        assert!(matches!(error, Error::FeatureNotSupported { .. }));
+
+        let plan = prepare_position_queries(
+            CameraId::CAMERA_2,
+            &fr7,
+            OperationalTuning::new(),
+            AffectedAxes::ND_FILTER,
+        )
+        .expect("FR7 supports its ND position inquiry");
         assert!(plan.pan_tilt.is_none());
         assert!(plan.zoom.is_none());
         assert!(plan.focus.is_none());
-        assert_eq!(
-            plan.iris
-                .expect("iris inquiry")
-                .instantiate()
-                .wire
-                .as_bytes(),
-            &[
-                CameraId::CAMERA_2.to_address_byte(),
-                0x09,
-                0x04,
-                0x4B,
-                VISCA_TERMINATOR,
-            ]
-        );
+        assert!(plan.iris.is_none());
         assert_eq!(
             plan.nd_filter
                 .expect("ND inquiry")
@@ -1862,19 +1952,6 @@ mod tests {
                 VISCA_TERMINATOR,
             ]
         );
-
-        let mixed = prepare_position_queries(
-            CameraId::CAMERA_2,
-            &fr7,
-            OperationalTuning::new(),
-            AffectedAxes::PAN_TILT.union(AffectedAxes::IRIS),
-        )
-        .expect("mixed plan");
-        assert!(mixed.pan_tilt.is_some());
-        assert!(mixed.iris.is_some());
-        assert!(mixed.zoom.is_none());
-        assert!(mixed.focus.is_none());
-        assert!(mixed.nd_filter.is_none());
     }
 
     #[test]
@@ -1882,33 +1959,16 @@ mod tests {
         let fr7 =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
 
-        let iris = prepare_builtin_operation::<completion::Targeted, _>(
+        reset_request_write_count();
+        let error = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
             CameraId::CAMERA_2,
             &fr7,
             OperationalTuning::new(),
         )
-        .expect("FR7 iris operation");
-        let SettlementPlan::Poll {
-            target,
-            queries,
-            axes,
-            ..
-        } = iris
-            .settlement
-            .into_plan()
-            .expect("targeted iris settlement")
-            .into_inner()
-        else {
-            panic!("FR7 must poll scalar positions without operation-complete support");
-        };
-        assert_eq!(target, CameraId::CAMERA_2);
-        assert_eq!(axes, AffectedAxes::IRIS);
-        assert!(queries.pan_tilt.is_none());
-        assert!(queries.zoom.is_none());
-        assert!(queries.focus.is_none());
-        assert!(queries.iris.is_some());
-        assert!(queries.nd_filter.is_none());
+        .expect_err("FR7 does not support shared typed iris operations");
+        assert!(matches!(error, Error::FeatureNotSupported { .. }));
+        assert_eq!(request_write_count(), 0);
 
         let nd = prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
