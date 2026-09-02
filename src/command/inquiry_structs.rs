@@ -1899,7 +1899,7 @@ macro_rules! builtin_inquiry_table {
         /// Legacy resolution inquiry retained for 1.x API compatibility.
         ///
         /// No verified VISCA resolution opcode exists. Encoding this command
-        /// returns [`Error::FeatureNotSupported`] without writing to the wire.
+        /// returns [`crate::Error::FeatureNotSupported`] without writing to the wire.
         ResolutionInquiry => {
             const RESOLUTION = [0x81, 0x09, 0x04, 0x63];
             kind: Resolution (ResolutionMode);
