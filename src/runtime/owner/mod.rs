@@ -68,10 +68,10 @@ use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, Vis
 use super::engine::{
     AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Phase,
-    ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
-    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
-    TransmissionMeta,
+    DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
+    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -1523,13 +1523,10 @@ impl OwnerState {
         self.engine.resolve_raw_release_gate(now, evidence)
     }
 
-    /// The next engine wake that remains relevant while the blocking owner
-    /// suppresses ordinary ready dispatch (issue #673).  Protocol deadlines
-    /// and pending cancellation pacing still wake the owner; unrelated ready
-    /// work does not.
+    /// The next engine wake relevant to the selected turn boundary.
     #[cfg(feature = "blocking")]
-    pub(crate) fn next_wake_without_dispatch(&self) -> Option<Instant> {
-        self.engine.next_wake_without_dispatch()
+    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
+        self.engine.next_wake_for(turn)
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
@@ -1538,22 +1535,19 @@ impl OwnerState {
     }
 
     #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn admit_without_due(
+    pub(crate) fn input_with_turn(
         &mut self,
-        ticket: AdmissionTicket,
-        request: RuntimeRequest,
+        input: Input,
         now: Instant,
+        turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.engine.admit_without_due(ticket, request, now).into()
+        self.observe_input(&input);
+        self.engine.handle_turn(input, now, turn).into()
     }
 
     #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn first_dispatch_without_due(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-    ) -> FirstDispatch {
-        self.engine.first_dispatch_without_due(id, now)
+    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
+        self.engine.first_dispatch(id, now)
     }
 
     /// Terminalizes an admitted, still-unwritten request through the engine's
@@ -1561,20 +1555,17 @@ impl OwnerState {
     /// when socket capacity is unavailable, so the temporary observer receives
     /// the rejection and its shared admission permit is released immediately.
     #[cfg(feature = "blocking")]
-    pub(crate) fn reject_unwritten_without_due(
-        &mut self,
-        id: RequestId,
-        error: Error,
-    ) -> VecDeque<Effect> {
-        self.engine.reject_unwritten_without_due(id, error).into()
+    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> VecDeque<Effect> {
+        self.engine.reject_unwritten(id, error).into()
     }
 
     /// Whether the raw single-candidate pre-ACK gate alone blocks a new command
     /// on `target`, so pumping the pending ACK would free a socket for it
-    /// (issue #673). See [`super::engine::ProtocolEngine::raw_preack_gate_frees_socket_on_ack`].
+    /// (issue #673). See
+    /// [`super::engine::ProtocolEngine::raw_ack_input_may_enable_dispatch`].
     #[cfg(feature = "blocking")]
-    pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
-        self.engine.raw_preack_gate_frees_socket_on_ack(target)
+    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
+        self.engine.raw_ack_input_may_enable_dispatch(target)
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1593,18 +1584,12 @@ impl OwnerState {
         self.engine.handle_in_turn(&turn.0, input).into()
     }
 
-    pub(crate) fn finish_input_turn(&mut self, turn: OwnerInputTurn) -> VecDeque<Effect> {
-        self.engine.finish_input_turn(turn.0).into()
-    }
-
-    /// End a decoded-input turn while retained stream input still has priority
-    /// over scheduler deadlines.
-    #[cfg(feature = "async")]
-    pub(crate) fn finish_input_turn_without_due(
+    pub(crate) fn finish_input_turn(
         &mut self,
         turn: OwnerInputTurn,
+        engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.engine.finish_input_turn_without_due(turn.0).into()
+        self.engine.finish_input_turn(turn.0, engine_turn).into()
     }
 
     fn observe_input(&mut self, input: &Input) {
@@ -1634,34 +1619,37 @@ impl OwnerState {
         self.engine.advance(now).into()
     }
 
+    #[cfg(feature = "blocking")]
+    pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> VecDeque<Effect> {
+        self.engine.advance_turn(now, turn).into()
+    }
+
     pub(crate) fn finish_write(
         &mut self,
         staged: &StagedWrite,
         result: Result<TransmissionMeta, Error>,
         now: Instant,
     ) -> VecDeque<Effect> {
+        self.finish_write_turn(staged, result, now, EngineTurn::COMPLETE)
+    }
+
+    pub(crate) fn finish_write_turn(
+        &mut self,
+        staged: &StagedWrite,
+        result: Result<TransmissionMeta, Error>,
+        now: Instant,
+        turn: EngineTurn,
+    ) -> VecDeque<Effect> {
         self.observe_write(staged, &result);
         self.engine
-            .handle(
+            .handle_turn(
                 Input::TransmissionFinished {
                     transmission: staged.transmission,
                     result,
                 },
                 now,
+                turn,
             )
-            .into()
-    }
-
-    #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn finish_write_without_due(
-        &mut self,
-        staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
-        now: Instant,
-    ) -> VecDeque<Effect> {
-        self.observe_write(staged, &result);
-        self.engine
-            .finish_write_without_due(staged.transmission, result, now)
             .into()
     }
 

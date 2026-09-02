@@ -4008,7 +4008,7 @@ mod blocking {
         ));
         assert!(!owner
             .state()
-            .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1));
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
 
         // A fatal reader proves the drain was not entered: if this path called
         // pump_once, it would return the reader's boundary error.
@@ -4051,7 +4051,7 @@ mod blocking {
         ));
         assert!(!owner
             .state()
-            .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1));
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
 
         let mut reader = DeadlineReader {
             deadline: None,
@@ -6451,7 +6451,11 @@ mod lifecycle_trace {
                 permits_before,
                 active_before,
             });
-            let effects = self.state_mut().admit_without_due(ticket, request, now);
+            let effects = self.state_mut().input_with_turn(
+                Input::Admit { ticket, request },
+                now,
+                EngineTurn::INPUT_ONLY,
+            );
             self.drain(effects, "admission", out);
             assert!(
                 self.pending.is_none(),
@@ -6481,7 +6485,7 @@ mod lifecycle_trace {
         fn dispatch(&mut self, id: RequestId, result: &str, out: &mut Vec<String>) {
             self.write_label = result.to_owned();
             let now = self.now;
-            match self.state_mut().first_dispatch_without_due(id, now) {
+            match self.state_mut().first_dispatch(id, now) {
                 FirstDispatch::Effects(effects) => self.drain(effects.into(), "transport", out),
                 other => panic!("fixture dispatch is not the scheduler winner: {other:?}"),
             }
@@ -6988,9 +6992,12 @@ mod lifecycle_trace {
                 self.at
             ));
             let now = self.now;
-            let produced =
-                self.state_mut()
-                    .finish_write_without_due(&staged, write_result(&label), now);
+            let produced = self.state_mut().finish_write_turn(
+                &staged,
+                write_result(&label),
+                now,
+                EngineTurn::INPUT_ONLY,
+            );
             prepend_effects(queue, produced);
         }
 

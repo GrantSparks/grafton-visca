@@ -29,7 +29,7 @@ use super::{
     TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
-    DecodedFrame, Effect, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
+    DecodedFrame, Effect, EngineTurn, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
     RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction, TransportKind,
 };
 
@@ -1178,6 +1178,15 @@ impl PumpMode {
     const fn defers_due(self) -> bool {
         matches!(self, Self::FirstDispatchWait)
     }
+
+    /// Tail allowed when this mode completes a decoded-input turn.
+    const fn input_turn(self) -> EngineTurn {
+        match self {
+            Self::Normal => EngineTurn::COMPLETE,
+            Self::PreAckDrain => EngineTurn::DEADLINES_ONLY,
+            Self::FirstDispatchWait => EngineTurn::INPUT_ONLY,
+        }
+    }
 }
 
 /// Internal result of one receive/decode turn. Public pump seams retain their
@@ -1535,7 +1544,7 @@ impl BlockingOwner {
     /// its sole obstacle and no pump is attempted. When the block is genuine
     /// socket-capacity contention — every command socket already occupied,
     /// independent of the pre-ACK gate —
-    /// [`OwnerState::raw_preack_gate_frees_socket_on_ack`] is `false`, no pump
+    /// [`OwnerState::raw_ack_input_may_enable_dispatch`] is `false`, no pump
     /// is attempted, and the fail-fast rejection the caller then receives from
     /// the first-write submit stands. If the pump ends the session (a close or
     /// poison observed while waiting), the session's own boundary verdict is
@@ -1554,7 +1563,7 @@ impl BlockingOwner {
         R: BlockingReadDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
     {
-        if !self.state.raw_preack_gate_frees_socket_on_ack(target) {
+        if !self.state.raw_ack_input_may_enable_dispatch(target) {
             return Ok(());
         }
         let Some(deadline) = Instant::now().checked_add(ack_budget) else {
@@ -1603,7 +1612,7 @@ impl BlockingOwner {
         // cannot spin; it exits when the pending ACK clears the gate, when the
         // budget elapses (the first write then fails fast), or when the pump
         // itself ends the session.
-        while self.state.raw_preack_gate_frees_socket_on_ack(target) && Instant::now() < deadline {
+        while self.state.raw_ack_input_may_enable_dispatch(target) && Instant::now() < deadline {
             self.pump_once_inner(
                 driver,
                 reader,
@@ -1918,8 +1927,11 @@ impl BlockingOwner {
         dispatch_at: Instant,
         observer_deadline: Option<Instant>,
     ) -> Instant {
-        min_deadline(self.state.next_wake_without_dispatch(), observer_deadline)
-            .map_or(dispatch_at, |earlier| dispatch_at.min(earlier))
+        min_deadline(
+            self.state.next_wake_for(EngineTurn::DEADLINES_ONLY),
+            observer_deadline,
+        )
+        .map_or(dispatch_at, |earlier| dispatch_at.min(earlier))
     }
 
     /// Test-only fallback for the owner seams that have no reader/decoder.
@@ -2184,7 +2196,7 @@ impl BlockingOwner {
         let now = Instant::now();
         if self
             .state
-            .next_wake_without_dispatch()
+            .next_wake_for(EngineTurn::DEADLINES_ONLY)
             .is_some_and(|wake| wake <= now)
         {
             // A pacing sleep has no wire authority.  If a raw release became
@@ -2277,9 +2289,11 @@ impl BlockingOwner {
                 "staged blocking admission did not produce an admit input".into(),
             ));
         };
-        let effects = self
-            .state
-            .admit_without_due(ticket, request, Instant::now());
+        let effects = self.state.input_with_turn(
+            Input::Admit { ticket, request },
+            Instant::now(),
+            EngineTurn::INPUT_ONLY,
+        );
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
@@ -2300,13 +2314,13 @@ impl BlockingOwner {
                     // inquiries, it has no receipt to keep observing, so
                     // terminalize its still-unwritten entry and release the
                     // admission permit through the engine's one authority.
-                    let rejection = self.state.reject_unwritten_without_due(id, Error::Timeout);
+                    let rejection = self.state.reject_unwritten(id, Error::Timeout);
                     let _ = self.drive_without_due(driver, rejection);
                     return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
                 }
                 return Err(Error::Timeout);
             }
-            // `first_dispatch_without_due` deliberately does not advance a
+            // `first_dispatch` deliberately does not advance a
             // tombstone.  It can nevertheless dispatch an *unrelated* ready
             // target, so do not enter it while a prior synchronous write or
             // control turn has crossed any raw-release boundary.  The pumped
@@ -2320,13 +2334,13 @@ impl BlockingOwner {
                     now,
                     observer_deadline,
                 ) {
-                    let rejection = self.state.reject_unwritten_without_due(id, error.clone());
+                    let rejection = self.state.reject_unwritten(id, error.clone());
                     let _ = self.drive_without_due(driver, rejection);
                     return Err(buffered_submission_error(&completion).unwrap_or(error));
                 }
                 continue;
             }
-            match self.state.first_dispatch_without_due(id, now) {
+            match self.state.first_dispatch(id, now) {
                 FirstDispatch::Effects(effects) => {
                     let advanced = self.drive_without_due(driver, effects.into());
                     report.writes.extend(advanced.writes);
@@ -2349,7 +2363,7 @@ impl BlockingOwner {
                         // submission policy. Terminalize the exact ready
                         // entry through the engine so its queue ticket and
                         // admission permit cannot outlive the returned error.
-                        let rejection = self.state.reject_unwritten_without_due(id, error.clone());
+                        let rejection = self.state.reject_unwritten(id, error.clone());
                         let _ = self.drive_without_due(driver, rejection);
                         return Err(buffered_submission_error(&completion).unwrap_or(error));
                     }
@@ -2371,9 +2385,7 @@ impl BlockingOwner {
                             // permit are released, then observe the exact
                             // rejection through the temporary completion
                             // observer. No peer is pumped or waited on.
-                            let rejection = self
-                                .state
-                                .reject_unwritten_without_due(id, Error::TransportBusy);
+                            let rejection = self.state.reject_unwritten(id, Error::TransportBusy);
                             let _ = self.drive_without_due(driver, rejection);
                             return Err(buffered_submission_error(&completion).unwrap_or_else(
                                 || {
@@ -2886,7 +2898,7 @@ impl BlockingOwner {
         if mode.allows_ordinary_dispatch() {
             self.state.next_wake()
         } else {
-            self.state.next_wake_without_dispatch()
+            self.state.next_wake_for(EngineTurn::DEADLINES_ONLY)
         }
     }
 
@@ -3027,8 +3039,12 @@ impl BlockingOwner {
                 // gets one receive turn before any successor can be staged.
                 let finished_at = Instant::now();
                 let produced = if self.raw_release_gate_at(finished_at).is_some() {
-                    self.state
-                        .finish_write_without_due(&staged, write_result, finished_at)
+                    self.state.finish_write_turn(
+                        &staged,
+                        write_result,
+                        finished_at,
+                        EngineTurn::INPUT_ONLY,
+                    )
                 } else {
                     self.state.finish_write(&staged, write_result, finished_at)
                 };
@@ -3054,9 +3070,12 @@ impl BlockingOwner {
                 report
                     .writes
                     .push((staged.request, write_result.clone().map(|_| ())));
-                let produced =
-                    self.state
-                        .finish_write_without_due(&staged, write_result, Instant::now());
+                let produced = self.state.finish_write_turn(
+                    &staged,
+                    write_result,
+                    Instant::now(),
+                    EngineTurn::INPUT_ONLY,
+                );
                 prepend_effects(&mut effects, produced);
             }
         }
@@ -3076,19 +3095,10 @@ impl BlockingOwner {
         if self.raw_release_gate_at(now).is_some() {
             let turn = self.state.begin_input_turn(now);
             let mut effects = self.state.input_in_turn(&turn, input);
-            effects.extend(self.state.engine.finish_input_turn_without_due(turn.0));
+            effects.extend(self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY));
             return effects;
         }
-        match mode {
-            PumpMode::Normal => self.state.input(input, now),
-            PumpMode::PreAckDrain => self.state.engine.handle_without_dispatch(input, now).into(),
-            PumpMode::FirstDispatchWait => {
-                let turn = self.state.begin_input_turn(now);
-                let mut effects = self.state.input_in_turn(&turn, input);
-                effects.extend(self.state.engine.finish_input_turn_without_due(turn.0));
-                effects
-            }
-        }
+        self.state.input_with_turn(input, now, mode.input_turn())
     }
 
     fn advance_for_mode(&mut self, now: Instant, mode: PumpMode) -> VecDeque<Effect> {
@@ -3102,7 +3112,7 @@ impl BlockingOwner {
         if mode.allows_ordinary_dispatch() {
             self.state.advance(now)
         } else {
-            self.state.engine.advance_without_dispatch(now).into()
+            self.state.advance_turn(now, EngineTurn::DEADLINES_ONLY)
         }
     }
 
@@ -3120,7 +3130,7 @@ impl BlockingOwner {
         let effects = if mode.allows_ordinary_dispatch() {
             self.state.advance(now)
         } else {
-            self.state.engine.advance_without_dispatch(now).into()
+            self.state.advance_turn(now, EngineTurn::DEADLINES_ONLY)
         };
         self.clear_raw_release_gate();
         let report = self.drive_for_mode(driver, effects, mode);
@@ -3135,21 +3145,9 @@ impl BlockingOwner {
         turn: OwnerInputTurn,
         mode: PumpMode,
     ) -> VecDeque<Effect> {
-        match mode {
-            PumpMode::Normal => self.state.finish_input_turn(turn),
-            PumpMode::PreAckDrain => self
-                .state
-                .engine
-                .finish_input_turn_without_dispatch(turn.0)
-                .into(),
-            // The enclosing raw-tombstone wait runs the due pass only after it
-            // has inspected and, if necessary, cleared retained framing.
-            PumpMode::FirstDispatchWait => self
-                .state
-                .engine
-                .finish_input_turn_without_due(turn.0)
-                .into(),
-        }
+        // The enclosing raw-tombstone wait runs the due pass only after it has
+        // inspected and, if necessary, cleared retained framing.
+        self.state.finish_input_turn(turn, mode.input_turn())
     }
 
     fn drive_for_mode<D: BlockingWireDriver + ?Sized>(
@@ -3419,7 +3417,7 @@ mod tests {
 
     /// Blocks exactly the second write, which is the unrelated target-C write
     /// in the raw-release regression below.  The test samples a real owner
-    /// deadline; without the guarded `finish_write_without_due` call, its
+    /// deadline; without the guarded input-only write-result turn, its
     /// return immediately advances A's tombstone and writes queued B.
     #[derive(Debug)]
     struct ReleaseCrossingDriver {
@@ -3809,9 +3807,11 @@ mod tests {
         let Input::Admit { ticket, request } = input else {
             unreachable!("staged admission must retain its ticket");
         };
-        let effects = owner
-            .state_mut()
-            .admit_without_due(ticket, request, Instant::now());
+        let effects = owner.state_mut().input_with_turn(
+            Input::Admit { ticket, request },
+            Instant::now(),
+            EngineTurn::INPUT_ONLY,
+        );
         let report = owner.drive_without_due(driver, effects);
         assert!(report.writes.is_empty(), "staging itself cannot dispatch");
         admission
@@ -3964,9 +3964,7 @@ mod tests {
             )
             .expect("fresh H receive consumes stale A evidence");
         assert_eq!(reader.calls, 2, "post-H stale input was consumed");
-        let FirstDispatch::Effects(effects) = owner
-            .state_mut()
-            .first_dispatch_without_due(b, Instant::now())
+        let FirstDispatch::Effects(effects) = owner.state_mut().first_dispatch(b, Instant::now())
         else {
             unreachable!("B becomes dispatchable only after the stale frame was read");
         };
@@ -4054,9 +4052,7 @@ mod tests {
             &mut driver,
             raw_request(CameraId::CAMERA_2, ReplyShape::NoReply, Duration::ZERO),
         );
-        let FirstDispatch::Effects(effects) = owner
-            .state_mut()
-            .first_dispatch_without_due(c, Instant::now())
+        let FirstDispatch::Effects(effects) = owner.state_mut().first_dispatch(c, Instant::now())
         else {
             unreachable!("unrelated C is eligible through the no-due seam");
         };
@@ -4370,7 +4366,7 @@ mod tests {
         assert!(host
             .with_parts(|owner, _, _, _| Ok(owner
                 .state()
-                .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1)))
+                .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1)))
             .expect("inspect pre-ACK gate"));
         let before = host.metrics().expect("metrics before rejection");
         assert_eq!(before.active, 1);

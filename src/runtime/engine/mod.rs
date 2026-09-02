@@ -19,7 +19,6 @@ use std::{
 
 use smallvec::SmallVec;
 
-#[cfg(any(feature = "async", feature = "blocking"))]
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::{raw::INLINE_BYTES, CameraId, Error, ViscaSocket};
 
@@ -531,23 +530,23 @@ impl ProtocolEngine {
 
     /// Applies one ordered external input first, then all work due at `now`.
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        let turn = self.begin_input_turn(now);
-        let mut effects = self.handle_in_turn(&turn, input);
-        effects.extend(self.finish_input_turn(turn));
-        effects
+        self.handle_turn(input, now, EngineTurn::COMPLETE)
     }
 
-    /// Applies one ordered external input and its due/cancellation consequences
-    /// without ordinary dispatch. The blocking owner uses this for raw
-    /// submission-side input waits (the pre-ACK gate and correlation
-    /// tombstones): the frame must be applied, but a queued ordinary request
-    /// must not consume a newly free socket before the exact submitting
-    /// request is reconsidered (issue #673).
-    #[cfg(feature = "blocking")]
-    pub(crate) fn handle_without_dispatch(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        let turn = self.begin_input_turn(now);
-        let mut effects = self.handle_in_turn(&turn, input);
-        effects.extend(self.finish_input_turn_without_dispatch(turn));
+    /// Applies one ordered external input and completes it under `turn`.
+    ///
+    /// This is the single runtime-neutral entry point for the scheduler
+    /// boundaries needed by both owner shells. The ordinary [`Self::handle`]
+    /// convenience path selects [`EngineTurn::COMPLETE`].
+    pub(crate) fn handle_turn(
+        &mut self,
+        input: Input,
+        now: Instant,
+        engine_turn: EngineTurn,
+    ) -> Vec<Effect> {
+        let input_turn = self.begin_input_turn(now);
+        let mut effects = self.handle_in_turn(&input_turn, input);
+        effects.extend(self.finish_input_turn(input_turn, engine_turn));
         effects
     }
 
@@ -557,8 +556,8 @@ impl ProtocolEngine {
     /// applies the next input in the turn. Any identified transmission result
     /// produced by that draining is applied with [`Self::handle_in_turn`] and
     /// the same token. Once every frame in wire order is applied, the owner
-    /// calls [`Self::finish_input_turn`] (or its dispatch-suppressed variant)
-    /// exactly once.
+    /// calls [`Self::finish_input_turn`] exactly once with the selected
+    /// [`EngineTurn`] boundary.
     pub(crate) const fn begin_input_turn(&self, now: Instant) -> InputTurn {
         InputTurn { now }
     }
@@ -581,38 +580,21 @@ impl ProtocolEngine {
     /// External inputs at the turn timestamp therefore win over deadlines at
     /// that same timestamp, while frame and recursively produced effect order
     /// remains owner-controlled and deterministic.
-    pub(crate) fn finish_input_turn(&mut self, turn: InputTurn) -> Vec<Effect> {
+    pub(crate) fn finish_input_turn(
+        &mut self,
+        input_turn: InputTurn,
+        engine_turn: EngineTurn,
+    ) -> Vec<Effect> {
         let mut effects = Vec::new();
-        self.run_due(turn.now, &mut effects);
-        self.drain_pending_cancellations(turn.now, &mut effects);
-        self.dispatch_one(turn.now, &mut effects);
+        if engine_turn.runs_due() {
+            self.run_due(input_turn.now, &mut effects);
+            self.drain_pending_cancellations(input_turn.now, &mut effects);
+            if engine_turn.allows_dispatch() {
+                self.dispatch_one(input_turn.now, &mut effects);
+            }
+        }
         self.debug_assert_invariants();
         effects
-    }
-
-    /// Ends an ordered input turn after running due work and pending
-    /// cancellations, but leaves ordinary ready work queued. This covers the
-    /// blocking pre-ACK and raw-correlation submission seams; the exact
-    /// submitting request must be reconsidered before a freed socket is
-    /// offered to the ordinary scheduler.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn finish_input_turn_without_dispatch(&mut self, turn: InputTurn) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        self.run_due(turn.now, &mut effects);
-        self.drain_pending_cancellations(turn.now, &mut effects);
-        self.debug_assert_invariants();
-        effects
-    }
-
-    /// Ends an ordered external-input turn without running due work, pending
-    /// cancellation, or dispatch. The blocking raw-tombstone wait uses this
-    /// only while it still has to inspect retained stream framing; it follows
-    /// with one ordinary dispatch-suppressed due pass after that framing has
-    /// completed or been discarded.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn finish_input_turn_without_due(&mut self, _turn: InputTurn) -> Vec<Effect> {
-        self.debug_assert_invariants();
-        Vec::new()
     }
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
@@ -664,57 +646,19 @@ impl ProtocolEngine {
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        self.run_due(now, &mut effects);
-        self.drain_pending_cancellations(now, &mut effects);
-        self.dispatch_one(now, &mut effects);
-        self.debug_assert_invariants();
-        effects
+        self.advance_turn(now, EngineTurn::COMPLETE)
     }
 
-    /// Runs due work and pending cancellations without ordinary dispatch.
-    ///
-    /// Used by blocking submission-side waits: the raw pre-ACK drain and raw
-    /// correlation tombstone hold need their ordered input turns, while an
-    /// ordinary pacing wait must service an earlier deadline without consuming
-    /// a peer reply. In all cases, only the exact submitting request may be
-    /// reconsidered after this seam returns.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn advance_without_dispatch(&mut self, now: Instant) -> Vec<Effect> {
+    /// Runs the scheduler work selected by `turn` at `now`.
+    pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
         let mut effects = Vec::new();
-        self.run_due(now, &mut effects);
-        self.drain_pending_cancellations(now, &mut effects);
-        self.debug_assert_invariants();
-        effects
-    }
-
-    /// Admits one request without running due work or ordinary dispatch.
-    // The three `*_without_due` seams belong to the blocking owner's caller-thread
-    // pump (`runtime::owner::blocking`) and to the engine tests; an async-only leg
-    // compiles neither (#636).
-    #[allow(dead_code)]
-    pub(crate) fn admit_without_due(
-        &mut self,
-        ticket: AdmissionTicket,
-        request: RuntimeRequest,
-        now: Instant,
-    ) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        self.admit(ticket, request, now, &mut effects);
-        self.debug_assert_invariants();
-        effects
-    }
-
-    /// Applies one identified write result without due work or dispatch.
-    #[allow(dead_code)] // See `admit_without_due` (#636).
-    pub(crate) fn finish_write_without_due(
-        &mut self,
-        transmission: TransmissionId,
-        result: Result<TransmissionMeta, Error>,
-        now: Instant,
-    ) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        self.transmission_finished(transmission, result, now, &mut effects);
+        if turn.runs_due() {
+            self.run_due(now, &mut effects);
+            self.drain_pending_cancellations(now, &mut effects);
+            if turn.allows_dispatch() {
+                self.dispatch_one(now, &mut effects);
+            }
+        }
         self.debug_assert_invariants();
         effects
     }
@@ -723,13 +667,9 @@ impl ProtocolEngine {
     /// No queue, peer request, deadline, or pacing state is mutated when a
     /// different request would win: [`FirstDispatch::Blocked`] leaves `id`
     /// queued so an ordinary later turn can dispatch it once capacity frees.
-    #[allow(dead_code)] // See `admit_without_due` (#636).
-    pub(crate) fn first_dispatch_without_due(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-    ) -> FirstDispatch {
-        let dispatch = self.first_dispatch_without_due_inner(id, now);
+    #[allow(dead_code)] // Consumed by blocking builds and engine tests (#723).
+    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
+        let dispatch = self.first_dispatch_inner(id, now);
         self.debug_assert_invariants();
         dispatch
     }
@@ -743,11 +683,7 @@ impl ProtocolEngine {
     /// admission state are cleaned up by one authority.  It does not run due
     /// work or dispatch another request.
     #[allow(dead_code)] // Consumed by the blocking owner (#542).
-    pub(crate) fn reject_unwritten_without_due(
-        &mut self,
-        id: RequestId,
-        error: Error,
-    ) -> Vec<Effect> {
+    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> Vec<Effect> {
         let mut effects = Vec::new();
         match self.entries.get(&id) {
             Some(entry) if matches!(entry.phase, Phase::Ready { .. }) => {
@@ -762,8 +698,8 @@ impl ProtocolEngine {
         effects
     }
 
-    #[allow(dead_code)] // See `admit_without_due` (#636).
-    fn first_dispatch_without_due_inner(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
+    #[allow(dead_code)] // See `first_dispatch` (#723).
+    fn first_dispatch_inner(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
         if self.state != SessionState::Running {
             return FirstDispatch::Missing;
         }
@@ -1290,7 +1226,6 @@ impl ProtocolEngine {
     /// The narrow #712 inquiry hold is deliberately excluded: it cannot make a
     /// command ACK ambiguous and therefore must not disable the blocking
     /// pre-ACK drain for ordinary ACK-bearing work.
-    #[cfg(feature = "blocking")]
     fn raw_target_command_correlation_quarantined(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.raw_target_tombstones[target.id() as usize]
@@ -1499,9 +1434,9 @@ impl ProtocolEngine {
     /// occupied this is `false`, because the pending ACK only moves a command
     /// from awaiting-ACK to executing without releasing a socket — that is real
     /// contention, and the caller's fail-fast rejection must stand. Consumed by
-    /// the blocking operation-submit path (issue #673).
-    #[cfg(feature = "blocking")]
-    pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
+    /// the first-write admission planner (issue #673).
+    #[allow(dead_code)] // Consumed by blocking builds and engine tests (#723).
+    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
         !self.raw_target_command_correlation_quarantined(target)
             && self.raw_ack_capable_candidate(target).is_some()
             && self.targets[target.id() as usize].is_some_and(|policy| {
@@ -1517,7 +1452,6 @@ impl ProtocolEngine {
     /// quarantine is included only when cancellation intent is present: the
     /// default #671 quarantine (`CancelState::None`) deliberately ignores late
     /// frames and must never cause a blocking submission to wait for one.
-    #[cfg(feature = "blocking")]
     fn raw_ack_capable_candidate(&self, target: CameraId) -> Option<RequestId> {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
@@ -1634,8 +1568,8 @@ impl ProtocolEngine {
     /// request retry budget, owns the active cancellation lifecycle.
     ///
     /// Keeping this at the engine's one transmission-result ingress also makes
-    /// [`Self::finish_write_without_due`] obey the same boundary as ordinary
-    /// [`Self::handle`] turns.
+    /// an [`EngineTurn::INPUT_ONLY`] write-result turn obey the same boundary
+    /// as an ordinary [`Self::handle`] turn.
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
@@ -3647,7 +3581,7 @@ impl ProtocolEngine {
 
     /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
     pub(crate) fn next_wake(&self) -> Option<Instant> {
-        self.next_wake_inner(true)
+        self.next_wake_for(EngineTurn::COMPLETE)
     }
 
     /// Raw correlation scopes which can be released by advancing at `now`.
@@ -3657,7 +3591,6 @@ impl ProtocolEngine {
     /// split S1 completion survives an S2 release on the same camera.  The
     /// matching [`Self::raw_prefix_disposition`] is the sole policy authority
     /// for the owner-side retained-prefix decision.
-    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
         let mut releases = RawCorrelationReleaseSet::default();
         if self.policy.envelope != EnvelopeKind::Raw {
@@ -3733,7 +3666,6 @@ impl ProtocolEngine {
     /// turn.  This is intentionally conservative: an incomplete source, ACK,
     /// socketless completion, or socketless error cannot establish ownership,
     /// so it never permits release plus successor dispatch.
-    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn raw_prefix_disposition(
         &self,
         releases: RawCorrelationReleaseSet,
@@ -3795,7 +3727,6 @@ impl ProtocolEngine {
     /// deadline. Both owner shells map that deadline onto their native wait.
     /// Once the grace expires the orphan is discarded and recorded rather than
     /// turning a fast poll counter into a poisoned session.
-    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn resolve_raw_release_gate(
         &mut self,
         now: Instant,
@@ -3841,18 +3772,17 @@ impl ProtocolEngine {
         }
     }
 
-    /// Earliest wake that must be serviced while ordinary dispatch is
-    /// suppressed.  The blocking pre-ACK drain still needs protocol deadlines
-    /// (including retry/backoff promotion and cancellation/quarantine
-    /// deadlines) and pending cancellation pacing, but a ready request on any
-    /// target is deliberately not a wake: dispatching it is forbidden for the
-    /// duration of that turn.  Keeping ready-queue eligibility out of this
-    /// projection prevents an unrelated ready request from turning the read
-    /// into a zero-timeout loop while the submitting request's ACK is pending
-    /// (issue #673).
-    #[cfg(feature = "blocking")]
-    pub(crate) fn next_wake_without_dispatch(&self) -> Option<Instant> {
-        self.next_wake_inner(false)
+    /// Earliest wake relevant to the scheduler work permitted by `turn`.
+    ///
+    /// A dispatch-suppressed turn still wakes for protocol deadlines and
+    /// pending cancellation pacing, but deliberately excludes ready-queue
+    /// eligibility. This keeps an unrelated ready request from turning a
+    /// submission-side read into a zero-timeout loop (issue #673).
+    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
+        if !turn.runs_due() {
+            return None;
+        }
+        self.next_wake_inner(turn.allows_dispatch())
     }
 
     fn next_wake_inner(&self, include_ready: bool) -> Option<Instant> {

@@ -39,8 +39,8 @@ use super::{
     TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
-    Effect, IgnoreReason, RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction,
-    TransportKind,
+    Effect, EngineTurn, IgnoreReason, RawCorrelationReleaseSet, RawPrefixEvidence,
+    RawReleaseGateAction, TransportKind,
 };
 
 /// Independent cap for work deferred/discarded while one due raw correlation
@@ -2540,7 +2540,7 @@ where
                 let buffered = match driver.has_buffered_stream_input() {
                     Ok(buffered) => buffered,
                     Err(error) => {
-                        let inert = self.state.finish_input_turn_without_due(turn);
+                        let inert = self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
                         self.drive(driver, inert, runtime).await;
                         return self
                             .discard_undecodable_receive(driver, runtime, &error, received_at)
@@ -2553,9 +2553,9 @@ where
                 // its ordered input turn and any final orphan is classified at
                 // the raw release boundary.
                 let due = if buffered {
-                    self.state.finish_input_turn_without_due(turn)
+                    self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY)
                 } else {
-                    self.state.finish_input_turn(turn)
+                    self.state.finish_input_turn(turn, EngineTurn::COMPLETE)
                 };
                 self.drive(driver, due, runtime).await;
                 if buffered {
@@ -2646,7 +2646,7 @@ where
                     let mut effects = self
                         .state
                         .input_in_turn(&turn, Input::ReceiveFault { error });
-                    effects.extend(self.state.finish_input_turn_without_due(turn));
+                    effects.extend(self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY));
                     effects
                 } else {
                     self.state.input(Input::ReceiveFault { error }, received_at)
@@ -3006,8 +3006,12 @@ where
                 {
                     self.state.finish_write(&staged, write_result, finished_at)
                 } else {
-                    self.state
-                        .finish_write_without_due(&staged, write_result, finished_at)
+                    self.state.finish_write_turn(
+                        &staged,
+                        write_result,
+                        finished_at,
+                        EngineTurn::INPUT_ONLY,
+                    )
                 };
                 // The exact completion is recursively processed before the
                 // next source effect or any channel input.

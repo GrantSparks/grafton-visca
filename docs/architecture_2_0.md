@@ -94,6 +94,13 @@ boundary for the network, serial, and `test-utils` feature sets; the async
 testkit's executor rides on `async`, so enabling `test-utils` on a blocking-only
 build links no executor.
 
+Internally, both shells complete engine input through the same executor-free
+`EngineTurn` policy. A complete turn runs due work, pending cancellation, and
+one ordinary dispatch; a deadline-only turn withholds ordinary dispatch while
+an exact first write is reconsidered; an input-only turn preserves retained
+wire evidence ahead of deadlines at the same sampled instant. These are
+options on one engine boundary, not feature-gated owner entry points.
+
 ## Target registry and preflight
 
 `SessionConfig` has exactly seven individual target slots, VISCA IDs 1 through

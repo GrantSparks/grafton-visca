@@ -12,6 +12,43 @@ use crate::{
 /// Maximum number of Sony sequences retained for one request across retries.
 pub(crate) const MAX_SEQUENCE_HISTORY: usize = 8;
 
+/// Scheduler work permitted when an external-input turn is completed.
+///
+/// Both owner shells use these same three boundaries. A complete turn runs
+/// deadlines, pending cancellation work, and one ordinary dispatch. A
+/// deadline-only turn withholds that final dispatch while an exact request is
+/// reconsidered. An input-only turn preserves retained wire
+/// evidence ahead of every deadline at the same sampled instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EngineTurn {
+    run_due: bool,
+    dispatch: bool,
+}
+
+impl EngineTurn {
+    pub(crate) const COMPLETE: Self = Self {
+        run_due: true,
+        dispatch: true,
+    };
+    #[allow(dead_code)] // Used by blocking owner turns; async-only builds omit them.
+    pub(crate) const DEADLINES_ONLY: Self = Self {
+        run_due: true,
+        dispatch: false,
+    };
+    pub(crate) const INPUT_ONLY: Self = Self {
+        run_due: false,
+        dispatch: false,
+    };
+
+    pub(super) const fn runs_due(self) -> bool {
+        self.run_due
+    }
+
+    pub(super) const fn allows_dispatch(self) -> bool {
+        self.dispatch
+    }
+}
+
 /// Prepared wire data. It has no target, routing, or scheduling authority.
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct EncodedMessage {

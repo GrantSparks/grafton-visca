@@ -161,6 +161,40 @@ fn admit(
     (effects, id)
 }
 
+fn admit_input_only(
+    engine: &mut ProtocolEngine,
+    ticket: AdmissionTicket,
+    request: RuntimeRequest,
+    now: Instant,
+) -> Vec<Effect> {
+    engine.handle_turn(
+        Input::Admit { ticket, request },
+        now,
+        EngineTurn::INPUT_ONLY,
+    )
+}
+
+fn finish_write_input_only(
+    engine: &mut ProtocolEngine,
+    transmission: TransmissionId,
+    result: Result<TransmissionMeta, Error>,
+    now: Instant,
+) -> Vec<Effect> {
+    engine.handle_turn(
+        Input::TransmissionFinished {
+            transmission,
+            result,
+        },
+        now,
+        EngineTurn::INPUT_ONLY,
+    )
+}
+
+#[cfg(feature = "blocking")]
+fn run_deadlines_only(engine: &mut ProtocolEngine, now: Instant) -> Vec<Effect> {
+    engine.advance_turn(now, EngineTurn::DEADLINES_ONLY)
+}
+
 /// The authoritative phase of an admitted entry, for lifecycle assertions.
 fn phase_of(engine: &ProtocolEngine, id: RequestId) -> Option<Phase> {
     engine.entries.get(&id).map(Entry::phase)
@@ -865,7 +899,8 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
 
     // The old attempt was removed when the retry became authoritative. Its
     // late result must not overwrite the request's current sequence.
-    let stale = engine.finish_write_without_due(
+    let stale = finish_write_input_only(
+        &mut engine,
         first_tx,
         Ok(TransmissionMeta {
             sequence: Some(0xdead_beef),
@@ -2215,14 +2250,19 @@ fn cancellation_ambiguity_closes_an_executing_response_before_its_completion_dea
 fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
     let start = Instant::now();
     let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let command_effects = inquiry_engine.admit_without_due(
+    let command_effects = admit_input_only(
+        &mut inquiry_engine,
         AdmissionTicket(1),
         command(1, CancellationPolicy::Supported),
         start,
     );
     let command_id = admitted(&command_effects);
-    let inquiry_effects =
-        inquiry_engine.admit_without_due(AdmissionTicket(2), inquiry(2, POWER), start);
+    let inquiry_effects = admit_input_only(
+        &mut inquiry_engine,
+        AdmissionTicket(2),
+        inquiry(2, POWER),
+        start,
+    );
     let inquiry_id = admitted(&inquiry_effects);
     let inquiry_before = (
         inquiry_engine.entry(inquiry_id).unwrap().phase(),
@@ -2231,7 +2271,7 @@ fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
 
     assert!(inquiry_engine.transmissions.is_empty());
     assert!(inquiry_engine.last_request_sent.is_none());
-    let command_dispatch = match inquiry_engine.first_dispatch_without_due(command_id, start) {
+    let command_dispatch = match inquiry_engine.first_dispatch(command_id, start) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("expected command dispatch effects, got {other:?}"),
     };
@@ -2246,7 +2286,7 @@ fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
         Some(inquiry_before)
     );
 
-    let inquiry_dispatch = match inquiry_engine.first_dispatch_without_due(inquiry_id, start) {
+    let inquiry_dispatch = match inquiry_engine.first_dispatch(inquiry_id, start) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("expected inquiry dispatch effects, got {other:?}"),
     };
@@ -2264,20 +2304,21 @@ fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
         }
         RuntimeRequest::Inquiry { .. } => unreachable!(),
     }
-    let urgent_effects = priority_engine.admit_without_due(AdmissionTicket(3), urgent, start);
+    let urgent_effects = admit_input_only(&mut priority_engine, AdmissionTicket(3), urgent, start);
     let urgent_id = admitted(&urgent_effects);
-    let normal_effects = priority_engine.admit_without_due(
+    let normal_effects = admit_input_only(
+        &mut priority_engine,
         AdmissionTicket(4),
         command(1, CancellationPolicy::Supported),
         start,
     );
     let normal_id = admitted(&normal_effects);
     assert!(matches!(
-        priority_engine.first_dispatch_without_due(normal_id, start),
+        priority_engine.first_dispatch(normal_id, start),
         FirstDispatch::Blocked
     ));
     assert!(priority_engine.transmissions.is_empty());
-    let urgent_dispatch = match priority_engine.first_dispatch_without_due(urgent_id, start) {
+    let urgent_dispatch = match priority_engine.first_dispatch(urgent_id, start) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("expected urgent dispatch effects, got {other:?}"),
     };
@@ -2286,21 +2327,27 @@ fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
 }
 
 #[test]
-fn requested_executing_cancellation_blocks_first_dispatch_without_due() {
+fn requested_executing_cancellation_blocks_first_dispatch() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let first = engine.admit_without_due(
+    let first = admit_input_only(
+        &mut engine,
         AdmissionTicket(1),
         command(1, CancellationPolicy::Supported),
         start,
     );
     let first_id = admitted(&first);
-    let first_dispatch = match engine.first_dispatch_without_due(first_id, start) {
+    let first_dispatch = match engine.first_dispatch(first_id, start) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("expected first request dispatch effects, got {other:?}"),
     };
     let (first_tx, _, _) = request_transmit(&first_dispatch);
-    engine.finish_write_without_due(first_tx, Ok(TransmissionMeta { sequence: None }), start);
+    finish_write_input_only(
+        &mut engine,
+        first_tx,
+        Ok(TransmissionMeta { sequence: None }),
+        start,
+    );
     engine.handle(
         frame(
             1,
@@ -2321,7 +2368,8 @@ fn requested_executing_cancellation_blocks_first_dispatch_without_due() {
         Some(CancelState::Requested { .. })
     ));
 
-    let ordinary = engine.admit_without_due(
+    let ordinary = admit_input_only(
+        &mut engine,
         AdmissionTicket(2),
         command(2, CancellationPolicy::Supported),
         requested_at,
@@ -2338,7 +2386,7 @@ fn requested_executing_cancellation_blocks_first_dispatch_without_due() {
         engine.last_request_sent,
     );
     assert!(matches!(
-        engine.first_dispatch_without_due(ordinary_id, requested_at),
+        engine.first_dispatch(ordinary_id, requested_at),
         FirstDispatch::Blocked
     ));
     assert_eq!(
@@ -2462,7 +2510,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         ),
     ));
     engine.assert_invariants().unwrap();
-    ordered_effects.extend(engine.finish_input_turn(turn));
+    ordered_effects.extend(engine.finish_input_turn(turn, EngineTurn::COMPLETE));
 
     let cancel_index = ordered_effects
         .iter()
@@ -2509,6 +2557,33 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         } if *id == a_id
     )));
     assert!(engine.entry(a_id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn engine_turn_options_share_one_input_tail_without_implicit_dispatch() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let admitted_only = engine.handle_turn(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+        EngineTurn::INPUT_ONLY,
+    );
+    let id = admitted(&admitted_only);
+    assert!(request_transmit_optional(&admitted_only).is_none());
+    assert!(matches!(phase_of(&engine, id), Some(Phase::Ready { .. })));
+    assert_eq!(engine.next_wake_for(EngineTurn::INPUT_ONLY), None);
+
+    let deadlines_only = engine.advance_turn(start, EngineTurn::DEADLINES_ONLY);
+    assert!(request_transmit_optional(&deadlines_only).is_none());
+    assert!(matches!(phase_of(&engine, id), Some(Phase::Ready { .. })));
+
+    let complete = engine.advance_turn(start, EngineTurn::COMPLETE);
+    assert_eq!(request_transmit(&complete).1, id);
     engine.assert_invariants().unwrap();
 }
 
@@ -7505,7 +7580,7 @@ fn initial_raw_sending_latches_respect_total_budget_boundary() {
                 },
             ),
         ));
-        effects.extend(engine.finish_input_turn(turn));
+        effects.extend(engine.finish_input_turn(turn, EngineTurn::COMPLETE));
         assert!(matches!(
             terminal_outcome(&effects, id),
             Some(RuntimeOutcome::Applied)
@@ -7567,7 +7642,7 @@ fn initial_raw_sending_latches_respect_total_budget_boundary() {
                 result: Ok(TransmissionMeta { sequence: None }),
             },
         ));
-        effects.extend(engine.finish_input_turn(turn));
+        effects.extend(engine.finish_input_turn(turn, EngineTurn::COMPLETE));
         assert!(matches!(
             terminal_outcome(&effects, id),
             Some(RuntimeOutcome::Applied)
@@ -7924,7 +7999,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         assert!(engine.sequences.contains_key(&sequence));
         assert!(engine.lower_sequences.contains_key(&(sequence as u16)));
 
-        let expired = engine.finish_input_turn(turn);
+        let expired = engine.finish_input_turn(turn, EngineTurn::COMPLETE);
         assert!(matches!(
             terminal_failure(&expired, id),
             Some(Error::Timeout)
@@ -7946,7 +8021,8 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             start,
         );
         let (transmission, id, _) = request_transmit(&admission);
-        let late = engine.finish_write_without_due(
+        let late = finish_write_input_only(
+            &mut engine,
             transmission,
             Ok(TransmissionMeta {
                 sequence: Some(0xdead_beef),
@@ -8007,7 +8083,8 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         ));
         assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
 
-        let late = engine.finish_write_without_due(
+        let late = finish_write_input_only(
+            &mut engine,
             transmission,
             Err(Error::TransportError("late Sony write result".into())),
             budget_deadline + Duration::from_nanos(1),
@@ -8074,7 +8151,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         let (transmission, failed_id, _) = request_transmit(&failed);
         let result = Err(Error::TransportError(cause.into()));
         let poisoned = if use_no_due_ingress {
-            engine.finish_write_without_due(transmission, result, late_at)
+            finish_write_input_only(&mut engine, transmission, result, late_at)
         } else {
             engine.handle(
                 Input::TransmissionFinished {
@@ -8181,7 +8258,7 @@ fn cancelled_raw_sending_latches_respect_ambiguity_boundary() {
                 ..
             })
         ));
-        effects.extend(engine.finish_input_turn(turn));
+        effects.extend(engine.finish_input_turn(turn, EngineTurn::COMPLETE));
         assert!(terminal_outcome(&effects, id).is_none());
         let extended_deadline = match engine.entry(id).map(Entry::cancellation) {
             Some(CancelState::Sending {
@@ -8245,7 +8322,7 @@ fn cancelled_raw_sending_latches_respect_ambiguity_boundary() {
                 result: Ok(TransmissionMeta { sequence: None }),
             },
         ));
-        effects.extend(engine.finish_input_turn(turn));
+        effects.extend(engine.finish_input_turn(turn, EngineTurn::COMPLETE));
         assert!(matches!(
             terminal_outcome(&effects, id),
             Some(RuntimeOutcome::Applied)
@@ -9403,13 +9480,13 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
             phase_of(&runtime, id),
             Some(Phase::Sending { .. })
         ));
-        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        assert!(runtime.raw_ack_input_may_enable_dispatch(camera(1)));
         send_ok(&mut runtime, &admitted_effects, None, start);
         assert!(matches!(
             phase_of(&runtime, id),
             Some(Phase::AwaitingAck { .. })
         ));
-        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        assert!(runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 
     // Completion-only has no ACK phase. It still holds the broad raw
@@ -9427,7 +9504,7 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
             phase_of(&runtime, id),
             Some(Phase::AwaitingCompletion { .. })
         ));
-        assert!(!runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        assert!(!runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 
     // The default #671 late-ACK quarantine has no accepted ACK path. It must
@@ -9450,7 +9527,7 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
             runtime.entry(id).map(Entry::cancellation),
             Some(CancelState::None)
         );
-        assert!(!runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        assert!(!runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 
     // Cancellation requested before the ACK deadline deliberately keeps the
@@ -9475,7 +9552,7 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
             runtime.entry(id).map(Entry::cancellation),
             Some(CancelState::None) | None
         ));
-        assert!(runtime.raw_preack_gate_frees_socket_on_ack(camera(1)));
+        assert!(runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 }
 
@@ -10031,7 +10108,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
         Some(RuntimeOutcome::Written)
     ));
     assert!(
-        request_transmit_optional(&engine.finish_input_turn(turn)).is_none(),
+        request_transmit_optional(&engine.finish_input_turn(turn, EngineTurn::COMPLETE)).is_none(),
         "the target tombstone is installed before input-turn dispatch"
     );
     assert!(matches!(
@@ -10296,7 +10373,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     ));
     #[cfg(feature = "blocking")]
     assert!(
-        engine.raw_preack_gate_frees_socket_on_ack(camera(1)),
+        engine.raw_ack_input_may_enable_dispatch(camera(1)),
         "an inquiry-only hold cannot disable the ordinary command ACK drain"
     );
     assert_eq!(
@@ -10926,7 +11003,7 @@ fn lost_raw_ack_makes_ordinary_first_dispatch_a_timed_wait() {
     );
     assert!(request_transmit_optional(&successor_effects).is_none());
     assert!(matches!(
-        engine.first_dispatch_without_due(successor_id, ack_deadline),
+        engine.first_dispatch(successor_id, ack_deadline),
         FirstDispatch::WaitUntil {
             deadline,
             reason: FirstDispatchWait::RawCorrelationTombstone,
@@ -10974,14 +11051,14 @@ fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
     );
     assert!(request_transmit_optional(&urgent_admission).is_none());
     assert!(matches!(
-        engine.first_dispatch_without_due(urgent_id, start),
+        engine.first_dispatch(urgent_id, start),
         FirstDispatch::WaitUntil {
             deadline,
             reason: FirstDispatchWait::Pacing,
         } if deadline == start + spacing
     ));
 
-    let urgent_effects = match engine.first_dispatch_without_due(urgent_id, start + spacing) {
+    let urgent_effects = match engine.first_dispatch(urgent_id, start + spacing) {
         FirstDispatch::Effects(effects) => effects,
         dispatch => panic!("urgent safety-lane dispatch was blocked: {dispatch:?}"),
     };
@@ -11226,13 +11303,13 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
     };
 
     // A ready successor whose total budget is strictly before the target hold
-    // must terminalize while unsent. `first_dispatch_without_due` itself does
+    // must terminalize while unsent. `first_dispatch` itself does
     // not release the hold, and the owner-side no-dispatch turn services the
     // earlier global due deadline.
     {
         let (mut engine, successor_id) = setup(hold - Duration::from_nanos(1));
         assert!(matches!(
-            engine.first_dispatch_without_due(successor_id, release_at),
+            engine.first_dispatch(successor_id, release_at),
             FirstDispatch::WaitUntil {
                 deadline,
                 reason: FirstDispatchWait::RawCorrelationTombstone,
@@ -11242,7 +11319,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
             engine.raw_target_tombstones[1],
             Some(RawTerminalTombstone::inquiry(release_at))
         );
-        let expired = engine.advance_without_dispatch(release_at - Duration::from_nanos(1));
+        let expired = run_deadlines_only(&mut engine, release_at - Duration::from_nanos(1));
         assert!(matches!(
             terminal_failure(&expired, successor_id),
             Some(Error::Timeout)
@@ -11259,13 +11336,13 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
     {
         let (mut engine, successor_id) = setup(hold);
         assert!(matches!(
-            engine.first_dispatch_without_due(successor_id, release_at),
+            engine.first_dispatch(successor_id, release_at),
             FirstDispatch::WaitUntil {
                 deadline,
                 reason: FirstDispatchWait::RawCorrelationTombstone,
             } if deadline == release_at
         ));
-        let expired = engine.advance_without_dispatch(release_at);
+        let expired = run_deadlines_only(&mut engine, release_at);
         assert!(matches!(
             terminal_failure(&expired, successor_id),
             Some(Error::Timeout)
@@ -11280,19 +11357,19 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
     // B. No peer was dispatched by the no-dispatch turn.
     let (mut engine, successor_id) = setup(hold + Duration::from_nanos(1));
     assert!(matches!(
-        engine.first_dispatch_without_due(successor_id, release_at),
+        engine.first_dispatch(successor_id, release_at),
         FirstDispatch::WaitUntil {
             deadline,
             reason: FirstDispatchWait::RawCorrelationTombstone,
         } if deadline == release_at
     ));
-    let released = engine.advance_without_dispatch(release_at);
+    let released = run_deadlines_only(&mut engine, release_at);
     assert!(request_transmit_optional(&released).is_none());
     assert!(matches!(
         phase_of(&engine, successor_id),
         Some(Phase::Ready { .. })
     ));
-    let dispatch = match engine.first_dispatch_without_due(successor_id, release_at) {
+    let dispatch = match engine.first_dispatch(successor_id, release_at) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("released successor did not win its first dispatch: {other:?}"),
     };
@@ -11337,7 +11414,7 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
         );
         assert!(request_transmit_optional(&successor).is_none());
         assert!(matches!(
-            engine.first_dispatch_without_due(successor_id, start),
+            engine.first_dispatch(successor_id, start),
             FirstDispatch::WaitUntil {
                 deadline,
                 reason: FirstDispatchWait::Pacing,
@@ -11349,7 +11426,7 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
     // A total budget before the pacing release terminalizes the still-unsent
     // request. No receive/input turn is involved in this engine seam.
     let (mut earlier, earlier_id) = setup(spacing - Duration::from_nanos(1));
-    let expired = earlier.advance_without_dispatch(start + spacing - Duration::from_nanos(1));
+    let expired = run_deadlines_only(&mut earlier, start + spacing - Duration::from_nanos(1));
     assert!(matches!(
         terminal_failure(&expired, earlier_id),
         Some(Error::Timeout)
@@ -11360,7 +11437,7 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
     // Equality is due-before-dispatch as well: the request cannot turn a
     // pacing wake into a local first-write budget bypass.
     let (mut equal, equal_id) = setup(spacing);
-    let expired = equal.advance_without_dispatch(start + spacing);
+    let expired = run_deadlines_only(&mut equal, start + spacing);
     assert!(matches!(
         terminal_failure(&expired, equal_id),
         Some(Error::Timeout)
@@ -11371,9 +11448,9 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
     // Once the budget is strictly later, the same no-dispatch wake leaves the
     // request ready; the exact first-dispatch query can then stage its write.
     let (mut later, later_id) = setup(spacing + Duration::from_nanos(1));
-    let due = later.advance_without_dispatch(start + spacing);
+    let due = run_deadlines_only(&mut later, start + spacing);
     assert!(request_transmit_optional(&due).is_none());
-    let dispatch = match later.first_dispatch_without_due(later_id, start + spacing) {
+    let dispatch = match later.first_dispatch(later_id, start + spacing) {
         FirstDispatch::Effects(effects) => effects,
         other => panic!("later paced request did not win first dispatch: {other:?}"),
     };
@@ -11611,7 +11688,9 @@ fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness()
         terminal_outcome(&completed, first_id),
         Some(RuntimeOutcome::Applied)
     ));
-    assert!(request_transmit_optional(&engine.finish_input_turn(turn)).is_none());
+    assert!(
+        request_transmit_optional(&engine.finish_input_turn(turn, EngineTurn::COMPLETE)).is_none()
+    );
     assert!(matches!(
         phase_of(&engine, second_id),
         Some(Phase::Ready { .. })

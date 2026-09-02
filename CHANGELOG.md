@@ -420,6 +420,15 @@ entries below retain their original wording.
 
 ### Changed
 
+- Consolidated the engine's owner-specific no-due/no-dispatch entry points into
+  one internal, runtime-neutral `EngineTurn` policy (#723). Async and blocking
+  input batches, standalone write results, deadline-only waits, and ordinary
+  scheduler turns now select the same `COMPLETE`, `DEADLINES_ONLY`, or
+  `INPUT_ONLY` tail instead of calling feature-gated engine methods. The engine
+  has no production `cfg(feature = ...)` paths, and the blocking-only build
+  still links no async runtime or executor. This is an internal architecture
+  change with no public API or wire-behavior change.
+
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now
   `Option<FrameSequence>` instead of `Option<u32>`, and the new public
