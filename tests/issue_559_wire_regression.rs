@@ -75,16 +75,15 @@ fn rejects_trailing_payload<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) 
 }
 
 #[test]
-fn brightness_direct_paths_and_inquiry_match_the_04_4d_family() {
+fn brightness_set_and_inquiry_match_the_04_4d_family() {
     let level = BrightnessLevel::new(0x11).expect("brightness level is valid");
     let direct = [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF];
 
     assert_eq!(wire(&Brightness::SetLevel(level)), direct);
-    assert_eq!(wire(&Brightness::Direct(level)), direct);
     let mut camera_2_buffer = [0_u8; Brightness::MAX_SIZE];
-    let camera_2_written = Brightness::Direct(level)
+    let camera_2_written = Brightness::SetLevel(level)
         .write_into(CameraId::CAMERA_2, &mut camera_2_buffer)
-        .expect("camera 2 brightness direct must encode");
+        .expect("camera 2 brightness set must encode");
     assert_eq!(
         &camera_2_buffer[..camera_2_written],
         &[0x82, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF]

@@ -2063,6 +2063,12 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
+        // Sony transport-control replies are observable protocol diagnostics,
+        // never VISCA request-correlation evidence.
+        if matches!(frame.response, DecodedResponse::SonyControl { .. }) {
+            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            return;
+        }
         // An unsequenced raw terminal response cannot identify which released
         // correlation it answers. Check the fixed-size tombstones before the
         // ordinary raw resolver: letting the resolver see it could otherwise
@@ -2144,7 +2150,9 @@ impl ProtocolEngine {
             DecodedResponse::Error { socket, code } => {
                 self.camera_error(id, correlation_kind, socket, code, now, effects);
             }
-            DecodedResponse::NetworkChange | DecodedResponse::Unknown => {
+            DecodedResponse::SonyControl { .. }
+            | DecodedResponse::NetworkChange
+            | DecodedResponse::Unknown => {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             }
         }
@@ -2204,7 +2212,9 @@ impl ProtocolEngine {
             DecodedResponse::Completion { socket: None } => {
                 self.sole_socket_holder(target).is_none()
             }
-            DecodedResponse::NetworkChange | DecodedResponse::Unknown => false,
+            DecodedResponse::SonyControl { .. }
+            | DecodedResponse::NetworkChange
+            | DecodedResponse::Unknown => false,
         }
     }
 
@@ -2267,7 +2277,9 @@ impl ProtocolEngine {
                 }
                 inquiry_owner
             }
-            DecodedResponse::NetworkChange | DecodedResponse::Unknown => None,
+            DecodedResponse::SonyControl { .. }
+            | DecodedResponse::NetworkChange
+            | DecodedResponse::Unknown => None,
         }
     }
 

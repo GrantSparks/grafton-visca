@@ -106,7 +106,7 @@ failure mode: its byte position cannot be established, so it reports
 
 The request-policy audit reads the built-in command ledger and the concrete
 request declarations; it does not maintain a second semantic registry. The
-current ledger has 150 command rows, 63 queryable inquiry rows, and 11
+current ledger has 149 command rows, 63 queryable inquiry rows, and 11
 decode-only response rows. Every queryable row uses the generated inquiry
 policy, with an inquiry-specific deadline and the interim 1 s response default.
 The historical comparison is the 1.x timeout category in the original command
@@ -127,10 +127,10 @@ The rows with an intentional timeout-category decision are:
 | 63 queryable built-in inquiries                                                                                                                   | Quick                   | Inquiry / Inquiry   | Inquiry response timing is a separate profile fact: v2 uses an interim 1 s deadline while retaining the old quick retry budget.                                                                                                             |
 | `NoiseReduction2dMode`                                                                                                                            | No 1.x command category | Quick / Standard    | New v2 `01 04 50` control. 1.x exposed an NR-mode inquiry but no corresponding setter, so this row is neither a preserved category nor an intentional category change.                                                                      |
 
-The remaining 120 command rows retain their 1.x timeout category. Every command
+The remaining 119 command rows retain their 1.x timeout category. Every command
 row has an explicit retry class. The semantic unit test
 `timeout_category_partition_preserves_the_1x_provenance_boundary` checks the
-150-row universe and the 29 changed / 1 new-v2-without-1.x-category / 120
+149-row universe and the 29 changed / 1 new-v2-without-1.x-category / 119
 preserved partition. It additionally pins the current v2 `Quick`/`Standard`
 policy for the four restored NR rows and the new-v2 mode control; it does not
 reconstruct the historical category. Update this table and its explanation

@@ -73,7 +73,7 @@ impl Session {
         config.validate_for_transport(transport.standard_transport_kind())?;
         let tuning = config.tuning();
         let profiles = config.profile_registry();
-        let adapter = AsyncTransportAdapter::new_with_profile_registry(
+        let mut adapter = AsyncTransportAdapter::new_with_profile_registry(
             transport,
             &profiles,
             tuning,
@@ -82,6 +82,11 @@ impl Session {
         let policy = adapter.policy().clone();
 
         let executor: Arc<E> = executor.into();
+        if config.sony_sequence_reset_on_connect() {
+            executor
+                .timeout(policy.write_timeout, adapter.send_sony_sequence_reset())
+                .await??;
+        }
         let (owner, actor) = AsyncOwnerActor::new(policy, (*executor).clone())?;
         // This is the only task spawned by this facade. The owner handle is
         // cloneable; all public camera views share its one serialized actor.
@@ -1056,6 +1061,32 @@ mod tests {
                 .expect("registered partial motion profile"),
             class: ClassSelection::Request,
         }
+    }
+
+    #[test]
+    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
+        let (runtime, _) = DeterministicExecutor::new();
+        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+
+        let session = runtime
+            .run_until(Session::open::<DeterministicExecutor, _>(
+                transport,
+                config,
+                runtime.clone(),
+            ))
+            .expect("Sony session opens after RESET");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
+        runtime
+            .run_until(session.close())
+            .expect("session shutdown");
     }
 
     #[test]

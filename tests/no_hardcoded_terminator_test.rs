@@ -4,7 +4,7 @@
 //! two facts have to stay true together:
 //!
 //! 1. the exported constant is the protocol's terminator (`0xFF`), and
-//! 2. every frame the library produces ends with *that constant*, exactly once.
+//! 2. every frame the library produces ends with *that constant*.
 //!
 //! These tests drive the production encode path -- `Request::write_into`, the
 //! same call the owner uses before handing bytes to a transport -- and compare
@@ -26,8 +26,8 @@
 use bytes::BytesMut;
 use grafton_visca::{
     command::{
-        CommandKind, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry, ZoomPositionInquiry,
-        VISCA_TERMINATOR,
+        CommandKind, DirectMenuControl, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry,
+        ZoomPositionInquiry, VISCA_TERMINATOR,
     },
     raw,
     request::builtin::{
@@ -56,25 +56,13 @@ fn encode<R: Request>(request: &R) -> Vec<u8> {
     buffer
 }
 
-fn terminator_count(frame: &[u8]) -> usize {
-    frame
-        .iter()
-        .filter(|&&byte| byte == VISCA_TERMINATOR)
-        .count()
-}
-
-/// Asserts the frame ends with the exported terminator and carries it once.
+/// Asserts the frame ends with the exported terminator.
 fn assert_terminated(name: &str, frame: &[u8]) {
     assert!(!frame.is_empty(), "{name} encoded an empty frame");
     assert_eq!(
         frame[frame.len() - 1],
         VISCA_TERMINATOR,
         "{name} must end with the exported VISCA_TERMINATOR, frame was {frame:02x?}"
-    );
-    assert_eq!(
-        terminator_count(frame),
-        1,
-        "{name} must carry exactly one terminator, frame was {frame:02x?}"
     );
 }
 
@@ -136,6 +124,26 @@ fn built_in_commands_end_with_the_exported_terminator() {
     );
 }
 
+/// A legal final data byte may itself be `0xFF`; the encoder must append a
+/// separate terminator instead of mistaking that data byte for one.
+#[test]
+fn final_ff_data_byte_is_not_mistaken_for_the_terminator() {
+    let preset = encode(&PresetSet::new(
+        PresetNumber::new(255).expect("preset 255 is valid"),
+    ));
+    assert_eq!(
+        preset,
+        [0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
+    );
+
+    let direct_menu =
+        encode(&DirectMenuControl::new(0x00, 0xFF).expect("0xFF is valid as the final data byte"));
+    assert_eq!(
+        direct_menu,
+        [0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR,]
+    );
+}
+
 /// Inquiries travel the same encode path and carry the same terminator.
 #[test]
 fn built_in_inquiries_end_with_the_exported_terminator() {
@@ -182,7 +190,7 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
 
 /// Both transport envelopes hand the encoded terminator to the wire unchanged:
 /// raw VISCA passes the frame through, and Sony encapsulation prefixes its
-/// 8-byte header without disturbing the payload's single trailing terminator.
+/// 8-byte header without disturbing the payload's trailing terminator.
 #[test]
 fn transport_envelopes_preserve_the_encoded_terminator() {
     let frame = encode(&PowerOn::new());

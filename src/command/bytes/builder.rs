@@ -250,22 +250,6 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable VISCA-encoded 16-bit value.
-    pub fn push_visca_u16_mut(&mut self, value: u16) -> &mut Self {
-        self.terminated = false;
-        self.required += 4;
-        if self.position + 4 <= N {
-            self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
-            self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
-            self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
-            self.buffer[self.position + 3] = (value & 0x0F) as u8;
-            self.position += 4;
-        } else {
-            self.overflowed = true;
-        }
-        self
-    }
-
     /// Mutable nibble pair.
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
         self.terminated = false;
@@ -690,25 +674,6 @@ mod tests {
         assert!(result.is_ok(), "build_into should succeed with exact fit");
         assert_eq!(result.unwrap(), 5);
         assert_eq!(buffer[4], VISCA_TERMINATOR);
-    }
-
-    #[test]
-    fn test_push_visca_u16_mut_overflow() {
-        let mut builder = ConstCommandBuilder::<5>::new();
-        builder.push_mut(0x81);
-        builder.push_mut(0x01);
-        builder.push_visca_u16_mut(0x1234); // Needs 4 bytes, won't fit
-
-        let mut buffer = [0u8; 10];
-        let result = builder.terminate().build_into(&mut buffer);
-
-        assert!(matches!(
-            result,
-            Err(crate::Error::BufferTooSmall {
-                required: 7,
-                actual: 5
-            })
-        ));
     }
 
     #[test]

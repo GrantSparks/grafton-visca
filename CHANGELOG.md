@@ -26,6 +26,19 @@ entries below retain their original wording.
 
 ### Added
 
+- **Added bounded Sony transport-control handling and protocol fuzz coverage**
+  (#727). `SessionConfig` and `CameraConfig` now expose the disabled-by-default
+  `with_sony_sequence_reset_on_connect` opt-in; compatible Sony-encapsulated
+  sessions send the exact `02 00` / `01` RESET packet before the owner accepts
+  work and reset their local sequence allocator to zero. One- and two-byte
+  `02 01` control replies are retained as
+  `DiagnosticResponse::SonyControl { code }` without being mistaken for VISCA
+  correlation evidence. The cargo-fuzz package now drives the raw response
+  parser and complete generated inquiry-decoder inventory, raw/Sony stream
+  framer, Sony envelope, and strict response-target router from committed
+  corpora. That expanded matrix found and now pins an out-of-range centered
+  exposure/red/blue decoder input that previously panicked in debug builds.
+
 - `dyn-api` no longer implies `async`: blocking sessions now expose
   `camera_dyn()` / `camera_dyn_for(target)` and the native
   `BlockingDynSessionCamera`, so a custom runtime `ProfileSpec` can execute
@@ -344,6 +357,17 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING** (#727): Collapsed the byte-identical brightness direct surface
+  onto its one canonical spelling. Use `Brightness::SetLevel` and
+  `brightness_set`; `Brightness::Direct`, `brightness_direct`, and
+  `BuiltinCommand::BrightnessDirect` are removed. The interim RC name
+  `FrameSequence::Lower16` is renamed `MaybeTruncated`, accurately describing
+  the uncertainty of any Sony reply whose upper sequence half is zero.
+  Pan/tilt public and profile-specific position/limit requests now lower through
+  `PanTiltProfiled` as their sole wire encoder, with no byte change. Owner
+  response routing also validates the source once and parses the borrowed
+  payload directly instead of rewriting a `SmallVec` scratch copy.
+
 - **BREAKING** (#714): A raw command left in lost-ACK quarantine now gives an
   ordinary blocking submission a bounded correlation wait through that
   predecessor's ambiguity deadline instead of `TransportBusy`; the async owner
@@ -496,14 +520,18 @@ entries below retain their original wording.
   [#713](https://github.com/GrantSparks/grafton-visca/issues/713#issuecomment-5508129430).
 
 - **Breaking wire corrections versus 1.x** (#715). The phase-4 encoder audit
-  compared 491 boundary probes against the pinned 1.2 oracle
+  originally compared 491 boundary probes against the pinned 1.2 oracle
   `6c7a9d3783861189745536372c4d21de24d4252d`, then added three v2-only 2D-NR
-  mode rows for a 494-row current snapshot. Exactly 31 comparable output rows
-  differ; every difference is accounted for below. The behavioral-parity
-  waiver is `source-backed-wire-corrections`. A checked-in literal snapshot
-  now covers every one of the 150 `BuiltinCommand` semantic-ledger rows and
-  every generated queryable inquiry, so a new command or a one-byte change
-  fails CI until the baseline is explicitly reviewed.
+  mode rows for a 494-row snapshot. #727 removed the seven redundant
+  `Brightness::Direct` probes when that byte-identical public variant was
+  collapsed, leaving 484 comparable rows plus the three v2-only rows in the
+  current 487-row snapshot. The original audit found 31 changed output rows;
+  the current fixture retains 29 because its two valid Bright Direct rows are
+  among those removed. Every difference remains accounted for below. The
+  behavioral-parity waiver is `source-backed-wire-corrections`. A checked-in
+  literal snapshot now covers every one of the 149 `BuiltinCommand`
+  semantic-ledger rows and every generated queryable inquiry, so a new command
+  or a one-byte change fails CI until the baseline is explicitly reviewed.
 
   | Affected audit rows | 1.x behavior | 2.0 behavior | Source / decision |
   | --- | --- | --- | --- |
@@ -516,7 +544,7 @@ entries below retain their original wording.
   | 6 trailing-`FF`/framing probes | Preset `255` and Direct Menu data ending in `FF` lost the real terminator; `FF 81` could form a second addressed frame. | A data byte of `FF` is followed by a distinct terminator, and Direct Menu rejects `FF` followed by a VISCA address. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode) and #683. |
   | 2 extended tilt-speed probes | `TiltSpeed` rejected `15`–`18` globally. | The value type admits `00`–`18`; preparation still enforces each profile's range (`14` for PTZOptics, `18` for BRC-300). | [Pan/tilt range note §7.6 and Sony R12](docs/visca_reference.md#76-pantilt). |
   | 6 2D/3D NR value/error probes | Level `0` was rejected and out-of-range diagnostics reported a minimum of `1`. | Level `0` is the documented off value; the domains are `0`–`5` (2D) and `0`–`8` (3D). | [NR command rows §7.8 / R14](docs/visca_reference.md#78-image-processing). |
-  | 3 Sony-over-IP payload types (outside the 491 encoder rows) | Device setting, control command, and control reply used `01 02` / `01 20` / `01 21`. | The payload types are `01 20` / `02 00` / `02 01`. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode). |
+  | 3 Sony-over-IP payload types (outside the original 491 encoder rows) | Device setting, control command, and control reply used `01 02` / `01 20` / `01 21`. | The payload types are `01 20` / `02 00` / `02 01`. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode). |
 
   The Sony payload-type row sits below the encoder layer and therefore is not
   counted among the 31 comparable built-in rows. It shares the same parity
@@ -557,7 +585,7 @@ entries below retain their original wording.
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now
   `Option<FrameSequence>` instead of `Option<u32>`, and the new public
-  `transport::FrameSequence` enum — `Full32(u32)`, `Lower16(u16)`, with a
+  `transport::FrameSequence` enum — `Full32(u32)`, `MaybeTruncated(u16)`, with a
   `value()` accessor — preserves whether a Sony reply carried a full 32-bit
   sequence or only a potentially truncated low 16 bits, so the engine applies
   its collision-safe fallback instead of trusting a zero upper half. The
@@ -1219,6 +1247,13 @@ entries below retain their original wording.
 
 ### Fixed
 
+- The terminator regression now pins both legal final-`FF` data cases from
+  #683: `PresetSet(255)` emits `... 01 FF FF`, and
+  `DirectMenuControl::new(00, FF)` emits `... 00 FF FF` (#727). The
+  `DirectMenuControl` rejection of `FF 81..88` remains deliberate and is now
+  recorded in the protocol reference: after a delimiter-valued byte, an
+  address-shaped byte could be interpreted as a second addressed VISCA frame.
+
 - Runtime profiles that retain a built-in profile's capabilities, pan/tilt
   coordinate codec, and envelope may now tune operational timing, transports,
   socket/cancellation policy, settlement axes, and inquiry availability while
@@ -1231,7 +1266,9 @@ entries below retain their original wording.
   are generated from one declarative registry; the old bit-30 persistence claim
   was removed because `TypedSupportSet` serializes names and exposes no numeric
   representation. The intentional `HasExposure`/`HasImageProcessing` baseline
-  asymmetry is now documented.
+  asymmetry is now documented. The generated contributor-table assertion also
+  normalizes checked-out CRLF line endings so the same registry-derived
+  documentation passes on Windows.
 
 - Silent open peers are now covered by the recovery contract (#719).
   `MetricsSnapshot::received_frames` provides positive liveness evidence for

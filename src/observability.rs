@@ -181,6 +181,11 @@ pub enum DiagnosticResponse {
     InquiryReply,
     /// A protocol error response was received.
     Error,
+    /// A Sony transport-control reply was received.
+    SonyControl {
+        /// The one- or two-byte control reply code, stored in network order.
+        code: u16,
+    },
     /// A network-change response was received.
     NetworkChange,
     /// A response could not be classified.
@@ -457,6 +462,7 @@ impl DiagnosticEvent {
             ResponseDiagnostic::Completion(_) => DiagnosticResponse::Completion,
             ResponseDiagnostic::InquiryReply => DiagnosticResponse::InquiryReply,
             ResponseDiagnostic::Error { .. } => DiagnosticResponse::Error,
+            ResponseDiagnostic::SonyControl { code } => DiagnosticResponse::SonyControl { code },
             ResponseDiagnostic::NetworkChange => DiagnosticResponse::NetworkChange,
             ResponseDiagnostic::Unknown => DiagnosticResponse::Unknown,
         };

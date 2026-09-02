@@ -30,8 +30,8 @@ pub(crate) use blocking_transport::*;
 
 #[allow(unused_imports)]
 pub(crate) use adapter::{
-    owner_policy_for_targets_with_tuning, profile_supports_transport, validate_profile_transport,
-    OwnerEnvelope, RoutingState, TargetRegistry,
+    decode_response_target, owner_policy_for_targets_with_tuning, profile_supports_transport,
+    validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -369,6 +369,9 @@ pub(crate) enum ResponseDiagnostic {
     Error {
         socket: Option<ViscaSocket>,
         code: u8,
+    },
+    SonyControl {
+        code: u16,
     },
     NetworkChange,
     Unknown,
@@ -2291,6 +2294,7 @@ fn response_diagnostic(response: &DecodedResponse) -> ResponseDiagnostic {
             socket: *socket,
             code: *code,
         },
+        DecodedResponse::SonyControl { code } => ResponseDiagnostic::SonyControl { code: *code },
         DecodedResponse::NetworkChange => ResponseDiagnostic::NetworkChange,
         DecodedResponse::Unknown => ResponseDiagnostic::Unknown,
     }

@@ -519,6 +519,9 @@ pub(crate) enum DecodedResponse {
         socket: Option<ViscaSocket>,
         code: u8,
     },
+    SonyControl {
+        code: u16,
+    },
     NetworkChange,
     Unknown,
 }

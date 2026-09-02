@@ -18,3 +18,8 @@ pub use camera_simulator::ViscaCameraSimulator;
 /// on real wall-clock time or unpredictable timing behavior.
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
+
+/// Internal protocol fuzz entry points.
+#[doc(hidden)]
+#[cfg(all(feature = "test-utils", feature = "blocking"))]
+pub mod fuzz;

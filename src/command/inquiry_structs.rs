@@ -970,6 +970,15 @@ macro_rules! define_builtin_inquiries {
             }
         }
 
+        /// Generated inquiry-kind inventory used by the downstream fuzz
+        /// harness. Keeping it beside the defining table makes newly added
+        /// decoders enter the fuzz matrix automatically.
+        #[cfg(all(feature = "test-utils", any(test, feature = "blocking")))]
+        pub(crate) const FUZZ_INQUIRY_KINDS: &[InquiryKind] = &[
+            $(InquiryKind::$kind,)*
+            $(InquiryKind::$decode_kind,)*
+        ];
+
         define_inquiry_data_enum! {
             queryable {
                 $(
@@ -1195,6 +1204,19 @@ macro_rules! define_builtin_inquiries {
                         );
                     )*
                 }
+            }
+
+            #[cfg(feature = "test-utils")]
+            #[test]
+            fn fuzz_inventory_tracks_every_generated_decoder_kind() {
+                assert_eq!(FUZZ_INQUIRY_KINDS.len(), BUILTIN_INQUIRIES.len());
+
+                let distinct = FUZZ_INQUIRY_KINDS
+                    .iter()
+                    .map(core::mem::discriminant)
+                    .collect::<std::collections::HashSet<_>>();
+                assert_eq!(distinct.len(), 73);
+                assert_eq!(BUILTIN_INQUIRIES.len(), 74);
             }
 
             #[test]
@@ -1620,8 +1642,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw_value = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let value = raw_value as i8 - 7;
+                let value = decode_centered_level(raw_value, 7, "exposure_compensation")?;
                 Ok(Response::Inquiry(InquiryData::ExposureCompensation { value }))
             };
             response: true;
@@ -2494,8 +2515,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let level = raw as i8 - 10;
+                let level = decode_centered_level(raw, 10, "red_tuning")?;
                 Ok(Response::Inquiry(InquiryData::RedTuning { level }))
             };
             response: true;
@@ -2520,8 +2540,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let level = raw as i8 - 10;
+                let level = decode_centered_level(raw, 10, "blue_tuning")?;
                 Ok(Response::Inquiry(InquiryData::BlueTuning { level }))
             };
             response: true;
@@ -3235,6 +3254,31 @@ fn require_nonempty(payload: &Payload<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Decode an unsigned wire level whose midpoint represents logical zero.
+fn decode_centered_level(raw: u8, center: u8, parameter: &'static str) -> Result<i8, Error> {
+    let maximum = center.saturating_mul(2);
+    if raw > maximum {
+        return Err(Error::InvalidParameter {
+            parameter,
+            value: Cow::Owned(format!("{raw:02X}")),
+            reason: Cow::Owned(format!(
+                "encoded value must be between 00 and {maximum:02X}"
+            )),
+        });
+    }
+    let raw = i8::try_from(raw).map_err(|_| Error::InvalidParameter {
+        parameter,
+        value: Cow::Owned(format!("{raw:02X}")),
+        reason: Cow::Borrowed("encoded value does not fit the signed decoder"),
+    })?;
+    let center = i8::try_from(center).map_err(|_| Error::InvalidParameter {
+        parameter,
+        value: Cow::Owned(format!("{center:02X}")),
+        reason: Cow::Borrowed("decoder midpoint does not fit the signed decoder"),
+    })?;
+    Ok(raw - center)
+}
+
 /// Decode the combined horizontal/vertical flip-state response shared by the
 /// two public inquiry names for `CAM_FlipInq`.
 fn decode_flip_state(payload: Payload<'_>) -> Result<Response, Error> {
@@ -3326,6 +3370,24 @@ fn decode_pan_tilt_position_with_codec(
 mod wire_decoder_regression_tests {
     use super::*;
     use crate::command::parse_inquiry_payload;
+
+    #[test]
+    fn centered_level_decoders_reject_out_of_range_nibbles_without_panicking() {
+        for (kind, parameter) in [
+            (InquiryKind::ExposureCompensation, "exposure_compensation"),
+            (InquiryKind::RedTuning, "red_tuning"),
+            (InquiryKind::BlueTuning, "blue_tuning"),
+        ] {
+            let response = parse_inquiry_payload(&[0x00, 0x00, 0x08, 0x04], &kind);
+            assert!(matches!(
+                response,
+                Err(Error::InvalidParameter {
+                    parameter: actual,
+                    ..
+                }) if actual == parameter
+            ));
+        }
+    }
 
     #[test]
     fn autofocus_sensitivity_uses_documented_wire_values() {

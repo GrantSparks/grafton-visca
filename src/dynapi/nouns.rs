@@ -27,7 +27,7 @@ use crate::{
 use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperation};
 
 /// Number of target-facing built-in command methods in this projection.
-pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 147;
+pub const DYN_NOUN_TARGET_METHOD_COUNT: usize = 146;
 
 /// Number of typed inquiry methods in this projection.
 pub const DYN_NOUN_INQUIRY_METHOD_COUNT: usize = 62;

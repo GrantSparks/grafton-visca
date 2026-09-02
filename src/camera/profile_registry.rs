@@ -2039,8 +2039,9 @@ macro_rules! __define_builtin_profiles {
                     .find(END)
                     .expect("typed-support vocabulary table end marker");
                 let end = start + relative_end + END.len();
+                let actual = guide[start..end].replace("\r\n", "\n");
                 assert_eq!(
-                    &guide[start..end],
+                    actual,
                     expected,
                     "regenerate the typed-support contributor table from the declarative registry"
                 );

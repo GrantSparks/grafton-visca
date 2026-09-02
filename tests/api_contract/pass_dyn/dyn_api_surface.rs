@@ -174,7 +174,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_down();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_set(BrightnessLevel::MIN);
-    let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_direct(BrightnessLevel::MIN);
     let _: DynFuture<'_, Result<GainLevel, Error>> = exposure.gain();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_up();

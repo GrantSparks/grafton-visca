@@ -210,19 +210,12 @@ Brightness::Reset	81 01 04 0D 00 FF
 Brightness::Up	81 01 04 0D 02 FF
 Brightness::Down	81 01 04 0D 03 FF
 Brightness::SetLevel[0000]	81 01 04 4D 00 00 00 00 FF
-Brightness::Direct[0000]	81 01 04 4D 00 00 00 00 FF
 Brightness::SetLevel[0005]	81 01 04 4D 00 00 00 05 FF
-Brightness::Direct[0005]	81 01 04 4D 00 00 00 05 FF
 Brightness::SetLevel[001B]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "27", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
-Brightness::Direct[001B]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "27", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
 Brightness::SetLevel[001F]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "31", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
-Brightness::Direct[001F]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "31", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
 Brightness::SetLevel[0020]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "32", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
-Brightness::Direct[0020]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "32", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
 Brightness::SetLevel[00FF]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
-Brightness::Direct[00FF]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
 Brightness::SetLevel[0100]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "256", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
-Brightness::Direct[0100]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "256", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
 AntiFlicker[Off]	81 01 04 23 00 FF
 AntiFlicker[50]	81 01 04 23 01 FF
 AntiFlicker[60]	81 01 04 23 02 FF

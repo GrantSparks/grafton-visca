@@ -16,7 +16,7 @@ use crate::{
     profile::{OperationalTuning, ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{FramingMode, ProtocolFramer},
-        response::{decode_basic, BasicKind},
+        response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
     runtime::engine::{
@@ -25,7 +25,7 @@ use crate::{
     },
     transport::{
         builder::{AddressingMode, TransportConfig},
-        envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated},
+        envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated, SonyResponse},
         SendSemantics,
     },
     CameraId, Error,
@@ -41,6 +41,11 @@ use super::{OwnerBuffers, OwnerPolicy};
 pub(crate) enum OwnerEnvelope {
     Raw(RawVisca),
     Sony(SonyEncapsulated),
+}
+
+enum OwnerResponse {
+    Visca { payload: Bytes, meta: FrameMeta },
+    SonyControl { code: u16 },
 }
 
 /// Immutable set of camera targets which may be attributed by one transport
@@ -187,10 +192,28 @@ impl OwnerEnvelope {
         }
     }
 
-    pub(crate) fn extract_with_meta(&self, framed: Bytes) -> Result<(Bytes, FrameMeta), Error> {
+    fn extract_response(&self, framed: Bytes) -> Result<OwnerResponse, Error> {
         match self {
-            Self::Raw(envelope) => envelope.extract_with_meta(framed),
-            Self::Sony(envelope) => envelope.extract_with_meta(framed),
+            Self::Raw(envelope) => {
+                let (payload, meta) = envelope.extract_with_meta(framed)?;
+                Ok(OwnerResponse::Visca { payload, meta })
+            }
+            Self::Sony(envelope) => match envelope.extract_owner_response(framed)? {
+                SonyResponse::Visca { payload, meta } => Ok(OwnerResponse::Visca { payload, meta }),
+                SonyResponse::Control { code } => Ok(OwnerResponse::SonyControl { code }),
+            },
+        }
+    }
+
+    pub(crate) fn frame_sony_sequence_reset(&self, out: &mut bytes::BytesMut) -> Result<(), Error> {
+        match self {
+            Self::Sony(envelope) => {
+                envelope.frame_sequence_reset_into(out);
+                Ok(())
+            }
+            Self::Raw(_) => Err(Error::InvalidRequest(
+                "Sony sequence reset requires the Sony encapsulated envelope".into(),
+            )),
         }
     }
 }
@@ -510,7 +533,19 @@ fn decode_frame(
     routing: RoutingState,
     framed: Bytes,
 ) -> Result<Option<DecodedFrame>, Error> {
-    let (payload, meta) = envelope.extract_with_meta(framed)?;
+    let (payload, meta) = match envelope.extract_response(framed)? {
+        OwnerResponse::Visca { payload, meta } => (payload, meta),
+        OwnerResponse::SonyControl { code } => {
+            let Some(target) = routing.targets().sole_target() else {
+                return Ok(None);
+            };
+            return Ok(Some(DecodedFrame {
+                target,
+                sequence: None,
+                response: DecodedResponse::SonyControl { code },
+            }));
+        }
+    };
     let Some(target) = decode_response_target(routing, &payload)? else {
         // An IP source is ambiguous when more than one target is registered;
         // drop it without falling back to any configured target.
@@ -521,7 +556,7 @@ fn decode_frame(
             value,
             width: SequenceWidth::Full32,
         },
-        FrameSequence::Lower16(value) => EnvelopeSequence {
+        FrameSequence::MaybeTruncated(value) => EnvelopeSequence {
             value: u32::from(value),
             width: SequenceWidth::Lower16,
         },
@@ -536,7 +571,7 @@ fn decode_frame(
             response: DecodedResponse::Unknown,
         }));
     }
-    let response = decode_response(routing, &payload)?;
+    let response = decode_response(target, &payload)?;
     Ok(Some(DecodedFrame {
         target,
         sequence,
@@ -544,21 +579,11 @@ fn decode_frame(
     }))
 }
 
-/// Classify a VISCA response using the shared `decode_basic` parser contract.
-/// Serial source bytes are normalized only in this bounded adapter
-/// scratch copy; the strict source and the resulting target remain unchanged.
-fn decode_response(routing: RoutingState, payload: &[u8]) -> Result<DecodedResponse, Error> {
-    let mut normalized = SmallVec::<[u8; INLINE_BYTES]>::new();
-    let frame = if routing.addressing() == AddressingMode::Serial {
-        normalized.extend_from_slice(payload);
-        if let Some(first) = normalized.first_mut() {
-            *first = 0x90;
-        }
-        normalized.as_slice()
-    } else {
-        payload
-    };
-    let Some(basic) = decode_basic(frame) else {
+/// Classify a VISCA response after the owner boundary has established its
+/// target. The shared parser borrows the original frame; no normalization copy
+/// or second source-address validation is required.
+fn decode_response(target: CameraId, payload: &[u8]) -> Result<DecodedResponse, Error> {
+    let Some(basic) = decode_basic_for_source(payload, target) else {
         return Err(Error::InvalidResponse {
             expected: Cow::Borrowed("valid VISCA response"),
             actual: payload.to_vec(),
@@ -802,6 +827,31 @@ mod tests {
         assert_eq!(
             OwnerEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip)).framing_mode(),
             FramingMode::SonyEncapsulated
+        );
+    }
+
+    #[test]
+    fn sony_control_reply_is_inert_but_preserves_its_diagnostic_code() {
+        let envelope = OwnerEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip));
+        let routing = RoutingState::new(
+            AddressingMode::Ip,
+            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+        );
+        let framed = Bytes::from_static(&[
+            0x02, 0x01, // control reply
+            0x00, 0x02, // two-byte payload
+            0x12, 0x34, 0x56, 0x78, // ignored control sequence
+            0x0F, 0x01, // sequence-number error
+        ]);
+
+        let decoded = decode_frame(&envelope, routing, framed)
+            .expect("valid Sony control reply")
+            .expect("sole-target Sony reply");
+        assert_eq!(decoded.target, CameraId::CAMERA_1);
+        assert_eq!(decoded.sequence, None);
+        assert_eq!(
+            decoded.response,
+            DecodedResponse::SonyControl { code: 0x0F01 }
         );
     }
 

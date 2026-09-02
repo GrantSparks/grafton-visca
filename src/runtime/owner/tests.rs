@@ -5878,6 +5878,34 @@ mod metrics {
         assert_eq!(state.metrics().terminal, 0);
     }
 
+    #[test]
+    fn sony_control_reply_is_observable_without_affecting_request_state() {
+        let start = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+
+        apply(
+            &mut state,
+            frame(None, DecodedResponse::SonyControl { code: 0x0F01 }),
+            start,
+        );
+
+        assert_eq!(state.metrics().received_frames, 1);
+        assert_eq!(state.metrics().protocol_errors, 0);
+        assert_eq!(state.metrics().terminal, 0);
+        assert!(state.diagnostics().any(|event| matches!(
+            event,
+            DiagnosticEvent::FrameReceived {
+                target: CameraId::CAMERA_1,
+                sequence: None,
+                response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
+            }
+        )));
+        assert!(state.diagnostics().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )));
+    }
+
     /// A transient receive fault (#565) retries a sequenced Sony command while
     /// it awaits its ACK. Raw commands poison the session because they have no
     /// sequence key that can make replay safe.

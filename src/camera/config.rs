@@ -196,6 +196,8 @@ pub struct CameraConfig<P> {
     pub(crate) tuning: OperationalTuning,
     /// Immutable request-admission capacity passed to the owner session.
     pub(crate) admission_capacity: NonZeroUsize,
+    /// Whether to reset Sony VISCA-over-IP sequence state during session open.
+    pub(crate) sony_sequence_reset_on_connect: bool,
     /// Transport configuration for the underlying connection.
     pub(crate) transport_config: TransportConfig,
     /// Camera VISCA address (usually 1).
@@ -219,6 +221,7 @@ where
             network_default_port: NetworkDefaultPort::Profile,
             tuning: OperationalTuning::new(),
             admission_capacity: crate::SessionConfig::default().admission_capacity(),
+            sony_sequence_reset_on_connect: false,
             transport_config: TransportConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
@@ -357,6 +360,20 @@ where
         self.admission_capacity
     }
 
+    /// Opt in to sending Sony's sequence-number RESET control command when a
+    /// session opened from this configuration connects.
+    #[must_use]
+    pub const fn with_sony_sequence_reset_on_connect(mut self, enabled: bool) -> Self {
+        self.sony_sequence_reset_on_connect = enabled;
+        self
+    }
+
+    /// Returns whether Sony sequence state is reset when the session connects.
+    #[must_use]
+    pub const fn sony_sequence_reset_on_connect(&self) -> bool {
+        self.sony_sequence_reset_on_connect
+    }
+
     /// Set transport configuration.
     pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
         self.transport_config = transport_config;
@@ -451,6 +468,13 @@ where
     pub fn validate(&self) -> crate::Result<()> {
         let profile = crate::ProfileSpec::from_compile_time::<P>()?;
         profile.validate_tuning(self.tuning)?;
+        if self.sony_sequence_reset_on_connect
+            && profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
+        {
+            return Err(Error::InvalidRequest(
+                "Sony sequence reset on connect requires a Sony encapsulated profile".into(),
+            ));
+        }
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
@@ -465,7 +489,9 @@ where
         let profile = crate::ProfileSpec::from_compile_time::<P>()?;
         let config = crate::SessionConfig::for_target(self.camera_id, profile)?
             .with_tuning(self.owner_tuning())?;
-        Ok(config.with_admission_capacity(self.admission_capacity))
+        Ok(config
+            .with_admission_capacity(self.admission_capacity)
+            .with_sony_sequence_reset_on_connect(self.sony_sequence_reset_on_connect))
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
@@ -859,6 +885,26 @@ mod tests {
             config.session_config().expect("session config").tuning(),
             tuning
         );
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn canonical_session_config_preserves_validated_sony_reset_opt_in() {
+        use crate::{
+            camera::CameraConfig,
+            profiles::{PtzOpticsG2, SonyFR7},
+            Error,
+        };
+
+        let raw = CameraConfig::<PtzOpticsG2>::new().with_sony_sequence_reset_on_connect(true);
+        assert!(matches!(raw.validate(), Err(Error::InvalidRequest(_))));
+
+        let sony = CameraConfig::<SonyFR7>::new().with_sony_sequence_reset_on_connect(true);
+        assert!(sony.sony_sequence_reset_on_connect());
+        assert!(sony
+            .session_config()
+            .expect("Sony session config")
+            .sony_sequence_reset_on_connect());
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]

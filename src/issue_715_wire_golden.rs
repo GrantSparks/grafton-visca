@@ -1,9 +1,11 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
-//! The fixture is the 491-row phase-4 mechanical comparison against the pinned
-//! 1.2 oracle, plus three v2-only 2D-NR mode rows. Its 31 changed comparison
-//! rows are the source-backed 2.0 deltas ratified in D5. Expectations
-//! are literal text, never calculated through the encoder under test. The
+//! The fixture is the 484-row phase-4 mechanical comparison against the pinned
+//! 1.2 oracle, plus three v2-only 2D-NR mode rows. The original audit's 31
+//! changed output rows included two valid `Brightness::Direct` rows removed
+//! with the duplicate public surface in #727; the current fixture retains the
+//! other 29 source-backed 2.0 deltas ratified in D5. Expectations are literal
+//! text, never calculated through the encoder under test. The
 //! semantic-ledger assertion below makes a newly added built-in command fail
 //! until it is deliberately represented by this generator and reviewed in the
 //! fixture; generated inquiry metadata is checked the same way.
@@ -426,7 +428,6 @@ pub(crate) fn rows() -> Vec<String> {
         BrightnessUp,
         BrightnessDown,
         BrightnessSet,
-        BrightnessDirect,
         AntiFlicker,
         SpotlightOn,
         SpotlightOff,
@@ -491,11 +492,6 @@ pub(crate) fn rows() -> Vec<String> {
             o,
             format!("Brightness::SetLevel[{l:04X}]"),
             Ok(Brightness::SetLevel(BrightnessLevel::new(l)?))
-        );
-        rowr!(
-            o,
-            format!("Brightness::Direct[{l:04X}]"),
-            Ok(Brightness::Direct(BrightnessLevel::new(l)?))
         );
     }
     row!(

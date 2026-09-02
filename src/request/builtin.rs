@@ -816,7 +816,7 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
         validate_brightness(
             profile,
             match self {
-                Self::SetLevel(level) | Self::Direct(level) => Some(level.value()),
+                Self::SetLevel(level) => Some(level.value()),
                 _ => None,
             },
         )
@@ -1513,8 +1513,7 @@ impl_plain_request!(
     RetryClass::Standard,
     ControlClass::Normal,
     |value: &crate::command::exposure::Brightness| match value {
-        crate::command::exposure::Brightness::SetLevel(_)
-        | crate::command::exposure::Brightness::Direct(_) => 9,
+        crate::command::exposure::Brightness::SetLevel(_) => 9,
         _ => 6,
     }
 );
@@ -2286,11 +2285,6 @@ pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage
         crate::command::semantics::BuiltinCommand::BrightnessSet,
         crate::command::Brightness,
         "SetLevel"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessDirect,
-        crate::command::Brightness,
-        "Direct"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::AntiFlicker,

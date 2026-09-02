@@ -470,10 +470,6 @@ macro_rules! noun_table {
             plain [BrightnessSet] brightness_set(level: types::BrightnessLevel)
                 -> command::Brightness where HasBrightnessControl
                 = command::Brightness::SetLevel(level);
-            /// Sets the camera's direct brightness value.
-            plain [BrightnessDirect] brightness_direct(level: types::BrightnessLevel)
-                -> command::Brightness where HasBrightnessControl
-                = command::Brightness::Direct(level);
             /// Returns gain.
             inquiry command::GainInquiry gain() -> types::GainLevel = command::GainInquiry;
             /// Resets gain.

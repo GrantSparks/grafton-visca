@@ -207,12 +207,12 @@ const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinR
 
 /// Human-readable closed-inventory totals for the built-in surface.
 ///
-/// There are 150 command IDs: 147 target-facing noun rows and three protocol
+/// There are 149 command IDs: 146 target-facing noun rows and three protocol
 /// exceptions (the two broadcast handshakes and internal cancellation).
 #[allow(dead_code)]
-pub(crate) const BUILTIN_COMMAND_COUNT: usize = 150;
+pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
 #[allow(dead_code)]
-pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 147;
+pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
 #[allow(dead_code)]
 pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
 
@@ -826,7 +826,7 @@ mod tests {
         // regression this assertion exists to surface.
         assert_eq!(
             (plain, applied_only, targeted),
-            (119, 16, 15),
+            (118, 16, 15),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());

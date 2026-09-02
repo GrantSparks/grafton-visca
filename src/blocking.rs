@@ -557,12 +557,16 @@ impl Session {
     {
         config.validate_for_transport(transport.standard_transport_kind())?;
         let profiles = config.profile_registry();
-        let adapter = crate::runtime::owner::BlockingTransportAdapter::new_with_profile_registry(
-            transport,
-            &profiles,
-            config.tuning(),
-            config.admission_capacity(),
-        )?;
+        let mut adapter =
+            crate::runtime::owner::BlockingTransportAdapter::new_with_profile_registry(
+                transport,
+                &profiles,
+                config.tuning(),
+                config.admission_capacity(),
+            )?;
+        if config.sony_sequence_reset_on_connect() {
+            adapter.send_sony_sequence_reset()?;
+        }
         Ok(Self {
             host: BlockingSessionHost::from_adapter(adapter)?,
             config,
@@ -1620,6 +1624,23 @@ mod tests {
             "both views wrote their zoom stop through the one owned transport"
         );
         session.shutdown().unwrap();
+    }
+
+    #[test]
+    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
+        let transport = ScriptedBlockingTransport::new([]);
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+
+        let session = Session::open(transport, config).expect("Sony session opens after RESET");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
+        session.shutdown().expect("session shutdown");
     }
 
     #[test]

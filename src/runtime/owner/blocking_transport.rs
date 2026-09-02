@@ -170,6 +170,27 @@ where
         &self.policy
     }
 
+    /// Send Sony's sequence-number RESET before the owner host starts.
+    pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+        let mut state = lock_state(&self.state)?;
+        let mut frame = bytes::BytesMut::new();
+        state.envelope.frame_sony_sequence_reset(&mut frame)?;
+        let datagram = matches!(
+            state.transport.send_semantics(),
+            crate::transport::SendSemantics::Datagram
+        );
+        state
+            .transport
+            .send_with_kind(frame.as_ref(), crate::command::CommandKind::Command)
+            .map_err(|error| {
+                if datagram {
+                    super::normalize_datagram_send_error(error)
+                } else {
+                    error
+                }
+            })
+    }
+
     /// Return write/read/decode views backed by this adapter's one transport.
     pub(crate) fn parts(
         &self,
@@ -921,6 +942,22 @@ mod tests {
         )
         .unwrap();
         owner.submit_command(&mut writer, prepared).unwrap();
+    }
+
+    #[test]
+    fn startup_sony_sequence_reset_writes_the_control_frame() {
+        let transport = ScriptedTransport::new(config(), std::iter::empty());
+        let sent = Arc::clone(&transport.sent);
+        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let mut adapter =
+            BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+
+        adapter.send_sony_sequence_reset().unwrap();
+
+        assert_eq!(
+            *sent.lock().unwrap(),
+            [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
     }
 
     #[test]

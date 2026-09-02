@@ -35,6 +35,7 @@ pub struct SessionConfig {
     targets: [Option<Arc<ProfileSpec>>; MAX_REGISTERED_TARGETS],
     tuning: OperationalTuning,
     admission_capacity: NonZeroUsize,
+    sony_sequence_reset_on_connect: bool,
 }
 
 impl SessionConfig {
@@ -168,6 +169,25 @@ impl SessionConfig {
         self
     }
 
+    /// Opt in to sending Sony's sequence-number RESET control command before
+    /// the owner starts accepting requests.
+    ///
+    /// This is disabled by default because opening a session otherwise performs
+    /// no protocol write. Enabling it requires every registered profile to use
+    /// the Sony encapsulated envelope; incompatible configurations fail before
+    /// transport I/O.
+    #[must_use]
+    pub const fn with_sony_sequence_reset_on_connect(mut self, enabled: bool) -> Self {
+        self.sony_sequence_reset_on_connect = enabled;
+        self
+    }
+
+    /// Returns whether session startup sends Sony's sequence-number RESET.
+    #[must_use]
+    pub const fn sony_sequence_reset_on_connect(&self) -> bool {
+        self.sony_sequence_reset_on_connect
+    }
+
     /// Checks operational tuning against every registered profile.
     ///
     /// This is the same check [`Self::with_tuning`] performs, exposed for the
@@ -201,6 +221,15 @@ impl SessionConfig {
         if self.admission_capacity.get() == usize::MAX {
             return Err(Error::InvalidRequest(
                 "session admission capacity must be less than usize::MAX".into(),
+            ));
+        }
+        if self.sony_sequence_reset_on_connect
+            && self.targets.iter().flatten().any(|profile| {
+                profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
+            })
+        {
+            return Err(Error::InvalidRequest(
+                "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
             ));
         }
         for profile in self.targets.iter().flatten() {
@@ -271,6 +300,7 @@ impl SessionConfig {
             targets,
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
+            sony_sequence_reset_on_connect: false,
         }
     }
 
@@ -298,6 +328,31 @@ impl Default for SessionConfig {
             targets: std::array::from_fn(|_| None),
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
+            sony_sequence_reset_on_connect: false,
         }
+    }
+}
+
+#[cfg(all(test, feature = "blocking"))]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::profiles::{GenericVisca, SonyFR7};
+
+    #[test]
+    fn sony_sequence_reset_is_opt_in_and_requires_the_sony_envelope() {
+        let raw = SessionConfig::from_compile_time::<GenericVisca>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+        assert!(matches!(
+            raw.validate_for_transport(None),
+            Err(Error::InvalidRequest(_))
+        ));
+
+        let sony = SessionConfig::from_compile_time::<SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+        assert!(sony.sony_sequence_reset_on_connect());
+        sony.validate_for_transport(None).unwrap();
     }
 }

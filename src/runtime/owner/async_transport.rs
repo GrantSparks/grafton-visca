@@ -140,6 +140,21 @@ where
     pub(crate) fn policy(&self) -> &OwnerPolicy {
         &self.policy
     }
+
+    /// Send Sony's sequence-number RESET before the owner actor starts.
+    pub(crate) async fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+        let mut frame = bytes::BytesMut::new();
+        self.state.envelope.frame_sony_sequence_reset(&mut frame)?;
+        let datagram =
+            self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream;
+        self.transport.send(frame.as_ref()).await.map_err(|error| {
+            if datagram {
+                super::normalize_datagram_send_error(error)
+            } else {
+                error
+            }
+        })
+    }
 }
 
 impl<T> AsyncOwnerDriver for AsyncTransportAdapter<T>
@@ -317,7 +332,7 @@ mod tests {
     use super::*;
     use crate::{
         profile::{OperationalTuning, ProfileSpec},
-        profiles::GenericVisca,
+        profiles::{GenericVisca, SonyFR7},
         transport::{
             buffer::BufferConfig, builder::TransportConfig, ReceiveOutcome, SendSemantics,
         },
@@ -421,6 +436,26 @@ mod tests {
             frames[0].response,
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
+    }
+
+    #[test]
+    fn startup_sony_sequence_reset_writes_the_control_frame() {
+        let transport = ScriptedTransport {
+            config: TransportConfig::default(),
+            sent: Vec::new(),
+            receives: std::collections::VecDeque::new(),
+            semantics: SendSemantics::Datagram,
+        };
+        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+
+        futures_lite::future::block_on(adapter.send_sony_sequence_reset()).unwrap();
+
+        assert_eq!(
+            adapter.transport.sent,
+            [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
     }
 
     #[test]

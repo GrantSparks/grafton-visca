@@ -973,19 +973,19 @@ mod tests {
 
         let command_header = SonyHeader {
             payload_type: PayloadType::ControlCommand,
-            payload_length: 3,
+            payload_length: 1,
             sequence_number: 0x11223344,
         };
         let reply_header = SonyHeader {
             payload_type: PayloadType::ControlReply,
-            payload_length: 3,
+            payload_length: 2,
             sequence_number: 0x55667788,
         };
 
         let mut command = Vec::from(command_header.encode());
-        command.extend_from_slice(&[0x90, 0x50, VISCA_TERMINATOR]);
+        command.extend_from_slice(&[0x01]);
         let mut reply = Vec::from(reply_header.encode());
-        reply.extend_from_slice(&[0x90, 0x51, VISCA_TERMINATOR]);
+        reply.extend_from_slice(&[0x0F, 0x01]);
 
         let mut data = command.clone();
         data.extend_from_slice(&reply);

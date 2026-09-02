@@ -220,6 +220,23 @@ Common payload types:
 
 In Sony VISCA-over-IP, the VISCA device address is fixed as camera `1`, so normal commands use `81 ... FF`.
 
+Sony's sequence-number RESET is a control command with a one-byte `01`
+payload: `02 00 00 01 00 00 00 00 01`. The header sequence field is ignored,
+and successful processing resets the next VISCA sequence to zero. A control
+reply uses `02 01`; the documented success payload is `01`, while protocol
+errors use two bytes such as `0F 01` (sequence abnormality) or `0F 02` (message
+type abnormality). These payloads are not terminated VISCA frames and must not
+be used to complete or correlate a VISCA request. The library leaves RESET
+disabled on connect unless the caller opts in, and exposes received control
+codes through diagnostics.
+
+`DirectMenuControl` deliberately rejects the data pair `FF 81..88`. Other
+`FF` data values, including a final `FF`, remain byte-for-byte and receive a
+separate trailing terminator. An address-shaped byte immediately after a
+delimiter-valued data byte could instead be interpreted by a delimiter-scanning
+camera or intermediary as the start of a second addressed VISCA frame, so that
+specific pair is outside the safe typed-command grammar (#683, #727).
+
 ### 5.3 Sony UDP retransmission correction
 
 Earlier drafts and some secondary summaries say to retry Sony VISCA-over-IP with a new sequence number. Sony’s command manual instead describes retransmitting the timed-out message using the **same sequence number** so the controller can infer which message was lost and whether the camera already accepted the original command. This document adopts Sony’s same-sequence retransmission guidance.
