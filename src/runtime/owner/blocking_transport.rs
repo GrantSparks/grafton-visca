@@ -1511,12 +1511,11 @@ mod tests {
     }
 
     /// No source-only, ACK, or socketless terminal prefix proves an owner.
-    /// Just before the release boundary the production adapter keeps draining
-    /// those literals, then poisons at the independent 64-turn cap before a
-    /// successor write can make the bytes bindable to new work.
+    /// The production adapter gives each literal one real grace interval, then
+    /// discards the orphan and releases the successor without poisoning the
+    /// session (#713).
     #[test]
-    fn production_raw_tombstone_ambiguous_prefixes_poison_before_successor_write() {
-        const AMBIGUOUS_PREFIX_TURNS: usize = 64;
+    fn production_raw_tombstone_ambiguous_prefixes_expire_by_time_without_poison() {
         for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
             let ambiguity = Duration::from_millis(200);
             let reads = std::iter::once(TombstoneIntegrationRead::Bytes(vec![
@@ -1525,7 +1524,10 @@ mod tests {
             .chain(std::iter::once(
                 TombstoneIntegrationRead::BytesNearDeadline(prefix.clone()),
             ))
-            .chain((1..AMBIGUOUS_PREFIX_TURNS).map(|_| TombstoneIntegrationRead::TimedOut));
+            .chain([
+                TombstoneIntegrationRead::TimedOut,
+                TombstoneIntegrationRead::TimedOut,
+            ]);
             let (transport, io) = TombstoneIntegrationTransport::new(reads);
             let adapter =
                 BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -1545,7 +1547,7 @@ mod tests {
                 Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
             ));
 
-            let error = owner
+            let successor = owner
                 .submit_request_until_with_pump(
                     &mut writer,
                     &mut reader,
@@ -1554,25 +1556,26 @@ mod tests {
                     Duration::from_secs(1),
                     Instant::now() + Duration::from_secs(1),
                 )
-                .expect_err("ambiguous retained raw input must fail closed: {prefix:02x?}");
-            assert!(
-                matches!(error, Error::StreamPoisoned { .. }),
-                "{prefix:02x?}: {error:?}"
+                .expect("the orphan expires by elapsed time: {prefix:02x?}");
+            assert!(try_terminal(&successor).is_none());
+            assert_eq!(
+                owner.state().state(),
+                crate::runtime::engine::SessionState::Running
             );
             let io = io.lock().unwrap();
             assert_eq!(
                 io.sent.len(),
-                1,
-                "{prefix:02x?}: successor must not write before the cap"
+                2,
+                "{prefix:02x?}: successor writes only after the orphan is discarded"
             );
             assert_eq!(
                 io.send_counts_at_read.len(),
-                AMBIGUOUS_PREFIX_TURNS + 1,
-                "{prefix:02x?}: the initial reply plus every bounded retained-input turn are read"
+                4,
+                "{prefix:02x?}: one probe starts grace and one expires it"
             );
             assert!(
                 io.reads.is_empty(),
-                "{prefix:02x?}: the cap consumes its exact no-data budget"
+                "{prefix:02x?}: the single grace-expiry probe is consumed"
             );
         }
     }

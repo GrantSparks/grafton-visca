@@ -295,10 +295,12 @@ prefixes; noncorrelating evidence and another target's serial input are
 preserved. A source-only prefix, an ACK prefix (whose nibble is an assignment
 preference rather than ownership), and socketless `0x50`/`0x60` prefixes remain
 ambiguous for narrower inquiry/pre-ACK/unkeyed or socket-scoped releases. They
-keep the owner draining input before it releases a successor. If bounded
-input-first draining cannot resolve that evidence within 64 turns, the owner
-fails closed before successor dispatch rather than dropping or misbinding the
-bytes.
+keep the old correlation scope alive while the owner awaits input for one
+engine-owned grace interval: the lesser of the configured read timeout and 100
+ms (#713). A tail arriving inside that interval is decoded before release. If
+the deadline expires first, the orphan prefix is discarded, one malformed-frame
+diagnostic is recorded, and the session remains `Running`; only framer overflow
+or a decoder that cannot perform the requested discard poisons the stream.
 
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write

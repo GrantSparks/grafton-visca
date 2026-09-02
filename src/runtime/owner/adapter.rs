@@ -349,6 +349,9 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             // profile busy/cooldown fact. Ordinary inquiries do not incur this
             // wait.
             inquiry_cooldown,
+            raw_release_grace: config
+                .read_timeout
+                .min(std::time::Duration::from_millis(100)),
             // Off by default: a raw command that can no longer be confirmed
             // fails on its own and quarantines its correlation, rather than
             // poisoning the whole session. The strict opt-in restores the

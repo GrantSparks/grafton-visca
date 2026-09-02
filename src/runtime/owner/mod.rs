@@ -75,7 +75,7 @@ use super::engine::{
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use super::engine::{RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence};
+use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
 
 #[cfg(any(feature = "blocking", test))]
 use super::engine::FirstDispatch;
@@ -1514,15 +1514,13 @@ impl OwnerState {
         self.engine.raw_correlation_releases_due(now)
     }
 
-    /// Delegates retained raw-prefix handling to the engine, which is the
-    /// sole authority for raw correlation policy.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn raw_prefix_disposition(
-        &self,
-        releases: RawCorrelationReleaseSet,
-        evidence: RawPrefixEvidence,
-    ) -> RawPrefixDisposition {
-        self.engine.raw_prefix_disposition(releases, evidence)
+    pub(crate) fn resolve_raw_release_gate(
+        &mut self,
+        now: Instant,
+        evidence: Option<RawPrefixEvidence>,
+    ) -> RawReleaseGateAction {
+        self.engine.resolve_raw_release_gate(now, evidence)
     }
 
     /// The next engine wake that remains relevant while the blocking owner

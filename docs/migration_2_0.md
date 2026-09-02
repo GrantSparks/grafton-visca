@@ -578,6 +578,14 @@ application requested:
 | A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, including an ACK deadline that expires after a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
 | The application shut the session down | `RuntimeShutdown` | `false` |
 
+**Behavior change (issue #713).** A partial raw response straddling a
+correlation-release boundary no longer consumes an implementation-specific
+poll-count budget or poisons merely because its tail is late. Both facades wait
+for the same engine-owned grace (at most 100 ms and never longer than the
+configured read timeout), then discard and diagnose an orphaned prefix while
+leaving the session usable. `StreamPoisoned` remains reserved for an
+unrecoverable stream position, such as overflow or a failed discard.
+
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
 reserved for a stream whose framing or write position became unknowable (for

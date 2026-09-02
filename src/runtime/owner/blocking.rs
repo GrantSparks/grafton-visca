@@ -30,7 +30,7 @@ use super::{
 };
 use crate::runtime::engine::{
     DecodedFrame, Effect, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
-    RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence, TransportKind,
+    RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -1204,6 +1204,7 @@ struct PumpProgress {
 struct RawReleaseInputGate {
     releases: RawCorrelationReleaseSet,
     deferrals: usize,
+    await_until: Option<Instant>,
 }
 
 /// A pathological nonblocking test adapter or an always-ready peer must not
@@ -1392,6 +1393,7 @@ impl BlockingOwner {
         self.raw_release_input_gate = Some(RawReleaseInputGate {
             releases,
             deferrals: 0,
+            await_until: None,
         });
         Some(releases)
     }
@@ -2029,6 +2031,15 @@ impl BlockingOwner {
             // stream evidence; never turn that into due work merely because a
             // caller-side sleep reached H.
             if self.raw_release_gate_pending() || self.raw_release_gate_at(now).is_some() {
+                if let Some(await_until) = self
+                    .raw_release_input_gate
+                    .and_then(|gate| gate.await_until)
+                    .filter(|await_until| *await_until > now)
+                {
+                    sleep_until(
+                        observer_deadline.map_or(await_until, |observer| observer.min(await_until)),
+                    );
+                }
                 if turns >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
                     return Err(self.poison_raw_release_gate(
                         driver,
@@ -2078,8 +2089,8 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
         decoder: &mut F,
-        releases: RawCorrelationReleaseSet,
-    ) -> Result<RawPrefixDisposition, Error>
+        now: Instant,
+    ) -> Result<RawReleaseGateAction, Error>
     where
         D: BlockingWireDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
@@ -2103,7 +2114,7 @@ impl BlockingOwner {
                 }
                 // Every matching stale fragment has been removed. It is safe
                 // to release due work before consuming an as-yet-unread tail.
-                return Ok(RawPrefixDisposition::ReleasePreserving);
+                return Ok(self.state.resolve_raw_release_gate(now, None));
             }
             let evidence = evidence.ok_or_else(|| {
                 self.poison_tombstone_decoder(
@@ -2114,8 +2125,8 @@ impl BlockingOwner {
                     ),
                 )
             })?;
-            match self.state.raw_prefix_disposition(releases, evidence) {
-                RawPrefixDisposition::Discard => {
+            match self.state.resolve_raw_release_gate(now, Some(evidence)) {
+                RawReleaseGateAction::DiscardFirst => {
                     if discarded >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
                         return Err(self.poison_tombstone_decoder(
                             driver,
@@ -2128,9 +2139,12 @@ impl BlockingOwner {
                     decoder
                         .discard_buffered_stream_input()
                         .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
+                    let _ = self
+                        .state
+                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                     discarded = discarded.saturating_add(1);
                 }
-                disposition => return Ok(disposition),
+                action => return Ok(action),
             }
         }
     }
@@ -2507,7 +2521,16 @@ impl BlockingOwner {
         let receive_started_at = Instant::now();
         let raw_gate_before_receive = self.raw_release_gate_at(receive_started_at).is_some();
         let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
-        if raw_gate_before_receive
+        let raw_release_wait = self
+            .raw_release_input_gate
+            .and_then(|gate| gate.await_until);
+        if raw_gate_before_receive && raw_release_wait.is_some_and(|wait| wait > receive_started_at)
+        {
+            // The engine has retained an ambiguous prefix under the old scope.
+            // Give its tail one real, shared grace interval instead of handing
+            // the already-due protocol wake back to the reader (#713).
+            owner_deadline = min_deadline(raw_release_wait, observer_deadline);
+        } else if raw_gate_before_receive
             && owner_deadline.is_some_and(|deadline| deadline <= receive_started_at)
         {
             // `BlockingTransportReader` quite correctly returns TimedOut
@@ -2775,17 +2798,17 @@ impl BlockingOwner {
                     ),
                 ));
             };
-            let disposition = if is_stream
+            let gate_action = if is_stream
                 && decoder
                     .has_buffered_stream_input()
                     .map_err(|error| self.poison_tombstone_decoder(driver, error))?
             {
-                self.resolve_due_raw_prefixes(driver, decoder, gate_releases)?
+                self.resolve_due_raw_prefixes(driver, decoder, received_at)?
             } else {
-                RawPrefixDisposition::ReleasePreserving
+                self.state.resolve_raw_release_gate(received_at, None)
             };
-            match disposition {
-                RawPrefixDisposition::Discard => {
+            match gate_action {
+                RawReleaseGateAction::DiscardFirst => {
                     return Err(self.poison_raw_release_gate(
                         driver,
                         Error::InvalidState(
@@ -2793,16 +2816,15 @@ impl BlockingOwner {
                         ),
                     ));
                 }
-                RawPrefixDisposition::Defer => {
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted while input remained ambiguous",
-                    )?;
+                RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                    if let Some(gate) = &mut self.raw_release_input_gate {
+                        gate.await_until = Some(deadline);
+                    }
                     return Ok(PumpProgress {
                         decoded_frames: driven,
                     });
                 }
-                RawPrefixDisposition::NoRelease | RawPrefixDisposition::ReleasePreserving => {}
+                RawReleaseGateAction::Advance => {}
             }
 
             // The old scope has now had a real input turn. If a non-receive
@@ -2814,6 +2836,7 @@ impl BlockingOwner {
                 self.raw_release_input_gate = Some(RawReleaseInputGate {
                     releases: current_releases,
                     deferrals: 0,
+                    await_until: None,
                 });
                 return Ok(PumpProgress {
                     decoded_frames: driven,
@@ -3327,6 +3350,7 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
             CameraId::CAMERA_1,
@@ -3347,6 +3371,7 @@ mod tests {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         let mut targets = [None; 9];

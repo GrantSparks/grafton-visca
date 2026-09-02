@@ -425,6 +425,9 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
+    /// Maximum time retained raw stream evidence may wait for a completing
+    /// tail after a correlation hold becomes releasable (#713).
+    pub(crate) raw_release_grace: Duration,
     /// Opt-in strict recovery mode for the raw envelope.
     ///
     /// When `false` (the default), a raw command whose ACK or completion can no
@@ -603,6 +606,17 @@ pub(crate) enum RawPrefixDisposition {
     /// Due work may run while the retained bytes remain available for the next
     /// receive turn; they cannot bind the released correlation to a successor.
     ReleasePreserving,
+}
+
+/// Engine-owned decision for retained input at a raw-correlation release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawReleaseGateAction {
+    /// The release may advance and ordinary scheduling may resume.
+    Advance,
+    /// Keep the old correlation scope alive and await input until this instant.
+    AwaitInputUntil(std::time::Instant),
+    /// Discard the first retained raw fragment, record it, and classify again.
+    DiscardFirst,
 }
 
 /// A decoded frame owns its target and parsed data; it borrows no scheduler state.

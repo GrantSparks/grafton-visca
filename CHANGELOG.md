@@ -21,6 +21,14 @@ entries below retain their original wording.
 
 ### Fixed
 
+- Raw stream correlation release now gives an ambiguous partial frame one
+  engine-owned grace interval, bounded by the configured read timeout and 100
+  ms, on both async and blocking facades (#713). A tail arriving in that window
+  is processed under the old correlation scope; at expiry the orphan prefix is
+  discarded and reported as malformed while the session remains usable. This
+  replaces the async 64 zero-time-poll `StreamPoisoned` failure and the
+  blocking-only ~64 ms poll-count behavior.
+
 - **BREAKING**: Static `camera.exposure().mode()` and `.set_mode(...)` now
   require `HasExposureMode`. The built-in marker is emitted only for
   `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`; Sony FR7 and every other

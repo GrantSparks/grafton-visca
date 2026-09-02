@@ -28,6 +28,7 @@ fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::from_millis(25),
+        raw_release_grace: Duration::from_millis(100),
         strict_unconfirmed_poison: false,
     }
 }
@@ -10667,6 +10668,56 @@ fn raw_typed_release_scopes_preserve_only_live_other_socket_evidence() {
         RawPrefixDisposition::ReleasePreserving
     );
     engine.assert_invariants().unwrap();
+}
+
+/// Issue #713: ambiguous retained bytes are governed by elapsed time, not by
+/// how many times an owner happens to poll an already-ready wake.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[test]
+fn raw_release_gate_uses_one_time_budget_then_discards_the_orphan() {
+    let start = Instant::now();
+    let grace = Duration::from_millis(37);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.policy.raw_release_grace = grace;
+    engine.raw_target_tombstones[1] = Some(RawTerminalTombstone::inquiry(start));
+    let evidence = RawPrefixEvidence::Incomplete {
+        target: camera(1),
+        kind: RawIncompletePrefix::SourceOnly,
+    };
+
+    assert_eq!(
+        engine.resolve_raw_release_gate(start, Some(evidence)),
+        RawReleaseGateAction::AwaitInputUntil(start + grace)
+    );
+    for _ in 0..128 {
+        assert_eq!(
+            engine.resolve_raw_release_gate(start, Some(evidence)),
+            RawReleaseGateAction::AwaitInputUntil(start + grace),
+            "re-polling without advancing time cannot consume the grace budget"
+        );
+    }
+    assert_eq!(
+        engine.resolve_raw_release_gate(start + grace - Duration::from_nanos(1), Some(evidence)),
+        RawReleaseGateAction::AwaitInputUntil(start + grace)
+    );
+    assert_eq!(
+        engine.resolve_raw_release_gate(start + grace, Some(evidence)),
+        RawReleaseGateAction::DiscardFirst
+    );
+    assert_eq!(engine.state(), SessionState::Running);
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[test]
+fn raw_release_gate_advances_immediately_when_no_input_is_retained() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.raw_target_tombstones[1] = Some(RawTerminalTombstone::inquiry(start));
+
+    assert_eq!(
+        engine.resolve_raw_release_gate(start, None),
+        RawReleaseGateAction::Advance
+    );
 }
 
 /// A normal response deadline can create a future tombstone but does not itself

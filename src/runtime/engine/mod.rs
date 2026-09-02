@@ -108,6 +108,13 @@ struct RawTerminalTombstone {
     inquiry_deadline: Option<Instant>,
 }
 
+/// Time-bounded retained-input decision for one due raw release (#713).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawReleaseGate {
+    releases: RawCorrelationReleaseSet,
+    await_until: Instant,
+}
+
 impl RawTerminalTombstone {
     const fn terminal(deadline: Instant) -> Self {
         Self {
@@ -322,6 +329,7 @@ pub(crate) struct ProtocolEngine {
     /// Hold later response-bearing work on that target until its ambiguity
     /// deadline.
     raw_target_tombstones: [Option<RawTerminalTombstone>; 9],
+    raw_release_gate: Option<RawReleaseGate>,
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
     next_generation: IdAllocator,
@@ -355,6 +363,7 @@ impl ProtocolEngine {
             socket_owners: [[None; 2]; 9],
             raw_inquiries: array::from_fn(|_| VecDeque::new()),
             raw_target_tombstones: [None; 9],
+            raw_release_gate: None,
             next_request_id: IdAllocator::new(),
             next_transmission_id: IdAllocator::new(),
             next_generation: IdAllocator::new(),
@@ -3088,6 +3097,7 @@ impl ProtocolEngine {
         // this function by an input turn, so it is conservatively ignored by
         // the tombstone. Once the turn reaches due work, release every expired
         // fixed slot before dispatching a queued successor.
+        self.raw_release_gate = None;
         self.expire_raw_terminal_tombstones(now);
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
             let valid = self.entries.get(&due.request).is_some_and(|entry| {
@@ -3695,6 +3705,59 @@ impl ProtocolEngine {
                 }
             }
             RawIncompletePrefix::Noncorrelating => RawPrefixDisposition::ReleasePreserving,
+        }
+    }
+
+    /// Resolves retained stream evidence against a due raw-correlation release
+    /// using one engine-owned time budget (#713).
+    ///
+    /// An ambiguous prefix keeps the old scope alive until the returned
+    /// deadline. Both owner shells map that deadline onto their native wait.
+    /// Once the grace expires the orphan is discarded and recorded rather than
+    /// turning a fast poll counter into a poisoned session.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn resolve_raw_release_gate(
+        &mut self,
+        now: Instant,
+        evidence: Option<RawPrefixEvidence>,
+    ) -> RawReleaseGateAction {
+        let releases = self.raw_correlation_releases_due(now);
+        let Some(evidence) = evidence else {
+            self.raw_release_gate = None;
+            return RawReleaseGateAction::Advance;
+        };
+        if releases.is_empty() {
+            self.raw_release_gate = None;
+            return RawReleaseGateAction::Advance;
+        }
+        match self.raw_prefix_disposition(releases, evidence) {
+            RawPrefixDisposition::NoRelease | RawPrefixDisposition::ReleasePreserving => {
+                self.raw_release_gate = None;
+                RawReleaseGateAction::Advance
+            }
+            RawPrefixDisposition::Discard => {
+                self.raw_release_gate = None;
+                RawReleaseGateAction::DiscardFirst
+            }
+            RawPrefixDisposition::Defer => {
+                let await_until = self
+                    .raw_release_gate
+                    .filter(|gate| gate.releases == releases)
+                    .map_or_else(
+                        || add_duration(now, self.policy.raw_release_grace),
+                        |gate| gate.await_until,
+                    );
+                if now >= await_until {
+                    self.raw_release_gate = None;
+                    RawReleaseGateAction::DiscardFirst
+                } else {
+                    self.raw_release_gate = Some(RawReleaseGate {
+                        releases,
+                        await_until,
+                    });
+                    RawReleaseGateAction::AwaitInputUntil(await_until)
+                }
+            }
         }
     }
 
@@ -4599,6 +4662,7 @@ mod cancellation_regression_tests {
             command_spacing,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         }
     }

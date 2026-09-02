@@ -17,6 +17,7 @@ fn policy_for_target_validation() -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
+        raw_release_grace: Duration::from_millis(100),
         strict_unconfirmed_poison: false,
     }
 }
@@ -222,6 +223,7 @@ mod blocking {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         let mut owner = OwnerPolicy::single_target(
@@ -5672,6 +5674,7 @@ mod metrics {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         OwnerPolicy::single_target(
@@ -6242,6 +6245,7 @@ mod lifecycle_trace {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         let mut targets = [None; 9];

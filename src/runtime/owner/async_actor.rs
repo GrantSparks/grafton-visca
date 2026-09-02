@@ -39,7 +39,7 @@ use super::{
     TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
-    Effect, IgnoreReason, RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence,
+    Effect, IgnoreReason, RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction,
     TransportKind,
 };
 
@@ -1730,11 +1730,9 @@ where
     /// pause so an immediately-returning idle read cannot hot-spin the actor,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receive_run: u32,
-    /// Number of due raw-correlation wake turns deferred so already-buffered
-    /// complete input can be decoded first. Bounded independently of ordinary
-    /// receive fairness so an adversarial decoder cannot postpone due work
-    /// forever.
-    raw_release_deferral_run: usize,
+    /// Engine-owned deadline currently keeping an ambiguous retained prefix
+    /// under the old raw correlation scope (#713).
+    raw_release_wait_until: Option<Instant>,
     runtime: Arc<R>,
 }
 
@@ -1795,7 +1793,7 @@ where
                 terminal_error,
                 faults: TransientFaultRun::default(),
                 idle_receive_run: 0,
-                raw_release_deferral_run: 0,
+                raw_release_wait_until: None,
                 runtime,
             },
         ))
@@ -1926,6 +1924,9 @@ where
             );
             let raw_releases_due = self.state.raw_correlation_releases_due(now);
             let has_raw_release_due = !raw_releases_due.is_empty();
+            if !has_raw_release_due {
+                self.raw_release_wait_until = None;
+            }
             if !has_raw_release_due
                 || raw_release_no_input_fence.is_some_and(|fenced| fenced != raw_releases_due)
             {
@@ -2022,7 +2023,31 @@ where
                     )
                     .await
                 } else if has_raw_release_due {
-                    if raw_release_is_fenced {
+                    if let Some(await_until) = self.raw_release_wait_until {
+                        // An ambiguous retained prefix owns a real time budget,
+                        // not a number of zero-time Wake polls (#713). Keep
+                        // receive left-biased so a tail arriving inside the
+                        // grace is decoded under the old correlation scope.
+                        let release_wait = async {
+                            let remaining = await_until.saturating_duration_since(now);
+                            if !remaining.is_zero() {
+                                Executor::sleep(runtime.as_ref(), remaining).await;
+                            }
+                            ActorEvent::Wake {
+                                raw_buffered_cap_exhausted: false,
+                            }
+                        };
+                        future::or(
+                            async {
+                                match self.shutdown.recv_async().await {
+                                    Ok(()) => ActorEvent::Shutdown,
+                                    Err(_) => future::pending().await,
+                                }
+                            },
+                            future::or(receive, release_wait),
+                        )
+                        .await
+                    } else if raw_release_is_fenced {
                         // The exact probe already returned no input.  Do not
                         // give an immediately-idle driver another chance to
                         // spin; wake now, still behind an explicit shutdown.
@@ -2359,7 +2384,7 @@ where
                 let releases = self.state.raw_correlation_releases_due(now);
                 if !releases.is_empty() {
                     let work_limit = RAW_CORRELATION_RELEASE_WORK_LIMIT;
-                    let framing = (|| -> Result<bool, Error> {
+                    let framing = (|| -> Result<Option<Instant>, Error> {
                         let mut discarded = 0_usize;
                         loop {
                             let buffered = driver.has_buffered_stream_input()?;
@@ -2371,7 +2396,16 @@ where
                                             .into(),
                                     ));
                                 }
-                                return Ok(false);
+                                return match self.state.resolve_raw_release_gate(now, None) {
+                                    RawReleaseGateAction::Advance => Ok(None),
+                                    RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                                        Ok(Some(deadline))
+                                    }
+                                    RawReleaseGateAction::DiscardFirst => Err(Error::InvalidState(
+                                        "raw release gate requested a discard without retained input"
+                                            .into(),
+                                    )),
+                                };
                             }
                             let input = input.ok_or_else(|| {
                                 Error::InvalidState(
@@ -2379,19 +2413,12 @@ where
                                         .into(),
                                 )
                             })?;
-                            match self.state.raw_prefix_disposition(releases, input) {
-                                // A complete buffered frame remains ordinary
-                                // protocol input even at exact equality. The
-                                // same applies to incomplete evidence whose
-                                // identity is too weak to release safely.
-                                RawPrefixDisposition::Defer => return Ok(true),
-                                // This prefix belongs to a different serial
-                                // target or a still-live non-releasing socket.
-                                // It cannot revive the released scope, so due
-                                // work may progress without altering bytes.
-                                RawPrefixDisposition::NoRelease
-                                | RawPrefixDisposition::ReleasePreserving => return Ok(false),
-                                RawPrefixDisposition::Discard => {
+                            match self.state.resolve_raw_release_gate(now, Some(input)) {
+                                RawReleaseGateAction::Advance => return Ok(None),
+                                RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                                    return Ok(Some(deadline));
+                                }
+                                RawReleaseGateAction::DiscardFirst => {
                                     if discarded >= work_limit {
                                         return Err(Error::InvalidState(
                                             "async raw correlation release framing work cap exhausted"
@@ -2404,13 +2431,16 @@ where
                                     // a stale fragment from crossing into a
                                     // successor's correlation interval.
                                     driver.discard_buffered_stream_input()?;
+                                    let _ = self.state.apply_effect(Effect::Ignored(
+                                        IgnoreReason::MalformedFrame,
+                                    ));
                                     discarded = discarded.saturating_add(1);
                                 }
                             }
                         }
                     })();
-                    let defer_due = match framing {
-                        Ok(defer_due) => defer_due,
+                    let await_input_until = match framing {
+                        Ok(await_input_until) => await_input_until,
                         Err(error) => {
                             self.terminate_at(
                                 driver,
@@ -2424,36 +2454,12 @@ where
                             return TurnOutcome::Stop;
                         }
                     };
-                    if defer_due {
-                        self.raw_release_deferral_run =
-                            self.raw_release_deferral_run.saturating_add(1);
-                        // The 64th unresolved due turn is the cap, not one
-                        // extra grace turn: the design promise is to fail
-                        // closed *within* 64 bounded input-first deferrals.
-                        // Letting this branch continue on `== work_limit`
-                        // leaves a 65th ordinary boundary opportunity in
-                        // which a successor can be dispatched behind the
-                        // retained ambiguity.
-                        if self.raw_release_deferral_run < work_limit {
-                            return TurnOutcome::ContinueBuffered;
-                        }
-                        let error = Error::InvalidState(
-                            "async raw correlation release buffered-frame drain cap exhausted"
-                                .into(),
-                        );
-                        self.terminate_at(
-                            driver,
-                            runtime,
-                            ShutdownReason::FramingFailure {
-                                reason: error.to_string().into_boxed_str(),
-                            },
-                            now,
-                        )
-                        .await;
-                        return TurnOutcome::Stop;
+                    if let Some(deadline) = await_input_until {
+                        self.raw_release_wait_until = Some(deadline);
+                        return TurnOutcome::ContinueBuffered;
                     }
                 }
-                self.raw_release_deferral_run = 0;
+                self.raw_release_wait_until = None;
                 let effects = self.state.advance(now);
                 self.drive(driver, effects, runtime).await;
                 TurnOutcome::Continue
@@ -2559,10 +2565,10 @@ where
                     // before due work ran. If that input settled the old raw
                     // correlation at an exact boundary, `finish_input_turn`
                     // released it without another Wake turn, so its next
-                    // independent hold must start with a fresh deferral
-                    // budget. Do not reset for an empty/partial receive: its
-                    // unresolved prefix still needs the same bounded run.
-                    self.raw_release_deferral_run = 0;
+                    // independent hold must start with a fresh grace budget.
+                    // Do not reset for an empty/partial receive: its unresolved
+                    // prefix still owns the current deadline.
+                    self.raw_release_wait_until = None;
                     TurnOutcome::Continue
                 }
             }
@@ -3494,6 +3500,7 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
             CameraId::CAMERA_1,
@@ -3539,6 +3546,7 @@ mod tests {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         let target = TargetPolicy {
@@ -6486,15 +6494,14 @@ mod tests {
         assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
     }
 
-    /// The retained-input work bound is fail-closed. It never falls back to a
-    /// boundary-first correlation release while a completing tail is already
-    /// queued, so no successor write can occur behind adversarial no-progress
-    /// receive turns.
+    /// An ambiguous retained prefix consumes elapsed grace, not a fixed number
+    /// of immediately-ready actor turns. At expiry it is discarded and the
+    /// successor remains usable (#713).
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn raw_stream_buffered_receive_cap_poisons_before_successor_dispatch() {
+    async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
         let now = Instant::now();
-        let runtime = ManualRuntime::with_polling_sleeps(now);
+        let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(now);
         let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
         let mut harness = boundary_stream_harness(false);
         // Only an identity-weak prefix is unresolved at an inquiry release.
@@ -6511,31 +6518,35 @@ mod tests {
         while !harness.buffered.load(Ordering::Acquire) {
             tokio::task::yield_now().await;
         }
-        // Move to H without waking the old timer, then make the already
-        // pending read ready. Every NoData is an exact no-input fence followed
-        // by one Wake that sees the same unresolved prefix. At the 64th such
-        // bounded deferral the owner must poison *before* it can consume the
-        // queued completing tail or dispatch B.
-        runtime.advance_silently(Duration::from_secs(1));
-        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT {
-            reads.try_send(BoundaryStreamRead::NoData).unwrap();
+        // Move to H and wake the old timer. The engine now establishes one
+        // 100 ms grace deadline for the retained source-only prefix.
+        runtime.advance(Duration::from_secs(1));
+        loop {
+            if sleeps.recv_async().await.unwrap() == Duration::from_millis(100) {
+                break;
+            }
         }
-        reads
-            .try_send(BoundaryStreamRead::Tail(raw_inquiry_reply(0xa1)))
-            .unwrap();
+        runtime.advance(Duration::from_millis(100));
+        let successor_id =
+            tokio::time::timeout(Duration::from_secs(1), harness.writes.recv_async())
+                .await
+                .expect("the successor writes after the orphan grace")
+                .unwrap();
+        assert_eq!(successor_id, successor.id);
+        assert_eq!(harness.discards.load(Ordering::Relaxed), 1);
 
+        reads
+            .try_send(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .unwrap();
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(1), successor.terminal())
                 .await
-                .expect("64 unresolved exact-boundary deferrals must fail closed")
+                .expect("the successor remains usable after orphan discard")
                 .unwrap(),
-            RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
-        assert!(
-            harness.writes.try_recv().is_err(),
-            "the successor must not write when retained-input work is exhausted"
-        );
-        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
     /// A completed tail can perform the due release from `finish_input_turn`,
@@ -6543,16 +6554,14 @@ mod tests {
     /// not be charged to a later, independent raw hold.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn raw_stream_completed_tail_resets_next_hold_deferral_budget() {
-        const DEFERRALS_PER_HOLD: usize = RAW_CORRELATION_RELEASE_WORK_LIMIT / 2 + 1;
-
+    async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         let initial = Instant::now();
         let runtime = ManualRuntime::with_polling_sleeps(initial);
         let (handle, mut actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
         let mut harness = boundary_stream_harness(false);
         let mut driver = harness.driver.take().unwrap();
-        // Make retained bytes deliberately unkeyed: each due wake must defer
-        // rather than discard, so this test exercises the actor-local budget.
+        // Make retained bytes deliberately unkeyed so the engine assigns a
+        // grace deadline rather than discarding immediately.
         driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
         // Admit and finish A, which installs A's inquiry tombstone. B remains
@@ -6595,23 +6604,21 @@ mod tests {
 
         driver.buffered.store(true, Ordering::Release);
         runtime.advance(Duration::from_secs(1));
-        for _ in 0..DEFERRALS_PER_HOLD {
-            assert_eq!(
-                actor
-                    .handle_event(
-                        ActorEvent::Wake {
-                            raw_buffered_cap_exhausted: false,
-                        },
-                        &mut driver,
-                        &runtime,
-                        Executor::now(&runtime),
-                        false,
-                    )
-                    .await,
-                TurnOutcome::ContinueBuffered
-            );
-        }
-        assert_eq!(actor.raw_release_deferral_run, DEFERRALS_PER_HOLD);
+        assert_eq!(
+            actor
+                .handle_event(
+                    ActorEvent::Wake {
+                        raw_buffered_cap_exhausted: false,
+                    },
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::ContinueBuffered
+        );
+        assert!(actor.raw_release_wait_until.is_some());
 
         // The completing tail is real decoded input. Because no fragment is
         // retained, this turn runs the due release and dispatches B directly.
@@ -6632,12 +6639,12 @@ mod tests {
                 .await,
             TurnOutcome::Continue
         );
-        assert_eq!(actor.raw_release_deferral_run, 0);
+        assert!(actor.raw_release_wait_until.is_none());
         assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
 
         // Finish B and create its own tombstone. C now waits behind that new
-        // hold. Each hold uses 33 deferrals (below 64), but together they
-        // exceed the limit; an inherited counter would poison in this loop.
+        // hold. It must receive a fresh grace budget rather than inheriting the
+        // completed predecessor's deadline.
         let now = Executor::now(&runtime);
         let _ = actor
             .handle_event(
@@ -6666,23 +6673,21 @@ mod tests {
 
         driver.buffered.store(true, Ordering::Release);
         runtime.advance(Duration::from_secs(1));
-        for _ in 0..DEFERRALS_PER_HOLD {
-            assert_eq!(
-                actor
-                    .handle_event(
-                        ActorEvent::Wake {
-                            raw_buffered_cap_exhausted: false,
-                        },
-                        &mut driver,
-                        &runtime,
-                        Executor::now(&runtime),
-                        false,
-                    )
-                    .await,
-                TurnOutcome::ContinueBuffered,
-                "each independent hold retains its full bounded budget"
-            );
-        }
+        assert_eq!(
+            actor
+                .handle_event(
+                    ActorEvent::Wake {
+                        raw_buffered_cap_exhausted: false,
+                    },
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::ContinueBuffered,
+            "each independent hold receives its own grace deadline"
+        );
 
         driver.buffered.store(false, Ordering::Release);
         let now = Executor::now(&runtime);
@@ -6701,7 +6706,7 @@ mod tests {
                 .await,
             TurnOutcome::Continue
         );
-        assert_eq!(actor.raw_release_deferral_run, 0);
+        assert!(actor.raw_release_wait_until.is_none());
         assert_eq!(harness.writes.recv_async().await.unwrap(), c);
     }
 
@@ -6769,18 +6774,15 @@ mod tests {
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
-    /// A byte-stream release must fail closed when the retained bytes cannot
-    /// identify an owner. This runs the actual async transport adapter and
-    /// `ProtocolFramer` for every deliberately ambiguous literal: source-only,
-    /// ACK (whose nibble is not ownership), and socketless completion. A
-    /// mutation that classifies any of these as stale would let the queued
-    /// successor write instead of reaching the independent 64-turn poison cap.
+    /// A byte-stream release gives an ownerless prefix one real grace interval,
+    /// then discards it without poisoning. This runs the production adapter and
+    /// framer for source-only, ACK, and socketless-completion prefixes (#713).
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn production_raw_ambiguous_prefixes_poison_before_successor_write() {
+    async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
             let now = Instant::now();
-            let runtime = ManualRuntime::with_polling_sleeps(now);
+            let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(now);
             let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("generic raw profile");
             let (chunk_tx, chunks) = flume::bounded(16);
@@ -6816,22 +6818,39 @@ mod tests {
             chunk_tx.send_async(prefix.clone()).await.unwrap();
             let _ = handle.snapshot().await.unwrap();
             runtime.advance(Duration::from_secs(1));
-            // Wake the manually-clocked actor once; the due tombstone remains
-            // mature during each input-first retry, so it reaches the bounded
-            // cap without any fabricated driver classification.
-            let _ = handle.snapshot().await.unwrap();
+            // Wait until the engine's grace has actually been mapped onto an
+            // executor sleep, then advance virtual time through that deadline.
+            loop {
+                if sleeps.recv_async().await.unwrap() == Duration::from_millis(100) {
+                    break;
+                }
+            }
+            runtime.advance(Duration::from_millis(100));
+            let _sent_successor =
+                tokio::time::timeout(Duration::from_secs(1), sent_rx.recv_async())
+                    .await
+                    .expect("the successor writes after grace expiry")
+                    .unwrap();
+
+            let snapshot = handle.snapshot().await.unwrap();
+            assert_eq!(snapshot.state, SessionState::Running);
+            assert!(snapshot.diagnostics.iter().any(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            )));
+            chunk_tx
+                .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+                .await
+                .unwrap();
             assert!(matches!(
                 tokio::time::timeout(Duration::from_secs(1), successor.terminal())
                     .await
-                    .expect("ambiguous raw input must reach its bounded terminal")
+                    .expect("the successor remains usable after orphan discard")
                     .unwrap(),
-                RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+                RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
             ));
-            assert!(
-                sent_rx.try_recv().is_err(),
-                "{prefix:02x?} must poison before the successor receives a write",
-            );
-            assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+            handle.shutdown().await.unwrap();
+            assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
         }
     }
 
