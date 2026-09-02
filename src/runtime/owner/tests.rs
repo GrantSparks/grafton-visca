@@ -5907,7 +5907,7 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 20 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 21 * size_of::<u64>());
     }
 }
 
@@ -5920,7 +5920,6 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
 
     for idle in [
         Error::Timeout,
-        Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::WouldBlock))),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::Interrupted))),
         Error::Timeout.with_context("idle poll"),
@@ -5931,6 +5930,7 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         );
     }
     for fault in [
+        Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
         Error::TransportError("ICMP port unreachable".into()),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
         Error::ConnectionClosed { reason: None },
@@ -5940,6 +5940,12 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
             "a real read failure must stay a fault: {fault}"
         );
     }
+
+    let keepalive_timeout = Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut)));
+    assert!(
+        !receive_fault_is_transient(&keepalive_timeout),
+        "an OS TCP timeout is terminal instead of an endless idle read"
+    );
 }
 
 /// Issue #637: a datagram send failure fails one request while the session

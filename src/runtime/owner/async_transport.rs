@@ -633,9 +633,6 @@ mod tests {
                 std::io::ErrorKind::WouldBlock,
             ))),
             Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::TimedOut,
-            ))),
-            Error::Io(std::sync::Arc::new(std::io::Error::from(
                 std::io::ErrorKind::Interrupted,
             ))),
         ] {
@@ -660,20 +657,26 @@ mod tests {
     /// A read failure that is not an idle timeout still reaches the owner as a
     /// fault, which is what keeps #620's transient-retry semantics working.
     #[test]
-    fn a_real_read_failure_still_reaches_the_owner_as_a_fault() {
-        let transport = ScriptedTransport {
-            config: TransportConfig::default(),
-            sent: Vec::new(),
-            receives: [Err(Error::TransportError("ICMP port unreachable".into()))]
-                .into_iter()
-                .collect(),
-            semantics: SendSemantics::Datagram,
-        };
-        let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        assert!(matches!(received, AsyncReceive::Fault(_)));
+    fn real_read_failures_still_reach_the_owner_as_faults() {
+        for fault in [
+            Error::TransportError("ICMP port unreachable".into()),
+            Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::TimedOut,
+            ))),
+        ] {
+            let transport = ScriptedTransport {
+                config: TransportConfig::default(),
+                sent: Vec::new(),
+                receives: [Err(fault)].into_iter().collect(),
+                semantics: SendSemantics::Datagram,
+            };
+            let mut adapter =
+                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let received =
+                futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            assert!(matches!(received, AsyncReceive::Fault(_)));
+        }
     }
 
     #[test]

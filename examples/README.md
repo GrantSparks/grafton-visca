@@ -73,7 +73,7 @@ If you're new to the library, start with these examples in order:
 - **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
 - **[multi_camera.rs](multi_camera.rs)** - One session with two registered targets selected by `camera_for`, using explicit-timeout waits
-- **[recovery.rs](recovery.rs)** - Fresh-session recovery after `requires_new_session()`: re-callable transport factory, reused config, and re-query
+- **[recovery.rs](recovery.rs)** - Fresh-session recovery after transport death or an application-owned silent-peer threshold: `received_frames` heartbeat evidence, re-callable transport factory, reused config, and re-query
 
 ### Validation and Reference
 - **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough

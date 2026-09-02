@@ -7934,9 +7934,11 @@ mod tests {
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
-    /// Issue #625. An idle read timeout is no data, not a fault. A transport
-    /// with an internal read timeout — the shape the public trait documents —
-    /// must not retransmit anything, and must not starve the boundary either.
+    /// Issue #625/#719. An application idle timeout is no data, not a fault.
+    /// A transport with an internal idle timer — the shape the public trait
+    /// documents — must not retransmit anything, and must not starve the
+    /// boundary either. A raw I/O `TimedOut` is intentionally excluded: it can
+    /// be the OS reporting keepalive exhaustion and therefore ends the session.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn an_idle_read_timeout_is_not_a_receive_fault() {
@@ -7961,7 +7963,6 @@ mod tests {
             Error::Io(Arc::new(std::io::Error::from(
                 std::io::ErrorKind::WouldBlock,
             ))),
-            Error::Io(Arc::new(std::io::Error::from(std::io::ErrorKind::TimedOut))),
             Error::Io(Arc::new(std::io::Error::from(
                 std::io::ErrorKind::Interrupted,
             ))),

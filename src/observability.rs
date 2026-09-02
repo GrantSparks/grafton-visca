@@ -72,6 +72,13 @@ pub struct MetricsSnapshot {
     /// Counted wherever the scheduler emits a retry, whatever motivated it: a
     /// busy camera, an expired deadline, or a transient receive fault.
     pub retries_scheduled: u64,
+    /// Valid decoded VISCA response frames received from the camera.
+    ///
+    /// This is a positive liveness signal: compare snapshots around an
+    /// application heartbeat to tell whether any valid peer response arrived.
+    /// A timeout does not increment it, and a value that does not advance is
+    /// not by itself proof that the transport is closed.
+    pub received_frames: u64,
     /// Sequenced replies discarded because their sequence matched no request.
     ///
     /// Expected for stale or duplicated datagrams; a rising count means the
@@ -632,6 +639,7 @@ pub(crate) fn metrics_snapshot(
         busy_errors: metrics.busy_errors,
         protocol_errors: metrics.protocol_errors,
         retries_scheduled: metrics.retries_scheduled,
+        received_frames: metrics.received_frames,
         ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
         ignored_malformed_frames: metrics.ignored_malformed_frames,
         dropped_diagnostics: metrics.dropped_diagnostics,

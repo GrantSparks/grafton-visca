@@ -1,7 +1,7 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use std::{
-    io::{BufReader, Read, Write},
+    io::{self, BufReader, Read, Write},
     net::TcpStream,
     time::{Duration, Instant},
 };
@@ -17,6 +17,21 @@ use crate::{
     },
     Error,
 };
+
+/// Whether this error is the timeout installed for one bounded read.
+///
+/// Unix reports an expired `SO_RCVTIMEO` as `EAGAIN` / `WouldBlock`, while
+/// `ETIMEDOUT` can instead be the connection-level result of exhausted TCP
+/// keepalives. Preserve that distinction so the owner can end a dead session
+/// promptly (#719). Other platforms may use `TimedOut` for the configured read
+/// deadline itself, so retain the portable historical mapping there.
+fn configured_read_deadline_expired(error: &io::Error) -> bool {
+    match error.kind() {
+        io::ErrorKind::WouldBlock => true,
+        io::ErrorKind::TimedOut => cfg!(not(unix)),
+        _ => false,
+    }
+}
 
 /// TCP transport for blocking VISCA communication.
 ///
@@ -166,12 +181,7 @@ impl BlockingTransport for Tcp {
                 })
             }
             Ok(n) => Ok(n),
-            Err(io_err)
-                if io_err.kind() == std::io::ErrorKind::TimedOut
-                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                Err(Error::Timeout)
-            }
+            Err(io_err) if configured_read_deadline_expired(&io_err) => Err(Error::Timeout),
             Err(io_err) => Err(io_err.into()),
         };
 
@@ -199,6 +209,18 @@ mod tests {
     use super::*;
     use crate::transport::BufferConfig;
 
+    #[test]
+    fn configured_read_deadline_keeps_unix_connection_timeout_distinct() {
+        assert!(configured_read_deadline_expired(&io::Error::from(
+            ErrorKind::WouldBlock
+        )));
+        assert_eq!(
+            configured_read_deadline_expired(&io::Error::from(ErrorKind::TimedOut)),
+            cfg!(not(unix)),
+            "Unix ETIMEDOUT must reach the owner as keepalive/session failure"
+        );
+    }
+
     fn invalid_buffer_config() -> TransportConfig {
         TransportConfig {
             buffer_config: BufferConfig {
@@ -219,7 +241,7 @@ mod tests {
             .expect("make listener nonblocking");
         let address = listener.local_addr().expect("listener address");
 
-        let accept_thread = thread::spawn(move || -> Result<bool, std::io::Error> {
+        let accept_thread = thread::spawn(move || -> Result<bool, io::Error> {
             let deadline = Instant::now() + Duration::from_millis(100);
             loop {
                 match listener.accept() {

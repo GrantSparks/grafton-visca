@@ -21,6 +21,15 @@ entries below retain their original wording.
 
 ### Fixed
 
+- Silent open peers are now covered by the recovery contract (#719).
+  `MetricsSnapshot::received_frames` provides positive liveness evidence for
+  application-owned heartbeats; recovery docs and the runnable example explain
+  why `Timeout` and `UnsequencedCommandUnconfirmed` do not themselves require a
+  new session. Raw OS `io::ErrorKind::TimedOut` receive failures are no longer
+  swallowed as idle reads, so TCP keepalive exhaustion is normalized promptly
+  to terminal `ConnectionClosed`. Custom transport idle timers continue to use
+  `Error::Timeout`.
+
 - `dyn-api` no longer implies `async`: blocking sessions now expose
   `camera_dyn()` / `camera_dyn_for(target)` and the native
   `BlockingDynSessionCamera`, so a custom runtime `ProfileSpec` can execute

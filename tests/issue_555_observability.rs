@@ -32,6 +32,7 @@ fn assert_metrics_shape(snapshot: MetricsSnapshot) {
     assert_eq!(snapshot.busy_errors, 0);
     assert_eq!(snapshot.protocol_errors, 0);
     assert_eq!(snapshot.retries_scheduled, 0);
+    assert_eq!(snapshot.received_frames, 0);
     assert_eq!(snapshot.ignored_unmatched_sequenced_replies, 0);
     assert_eq!(snapshot.ignored_malformed_frames, 0);
     assert!(matches!(
@@ -181,7 +182,9 @@ mod blocking_observability {
         let drained = session.drain_diagnostics().unwrap();
         assert!(drained.len() <= 128);
         assert!(session.drain_diagnostics().unwrap().is_empty());
-        assert!(session.metrics().unwrap().cache_updates >= 2);
+        let metrics = session.metrics().unwrap();
+        assert!(metrics.cache_updates >= 2);
+        assert_eq!(metrics.received_frames, 4);
         session.shutdown().unwrap();
     }
 
@@ -370,6 +373,7 @@ mod tokio_observability {
         camera.execute(&ImageFreeze::off()).await.unwrap();
         let snapshot = session.metrics().await.unwrap();
         assert!(snapshot.dropped_diagnostic_events > 0);
+        assert_eq!(snapshot.received_frames, 4);
         assert!(fast.try_recv().is_some());
         assert!(slow.try_recv().is_some());
         camera.execute(&ImageFreeze::on()).await.unwrap();

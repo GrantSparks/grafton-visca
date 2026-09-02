@@ -159,8 +159,9 @@
 //!   socket or conclusively resolved before its ambiguity deadline. This is
 //!   [`Error::CancellationUnconfirmed`], never `Cancelled`. Its per-request
 //!   sibling [`Error::UnsequencedCommandUnconfirmed`] is the default outcome
-//!   when a *sent* raw command loses its ACK or completion correlation with no
-//!   cancel involved: it fails that one command on a still-live session
+//!   when a *sent* unsequenced command on a raw-VISCA envelope loses its ACK or
+//!   completion correlation with no cancel involved: it fails that one command
+//!   on a still-live session
 //!   ([`requires_new_session`](Error::requires_new_session) is `false`) and
 //!   quarantines the correlation until the ambiguity deadline so a late reply
 //!   cannot misbind (issue #671).
@@ -180,10 +181,11 @@
 //!   unrecoverable framing loss). A poisoned session is terminal, reports
 //!   [`Error::StreamPoisoned`]
 //!   ([`requires_new_session`](Error::requires_new_session) is `true`), and
-//!   shares no state with any session built afterward. By default a raw command
-//!   that merely loses its ACK/completion does *not* poison (see *cancellation
-//!   unconfirmed* above); the whole-session poison is restored only behind the
-//!   opt-in `strict_unconfirmed_poison` tuning.
+//!   shares no state with any session built afterward. By default an
+//!   unsequenced command on a raw-VISCA envelope that merely loses its
+//!   ACK/completion does *not* poison (see *cancellation unconfirmed* above);
+//!   the whole-session poison is restored only behind the opt-in
+//!   `strict_unconfirmed_poison` tuning.
 //!
 //! Recovery from a poisoned or closed session builds a fresh session from the
 //! reused configuration, starts with an unknown state cache, re-queries camera

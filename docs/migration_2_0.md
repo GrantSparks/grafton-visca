@@ -569,18 +569,28 @@ expect every cache entry to start `Unknown`. Re-query camera state explicitly;
 the owner never automatically resubmits commands. Old handles must report the
 old owner's terminal/closed outcome and cannot be rebound to the new owner.
 
-Classify the terminal condition with `Error::requires_new_session()` rather than
-matching `ErrorKind::IoClosed` or individual variants. Transport close, explicit
-shutdown, and poison are deliberately distinct errors that share one kind, so
-the kind alone cannot tell a field disconnect apart from a shutdown this
-application requested:
+Classify positive session-death evidence with `Error::requires_new_session()`
+rather than matching `ErrorKind::IoClosed` or individual variants. Transport
+close, explicit shutdown, and poison are deliberately distinct errors that
+share one kind, so the kind alone cannot tell a field disconnect apart from a
+shutdown this application requested. The table also includes the two common
+still-live outcomes that otherwise lead migration code into an unbounded retry
+loop:
 
-| Terminal condition | Error | `requires_new_session()` |
-| --- | --- | --- |
-| The peer closed the connection | `ConnectionClosed` | `true` |
-| The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable raw command | `StreamPoisoned` | `true` |
-| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, including an ACK deadline that expires after a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
-| The application shut the session down | `RuntimeShutdown` | `false` |
+| Condition | Error | `requires_new_session()` | What to do |
+| --- | --- | --- | --- |
+| The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
+| The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
+| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (`is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
+| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == IoClosed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
+| The blocking owner is temporarily borrowed/re-entered or otherwise cannot accept this turn | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
+| The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
+
+`received_frames` is positive evidence, not an automatic failure detector. An
+increase proves that a valid VISCA response arrived. No increase proves only
+silence during the sampled interval; the application owns the number of
+unanswered heartbeats or wall-clock duration that triggers replacement. The
+library sends no background heartbeat.
 
 **Behavior change (issue #713).** A partial raw response straddling a
 correlation-release boundary no longer consumes an implementation-specific

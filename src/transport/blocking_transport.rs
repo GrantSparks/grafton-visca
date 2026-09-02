@@ -230,10 +230,12 @@ pub trait BlockingTransport: Send {
     /// - `Err(Error::Timeout)` — `timeout` expired and no bytes arrived. The
     ///   runtime treats it as "no data": the session lives, framing state is
     ///   untouched, and no request's retry budget is spent. The raw I/O
-    ///   spellings [`std::io::ErrorKind::TimedOut`],
-    ///   [`std::io::ErrorKind::WouldBlock`] and
+    ///   spellings [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
-    ///   normalized to the same meaning.
+    ///   normalized to the same meaning. Use `Error::Timeout`, not a raw
+    ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
+    ///   a connected TCP socket can report the latter when OS keepalive
+    ///   exhausts, and the runtime treats that as session death.
     /// - `Err(Error::ResponseTooLarge)` from a datagram transport — one
     ///   oversized datagram was consumed and its copied prefix must be
     ///   discarded before framing. The owner keeps the session running and
@@ -241,8 +243,8 @@ pub trait BlockingTransport: Send {
     ///   spelling only for an already-consumed packet.
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
-    ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
-    ///   or `NotConnected`. The runtime ends the session as
+    ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
+    ///   `UnexpectedEof` or `NotConnected`. The runtime ends the session as
     ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
     ///   its reason. A failed read consumed nothing, so it is not a stream
     ///   framing poison; [`Error::StreamPoisoned`] is reserved for an

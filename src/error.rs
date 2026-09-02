@@ -1,3 +1,24 @@
+//! Error classification and recovery decisions.
+//!
+//! `Error::kind()` is a coarse reporting category, `is_retryable()` describes
+//! whether a new bounded attempt can be reasonable, and
+//! `requires_new_session()` answers only whether this error positively proves
+//! that the current session is unusable. None of those predicates is a
+//! perpetual retry policy. In particular, a camera can keep a socket open while
+//! producing no VISCA frames; use
+//! [`MetricsSnapshot::received_frames`](crate::MetricsSnapshot::received_frames)
+//! around an application heartbeat and impose an application-owned silence
+//! threshold.
+//!
+//! | Outcome | What it proves | Application response |
+//! | --- | --- | --- |
+//! | [`Error::Timeout`] | This request exhausted its observer/protocol budget; the session may still be usable. | Bound any new logical attempt. Compare `received_frames` across heartbeats and replace the session when the application's silence threshold is met. |
+//! | [`Error::TransportBusy`] | Local blocking re-entrancy or temporary owner/transport contention. | Back off or serialize the caller; do not reconnect on this error alone. |
+//! | [`Error::UnsequencedCommandUnconfirmed`] | A sent command on a raw-VISCA envelope has an unknowable outcome; the session survives by default. | Never replay blindly. Reconcile the affected camera state before deciding whether to resubmit. |
+//! | [`Error::StreamPoisoned`] | Stream framing/write position is unknowable and the session is terminal. | Build a fresh transport/session, re-query state, then deliberately restore desired state. |
+//! | [`Error::ConnectionClosed`] | The peer or transport is gone and the session is terminal. | Build a fresh transport/session and re-query state. |
+//! | [`Error::RuntimeShutdown`] | This application deliberately ended the session. | Do not treat it as a field disconnect; reconnect only if the application intends to start another session. |
+
 use thiserror::Error as ThisError;
 
 use std::{borrow::Cow, convert::Infallible, io, sync::Arc, time::Duration};
@@ -106,9 +127,10 @@ pub enum ErrorKind {
 /// [`Error::ConnectionClosed`] (with the transport cause retained in its
 /// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
-/// transport death from deliberate shutdown. A per-request raw correlation
-/// failure is different: [`Error::UnsequencedCommandUnconfirmed`] is false by
-/// default, so it does not by itself make the session unusable.
+/// transport death from deliberate shutdown. A per-request correlation failure
+/// for an unsequenced command on a raw-VISCA envelope is different:
+/// [`Error::UnsequencedCommandUnconfirmed`] is false by default, so it does not
+/// by itself make the session unusable.
 ///
 /// # VISCA Error Codes
 ///
@@ -332,19 +354,21 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
-    /// A raw/unsequenced command was successfully sent, but its ACK or
-    /// completion outcome became unknowable — a lost ACK/completion datagram, an
-    /// expired cancellation-ambiguity window, or a spent retry budget while an
-    /// attempt was in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`.
+    /// An unsequenced command on a raw-VISCA envelope was successfully sent,
+    /// but its ACK or completion outcome became unknowable — a lost
+    /// ACK/completion datagram, an expired cancellation-ambiguity window, or a
+    /// spent retry budget while an attempt was in `Sending`, `AwaitingAck`,
+    /// `AwaitingCompletion`, or `Executing`.
     ///
     /// By default this is a **per-request** outcome the session survives (issue
     /// #671): the engine fails only this command and quarantines its correlation
     /// slot — its owned socket, or its place as the sole unacknowledged raw
     /// command — until the ambiguity deadline, so a late reply cannot bind to a
-    /// later command. It is never replayed automatically, because a raw command
-    /// may already have reached the camera, and it is therefore *not* proof of
-    /// session death: [`Self::requires_new_session`] is `false`. Reconcile the
-    /// affected camera state before deciding whether to resubmit. The strict
+    /// later command. It is never replayed automatically, because an
+    /// unsequenced raw-VISCA command may already have reached the camera, and it
+    /// is therefore *not* proof of session death:
+    /// [`Self::requires_new_session`] is `false`. Reconcile the affected camera
+    /// state before deciding whether to resubmit. The strict
     /// `strict_unconfirmed_poison` opt-in instead poisons the whole session,
     /// which is surfaced as [`Self::StreamPoisoned`].
     #[error("Unsequenced command outcome could not be confirmed")]
@@ -387,8 +411,9 @@ pub enum Error {
     /// Create a new transport connection, re-query/reconcile device state, and
     /// only then deliberately resubmit work whose desired effect is still
     /// needed. Never blindly replay a command whose completion is uncertain:
-    /// a raw command may already have reached the camera before its outcome was
-    /// lost, and the replacement session cannot prove otherwise.
+    /// an unsequenced command on a raw-VISCA envelope may already have reached
+    /// the camera before its outcome was lost, and the replacement session
+    /// cannot prove otherwise.
     #[error("Stream transport poisoned: {reason}")]
     StreamPoisoned {
         /// Description of why the transport was poisoned.
@@ -566,7 +591,7 @@ impl Error {
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. Fatal receive closure is always normalized to
     ///   `ConnectionClosed`, with the underlying cause in its reason. An
-    ///   unconfirmed raw command is not in this set by default: its
+    ///   unconfirmed unsequenced raw-VISCA command is not in this set by default: its
     ///   [`Error::UnsequencedCommandUnconfirmed`] result is per-request and
     ///   leaves the session running.
     /// - `false` — the condition does not prove the session is unusable. A
@@ -589,7 +614,8 @@ impl Error {
     /// starts `Unknown` and nothing is resubmitted automatically, so re-query
     /// supported camera state before applying desired state. Do not blindly
     /// replay a command whose completion is uncertain: it may have reached the
-    /// camera before the connection failed or raw correlation was poisoned.
+    /// camera before the connection failed or unsequenced raw-VISCA
+    /// correlation was poisoned.
     ///
     /// [`SessionConfig`]: crate::SessionConfig
     ///
@@ -1205,7 +1231,7 @@ mod tests {
                 None,
             ),
             (
-                "unconfirmed raw command",
+                "unconfirmed unsequenced raw-VISCA command",
                 Error::UnsequencedCommandUnconfirmed,
                 ErrorKind::IoClosed,
                 None,

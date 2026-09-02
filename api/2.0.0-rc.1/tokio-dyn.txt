@@ -11953,6 +11953,7 @@ pub grafton_visca::observability::MetricsSnapshot::ignored_unmatched_sequenced_r
 pub grafton_visca::observability::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::pending: usize
 pub grafton_visca::observability::MetricsSnapshot::protocol_errors: u64
+pub grafton_visca::observability::MetricsSnapshot::received_frames: u64
 pub grafton_visca::observability::MetricsSnapshot::retries_scheduled: u64
 pub grafton_visca::observability::MetricsSnapshot::session: grafton_visca::observability::SessionStatus
 pub grafton_visca::observability::MetricsSnapshot::terminal: u64
@@ -24725,6 +24726,7 @@ pub grafton_visca::MetricsSnapshot::ignored_unmatched_sequenced_replies: u64
 pub grafton_visca::MetricsSnapshot::inquiry_timeouts: u64
 pub grafton_visca::MetricsSnapshot::pending: usize
 pub grafton_visca::MetricsSnapshot::protocol_errors: u64
+pub grafton_visca::MetricsSnapshot::received_frames: u64
 pub grafton_visca::MetricsSnapshot::retries_scheduled: u64
 pub grafton_visca::MetricsSnapshot::session: grafton_visca::observability::SessionStatus
 pub grafton_visca::MetricsSnapshot::terminal: u64

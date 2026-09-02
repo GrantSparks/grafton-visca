@@ -380,9 +380,10 @@ where
         .recv_into_with_timeout(receive_buffer, timeout)
     {
         Ok(received) => Ok(BlockingReceive::Bytes(received)),
-        // An expired idle read timeout is no data, not a failed read. The
-        // raw `WouldBlock`/`Interrupted`/`TimedOut` spellings a custom
-        // transport may forward mean the same thing (#637).
+        // An expired application-owned idle read timeout is no data, not a
+        // failed read. Custom transports use `Error::Timeout`; raw
+        // `WouldBlock`/`Interrupted` spellings mean the same thing. Preserve
+        // raw `TimedOut`, which can be TCP keepalive exhaustion (#719).
         Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
         Err(error) => Err(error),
     }
@@ -947,9 +948,9 @@ mod tests {
         ));
     }
 
-    /// Issue #637: the raw I/O spellings of an idle read mean the same thing as
-    /// `Error::Timeout`, so a custom transport that forwards them verbatim gets
-    /// the same "no data" treatment on both owners.
+    /// Issue #637/#719: raw `WouldBlock` and `Interrupted` mean an idle read;
+    /// raw `TimedOut` remains a fault because TCP keepalive exhaustion can use
+    /// that spelling. Custom idle timers use `Error::Timeout`.
     #[test]
     fn reader_maps_raw_idle_io_kinds_to_the_same_no_data_answer() {
         let mut cfg = config();
@@ -961,10 +962,10 @@ mod tests {
                     std::io::ErrorKind::WouldBlock,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::TimedOut,
+                    std::io::ErrorKind::Interrupted,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::Interrupted,
+                    std::io::ErrorKind::TimedOut,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
                     std::io::ErrorKind::ConnectionRefused,
@@ -975,7 +976,7 @@ mod tests {
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
         let (_writer, mut reader, _decoder) = adapter.parts();
         let mut receive = [0; 32];
-        for _ in 0..3 {
+        for _ in 0..2 {
             assert_eq!(
                 reader.receive(&mut receive, None).unwrap(),
                 BlockingReceive::TimedOut
@@ -983,7 +984,11 @@ mod tests {
         }
         assert!(
             matches!(reader.receive(&mut receive, None), Err(Error::Io(_))),
-            "a real read failure is still a fault the owner gets to classify"
+            "an OS timeout remains a fault the owner classifies as terminal"
+        );
+        assert!(
+            matches!(reader.receive(&mut receive, None), Err(Error::Io(_))),
+            "another real read failure still reaches the owner"
         );
     }
 

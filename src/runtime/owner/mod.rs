@@ -324,6 +324,8 @@ pub(crate) struct OwnerMetrics {
     pub(crate) busy_errors: u64,
     pub(crate) protocol_errors: u64,
     pub(crate) retries_scheduled: u64,
+    /// Valid decoded VISCA response frames observed from the peer.
+    pub(crate) received_frames: u64,
     pub(crate) ignored_unmatched_sequenced_replies: u64,
     /// Delimited frames a byte stream discarded as malformed while staying
     /// Running (#672). 1.x logged and continued on the same frames; this counter
@@ -1594,6 +1596,7 @@ impl OwnerState {
 
     fn observe_input(&mut self, input: &Input) {
         if let Input::Frame(frame) = input {
+            self.metrics.received_frames = self.metrics.received_frames.saturating_add(1);
             // Error frames are counted as the owner decodes them, so a camera
             // answering requests the engine can no longer correlate — the exact
             // case a field debugging session is trying to see — still shows up.
@@ -2344,17 +2347,18 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// for its ACK, burning whole retry budgets in milliseconds, and on the async
 /// owner it would spin the actor's transient-fault arm (#625, #637).
 ///
-/// Both owners therefore normalize these to "this read produced no frames" and
-/// keep pumping, which is what the blocking adapter has always done for
-/// [`Error::Timeout`].
+/// Both owners therefore normalize an explicit [`Error::Timeout`] and the
+/// non-fatal raw `WouldBlock` / `Interrupted` spellings to "this read produced
+/// no frames" and keep pumping. A raw `io::ErrorKind::TimedOut` is different:
+/// on a connected TCP socket it is the first error Linux commonly reports when
+/// keepalive exhausts, so it remains a fatal receive fault rather than being
+/// mistaken for an application-owned idle timer (#719).
 pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
     match error {
         Error::Timeout => true,
         Error::Io(io) => matches!(
             io.kind(),
-            std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::WouldBlock
-                | std::io::ErrorKind::Interrupted
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
         ),
         Error::WithContext { source, .. } => receive_reported_no_data(source),
         _ => false,
@@ -2403,7 +2407,8 @@ pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
         // that this connection itself is dead.
         Error::Io(io) => !matches!(
             io.kind(),
-            std::io::ErrorKind::ConnectionReset
+            std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::ConnectionReset
                 | std::io::ErrorKind::ConnectionAborted
                 | std::io::ErrorKind::BrokenPipe
                 | std::io::ErrorKind::UnexpectedEof
