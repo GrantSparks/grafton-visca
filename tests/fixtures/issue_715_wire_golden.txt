@@ -1,0 +1,494 @@
+PowerOn	81 01 04 00 02 FF
+PowerStandby	81 01 04 00 03 FF
+PowerOn@cam7	87 01 04 00 02 FF
+PanTilt::Home	81 01 06 04 FF
+PanTilt::Reset	81 01 06 05 FF
+PanTilt::Move[Up,18,14]	81 01 06 01 18 14 03 01 FF
+PanTilt::Move[Down,18,14]	81 01 06 01 18 14 03 02 FF
+PanTilt::Move[Left,18,14]	81 01 06 01 18 14 01 03 FF
+PanTilt::Move[Right,18,14]	81 01 06 01 18 14 02 03 FF
+PanTilt::Move[UpLeft,18,14]	81 01 06 01 18 14 01 01 FF
+PanTilt::Move[UpRight,18,14]	81 01 06 01 18 14 02 01 FF
+PanTilt::Move[DownLeft,18,14]	81 01 06 01 18 14 01 02 FF
+PanTilt::Move[DownRight,18,14]	81 01 06 01 18 14 02 02 FF
+PanTilt::Move[Stop,18,14]	81 01 06 01 18 14 03 03 FF
+PanTilt::Move[Up,00,00]	81 01 06 01 00 00 03 01 FF
+PanTilt::Move[Up,01,01]	81 01 06 01 01 01 03 01 FF
+PanTilt::Move[Up,18,18]	81 01 06 01 18 18 03 01 FF
+PanTilt::Move[Up,19,14]	CTOR_ERR(ParameterOutOfRange { parameter: "PanSpeed", value: 25, min: 0, max: 24 })
+PanTilt::Move[Up,18,15]	81 01 06 01 18 15 03 01 FF
+PanTilt::AbsolutePosition[144,-72]	81 01 06 02 0A 05 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::RelativePosition[144,-72]	81 01 06 03 0A 05 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::LimitSet[DownLeft,144,-72]	81 01 06 07 00 00 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::LimitSet[UpRight,144,-72]	81 01 06 07 00 01 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::AbsolutePosition[0,0]	81 01 06 02 0A 05 00 00 00 00 00 00 00 00 FF
+PanTilt::RelativePosition[0,0]	81 01 06 03 0A 05 00 00 00 00 00 00 00 00 FF
+PanTilt::LimitSet[DownLeft,0,0]	81 01 06 07 00 00 00 00 00 00 00 00 00 00 FF
+PanTilt::LimitSet[UpRight,0,0]	81 01 06 07 00 01 00 00 00 00 00 00 00 00 FF
+PanTilt::AbsolutePosition[-1,-1]	81 01 06 02 0A 05 0F 0F 0F 0F 0F 0F 0F 0F FF
+PanTilt::RelativePosition[-1,-1]	81 01 06 03 0A 05 0F 0F 0F 0F 0F 0F 0F 0F FF
+PanTilt::LimitSet[DownLeft,-1,-1]	81 01 06 07 00 00 0F 0F 0F 0F 0F 0F 0F 0F FF
+PanTilt::LimitSet[UpRight,-1,-1]	81 01 06 07 00 01 0F 0F 0F 0F 0F 0F 0F 0F FF
+PanTilt::AbsolutePosition[2448,1296]	81 01 06 02 0A 05 00 09 09 00 00 05 01 00 FF
+PanTilt::RelativePosition[2448,1296]	81 01 06 03 0A 05 00 09 09 00 00 05 01 00 FF
+PanTilt::LimitSet[DownLeft,2448,1296]	81 01 06 07 00 00 00 09 09 00 00 05 01 00 FF
+PanTilt::LimitSet[UpRight,2448,1296]	81 01 06 07 00 01 00 09 09 00 00 05 01 00 FF
+PanTilt::AbsolutePosition[-2448,-432]	81 01 06 02 0A 05 0F 06 07 00 0F 0E 05 00 FF
+PanTilt::RelativePosition[-2448,-432]	81 01 06 03 0A 05 0F 06 07 00 0F 0E 05 00 FF
+PanTilt::LimitSet[DownLeft,-2448,-432]	81 01 06 07 00 00 0F 06 07 00 0F 0E 05 00 FF
+PanTilt::LimitSet[UpRight,-2448,-432]	81 01 06 07 00 01 0F 06 07 00 0F 0E 05 00 FF
+PanTilt::AbsolutePosition[2449,0]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 2449, min: -2448, max: 2448 })
+PanTilt::RelativePosition[2449,0]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 2449, min: -2448, max: 2448 })
+PanTilt::LimitSet[DownLeft,2449,0]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 2449, min: -2448, max: 2448 })
+PanTilt::LimitSet[UpRight,2449,0]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 2449, min: -2448, max: 2448 })
+PanTilt::AbsolutePosition[0,1297]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: 1297, min: -432, max: 1296 })
+PanTilt::RelativePosition[0,1297]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: 1297, min: -432, max: 1296 })
+PanTilt::LimitSet[DownLeft,0,1297]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: 1297, min: -432, max: 1296 })
+PanTilt::LimitSet[UpRight,0,1297]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: 1297, min: -432, max: 1296 })
+PanTilt::AbsolutePosition[0,-433]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: -433, min: -432, max: 1296 })
+PanTilt::RelativePosition[0,-433]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: -433, min: -432, max: 1296 })
+PanTilt::LimitSet[DownLeft,0,-433]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: -433, min: -432, max: 1296 })
+PanTilt::LimitSet[UpRight,0,-433]	CTOR_ERR(ParameterOutOfRange { parameter: "TiltPosition", value: -433, min: -432, max: 1296 })
+PanTilt::AbsolutePosition[32767,-32768]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 32767, min: -2448, max: 2448 })
+PanTilt::RelativePosition[32767,-32768]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 32767, min: -2448, max: 2448 })
+PanTilt::LimitSet[DownLeft,32767,-32768]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 32767, min: -2448, max: 2448 })
+PanTilt::LimitSet[UpRight,32767,-32768]	CTOR_ERR(ParameterOutOfRange { parameter: "PanPosition", value: 32767, min: -2448, max: 2448 })
+PanTilt::AbsolutePositionRaw[0090,FFB8]	81 01 06 02 0A 05 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::RelativePositionRaw[0090,FFB8]	81 01 06 03 0A 05 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::LimitSetRaw[DownLeft,0090,FFB8]	81 01 06 07 00 00 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::LimitSetRaw[UpRight,0090,FFB8]	81 01 06 07 00 01 00 00 09 00 0F 0F 0B 08 FF
+PanTilt::AbsolutePositionRaw[FFFF,0000]	81 01 06 02 0A 05 0F 0F 0F 0F 00 00 00 00 FF
+PanTilt::RelativePositionRaw[FFFF,0000]	81 01 06 03 0A 05 0F 0F 0F 0F 00 00 00 00 FF
+PanTilt::LimitSetRaw[DownLeft,FFFF,0000]	81 01 06 07 00 00 0F 0F 0F 0F 00 00 00 00 FF
+PanTilt::LimitSetRaw[UpRight,FFFF,0000]	81 01 06 07 00 01 0F 0F 0F 0F 00 00 00 00 FF
+PanTilt::AbsolutePositionRaw[1234,ABCD]	81 01 06 02 0A 05 01 02 03 04 0A 0B 0C 0D FF
+PanTilt::RelativePositionRaw[1234,ABCD]	81 01 06 03 0A 05 01 02 03 04 0A 0B 0C 0D FF
+PanTilt::LimitSetRaw[DownLeft,1234,ABCD]	81 01 06 07 00 00 01 02 03 04 0A 0B 0C 0D FF
+PanTilt::LimitSetRaw[UpRight,1234,ABCD]	81 01 06 07 00 01 01 02 03 04 0A 0B 0C 0D FF
+PanTilt::LimitClear[DownLeft]	81 01 06 07 01 00 07 0F 0F 0F 07 0F 0F 0F FF
+PanTilt::LimitClear[UpRight]	81 01 06 07 01 01 07 0F 0F 0F 07 0F 0F 0F FF
+Zoom::Stop	81 01 04 07 00 FF
+Zoom::TeleStd	81 01 04 07 02 FF
+Zoom::WideStd	81 01 04 07 03 FF
+Zoom::TeleVariable[0]	81 01 04 07 20 FF
+Zoom::WideVariable[0]	81 01 04 07 30 FF
+Zoom::TeleVariable[1]	81 01 04 07 21 FF
+Zoom::WideVariable[1]	81 01 04 07 31 FF
+Zoom::TeleVariable[2]	81 01 04 07 22 FF
+Zoom::WideVariable[2]	81 01 04 07 32 FF
+Zoom::TeleVariable[3]	81 01 04 07 23 FF
+Zoom::WideVariable[3]	81 01 04 07 33 FF
+Zoom::TeleVariable[4]	81 01 04 07 24 FF
+Zoom::WideVariable[4]	81 01 04 07 34 FF
+Zoom::TeleVariable[5]	81 01 04 07 25 FF
+Zoom::WideVariable[5]	81 01 04 07 35 FF
+Zoom::TeleVariable[6]	81 01 04 07 26 FF
+Zoom::WideVariable[6]	81 01 04 07 36 FF
+Zoom::TeleVariable[7]	81 01 04 07 27 FF
+Zoom::WideVariable[7]	81 01 04 07 37 FF
+Zoom::TeleVariable[8]	CTOR_ERR(ParameterOutOfRange { parameter: "ZoomSpeed", value: 8, min: 0, max: 7 })
+Zoom::WideVariable[8]	CTOR_ERR(ParameterOutOfRange { parameter: "ZoomSpeed", value: 8, min: 0, max: 7 })
+Zoom::Position[0000]	81 01 04 47 00 00 00 00 FF
+Zoom::Position[1234]	81 01 04 47 01 02 03 04 FF
+Zoom::Position[4000]	81 01 04 47 04 00 00 00 FF
+Zoom::Position[7AC0]	81 01 04 47 07 0A 0C 00 FF
+Zoom::Position[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ZoomPosition", value: 65535, min: 0, max: 32767 })
+DigitalZoom[on]	81 01 04 06 02 FF
+DigitalZoom[off]	81 01 04 06 03 FF
+Focus::Stop	81 01 04 08 00 FF
+Focus::Far	81 01 04 08 02 FF
+Focus::Near	81 01 04 08 03 FF
+Focus::FarWithSpeed[0]	81 01 04 08 20 FF
+Focus::NearWithSpeed[0]	81 01 04 08 30 FF
+Focus::FarWithSpeed[1]	81 01 04 08 21 FF
+Focus::NearWithSpeed[1]	81 01 04 08 31 FF
+Focus::FarWithSpeed[2]	81 01 04 08 22 FF
+Focus::NearWithSpeed[2]	81 01 04 08 32 FF
+Focus::FarWithSpeed[3]	81 01 04 08 23 FF
+Focus::NearWithSpeed[3]	81 01 04 08 33 FF
+Focus::FarWithSpeed[4]	81 01 04 08 24 FF
+Focus::NearWithSpeed[4]	81 01 04 08 34 FF
+Focus::FarWithSpeed[5]	81 01 04 08 25 FF
+Focus::NearWithSpeed[5]	81 01 04 08 35 FF
+Focus::FarWithSpeed[6]	81 01 04 08 26 FF
+Focus::NearWithSpeed[6]	81 01 04 08 36 FF
+Focus::FarWithSpeed[7]	81 01 04 08 27 FF
+Focus::NearWithSpeed[7]	81 01 04 08 37 FF
+Focus::FarWithSpeed[8]	CTOR_ERR(InvalidParameter { parameter: "FocusSpeed", value: "8", reason: "must be between 0 and 7" })
+Focus::NearWithSpeed[8]	CTOR_ERR(InvalidParameter { parameter: "FocusSpeed", value: "8", reason: "must be between 0 and 7" })
+Focus::Position[0000]	81 01 04 48 00 00 00 00 FF
+FocusNearLimitCommand[0000]	81 01 04 28 00 00 00 00 FF
+Focus::Position[1234]	81 01 04 48 01 02 03 04 FF
+FocusNearLimitCommand[1234]	81 01 04 28 01 02 03 04 FF
+Focus::Position[F000]	81 01 04 48 0F 00 00 00 FF
+FocusNearLimitCommand[F000]	81 01 04 28 0F 00 00 00 FF
+Focus::Position[FFFF]	81 01 04 48 0F 0F 0F 0F FF
+FocusNearLimitCommand[FFFF]	81 01 04 28 0F 0F 0F 0F FF
+Focus::Auto	81 01 04 38 02 FF
+Focus::Manual	81 01 04 38 03 FF
+Focus::OnePushTrigger	81 01 04 18 01 FF
+Focus::Infinity	81 01 04 18 02 FF
+Focus::Toggle	81 01 04 38 10 FF
+Focus::Snap	81 01 04 38 04 FF
+FocusZone[Top]	81 01 04 AA 00 FF
+FocusZone[Center]	81 01 04 AA 01 FF
+FocusZone[Bottom]	81 01 04 AA 02 FF
+AFSensitivity[High]	81 01 04 58 01 FF
+AFSensitivity[Normal]	81 01 04 58 02 FF
+AFSensitivity[Low]	81 01 04 58 03 FF
+FocusLock::On	81 0A 04 68 02 FF
+FocusLock::Off	81 0A 04 68 03 FF
+PushAF::Press	81 01 7E 01 0A 00 01 FF
+PushAF::Release	81 01 7E 01 0A 00 00 FF
+Preset[Reset,0]	81 01 04 3F 00 00 FF
+Preset[Reset,1]	81 01 04 3F 00 01 FF
+Preset[Reset,89]	81 01 04 3F 00 59 FF
+Preset[Reset,127]	81 01 04 3F 00 7F FF
+Preset[Reset,128]	81 01 04 3F 00 80 FF
+Preset[Reset,254]	81 01 04 3F 00 FE FF
+Preset[Reset,255]	81 01 04 3F 00 FF FF
+Preset[Set,0]	81 01 04 3F 01 00 FF
+Preset[Set,1]	81 01 04 3F 01 01 FF
+Preset[Set,89]	81 01 04 3F 01 59 FF
+Preset[Set,127]	81 01 04 3F 01 7F FF
+Preset[Set,128]	81 01 04 3F 01 80 FF
+Preset[Set,254]	81 01 04 3F 01 FE FF
+Preset[Set,255]	81 01 04 3F 01 FF FF
+Preset[Recall,0]	81 01 04 3F 02 00 FF
+Preset[Recall,1]	81 01 04 3F 02 01 FF
+Preset[Recall,89]	81 01 04 3F 02 59 FF
+Preset[Recall,127]	81 01 04 3F 02 7F FF
+Preset[Recall,128]	81 01 04 3F 02 80 FF
+Preset[Recall,254]	81 01 04 3F 02 FE FF
+Preset[Recall,255]	81 01 04 3F 02 FF FF
+PresetRecallSpeed[0]	CTOR_ERR(InvalidParameter { parameter: "PresetRecallSpeed", value: "0", reason: "must be between 1 and 24" })
+PresetRecallSpeed[1]	81 01 06 01 01 FF
+PresetRecallSpeed[24]	81 01 06 01 18 FF
+PresetRecallSpeed[25]	CTOR_ERR(InvalidParameter { parameter: "PresetRecallSpeed", value: "25", reason: "must be between 1 and 24" })
+ExposureMode[Auto]	81 01 04 39 00 FF
+ExposureMode[Manual]	81 01 04 39 03 FF
+ExposureMode[Shutter]	81 01 04 39 0A FF
+ExposureMode[Iris]	81 01 04 39 0B FF
+ExposureMode[Bright]	81 01 04 39 0D FF
+ExpComp::On	81 01 04 3E 02 FF
+ExpComp::Off	81 01 04 3E 03 FF
+ExpComp::Reset	81 01 04 0E 00 FF
+ExpComp::Up	81 01 04 0E 02 FF
+ExpComp::Down	81 01 04 0E 03 FF
+ExpComp::SetLevel[-8]	CTOR_ERR(InvalidParameter { parameter: "value", value: "-8", reason: "Exposure compensation level must be between -7 and 7" })
+ExpComp::SetLevel[-7]	81 01 04 4E 00 00 00 00 FF
+ExpComp::SetLevel[-1]	81 01 04 4E 00 00 00 06 FF
+ExpComp::SetLevel[0]	81 01 04 4E 00 00 00 07 FF
+ExpComp::SetLevel[1]	81 01 04 4E 00 00 00 08 FF
+ExpComp::SetLevel[7]	81 01 04 4E 00 00 00 0E FF
+ExpComp::SetLevel[8]	CTOR_ERR(InvalidParameter { parameter: "value", value: "8", reason: "Exposure compensation level must be between -7 and 7" })
+DynamicRange[0]	81 01 04 25 00 00 00 00 FF
+DynamicRange[1]	81 01 04 25 00 00 00 01 FF
+DynamicRange[5]	81 01 04 25 00 00 00 05 FF
+DynamicRange[6]	81 01 04 25 00 00 00 06 FF
+DynamicRange[8]	81 01 04 25 00 00 00 08 FF
+DynamicRange[255]	CTOR_ERR(InvalidParameter { parameter: "DynamicRangeLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8]" })
+Iris::Reset	81 01 04 0B 00 FF
+Iris::Up	81 01 04 0B 02 FF
+Iris::Down	81 01 04 0B 03 FF
+Iris::SetAperture[00]	81 01 04 4B 00 00 00 00 FF
+Iris::SetAperture[05]	81 01 04 4B 00 00 00 05 FF
+Iris::SetAperture[11]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "17", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
+Iris::SetAperture[12]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "18", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
+Iris::SetAperture[FF]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
+Shutter::Reset	81 01 04 0A 00 FF
+Shutter::Up	81 01 04 0A 02 FF
+Shutter::Down	81 01 04 0A 03 FF
+Shutter::SetSpeed[0000]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "0", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Shutter::SetSpeed[0005]	81 01 04 4A 00 00 00 05 FF
+Shutter::SetSpeed[0015]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "21", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Shutter::SetSpeed[0016]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "22", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Shutter::SetSpeed[0021]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "33", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Shutter::SetSpeed[0022]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "34", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Shutter::SetSpeed[FFFF]	CTOR_ERR(InvalidParameter { parameter: "ShutterSpeed", value: "65535", reason: "must be one of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Reset	81 01 04 0D 00 FF
+Brightness::Up	81 01 04 0D 02 FF
+Brightness::Down	81 01 04 0D 03 FF
+Brightness::SetLevel[0000]	81 01 04 4D 00 00 00 00 FF
+Brightness::Direct[0000]	81 01 04 4D 00 00 00 00 FF
+Brightness::SetLevel[0005]	81 01 04 4D 00 00 00 05 FF
+Brightness::Direct[0005]	81 01 04 4D 00 00 00 05 FF
+Brightness::SetLevel[001B]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "27", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Direct[001B]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "27", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::SetLevel[001F]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "31", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Direct[001F]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "31", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::SetLevel[0020]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "32", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Direct[0020]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "32", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::SetLevel[00FF]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Direct[00FF]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::SetLevel[0100]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "256", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+Brightness::Direct[0100]	CTOR_ERR(InvalidParameter { parameter: "BrightnessLevel", value: "256", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]" })
+AntiFlicker[Off]	81 01 04 23 00 FF
+AntiFlicker[50]	81 01 04 23 01 FF
+AntiFlicker[60]	81 01 04 23 02 FF
+SpotlightOn	81 01 04 3A 02 FF
+SpotlightOff	81 01 04 3A 03 FF
+AutoSlowShutterOn	81 01 04 5A 02 FF
+AutoSlowShutterOff	81 01 04 5A 03 FF
+Gain::Reset	81 01 04 0C 00 FF
+Gain::Up	81 01 04 0C 02 FF
+Gain::Down	81 01 04 0C 03 FF
+Gain::SetValue[00]	81 01 04 4C 00 00 00 00 FF
+GainLimit[00]	81 01 04 2C 00 FF
+Gain::SetValue[05]	81 01 04 4C 00 00 00 05 FF
+GainLimit[05]	81 01 04 2C 05 FF
+Gain::SetValue[0F]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "15", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+GainLimit[0F]	81 01 04 2C 0F FF
+Gain::SetValue[10]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+GainLimit[10]	CTOR_ERR(InvalidParameter { parameter: "GainLimit", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]" })
+Gain::SetValue[FF]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+GainLimit[FF]	CTOR_ERR(InvalidParameter { parameter: "GainLimit", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]" })
+WhiteBalance[Auto]	81 01 04 35 00 FF
+WhiteBalance[Indoor]	81 01 04 35 01 FF
+WhiteBalance[Outdoor]	81 01 04 35 02 FF
+WhiteBalance[OnePush]	81 01 04 35 03 FF
+WhiteBalance[ATW]	81 01 04 35 04 FF
+WhiteBalance[Manual]	81 01 04 35 05 FF
+WhiteBalance[ColorTemperature]	81 01 04 35 20 FF
+AWBSensitivity[High]	81 01 04 A9 00 FF
+AWBSensitivity[Normal]	81 01 04 A9 01 FF
+AWBSensitivity[Low]	81 01 04 A9 02 FF
+OnePushTrigger	81 01 04 10 05 FF
+RedTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "RedTuning", value: -11, min: -10, max: 10 })
+BlueTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "BlueTuning", value: -11, min: -10, max: 10 })
+RedTuning[-10]	81 01 04 43 00 00 00 00 FF
+BlueTuning[-10]	81 01 04 44 00 00 00 00 FF
+RedTuning[-5]	81 01 04 43 00 00 00 05 FF
+BlueTuning[-5]	81 01 04 44 00 00 00 05 FF
+RedTuning[-1]	81 01 04 43 00 00 00 09 FF
+BlueTuning[-1]	81 01 04 44 00 00 00 09 FF
+RedTuning[0]	81 01 04 43 00 00 00 0A FF
+BlueTuning[0]	81 01 04 44 00 00 00 0A FF
+RedTuning[1]	81 01 04 43 00 00 00 0B FF
+BlueTuning[1]	81 01 04 44 00 00 00 0B FF
+RedTuning[5]	81 01 04 43 00 00 00 0F FF
+BlueTuning[5]	81 01 04 44 00 00 00 0F FF
+RedTuning[10]	81 01 04 43 00 00 00 14 FF
+BlueTuning[10]	81 01 04 44 00 00 00 14 FF
+RedTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "RedTuning", value: 11, min: -10, max: 10 })
+BlueTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "BlueTuning", value: 11, min: -10, max: 10 })
+Saturation[00]	81 01 04 49 00 00 00 00 FF
+Hue[00]	81 01 04 4F 00 00 00 00 FF
+Luminance[00]	81 01 04 A1 00 00 00 00 FF
+Contrast[00]	81 01 04 A2 00 00 00 00 FF
+Gamma[00]	81 01 04 5B 00 FF
+Saturation[05]	81 01 04 49 00 00 00 05 FF
+Hue[05]	81 01 04 4F 00 00 00 05 FF
+Luminance[05]	81 01 04 A1 00 00 00 05 FF
+Contrast[05]	81 01 04 A2 00 00 00 05 FF
+Gamma[05]	CTOR_ERR(ParameterOutOfRange { parameter: "GammaLevel", value: 5, min: 0, max: 4 })
+Saturation[0E]	81 01 04 49 00 00 00 0E FF
+Hue[0E]	81 01 04 4F 00 00 00 0E FF
+Luminance[0E]	81 01 04 A1 00 00 00 0E FF
+Contrast[0E]	81 01 04 A2 00 00 00 0E FF
+Gamma[0E]	CTOR_ERR(ParameterOutOfRange { parameter: "GammaLevel", value: 14, min: 0, max: 4 })
+Saturation[0F]	CTOR_ERR(ParameterOutOfRange { parameter: "SaturationLevel", value: 15, min: 0, max: 14 })
+Hue[0F]	CTOR_ERR(ParameterOutOfRange { parameter: "HueLevel", value: 15, min: 0, max: 14 })
+Luminance[0F]	CTOR_ERR(InvalidParameter { parameter: "LuminanceLevel", value: "15", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Contrast[0F]	CTOR_ERR(InvalidParameter { parameter: "ContrastLevel", value: "15", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Gamma[0F]	CTOR_ERR(ParameterOutOfRange { parameter: "GammaLevel", value: 15, min: 0, max: 4 })
+Saturation[10]	CTOR_ERR(ParameterOutOfRange { parameter: "SaturationLevel", value: 16, min: 0, max: 14 })
+Hue[10]	CTOR_ERR(ParameterOutOfRange { parameter: "HueLevel", value: 16, min: 0, max: 14 })
+Luminance[10]	CTOR_ERR(InvalidParameter { parameter: "LuminanceLevel", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Contrast[10]	CTOR_ERR(InvalidParameter { parameter: "ContrastLevel", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Gamma[10]	CTOR_ERR(ParameterOutOfRange { parameter: "GammaLevel", value: 16, min: 0, max: 4 })
+Saturation[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "SaturationLevel", value: 255, min: 0, max: 14 })
+Hue[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "HueLevel", value: 255, min: 0, max: 14 })
+Luminance[FF]	CTOR_ERR(InvalidParameter { parameter: "LuminanceLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Contrast[FF]	CTOR_ERR(InvalidParameter { parameter: "ContrastLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]" })
+Gamma[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "GammaLevel", value: 255, min: 0, max: 4 })
+ColorTemperature::Reset	81 01 04 20 00 FF
+ColorTemperature::Up	81 01 04 20 02 FF
+ColorTemperature::Down	81 01 04 20 03 FF
+ColorTemperature::Set[0000]	81 01 04 20 00 00 FF
+ColorTemperature::Set[0030]	81 01 04 20 03 00 FF
+ColorTemperature::Set[0037]	81 01 04 20 03 07 FF
+ColorTemperature::Set[0038]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 56, min: 0, max: 55 })
+ColorTemperature::Set[00FF]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 255, min: 0, max: 55 })
+ColorTemperature::Set[0100]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 256, min: 0, max: 55 })
+ColorTemperature::Set[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 65535, min: 0, max: 55 })
+RedGain::Reset	81 01 04 03 00 FF
+RedGain::Up	81 01 04 03 02 FF
+RedGain::Down	81 01 04 03 03 FF
+BlueGain::Reset	81 01 04 04 00 FF
+BlueGain::Up	81 01 04 04 02 FF
+BlueGain::Down	81 01 04 04 03 FF
+RedGain::Set[00]	81 01 04 43 00 00 00 00 FF
+BlueGain::Set[00]	81 01 04 44 00 00 00 00 FF
+RedGain::Set[40]	81 01 04 43 00 00 04 00 FF
+BlueGain::Set[40]	81 01 04 44 00 00 04 00 FF
+RedGain::Set[80]	81 01 04 43 00 00 08 00 FF
+BlueGain::Set[80]	81 01 04 44 00 00 08 00 FF
+RedGain::Set[FF]	81 01 04 43 00 00 0F 0F FF
+BlueGain::Set[FF]	81 01 04 44 00 00 0F 0F FF
+Sharpness::Mode[Auto]	81 01 04 05 02 FF
+Sharpness::Mode[Manual]	81 01 04 05 03 FF
+Sharpness::Reset	81 01 04 02 00 FF
+Sharpness::Up	81 01 04 02 02 FF
+Sharpness::Down	81 01 04 02 03 FF
+Sharpness::SetLevel[00]	81 01 04 42 00 00 00 00 FF
+Sharpness::SetLevel[05]	81 01 04 42 00 00 00 05 FF
+Sharpness::SetLevel[0F]	81 01 04 42 00 00 00 0F FF
+Sharpness::SetLevel[10]	ERR(InvalidParameter { parameter: "value", value: "16", reason: "Sharpness value must be in the range 0..=15" })
+Sharpness::SetLevel[FF]	ERR(InvalidParameter { parameter: "value", value: "255", reason: "Sharpness value must be in the range 0..=15" })
+Backlight[on]	81 01 04 33 02 FF
+Backlight[off]	81 01 04 33 03 FF
+NR2D::off	81 01 04 53 00 FF
+NR2D[0]	81 01 04 53 00 FF
+NR2D[1]	81 01 04 53 01 FF
+NR2D[5]	81 01 04 53 05 FF
+NR2D[6]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 6, min: 0, max: 5 })
+NR2D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 255, min: 0, max: 5 })
+NR3D::off	81 01 04 54 00 FF
+NR3D[0]	81 01 04 54 00 FF
+NR3D[1]	81 01 04 54 01 FF
+NR3D[5]	81 01 04 54 05 FF
+NR3D[8]	81 01 04 54 08 FF
+NR3D[9]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 9, min: 0, max: 8 })
+NR3D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 255, min: 0, max: 8 })
+ImageFlipCombined[Off]	81 01 04 A4 00 FF
+ImageFlipCombined[Horizontal]	81 01 04 A4 01 FF
+ImageFlipCombined[Vertical]	81 01 04 A4 02 FF
+ImageFlipCombined[Both]	81 01 04 A4 03 FF
+PictureEffect[Off]	81 01 04 63 00 FF
+PictureEffect[BW]	81 01 04 63 04 FF
+PictureEffect[Unknown 0x02]	81 01 04 63 02 FF
+ImageFlip[On]	81 01 04 66 02 FF
+ImageFlip[Off]	81 01 04 66 03 FF
+HorizontalFlip[on]	81 01 04 61 02 FF
+HorizontalFlip[off]	81 01 04 61 03 FF
+ImageFreeze[on]	81 01 04 62 02 FF
+ImageFreeze[off]	81 01 04 62 03 FF
+NdFilterMode[Preset]	81 01 7E 04 52 00 FF
+NdFilterMode[Variable]	81 01 7E 04 52 01 FF
+NdFilterValue[0000]	81 01 7E 04 42 00 00 00 FF
+NdFilterValue[0005]	81 01 7E 04 42 00 00 05 FF
+NdFilterValue[0014]	81 01 7E 04 42 00 01 04 FF
+NdFilterValue[0015]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 21, min: 0, max: 20 })
+NdFilterValue[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 65535, min: 0, max: 20 })
+NdFilterStep[Up]	81 01 7E 04 12 02 FF
+NdFilterStep[Down]	81 01 7E 04 12 03 FF
+AutoNd[on]	81 01 7E 04 53 02 FF
+AutoNd[off]	81 01 7E 04 53 03 FF
+TallyRedOn	81 01 7E 01 0A 00 02 FF
+TallyRedOff	81 01 7E 01 0A 00 03 FF
+TallyBrightLo	81 01 7E 01 0A 01 04 FF
+TallyBrightHi	81 01 7E 01 0A 01 05 FF
+TallyGreenOn	81 01 7E 04 1A 00 02 FF
+TallyGreenOff	81 01 7E 04 1A 00 03 FF
+TallyFlash	81 0A 02 02 01 FF
+TallyOn	81 0A 02 02 02 FF
+TallyOff	81 0A 02 02 03 FF
+MenuDisplay[on]	81 01 06 06 02 FF
+MenuDisplay[off]	81 01 06 06 03 FF
+MenuNavigate[Up]	81 01 06 01 0E 0E 03 01 FF
+MenuNavigate[Down]	81 01 06 01 0E 0E 03 02 FF
+MenuNavigate[Left]	81 01 06 01 0E 0E 01 03 FF
+MenuNavigate[Right]	81 01 06 01 0E 0E 02 03 FF
+MenuAction[Select]	81 01 06 06 05 FF
+MenuAction[Cancel]	81 01 06 06 04 FF
+DirectMenu[00,01]	81 01 7E 04 72 00 01 FF
+DirectMenu[00,FF]	81 01 7E 04 72 00 FF FF
+DirectMenu[FF,00]	81 01 7E 04 72 FF 00 FF
+DirectMenu[FF,FF]	81 01 7E 04 72 FF FF FF
+DirectMenu[FF,81]	CTOR_ERR(InvalidRequest("direct menu control cannot contain 0xFF followed by a VISCA address; it would encode as a second frame"))
+DirectMenu[81,01]	81 01 7E 04 72 81 01 FF
+Multicast::On	81 0B 01 23 01 FF
+Multicast::Off	81 0B 01 23 02 FF
+NdiQuality[High]	81 0B 01 01 01 FF
+NdiQuality[Medium]	81 0B 01 01 02 FF
+NdiQuality[Low]	81 0B 01 01 03 FF
+NdiQuality[Off]	81 0B 01 01 04 FF
+UsbAudio::On	81 2A 02 A0 04 02 FF
+UsbAudio::Off	81 2A 02 A0 04 03 FF
+AddressSet	88 30 01 FF
+AddressSet@cam3	88 30 01 FF
+AddressSet@bcast	88 30 01 FF
+InterfaceClear	88 01 00 01 FF
+InterfaceClear@cam3	88 01 00 01 FF
+InterfaceClear@bcast	88 01 00 01 FF
+CommandCancel[S1]	81 21 FF
+CommandCancel[S2]	81 22 FF
+CommandCancel[S2]@cam2	82 22 FF
+SettingsSave	81 01 04 A5 10 FF
+MotionSyncMode[On]	81 0A 11 13 02 FF
+MotionSyncMode[Off]	81 0A 11 13 03 FF
+MotionSyncPreset[0]	CTOR_ERR(ParameterOutOfRange { parameter: "motion sync speed", value: 0, min: 1, max: 24 })
+MotionSyncPreset[1]	81 0A 11 14 01 FF
+MotionSyncPreset[2]	81 0A 11 14 02 FF
+MotionSyncPreset[3]	81 0A 11 14 03 FF
+MotionSyncPreset[24]	81 0A 11 14 18 FF
+MotionSyncPreset[255]	CTOR_ERR(ParameterOutOfRange { parameter: "motion sync speed", value: 255, min: 1, max: 24 })
+VariableSpeed[Standard24]	81 01 7E 04 1B 01 FF
+VariableSpeed[Fine50]	81 01 7E 04 1B 02 FF
+AutoFocusSensitivityInquiry	81 09 04 58 FF
+AutoTraceInquiry	81 09 50 09 FF
+AutoWhiteBalanceSensitivityInquiry	81 09 04 A9 FF
+BacklightInquiry	81 09 04 33 FF
+BlueGainInquiry	81 09 04 44 FF
+BlueTuningInquiry	81 09 04 44 FF
+BrightnessInquiry	81 09 04 4D FF
+BroadcastDomainInquiry	81 09 04 75 FF
+ColorTemperatureInquiry	81 09 04 20 FF
+ContrastInquiry	81 09 04 A2 FF
+DefogLevelInquiry	81 09 04 A0 FF
+DefogModeInquiry	81 09 04 37 FF
+DigitalInquiry	81 09 04 7B FF
+DigitalPtzInquiry	81 09 04 6B FF
+DynamicRangeInquiry	81 09 04 25 FF
+ExposureCompensationInquiry	81 09 04 4E FF
+ExposureCompensationModeInquiry	81 09 04 3E FF
+ExposureCompensationPositionInquiry	81 09 04 4E FF
+ExposureModeInquiry	81 09 04 39 FF
+FlickerModeInquiry	81 09 04 55 FF
+FlipStateInquiry	81 09 04 A4 FF
+FocusModeInquiry	81 09 04 38 FF
+FocusNearLimitInquiry	81 09 04 28 FF
+FocusPositionInquiry	81 09 04 48 FF
+FocusRangeInquiry	81 09 04 2A FF
+FocusUnlockInquiry	81 09 54 08 FF
+FocusZoneInquiry	81 09 04 AA FF
+GainInquiry	81 09 04 4C FF
+GainLimitInquiry	81 09 04 2C FF
+GammaInquiry	81 09 04 5B FF
+HueInquiry	81 09 04 4F FF
+ImageFlipInquiry	81 09 04 A4 FF
+IrisControlInquiry	81 09 04 2B FF
+IrisInquiry	81 09 04 4B FF
+LuminanceInquiry	81 09 04 A1 FF
+MenuOpenCloseInquiry	81 09 06 06 FF
+MotionSyncModeInquiry	81 09 04 56 FF
+MotionSyncPresetInquiry	81 09 04 57 FF
+NdFilterInquiry	81 09 04 64 FF
+NdFilterPresetInquiry	81 09 04 66 FF
+NightDayModeInquiry	81 09 04 60 FF
+NoiseReduction2DInquiry	81 09 04 53 FF
+NoiseReduction3DInquiry	81 09 04 54 FF
+PanTiltPositionInquiry	81 09 06 12 FF
+PictureEffectInquiry	81 09 04 63 FF
+PowerInquiry	81 09 04 00 FF
+RedGainInquiry	81 09 04 43 FF
+RedTuningInquiry	81 09 04 43 FF
+SaturationInquiry	81 09 04 49 FF
+SharpnessModeInquiry	81 09 04 05 FF
+SharpnessPositionInquiry	81 09 04 42 FF
+ShutterInquiry	81 09 04 4A FF
+StandbyInquiry	81 09 04 70 FF
+TallyAutoAdjustInquiry	81 09 04 A9 FF
+TallyGreenInquiry	81 09 7E 04 1A 00 FF
+TallyRedInquiry	81 09 7E 01 0A 00 FF
+TallyStatusInquiry	81 09 04 A8 FF
+TwoToneModeInquiry	81 09 04 74 FF
+UsbAudioInquiry	81 2A 02 A0 04 FF
+VersionInquiry	81 09 00 02 FF
+WhiteBalanceModeInquiry	81 09 04 35 FF
+ZoomPositionInquiry	81 09 04 47 FF
+PowerInquiry@cam7	87 09 04 00 FF
+NR2DMode[Auto]	81 01 04 50 02 FF
+NR2DMode[Manual]	81 01 04 50 03 FF
+NoiseReduction2DModeInquiry	81 09 04 50 FF

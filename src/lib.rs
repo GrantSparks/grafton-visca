@@ -1214,3 +1214,7 @@ mod migration_guide_snippets {}
 #[cfg(all(doctest, feature = "blocking"))]
 #[doc = include_str!("../docs/usage_2_0.md")]
 mod usage_guide_snippets {}
+
+// Exhaustive literal-byte inventory tied to the built-in semantic ledger.
+#[cfg(test)]
+mod issue_715_wire_golden;

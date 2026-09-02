@@ -473,6 +473,47 @@ remain reachable.
 
 ### Changed
 
+- **Breaking wire corrections versus 1.x** (#715). The phase-4 encoder audit
+  compared 491 boundary probes against the pinned 1.2 oracle
+  `6c7a9d3783861189745536372c4d21de24d4252d`, then added three v2-only 2D-NR
+  mode rows for a 494-row current snapshot. Exactly 31 comparable output rows
+  differ; every difference is accounted for below. The behavioral-parity
+  waiver is `source-backed-wire-corrections`. A checked-in literal snapshot
+  now covers every one of the 150 `BuiltinCommand` semantic-ledger rows and
+  every generated queryable inquiry, so a new command or a one-byte change
+  fails CI until the baseline is explicitly reviewed.
+
+  | Affected audit rows | 1.x behavior | 2.0 behavior | Source / decision |
+  | --- | --- | --- | --- |
+  | 3 autofocus-sensitivity settings | Low/Normal/High sent `04 58 00/01/02`. | Low/Normal/High send `04 58 03/02/01`. | [PTZOptics inquiry table §7.10 / R1](docs/visca_reference.md#710-ptzoptics-inquiry-reference). |
+  | 2 valid Bright Direct probes | Sent the relative-control opcode `04 0D`. | Sends direct opcode `04 4D`. | [Bright Direct erratum §7.5 and Sony R8](docs/visca_reference.md#75-exposure). |
+  | 9 valid UpRight limit set/clear probes | Encoded corner `03`. | Encodes corner `01`. | [Pan/tilt table §7.6](docs/visca_reference.md#76-pantilt), corroborated by R1, R6, and R12. |
+  | `FocusZoneInquiry` | `09 04 3C`. | `09 04 AA`. | [PTZOptics inquiry table §7.10 / R1](docs/visca_reference.md#710-ptzoptics-inquiry-reference). |
+  | `PictureEffectInquiry` | `09 04 32`. | `09 04 63`; the conflicting unsourced resolution interpretation is removed. | [Image processing §§7.8, 7.10 / R1](docs/visca_reference.md#78-image-processing). |
+  | `UsbAudioInquiry` | `09 04 7A`, with a mismatched on-value convention. | `2A 02 A0 04`; replies use `02 = on`, `03 = off`. | [UAC rows §§7.9, 7.10 / R1](docs/visca_reference.md#79-flip-osd-ndi-multicast-and-uac). |
+  | 6 trailing-`FF`/framing probes | Preset `255` and Direct Menu data ending in `FF` lost the real terminator; `FF 81` could form a second addressed frame. | A data byte of `FF` is followed by a distinct terminator, and Direct Menu rejects `FF` followed by a VISCA address. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode) and #683. |
+  | 2 extended tilt-speed probes | `TiltSpeed` rejected `15`–`18` globally. | The value type admits `00`–`18`; preparation still enforces each profile's range (`14` for PTZOptics, `18` for BRC-300). | [Pan/tilt range note §7.6 and Sony R12](docs/visca_reference.md#76-pantilt). |
+  | 6 2D/3D NR value/error probes | Level `0` was rejected and out-of-range diagnostics reported a minimum of `1`. | Level `0` is the documented off value; the domains are `0`–`5` (2D) and `0`–`8` (3D). | [NR command rows §7.8 / R14](docs/visca_reference.md#78-image-processing). |
+  | 3 Sony-over-IP payload types (outside the 491 encoder rows) | Device setting, control command, and control reply used `01 02` / `01 20` / `01 21`. | The payload types are `01 20` / `02 00` / `02 01`. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode). |
+
+  The Sony payload-type row sits below the encoder layer and therefore is not
+  counted among the 31 comparable built-in rows. It shares the same parity
+  waiver and has its own literal round-trip pin.
+
+  **Persisted autofocus values need migration.** `AutoFocusSensitivity as u8`
+  was `Low=0`, `Normal=1`, `High=2` in 1.x; it is now the actual wire domain
+  `Low=3`, `Normal=2`, `High=1`. Serde's named values remain stable, but a
+  database or config that stored the old integer cast must translate by the
+  semantic setting, not feed that integer to the 2.0 decoder (`0→Low/3`,
+  `1→Normal/2`, `2→High/1`).
+
+  R12 also settles the separate BRC-300 review question: absolute/relative
+  position frames contain one speed byte followed by fixed `00`, five signed
+  pan nibbles, and four signed tilt nibbles. The 2.0 codec is retained; because
+  the public request has separate pan/tilt speed values but this frame has one
+  `VV`, unequal values are rejected. Exact profile-path position and limit
+  vectors pin that decision.
+
 - Consolidated the engine's owner-specific no-due/no-dispatch entry points into
   one internal, runtime-neutral `EngineTurn` policy (#723). Async and blocking
   input batches, standalone write results, deadline-only waits, and ordinary
@@ -977,6 +1018,33 @@ remain reachable.
   "both semver surfaces" — a gate that no longer exists.
 
 ### Removed
+
+- **Removed unsourced or ambiguously decoded image inquiries and value
+  vocabularies** (#715). `ResolutionInquiry`, `ResolutionMode`, and
+  `image().resolution()` claimed `09 04 63`, which the source-backed table
+  identifies as Picture Effect. `BlackWhiteInquiry`,
+  `BlackWhiteModeInquiry`, `BlackWhiteMode`, and the corresponding
+  `image().black_white*` accessors used unverified `04 01` / `04 73` registers.
+  There is no typed replacement for either vendor dialect; use a deliberately
+  specified `raw::Inquiry` only with model/firmware evidence. Source-backed
+  black-and-white state remains available as
+  `image().picture_effect()` / `PictureEffectInquiry`.
+
+- **Removed the ambiguous aggregate noise-reduction inquiry vocabulary**
+  (#715): `NrLevelInquiry`, `NrModeInquiry`, `NrSpeedInquiry`,
+  `NoiseReductionLevel`, `NoiseReductionMode`, `NoiseReductionSpeed`, and the
+  aggregate `noise_reduction_level` / `noise_reduction_mode` accessors. Use the
+  dimension-specific `noise_reduction_2d_mode()`, `noise_reduction_2d()`, and
+  `noise_reduction_3d()` queries and their corresponding value types. The new
+  `NoiseReduction2DModeCommand` / `NoiseReduction2DModeInquiry` pair owns the
+  source-backed `04 50` register explicitly.
+
+- **Removed the unverified named picture-effect modes** (#715):
+  `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}`. Built-in
+  profiles retain the sourced `Off` and `BlackAndWhite` modes. A known
+  model-specific value may be represented explicitly as `Unknown(raw)` and
+  sent on a profile with picture-effect support; 2.0 does not assign
+  unsupported names to those bytes.
 
 - **Removed nine more never-constructed public `Error` variants** (#722):
   `CommandTimeout`, `CameraBusy`, `CameraMoving`, `CameraNotReady`,

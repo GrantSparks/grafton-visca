@@ -220,9 +220,21 @@ PINNED_V2_TARGETS: dict[str, tuple[str, str, str, str]] = {
         "trace",
     ),
     "v2-wire-golden": (
+        "src/issue_715_wire_golden.rs",
+        "wire_ledger_matches_literal_golden_inventory",
+        "issue_715_wire_golden::wire_ledger_matches_literal_golden_inventory",
+        "wire",
+    ),
+    "v2-brc300-wire-golden": (
         "tests/issue_633_golden_wire_bytes.rs",
-        "cardinal_pan_tilt_directions_match_golden_frames",
-        "cardinal_pan_tilt_directions_match_golden_frames",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+        "wire",
+    ),
+    "v2-sony-payload-golden": (
+        "src/protocol/sony.rs",
+        "tests::test_all_payload_types_round_trip",
+        "protocol::sony::tests::test_all_payload_types_round_trip",
         "wire",
     ),
     "v2-inquiry-golden": (
@@ -316,7 +328,18 @@ PINNED_COMMANDS: dict[str, tuple[str, ...]] = {
     "test-cancel-blocking": (
         "cargo", "test", "--test", "issue_612_cancel_recovery_blocking",
     ),
-    "test-wire": ("cargo", "test", "--test", "issue_633_golden_wire_bytes"),
+    "lib-wire-golden": (
+        "cargo", "test", "--lib",
+        "issue_715_wire_golden::wire_ledger_matches_literal_golden_inventory",
+    ),
+    "test-brc300-wire": (
+        "cargo", "test", "--test", "issue_633_golden_wire_bytes",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+    ),
+    "lib-sony-payload": (
+        "cargo", "test", "--lib",
+        "protocol::sony::tests::test_all_payload_types_round_trip",
+    ),
     "test-inquiry-golden": (
         "cargo", "test", "--test", "inquiry_golden_tests_simple",
     ),
@@ -358,7 +381,9 @@ PINNED_V2_CONTEXT: dict[str, tuple[str, str, str]] = {
         "raw", "NonDefaultCompileTimeProfile", "tokio-scripted",
     ),
     "v2-raw-lifecycle-trace": ("neutral", "n/a", "test-trace"),
-    "v2-wire-golden": ("neutral", "n/a", "test-wire"),
+    "v2-wire-golden": ("neutral", "n/a", "lib-wire-golden"),
+    "v2-brc300-wire-golden": ("sony", "SonyBRC300", "test-brc300-wire"),
+    "v2-sony-payload-golden": ("sony", "n/a", "lib-sony-payload"),
     "v2-inquiry-golden": ("neutral", "n/a", "test-inquiry-golden"),
     "v2-inquiry-decoding": ("neutral", "n/a", "test-inquiry-decode"),
     "v2-cancel-blocking": ("raw", "PtzOpticsG2", "test-cancel-blocking"),

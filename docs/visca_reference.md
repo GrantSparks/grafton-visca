@@ -1059,6 +1059,17 @@ library's BRC-300 profile therefore uses a negative signed degree-to-unit scale
 for both axes while retaining the documented signed wire fields. This
 profile-specific polarity must not be generalized to other VISCA profiles.
 
+R12 also settles the position-frame layout independently of the common table
+in §7.6. Absolute position is
+`8x 01 06 02 VV 00 0Y 0Y 0Y 0Y 0Y 0Z 0Z 0Z 0Z FF`, and relative position
+changes only the opcode to `06 03`: there is one speed field `VV` (`01`–`18`),
+then a fixed `00`, five signed pan nibbles, and four signed tilt nibbles. It is
+not the standard two-speed `VV WW` form. The public request vocabulary retains
+separate `PanSpeed` and `TiltSpeed` values for cross-profile consistency, so
+the BRC-300 codec requires them to be equal rather than silently dropping one.
+Limit set/clear use the same five-pan/four-tilt coordinate widths and `W=01`
+for UpRight. Exact profile-path golden vectors pin all four layouts.
+
 **Why it remains open:** The uploaded unified guide explicitly says the non-PTZOptics and non-Axis sections were not re-validated in the prior patch set. This final document used Sony manuals only to resolve transport and opcode semantics, not to validate every model-family capability.
 
 **Validation needed:** For each target model family, validate against the current primary model manual/command list:
@@ -1195,7 +1206,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, and the 240 ms post-preset caveat. It remains the model authority for the EVI-H100 shared exposure/iris breadth restored by #716; the direct line-item audit is still pending because the linked technical-manual download was unavailable during that review. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
 | R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), fixed `04 5A` automatic-slow-shutter commands, and its five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints. It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), fixed `04 5A` automatic-slow-shutter commands, and its `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
 
 ## C.4 Supplemental explanatory source
 

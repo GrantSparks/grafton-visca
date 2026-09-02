@@ -72,6 +72,26 @@ than treating a neighboring model or firmware as equivalent.
 | FW-08 | `SonyFR7` / exact revision | Sony envelope, sequence correlation, reject shared exposure/iris before write, validate vendor-relative iris via raw escape hatch, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
 | FW-09 | `SonyBRCH900` / exact revision | Sony envelope, sequence correlation, shared exposure/iris, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
 
+## Wire-correction verification
+
+These rows correspond one-for-one with the source-backed wire families changed
+from the pinned 1.2 oracle in #715. The exhaustive software golden inventory is
+necessary evidence, but does not complete a hardware row.
+
+| ID | Profile / changed family | Required checks | Owner | Status | Firmware / bench | Evidence artifact / notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| WC-01 | PTZOptics legacy profile / autofocus sensitivity | Send Low, Normal, High; capture `04 58 03/02/01`; inquire each value and verify semantic round trip | Protocol QA | Pending (Not run) | Pending | Pending — command/reply capture |
+| WC-02 | `SonyEVIH100` and one supporting PTZOptics profile / Bright Direct | Capture `04 4D` for two distinct direct values and confirm the camera changes/reads back brightness; verify reset/up/down remain `04 0D` | Protocol QA | Pending (Not run) | Pending | Pending — R8/R1 comparison and capture |
+| WC-03 | One standard VISCA profile and `SonyBRC300` / pan-tilt limit corner | Set and clear both corners; capture `W=00` DownLeft and `W=01` UpRight, then safely exercise the limits | Motion QA | Pending (Not run) | Pending | Pending — safe-bench video plus capture |
+| WC-04 | Supporting PTZOptics legacy profile / focus zone inquiry | Send `09 04 AA`; select Top/Center/Bottom and confirm each returned value | Protocol QA | Pending (Not run) | Pending | Pending — command/reply capture |
+| WC-05 | Supporting PTZOptics profile / picture effect | Send/inquire Off and BlackAndWhite with `04/09 04 63`; confirm `09 04 63` is not interpreted as resolution | Image QA | Pending (Not run) | Pending | Pending — image evidence plus capture |
+| WC-06 | Supporting PTZOptics legacy profile / USB audio | Capture command/inquiry family `2A 02 A0 04`; verify reply `02` means on and `03` means off | Protocol QA | Pending (Not run) | Pending | Pending — USB audio observation plus capture |
+| WC-07 | Profiles supporting preset 255 and Direct Menu / terminal data `FF` | Send preset set/recall/reset 255 and Direct Menu values ending in `FF`; prove the final data byte and separate terminator are both present; prove `FF 81` is rejected before I/O | Protocol QA | Pending (Not run) | Pending | Pending — exact frame and zero-I/O rejection trace |
+| WC-08 | `SonyBRC300` plus PTZOptics control / extended tilt-speed domain | Exercise BRC-300 `VV=15` and `VV=18`; confirm PTZOptics still rejects tilt speed above `14` before I/O | Motion QA | Pending (Not run) | Pending | Pending — safe-bench capture and zero-I/O trace |
+| WC-09 | `PtzOpticsG2`, `PtzOpticsG3`, and legacy `PtzOptics30X` / NR zero | Send 2D and 3D level `0`; confirm it disables NR, then set nonzero endpoints and query the documented output range | Image QA | Pending (Not run) | Pending | Pending — before/after image and command/reply capture |
+| WC-10 | `SonyFR7` Sony envelope / payload-type table | Capture or inject device-setting, control-command, and control-reply headers and verify `01 20`, `02 00`, and `02 01`; reject the former 1.x values | Protocol QA | Pending (Not run) | Pending | Pending — Sony-header packet capture |
+| WC-11 | `SonyBRC300` / position grammar | Capture absolute and relative commands with equal `VV`; verify fixed `00`, five signed pan nibbles, four signed tilt nibbles, documented polarity/endpoints, and local rejection of unequal pan/tilt speeds | Motion QA | Pending (Not run) | Pending | Pending — R12 pp. 12/22 comparison, safe-bench video, and capture |
+
 ## Cancellation, retry, and recovery
 
 Run the cancellation and retry rows on every applicable profile/transport row
@@ -111,6 +131,7 @@ they do not authorize sending to broadcast as a session target.
 | Gate | Owner | Status | Evidence / blocker |
 | --- | --- | --- | --- |
 | Every applicable `PT-*` and `FW-*` row has an exact firmware revision | Release owner | Pending (Not run) | Pending |
+| Every `WC-*` wire-correction row has a command/reply capture or an explicit blocker | Release owner | Pending (Not run) | Pending |
 | Every cancellation/retry row has a transcript and sanitized diagnostics | Lifecycle QA | Pending (Not run) | Pending |
 | Every multi-camera row has target-attribution evidence | Multi-camera QA | Pending (Not run) | Pending |
 | No open safety issue or unexplained physical behavior | Release owner | Pending (Not run) | Pending |

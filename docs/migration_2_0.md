@@ -112,6 +112,58 @@ Dynamic views remain async and object-safe. They erase profile/request types but
 share the static session's owner, timeout, pacing, cancellation, and state
 cache. There is no dynamic policy layer that can bypass static preparation.
 
+### Wire corrections and removed ambiguous inquiries
+
+2.0 deliberately does not preserve several incorrect 1.x byte sequences. The
+complete audited delta is recorded in the
+[CHANGELOG wire-corrections table](../CHANGELOG.md#changed); the migrations a
+caller can observe directly are:
+
+| 1.x assumption | 2.0 destination |
+| --- | --- |
+| Autofocus sensitivity Low/Normal/High encoded as `00/01/02` | The sourced wire values are `03/02/01`. Keep semantic enum values in application state rather than treating an integer cast as a stable wire code. |
+| Bright Direct used `04 0D` | Direct brightness now uses `04 4D`; `04 0D` remains only the reset/up/down family. |
+| UpRight limit corner was `03` | It is `01` in limit set and clear frames. |
+| Focus-zone inquiry was `09 04 3C` | It now matches the focus-zone register at `09 04 AA`. |
+| Picture-effect inquiry was `09 04 32` | It is `09 04 63`. |
+| USB-audio inquiry was `09 04 7A`, and on was decoded as `03` | It is the vendor frame `2A 02 A0 04`; `02` means on and `03` means off. |
+| A final data byte of `FF` doubled as the terminator | Preset 255 and Direct Menu values ending in `FF` now contain both the data byte and a separate terminating `FF`. Direct Menu rejects `FF` followed by an address byte because that sequence would begin a second frame. |
+| `TiltSpeed` stopped at `0x14` for every camera | The value type admits through `0x18`; the selected profile still rejects values above its own limit. PTZOptics remains capped at `0x14`, while BRC-300 position framing allows one `VV` through `0x18`. |
+| 2D/3D noise-reduction level zero was invalid | Zero is the sourced off value. The admitted domains are `0..=5` for 2D and `0..=8` for 3D, subject to profile support. |
+| Sony device-setting/control payload types were `01 02`, `01 20`, `01 21` | The R7 header types are `01 20`, `02 00`, `02 01`. This affects custom-envelope code that inspected raw Sony headers. |
+
+If an application persisted `AutoFocusSensitivity as u8`, migrate stored
+values before constructing the 2.0 enum:
+
+| Stored 1.x integer | Semantic setting | 2.0 wire value |
+| ---: | --- | ---: |
+| `0` | Low | `3` |
+| `1` | Normal | `2` |
+| `2` | High | `1` |
+
+Serde's named `low` / `normal` / `high` forms do not need translation. Do not
+feed an old integer directly to the 2.0 wire decoder: old `1` meant Normal but
+now decodes as High, and old `2` meant High but now decodes as Normal.
+
+The BRC-300 profile keeps its R12-specific position grammar:
+`8x 01 06 02/03 VV 00 0Y 0Y 0Y 0Y 0Y 0Z 0Z 0Z 0Z FF`. It is not the common
+two-speed `VV WW` layout. Since the public request still accepts separate pan
+and tilt speed wrappers, pass equal values for BRC-300 absolute/relative
+positions; unequal values are rejected rather than silently discarding one.
+
+The source audit also removed public names whose registers or meanings were
+not established:
+
+| Removed 1.x API | 2.0 migration |
+| --- | --- |
+| `ResolutionInquiry`, `ResolutionMode`, `image().resolution()` | No typed replacement. The claimed `09 04 63` register is the sourced Picture Effect inquiry. Use a model-specific `raw::Inquiry` only when that camera's documentation establishes a resolution query. |
+| `BlackWhiteInquiry`, `BlackWhiteModeInquiry`, `BlackWhiteMode`, `image().black_white*` | Use `image().picture_effect()` when BlackAndWhite/Off is what the profile documents. Otherwise use a model-specific raw inquiry with evidence. |
+| `NrLevelInquiry`, `NrModeInquiry`, `NrSpeedInquiry`, `NoiseReductionLevel`, `NoiseReductionMode`, `NoiseReductionSpeed` and aggregate NR accessors | Use the dimension-specific 2D-mode, 2D-level, and 3D-level API described below. |
+| `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}` | Built-ins expose only sourced `Off` and `BlackAndWhite` names. Use `PictureEffectMode::Unknown(raw)` only when the selected model's documentation establishes that raw value. |
+
+These are breaking source and wire corrections, not aliases: code that names a
+removed item must choose the model-specific behavior it intended.
+
 ### Noise-reduction controls and independent gates
 
 The surviving typed NR surface is split by direction and dimension. The
