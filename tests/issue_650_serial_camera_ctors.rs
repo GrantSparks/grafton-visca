@@ -1,11 +1,9 @@
-//! Serial gets the same single-camera constructors as TCP and UDP (#650).
+//! Serial retains the multi-target session construction path (#650, #729).
 //!
-//! `Connect::open_tcp_camera` / `open_udp_camera` and
-//! `CameraConfig::open_camera` / `open_camera_async` bind the profile once and
-//! hand back a `CameraSession<P>`. Serial had only the owner-backed
-//! `open_serial`, so a single-camera serial program had to name its profile a
-//! second time through `session.camera::<P>()`. These suites pin the serial
-//! convenience: the same preflight, the same bind, the same feature gates.
+//! TCP and UDP represent one target and return a profile-bound
+//! `CameraSession<P>`. Serial can address multiple cameras, so its one-line and
+//! configured constructors return `Session`; callers select a target with
+//! `camera_for`. These suites pin the serial preflight and feature gates.
 //!
 //! The compile-level half of the contract (the constructors exist with the
 //! right bounds under the right features) lives in the `tests/api_contract`
@@ -27,7 +25,7 @@ mod blocking_serial_single_camera {
     #[test]
     fn a_non_serial_configuration_is_rejected_before_any_port_is_opened() {
         let error = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-            .open_serial_camera()
+            .open_serial()
             .expect_err("a TCP configuration is not a serial one");
 
         assert!(
@@ -37,9 +35,9 @@ mod blocking_serial_single_camera {
     }
 
     #[test]
-    fn the_one_liner_reports_the_port_failure_instead_of_handing_back_a_camera() {
-        let error = Connect::open_serial_camera::<PtzOpticsG2>(super::ABSENT_PORT, 9600)
-            .expect_err("an absent serial port cannot produce a camera session");
+    fn the_one_liner_reports_the_port_failure_instead_of_handing_back_a_session() {
+        let error = Connect::open_serial::<PtzOpticsG2>(super::ABSENT_PORT, 9600)
+            .expect_err("an absent serial port cannot produce a session");
 
         assert!(
             !matches!(&error, Error::InvalidState(_)),
@@ -61,7 +59,7 @@ mod tokio_serial_single_camera {
     async fn a_non_serial_configuration_is_rejected_before_any_port_is_opened() {
         let runtime = TokioRuntime::from_current().expect("Tokio runtime");
         let error = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-            .open_serial_camera_async(runtime)
+            .open_serial_async(runtime)
             .await
             .expect_err("a TCP configuration is not a serial one");
 
@@ -72,12 +70,11 @@ mod tokio_serial_single_camera {
     }
 
     #[tokio::test]
-    async fn the_one_liner_reports_the_port_failure_instead_of_handing_back_a_camera() {
+    async fn the_one_liner_reports_the_port_failure_instead_of_handing_back_a_session() {
         let runtime = TokioRuntime::from_current().expect("Tokio runtime");
-        let error =
-            Connect::open_serial_camera::<PtzOpticsG2, _>(super::ABSENT_PORT, 9600, runtime)
-                .await
-                .expect_err("an absent serial port cannot produce a camera session");
+        let error = Connect::open_serial::<PtzOpticsG2, _>(super::ABSENT_PORT, 9600, runtime)
+            .await
+            .expect_err("an absent serial port cannot produce a session");
 
         assert!(
             !matches!(&error, Error::InvalidState(_)),

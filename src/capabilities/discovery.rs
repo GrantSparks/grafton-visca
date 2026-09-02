@@ -30,10 +30,8 @@ pub struct RuntimeShutterSpeed {
 ///
 /// # Example
 /// ```ignore
-/// let camera = Connect::builder()
-///     .tcp("192.168.0.10")
-///     .with_default_port()
-///     .open::<PtzOpticsG2>()?;
+/// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+/// let camera = session.camera();
 ///
 /// let caps = camera.capabilities();
 ///

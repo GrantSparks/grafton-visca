@@ -18,7 +18,7 @@ use std::env;
 use grafton_visca::{
     camera::{profiles::GenericVisca, CameraConfig},
     runtime::TokioRuntime,
-    Error,
+    CameraId, Error,
 };
 
 #[derive(Debug)]
@@ -75,19 +75,16 @@ async fn main() -> Result<(), Error> {
     let config = CameraConfig::<GenericVisca>::serial(args.port.clone(), 9600)
         .try_camera_id(args.camera_id)?;
     let runtime = TokioRuntime::from_current()?;
-    // The single-camera serial constructor names `GenericVisca` once, on the
-    // configuration: the camera view below is bound to it by construction.
-    let session = config
-        .open_serial_camera_async(runtime)
-        .await
-        .map_err(|error| {
-            error.context(format!(
-                "failed to open VISCA camera {} on serial port {}",
-                args.camera_id, args.port
-            ))
-        })?;
+    // Serial retains the multi-target session path; select the configured
+    // VISCA address explicitly after opening the shared bus.
+    let session = config.open_serial_async(runtime).await.map_err(|error| {
+        error.context(format!(
+            "failed to open VISCA camera {} on serial port {}",
+            args.camera_id, args.port
+        ))
+    })?;
 
-    let camera = session.camera();
+    let camera = session.camera_for::<GenericVisca>(CameraId::new(args.camera_id)?)?;
     println!("Serial camera session established; running read-only inquiries.");
     let inquiry_result = async {
         let version = camera

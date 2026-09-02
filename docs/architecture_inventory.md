@@ -93,9 +93,11 @@ the erased and static command/inquiry gate sets equal so the two cannot drift.
 The supported paths are:
 
 - `Connect` convenience construction for blocking TCP/UDP/serial and async
-  TCP/UDP/Tokio-serial, including its typed connection builders.
-- `CameraConfig` construction for the same supported profile/transport pairs,
-  with runtime-selected Tokio or smol async execution.
+  TCP/UDP/Tokio-serial. TCP/UDP return `CameraSession<P>`; serial returns the
+  multi-target `Session`. `Connect::open(TransportOptions)` is the
+  runtime-selected network form.
+- `CameraConfig` as the sole configurable standard-transport form, with
+  runtime-selected Tokio or smol async execution.
 - `blocking::Session::open` or async `Session::open` construction from a
   caller-owned transport and shared `SessionConfig`.
 - `Session` camera views and the explicit `raw` request escape hatches.

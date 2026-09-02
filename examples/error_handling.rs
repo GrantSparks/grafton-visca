@@ -110,7 +110,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
     let inquiry_result = camera.power().state().await;
     match &inquiry_result {
         Ok(is_on) => println!(

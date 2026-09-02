@@ -403,7 +403,7 @@ mapped-v2-test-row counts in its job summary.
 /// ```no_run
 /// # use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
 /// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-/// let camera = session.camera::<PtzOpticsG2>()?;
+/// let camera = session.camera();
 /// camera.pan_tilt().home()?.settled()?;
 /// session.close()?;
 /// # Ok::<(), grafton_visca::Error>(())

@@ -9,7 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let preset = PresetNumber::new(number)?;
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let result = {
-        let camera = session.camera::<PtzOpticsG2>()?;
+        let camera = session.camera();
         match action.as_str() {
             "set" => camera.presets().set(preset),
             "clear" | "reset" => camera.presets().reset(preset),

@@ -172,7 +172,7 @@ use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
 let blocking_session = grafton_visca::blocking::Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-let blocking_camera = blocking_session.camera::<PtzOpticsG2>()?;
+let blocking_camera = blocking_session.camera();
 let is_on = blocking_camera.power().state()?;
 blocking_session.close()?;
 
@@ -184,7 +184,7 @@ let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     })
     .open_async(runtime)
     .await?;
-let async_camera = async_session.camera::<PtzOpticsG2>()?;
+let async_camera = async_session.camera();
 let is_on = async_camera.power().state().await?;
 async_session.close().await?;
 ```

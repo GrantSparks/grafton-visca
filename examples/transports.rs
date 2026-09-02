@@ -60,7 +60,7 @@ fn parse_args() -> Result<(String, Selection), Box<dyn std::error::Error>> {
 
 fn check_tcp(address: &str) -> Result<(), Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>(address)?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
     let state = camera.power().state()?;
     session.close()?;
     println!("  connected; power {}", if state { "on" } else { "off" });
@@ -69,7 +69,7 @@ fn check_tcp(address: &str) -> Result<(), Error> {
 
 fn check_udp(address: &str) -> Result<(), Error> {
     let session = Connect::open_udp::<PtzOpticsG2>(address)?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
     let state = camera.power().state()?;
     session.close()?;
     println!("  connected; power {}", if state { "on" } else { "off" });

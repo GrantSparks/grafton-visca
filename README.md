@@ -219,13 +219,11 @@ The quickstart snippets are read-only. They connect to a camera, query state,
 and close the session. Movement and configuration changes are shown in focused
 examples that opt in to hardware changes explicitly.
 
-Standard TCP and UDP sessions support one camera. `Connect::open_tcp_camera::<P>`
-/ `open_udp_camera::<P>` return an owner-backed `CameraSession<P>`: the profile
-is named once and bound at compile time, and `session.camera()` hands out the
-typed `Camera` view that carries the noun accessors. `Connect::open_tcp` /
-`open_udp` also open one camera, returning a `Session` whose view is selected
-with `session.camera::<P>()`. Multi-target sessions require a raw-VISCA
-serial-addressed or compatible custom transport, and select each view with
+Standard TCP and UDP sessions support one camera. `Connect::open_tcp::<P>` and
+`open_udp::<P>` return an owner-backed `CameraSession<P>`: the profile is named
+once and bound at compile time, and `session.camera()` hands out the typed
+`Camera` view that carries the noun accessors. Multi-target sessions use the
+serial or caller-owned transport paths and select each view with
 `session.camera_for::<P>(target)`.
 
 Every Rust snippet in this README is compiled by the crate's own test suite, so
@@ -239,7 +237,7 @@ use grafton_visca::blocking::Connect;
 use grafton_visca::camera::profiles::PtzOpticsG2;
 
 fn quick_start() -> Result<(), grafton_visca::Error> {
-    let session = Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
     let power_is_on = camera.power().state()?;
@@ -263,7 +261,7 @@ async fn quick_start() -> Result<(), grafton_visca::Error> {
     use grafton_visca::Connect;
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
     let power_is_on = camera.power().state().await?;
@@ -298,7 +296,7 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
 
 fn move_home() -> Result<(), grafton_visca::Error> {
-    let session = Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
     // Blocking submit performs initial synchronous dispatch before returning.
@@ -327,7 +325,7 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
     use grafton_visca::Connect;
 
     let runtime = TokioRuntime::from_current()?;
-    let session = Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
     let handle = camera.submit(&PanTiltHome).await?;
@@ -380,7 +378,7 @@ use grafton_visca::ZoomDomain;
 
 fn half_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
 
     camera
         .zoom()
@@ -394,7 +392,7 @@ fn half_zoom() -> Result<(), grafton_visca::Error> {
 // `OpticalPlusDigital` additionally requires `HasDigitalZoomRange` at runtime.
 fn full_range_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
-    let camera = session.camera::<SonyFR7>()?;
+    let camera = session.camera();
 
     camera
         .zoom()
@@ -410,13 +408,12 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 ## Public API Boundaries
 
 - Use `Connect`, `CameraConfig`, and `SessionConfig` for construction. Standard
-  TCP and UDP sessions have one target: `Connect::open_tcp_camera::<P>` /
-  `open_udp_camera::<P>` (or `CameraConfig::<P>::open_camera` /
-  `open_camera_async`) return a `CameraSession<P>` whose `camera()` view is
-  bound to `P` at compile time, while `Connect::open_tcp` / `open_udp` return a
-  one-target `Session` accessed with `Session::camera::<P>()`. Multi-target
-  `Session::camera_for::<P>(target)` is for raw-VISCA serial-addressed or
-  compatible custom transports.
+  TCP and UDP sessions have one target: `Connect::open_tcp::<P>` /
+  `open_udp::<P>` (or `CameraConfig::<P>::open` / `open_async`) return a
+  `CameraSession<P>` whose `camera()` view is bound to `P` at compile time.
+  `Connect::open::<P>(TransportOptions)` provides the runtime-selected network
+  form. Multi-target `Session::camera_for::<P>(target)` is for raw-VISCA
+  serial-addressed or compatible custom transports.
 - Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
   checked by `Has*` marker bounds, the compile-time profile-permission surface,
   and runtime `ProfileSpec` validation. Direct generic `execute`/`inquire`

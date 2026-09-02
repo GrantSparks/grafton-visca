@@ -1,10 +1,9 @@
 //! Single-camera constructors keep the compile-time profile bind (#568).
 //!
-//! Every other entry point returns a `Session`, so a single-camera program has
-//! to name its profile a second time through `session.camera::<P>()?` — and
-//! that second naming is a runtime check. These suites pin the replacement:
-//! the profile is named once, the camera view is handed out without a fallible
-//! projection, and the returned value owns its session.
+//! Standard TCP/UDP entry points return a `CameraSession<P>`: the profile is
+//! named once, the camera view is handed out without a fallible projection,
+//! and the returned value owns its session. Explicit Session construction
+//! remains available for multi-target serial and caller-owned transports.
 //!
 //! The compile-time half of the contract (a mismatch is not expressible) lives
 //! in the `tests/api_contract` fixtures driven by `api_stability_test.rs`.
@@ -219,7 +218,7 @@ mod blocking_single_camera {
 
     #[test]
     fn standard_construction_preflight_runs_before_any_socket() {
-        let error = Connect::open_tcp_camera::<PtzOpticsG2>("invalid:address:format")
+        let error = Connect::open_tcp::<PtzOpticsG2>("invalid:address:format")
             .expect_err("a malformed endpoint must be rejected");
         assert!(
             matches!(error, Error::InvalidAddress { .. }),
@@ -357,7 +356,7 @@ mod async_single_camera {
     }
 
     /// A runtime whose connector hands out the echo transport, so the standard
-    /// `Connect::open_tcp_camera` path can be driven without a socket.
+    /// `Connect::open_tcp` path can be driven without a socket.
     #[derive(Clone, Debug)]
     struct EchoRuntime<E> {
         inner: E,
@@ -461,7 +460,7 @@ mod async_single_camera {
         let (transport, probe) = EchoTransport::new();
         let runtime = EchoRuntime::new(inner, transport);
 
-        let camera = Connect::open_tcp_camera::<PtzOpticsG2, _>("camera.local", runtime.clone())
+        let camera = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
             .await
             .expect("single-camera owner session");
 

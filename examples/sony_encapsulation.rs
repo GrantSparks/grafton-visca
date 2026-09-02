@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_udp::<SonyFR7, _>(&address, runtime).await?;
-    let camera = session.camera::<SonyFR7>()?;
+    let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
         let is_on = camera.power().state().await?;

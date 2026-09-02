@@ -85,9 +85,9 @@ pub enum TransportOptions {
 
 /// How a standard network constructor obtains a port for a host-only address.
 ///
-/// An `Option<u16>` cannot distinguish the typed builders' explicit
-/// no-default-port request from the normal profile-default behavior, so keep
-/// those policies separate until endpoint canonicalization.
+/// An `Option<u16>` cannot distinguish an explicitly selected default from
+/// the normal profile-default behavior, so keep those policies separate until
+/// endpoint canonicalization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NetworkDefaultPort {
     /// Use the selected profile's TCP or UDP default port.
@@ -153,7 +153,7 @@ impl TransportOptions {
 /// # Examples
 ///
 /// A configuration is pure data and can be reused for either owner-backed
-/// facade. The single-camera constructors return a `CameraSession<P>`; obtain
+/// facade. The standard network constructors return a `CameraSession<P>`; obtain
 /// its profile-bound `Camera` with `CameraSession<P>::camera()` before using
 /// noun accessors.
 ///
@@ -165,7 +165,7 @@ impl TransportOptions {
 ///
 /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 ///     .with_tuning(OperationalTuning::new());
-/// let session = config.open_camera()?;
+/// let session = config.open()?;
 /// session.camera().power().on()?;
 /// session.close()?;
 /// # Ok(())
@@ -180,7 +180,7 @@ impl TransportOptions {
 ///
 /// let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110");
 /// let runtime = TokioRuntime::from_current()?;
-/// let session = config.open_camera_async(runtime).await?;
+/// let session = config.open_async(runtime).await?;
 /// session.camera().power().on().await?;
 /// session.close().await?;
 /// # Ok(())
@@ -319,17 +319,6 @@ where
             TransportKind::Serial | TransportKind::Custom => NetworkDefaultPort::Disabled,
         };
         self.transport = transport;
-        self
-    }
-
-    /// Require an explicit TCP or UDP port for this configuration.
-    ///
-    /// This is crate-private because only the typed connection builders need
-    /// no-default-port behavior; [`Self::tcp`] and [`Self::udp`] retain their
-    /// documented profile defaults.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn without_network_default_port(mut self) -> Self {
-        self.network_default_port = NetworkDefaultPort::Disabled;
         self
     }
 
@@ -613,8 +602,9 @@ impl<P> CameraConfig<P>
 where
     P: crate::profile::CompileTimeProfile,
 {
-    /// Opens a standard TCP or UDP connection and starts one owner session.
-    pub async fn open_async<R>(&self, runtime: R) -> crate::Result<crate::Session>
+    /// Opens a standard TCP or UDP connection and starts one single-camera
+    /// owner session.
+    pub async fn open_async<R>(&self, runtime: R) -> crate::Result<crate::CameraSession<P>>
     where
         R: crate::runtime::Runtime,
     {
@@ -637,21 +627,7 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        crate::Session::open::<R, _>(transport, plan.session_config, runtime).await
-    }
-
-    /// Opens a standard TCP or UDP connection and starts one single-camera
-    /// owner session.
-    ///
-    /// This is the configured counterpart of
-    /// [`Connect::open_tcp_camera`](crate::camera::Connect::open_tcp_camera):
-    /// the profile is named once, by this configuration, and the returned
-    /// [`crate::CameraSession`] owns the camera bound to that same `P`.
-    pub async fn open_camera_async<R>(&self, runtime: R) -> crate::Result<crate::CameraSession<P>>
-    where
-        R: crate::runtime::Runtime,
-    {
-        let session = self.open_async(runtime).await?;
+        let session = crate::Session::open::<R, _>(transport, plan.session_config, runtime).await?;
         crate::CameraSession::from_session(session, self.camera_id)
     }
 
@@ -685,31 +661,6 @@ where
         )
         .await
     }
-
-    /// Opens the configured Tokio serial transport and starts one single-camera
-    /// owner session.
-    ///
-    /// This is the serial counterpart of [`Self::open_camera_async`] and the
-    /// configured counterpart of
-    /// [`Connect::open_serial_camera`](crate::camera::Connect::open_serial_camera):
-    /// the profile is named once, by this configuration, and the returned
-    /// [`crate::CameraSession`] owns the camera bound to that same `P`.
-    ///
-    /// Async serial is Tokio-only, so this method carries the same
-    /// [`RuntimeSerial`](crate::runtime::RuntimeSerial) bound as
-    /// [`Self::open_serial_async`].
-    #[cfg(feature = "transport-serial-tokio")]
-    pub async fn open_serial_camera_async<R>(
-        &self,
-        runtime: R,
-    ) -> crate::Result<crate::CameraSession<P>>
-    where
-        R: crate::runtime::Runtime
-            + crate::runtime::RuntimeSerial<SerialTransport = crate::transport::tokio::serial::Serial>,
-    {
-        let session = self.open_serial_async(runtime).await?;
-        crate::CameraSession::from_session(session, self.camera_id)
-    }
 }
 
 /// Canonical owner-backed blocking construction.
@@ -718,8 +669,9 @@ impl<P> CameraConfig<P>
 where
     P: crate::profile::CompileTimeProfile,
 {
-    /// Opens a configured standard blocking TCP or UDP owner session.
-    pub fn open(&self) -> crate::Result<crate::blocking::Session> {
+    /// Opens a configured standard blocking TCP or UDP single-camera owner
+    /// session.
+    pub fn open(&self) -> crate::Result<crate::blocking::CameraSession<P>> {
         use crate::transport::blocking::{Tcp, Udp};
 
         let plan = self.standard_connection_plan()?;
@@ -733,18 +685,7 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        crate::blocking::Session::open(transport, plan.session_config)
-    }
-
-    /// Opens a configured standard blocking TCP or UDP single-camera session.
-    ///
-    /// This is the configured counterpart of
-    /// [`blocking::Connect::open_tcp_camera`](crate::blocking::Connect::open_tcp_camera):
-    /// the profile is named once, by this configuration, and the returned
-    /// [`crate::blocking::CameraSession`] hands out the camera bound to that
-    /// same `P`.
-    pub fn open_camera(&self) -> crate::Result<crate::blocking::CameraSession<P>> {
-        let session = self.open()?;
+        let session = crate::blocking::Session::open(transport, plan.session_config)?;
         crate::blocking::CameraSession::from_session(session, self.camera_id)
     }
 
@@ -766,20 +707,6 @@ where
         )?;
         let transport = crate::transport::BlockingTransportHandle::Serial(serial);
         crate::blocking::Session::open(transport, session_config)
-    }
-
-    /// Opens a configured blocking serial single-camera session.
-    ///
-    /// This is the serial counterpart of [`Self::open_camera`] and the
-    /// configured counterpart of
-    /// [`blocking::Connect::open_serial_camera`](crate::blocking::Connect::open_serial_camera):
-    /// the profile is named once, by this configuration, and the returned
-    /// [`crate::blocking::CameraSession`] hands out the camera bound to that
-    /// same `P`.
-    #[cfg(feature = "transport-serial")]
-    pub fn open_serial_camera(&self) -> crate::Result<crate::blocking::CameraSession<P>> {
-        let session = self.open_serial()?;
-        crate::blocking::CameraSession::from_session(session, self.camera_id)
     }
 }
 

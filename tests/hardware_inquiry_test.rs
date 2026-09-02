@@ -15,10 +15,10 @@
 //! VISCA_CAMERA_IP=192.168.0.110 cargo test --test hardware_inquiry_test -- --ignored --nocapture --test-threads=1
 //! ```
 
-use grafton_visca::blocking::{Connect, Session};
+use grafton_visca::blocking::{CameraSession, Connect};
 use grafton_visca::profiles::PtzOpticsG2;
 
-fn connect() -> Option<Session> {
+fn connect() -> Option<CameraSession<PtzOpticsG2>> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
     let addr = format!("{ip}:5678");
     eprintln!("Connecting to camera at {addr}...");
@@ -34,7 +34,7 @@ macro_rules! inquiry_test {
                 eprintln!("Skipped: VISCA_CAMERA_IP not set");
                 return;
             };
-            let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+            let camera = session.camera();
             let result = camera.$noun().$method();
             assert!(
                 result.is_ok(),
@@ -106,7 +106,7 @@ fn test_all_inquiries_succeed() {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session.camera();
 
     let mut passed = 0u32;
     let mut known_mismatches = 0u32;

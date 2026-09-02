@@ -49,7 +49,7 @@ use grafton_visca::camera::profiles::PtzOpticsG2;
 
 fn standard_connection() -> Result<(), grafton_visca::Error> {
     let session: CameraSession<PtzOpticsG2> =
-        Connect::open_tcp_camera::<PtzOpticsG2>("192.168.0.110")?;
+        Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
     camera.power().on()?;
     camera.zoom().stop()?.applied()?;
@@ -57,11 +57,15 @@ fn standard_connection() -> Result<(), grafton_visca::Error> {
 }
 ```
 
-Use `Connect::open_udp_camera` for UDP. With `transport-serial`,
-`Connect::open_serial_camera::<P>(port, baud_rate)` opens the serial path with
-the same single naming of the profile, and `Connect::open_serial::<P>(port,
-baud_rate)` returns the multi-target `Session` instead; select its view with
-`session.camera::<P>()`.
+Use `Connect::open_udp` for UDP. With `transport-serial`,
+`Connect::open_serial::<P>(port, baud_rate)` returns the multi-target `Session`;
+select a registered address with `session.camera_for::<P>(target)`.
+
+Code generic over the network kind can pass `TransportOptions::tcp(...)` or
+`TransportOptions::udp(...)` to `Connect::open::<P>`. That form requires only
+`CompileTimeProfile`; it checks transport compatibility at runtime and returns
+the same `CameraSession<P>`. Serial and custom options are deliberately
+rejected there because they use the multi-target `Session` construction path.
 
 ### Async
 
@@ -74,7 +78,7 @@ async fn standard_connection() -> Result<(), grafton_visca::Error> {
 
     let runtime = TokioRuntime::from_current()?;
     let session: CameraSession<PtzOpticsG2> =
-        Connect::open_tcp_camera::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+        Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
     camera.power().on().await?;
     camera.zoom().stop().await?.applied().await?;
@@ -82,24 +86,22 @@ async fn standard_connection() -> Result<(), grafton_visca::Error> {
 }
 ```
 
-Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp_camera` for
-UDP. `Connect` and `CameraConfig` perform the same preflight; the `_camera`
-constructors return the single-camera `CameraSession<P>`, and `open_tcp` /
-`open_udp` return the multi-target owner-backed `Session`. Async serial is
-Tokio-only: with `transport-serial-tokio`, `Connect::open_serial_camera::<P,
-_>(port, baud_rate, runtime)` is the single-camera form of
-`Connect::open_serial`.
+Use `runtime-smol` with `SmolRuntime`, or use `Connect::open_udp` for UDP.
+`Connect` and `CameraConfig` perform the same preflight and return the
+single-camera `CameraSession<P>` for TCP/UDP. Async serial is Tokio-only: with
+`transport-serial-tokio`, `Connect::open_serial::<P, _>(port, baud_rate,
+runtime)` returns the multi-target owner-backed `Session`.
 
 ## Reusable configuration and target selection
 
 `CameraConfig<P>` is convenient profile-typed standard-transport data. It can
 set an address, `CameraId`, timeout policy, retry policy, transport options,
 and buffer/keepalive settings before calling `open`, `open_async`, or the
-serial-specific open methods. `open_camera` and `open_camera_async` are the
-single-camera forms of `open` and `open_async`, `open_serial_camera` and
-`open_serial_camera_async` are the single-camera forms of `open_serial` and
-`open_serial_async`, and `CameraSession::open` takes a caller-owned transport
-with the same bind. `session_config()` lowers that pure
+serial-specific open methods. `open` and `open_async` return a
+`CameraSession<P>` for standard network transports; `open_serial` and
+`open_serial_async` return a multi-target `Session`. `CameraSession::open`
+takes a caller-owned transport with the same single-camera bind.
+`session_config()` lowers that pure
 configuration into the shared mode-independent `SessionConfig` without DNS,
 socket, serial, executor, or protocol work.
 

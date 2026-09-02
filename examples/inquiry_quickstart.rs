@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address = address()?;
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let result = {
-        let camera = session.camera::<PtzOpticsG2>()?;
+        let camera = session.camera();
         let power = camera.power().state()?;
         let pan_tilt = camera.pan_tilt().position()?;
         let zoom = camera.zoom().position()?;

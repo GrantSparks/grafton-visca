@@ -36,7 +36,7 @@ the required position inquiry and that distinction matters.
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
 | Root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. (`CameraVariant` had already been removed before the 1.x oracle used for this guide.) |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
-| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
+| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
 | `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). |
 
@@ -91,16 +91,16 @@ Nothing about the deprecation is salvageable as a mechanical rename — the
 constructors, the ownership model, and the noun surface all changed — so
 migrate from wherever you are now:
 
-* `BlockingClient` for one camera → `blocking::Connect::open_tcp_camera::<P>`
-  or `open_udp_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_camera`), and, under `transport-serial`,
-  `blocking::Connect::open_serial_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_serial_camera`). All return
+* `BlockingClient` for one network camera →
+  `blocking::Connect::open_tcp::<P>` or `open_udp::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open`). These return
   `blocking::CameraSession<P>`; `session.camera()` is the noun view and takes
   no turbofish.
-* `BlockingClient` for several cameras → `blocking::Connect::open_tcp` /
-  `open_udp`, which return `blocking::Session`, then
-  `session.camera_for::<P>(target)` per target.
+* `BlockingClient` for cameras on a serial bus → under `transport-serial`,
+  `blocking::Connect::open_serial::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open_serial`). These return
+  `blocking::Session`; select each registered address with
+  `session.camera_for::<P>(target)`.
 * A caller-owned transport → `blocking::Session::open(transport, config)`, or
   `blocking::CameraSession::open(transport, &CameraConfig::<P>::new())` for the
   single-camera bind.

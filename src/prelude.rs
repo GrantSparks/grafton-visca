@@ -24,7 +24,7 @@
 //!     "192.168.0.110",
 //!     runtime,
 //! ).await?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//! let camera = session.camera();
 //!
 //! camera.power().on().await?;
 //! camera.zoom().stop().await?.applied().await?;
@@ -42,7 +42,7 @@
 //! use grafton_visca::prelude::blocking::*;
 //!
 //! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//! let camera = session.camera();
 //!
 //! camera.power().on()?;
 //! camera.zoom().stop()?.applied()?;
@@ -158,12 +158,8 @@ pub mod blocking {
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::BlockingDynSessionCamera;
     // Final owner-backed construction in the blocking-only feature build.
-    #[cfg(feature = "transport-serial")]
-    pub use crate::blocking::SerialConnectBuilder;
     #[cfg(feature = "blocking")]
-    pub use crate::blocking::{
-        CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
-    };
+    pub use crate::blocking::{CameraConfig, Connect};
     pub use crate::camera::{IdleWait, MotionQuery};
     // Camera profiles - these are the primary way to configure camera behavior
     pub use crate::camera::profiles::{

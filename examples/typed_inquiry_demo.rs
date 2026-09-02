@@ -11,7 +11,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "192.168.0.110".to_string());
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let result = {
-        let camera = session.camera::<PtzOpticsG2>()?;
+        let camera = session.camera();
         let power = camera.power().state()?;
         let zoom = camera.zoom().position()?;
         let mode = camera.exposure().mode()?;

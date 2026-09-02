@@ -23,7 +23,7 @@ use grafton_visca::{
     command::PanTiltDirection,
     runtime::TokioRuntime,
     types::{PanSpeed, TiltSpeed},
-    AffectedAxes, Camera, Connect, Error, Session,
+    AffectedAxes, Camera, Connect, Error,
 };
 
 use support::finish_session;
@@ -37,14 +37,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-    let result = movement(&session).await;
+    let result = movement(session.camera()).await;
     finish_session(result, session.close().await)?;
     Ok(())
 }
 
-async fn movement(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG2>()?;
-
+async fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     // Targeted movement exposes profile-selected protocol settlement;
     // applied-only movement has no settled state and is observed only at protocol application. Both
     // waits consume the handle, so neither adds a stop of its own.
@@ -55,7 +53,7 @@ async fn movement(session: &Session) -> Result<(), Error> {
     // A handle held across fallible work is not a safety net: if `applied`
     // inside `drive_up` returned an error, its handle would simply be dropped
     // and pan/tilt would keep moving. `bounded_drive` is what stops it.
-    bounded_drive(&camera).await?;
+    bounded_drive(camera).await?;
 
     // `detach` is the explicit spelling of what drop already does. The zoom
     // keeps driving after this line, so it must be paired with an explicit

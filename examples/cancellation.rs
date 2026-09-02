@@ -20,7 +20,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     camera::profiles::{PtzOpticsG2, PtzOpticsG3},
     runtime::TokioRuntime,
-    CancellationOutcome, Connect, Error, Session,
+    Camera, CancellationOutcome, Connect, Error,
 };
 
 use support::finish_session;
@@ -46,19 +46,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = TokioRuntime::from_current()?;
     if g2_unsupported {
         let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-        let result = cancel_g2_drive(&session).await;
+        let result = cancel_g2_drive(session.camera()).await;
         finish_session(result, session.close().await)?;
     } else {
         let session = Connect::open_tcp::<PtzOpticsG3, _>(&address, runtime).await?;
-        let result = cancel_g3_drive(&session).await;
+        let result = cancel_g3_drive(session.camera()).await;
         finish_session(result, session.close().await)?;
     }
     Ok(())
 }
 
-async fn cancel_g3_drive(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG3>()?;
-
+async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
     // Start a continuous zoom drive and let its first write reach the camera, so
     // the cancel below exercises the post-send path rather than a local queue
     // removal.
@@ -81,8 +79,7 @@ async fn cancel_g3_drive(session: &Session) -> Result<(), Error> {
     Ok(())
 }
 
-async fn cancel_g2_drive(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG2>()?;
+async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 

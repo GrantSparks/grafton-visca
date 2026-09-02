@@ -285,78 +285,44 @@ mod construction {
 
     /// Final owner-backed standard construction namespace.
     ///
-    /// Blocking construction is owner-backed and returns a [`Session`].
+    /// Standard network construction is owner-backed and returns a
+    /// [`CameraSession`]. Serial and custom transports retain the multi-target
+    /// [`Session`] path.
     pub use crate::camera::CameraConfig;
 
     /// One-line owner-backed blocking connection constructor.
     #[derive(Debug, Clone, Copy)]
     pub struct Connect;
 
-    /// Runtime-free typed blocking connection builder.
-    #[derive(Debug, Clone, Copy)]
-    pub struct ConnectBuilder;
-
-    /// TCP-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct TcpConnectBuilder {
-        address: String,
-        use_default_port: bool,
-    }
-
-    /// UDP-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct UdpConnectBuilder {
-        address: String,
-        use_default_port: bool,
-    }
-
-    #[cfg(feature = "transport-serial")]
-    /// Serial-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct SerialConnectBuilder {
-        port: String,
-        baud_rate: u32,
-    }
-
     impl Connect {
-        /// Opens one owner-backed blocking TCP session.
-        pub fn open_tcp<P>(address: impl Into<String>) -> Result<Session>
+        /// Opens a standard TCP or UDP transport selected at runtime.
+        ///
+        /// Unlike [`Self::open_tcp`] and [`Self::open_udp`], this entry point
+        /// only requires [`CompileTimeProfile`]. Transport compatibility and
+        /// the profile's default port are resolved before any socket I/O.
+        /// Serial transports use `Connect::open_serial`, and custom transports
+        /// use [`Session::open`].
+        pub fn open<P>(transport: crate::camera::TransportOptions) -> Result<CameraSession<P>>
+        where
+            P: CompileTimeProfile,
+        {
+            CameraConfig::<P>::new().transport(transport).open()
+        }
+
+        /// Opens one owner-backed blocking TCP camera session.
+        pub fn open_tcp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
         where
             P: CompileTimeProfile + crate::capabilities::SupportsTcp,
         {
             CameraConfig::<P>::tcp(address).open()
         }
 
-        /// Opens one owner-backed blocking UDP session.
-        pub fn open_udp<P>(address: impl Into<String>) -> Result<Session>
+        /// Opens one owner-backed blocking UDP camera session.
+        pub fn open_udp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
         where
             P: CompileTimeProfile + crate::capabilities::SupportsUdp,
         {
             CameraConfig::<P>::udp(address).open()
-        }
-
-        /// Opens one owner-backed blocking TCP session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        pub fn open_tcp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            CameraConfig::<P>::tcp(address).open_camera()
-        }
-
-        /// Opens one owner-backed blocking UDP session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        pub fn open_udp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            CameraConfig::<P>::udp(address).open_camera()
         }
 
         /// Opens one owner-backed blocking serial session.
@@ -367,174 +333,11 @@ mod construction {
         {
             CameraConfig::<P>::serial(port, baud_rate).open_serial()
         }
-
-        /// Opens one owner-backed blocking serial session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        #[cfg(feature = "transport-serial")]
-        pub fn open_serial_camera<P>(
-            port: impl Into<String>,
-            baud_rate: u32,
-        ) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
-        {
-            CameraConfig::<P>::serial(port, baud_rate).open_serial_camera()
-        }
-
-        /// Creates a typed blocking connection builder.
-        pub fn builder() -> ConnectBuilder {
-            ConnectBuilder
-        }
-    }
-
-    impl ConnectBuilder {
-        /// Select TCP.
-        pub fn tcp(self, address: impl Into<String>) -> TcpConnectBuilder {
-            TcpConnectBuilder {
-                address: address.into(),
-                use_default_port: false,
-            }
-        }
-
-        /// Select UDP.
-        pub fn udp(self, address: impl Into<String>) -> UdpConnectBuilder {
-            UdpConnectBuilder {
-                address: address.into(),
-                use_default_port: false,
-            }
-        }
-
-        /// Select blocking serial.
-        #[cfg(feature = "transport-serial")]
-        pub fn serial(self, port: impl Into<String>, baud_rate: u32) -> SerialConnectBuilder {
-            SerialConnectBuilder {
-                port: port.into(),
-                baud_rate,
-            }
-        }
-    }
-
-    impl TcpConnectBuilder {
-        fn into_config<P>(self) -> CameraConfig<P>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            if self.use_default_port {
-                CameraConfig::<P>::tcp(self.address)
-            } else {
-                CameraConfig::<P>::new()
-                    .transport(crate::camera::TransportOptions::tcp(self.address))
-                    .without_network_default_port()
-            }
-        }
-
-        /// Apply the selected profile's default TCP port.
-        pub fn with_default_port(mut self) -> Self {
-            self.use_default_port = true;
-            self
-        }
-
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            self.into_config::<P>().open()
-        }
-    }
-
-    impl UdpConnectBuilder {
-        fn into_config<P>(self) -> CameraConfig<P>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            if self.use_default_port {
-                CameraConfig::<P>::udp(self.address)
-            } else {
-                CameraConfig::<P>::new()
-                    .transport(crate::camera::TransportOptions::udp(self.address))
-                    .without_network_default_port()
-            }
-        }
-
-        /// Apply the selected profile's default UDP port.
-        pub fn with_default_port(mut self) -> Self {
-            self.use_default_port = true;
-            self
-        }
-
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            self.into_config::<P>().open()
-        }
-    }
-
-    #[cfg(feature = "transport-serial")]
-    impl SerialConnectBuilder {
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
-        {
-            CameraConfig::<P>::serial(self.port, self.baud_rate).open_serial()
-        }
-    }
-
-    #[cfg(test)]
-    #[allow(clippy::expect_used)]
-    mod tests {
-        use crate::{camera::profiles::PtzOpticsG2, Error};
-
-        use super::Connect;
-
-        #[test]
-        fn tcp_builder_requires_an_explicit_port_without_opt_in() {
-            let without_default = Connect::builder()
-                .tcp("camera.local")
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan();
-            assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
-
-            let with_default = Connect::builder()
-                .tcp("camera.local")
-                .with_default_port()
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan()
-                .expect("profile TCP default port");
-            assert_eq!(with_default.endpoint, "camera.local:5678");
-        }
-
-        #[test]
-        fn udp_builder_requires_an_explicit_port_without_opt_in() {
-            let without_default = Connect::builder()
-                .udp("camera.local")
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan();
-            assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
-
-            let with_default = Connect::builder()
-                .udp("camera.local")
-                .with_default_port()
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan()
-                .expect("profile UDP default port");
-            assert_eq!(with_default.endpoint, "camera.local:1259");
-        }
     }
 }
 
-#[cfg(all(feature = "blocking", feature = "transport-serial"))]
-pub use construction::SerialConnectBuilder;
 #[cfg(feature = "blocking")]
-pub use construction::{
-    CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
-};
+pub use construction::{CameraConfig, Connect};
 
 /// One caller-driven blocking owner session.
 ///

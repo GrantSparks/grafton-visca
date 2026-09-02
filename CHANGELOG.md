@@ -383,6 +383,12 @@ entries below retain their original wording.
   are now `Send + Sync`; their internal mutex preserves fail-fast
   `TransportBusy` turns, while the usage guide documents external
   `Mutex<Session>` serialization and the async noun-accessor binding idiom.
+  Standard `Connect::open_tcp` / `open_udp` and `CameraConfig::open` /
+  `open_async` now return the profile-bound `CameraSession<P>` directly.
+  `Connect::open::<P>(TransportOptions)` adds the runtime-selected TCP/UDP form
+  without leaking `SupportsTcp` / `SupportsUdp` into generic signatures.
+  Serial and caller-owned transports retain the multi-target `Session` plus
+  `camera_for` model.
 
 - **BREAKING** (#726), tracked in the pre-lock audit #729: Made the public failure model match the owner
   verdicts before the 2.0 API lock. `ErrorKind::Unconfirmed` now classifies both
@@ -1132,6 +1138,15 @@ entries below retain their original wording.
   "both semver surfaces" — a gate that no longer exists.
 
 ### Removed
+
+- **Removed the duplicate standard-connection builders and constructor
+  aliases** (#729). `ConnectBuilder`, `TcpConnectBuilder`,
+  `UdpConnectBuilder`, and `SerialConnectBuilder` duplicated the configurable
+  `CameraConfig<P>` surface. `open_tcp_camera`, `open_udp_camera`,
+  `open_camera`, and `open_camera_async` became redundant when their canonical
+  unsuffixed forms began returning `CameraSession<P>`. The serial `_camera`
+  aliases added during #650 are also removed: serial is the multi-target path,
+  so use `open_serial` / `open_serial_async` and `camera_for`.
 
 - **Removed unsourced or ambiguously decoded image inquiries and value
   vocabularies** (#715). `ResolutionInquiry`, `ResolutionMode`, and

@@ -117,8 +117,8 @@ corrections.
 Several capabilities then had to be restored after parity review, including
 direction helpers, normalized zoom and ND-filter conveniences, menu toggling,
 horizontal-flip disable, independently gated 2D/3D noise-reduction inquiries
-and controls, serial single-camera constructors, live tuning, and submission
-priority.
+and controls, serial construction parity (later consolidated onto the
+multi-target `Session` path by #729), live tuning, and submission priority.
 
 The high-quality boundary is:
 

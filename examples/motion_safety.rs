@@ -16,7 +16,7 @@ mod support;
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    blocking::{Connect, Session},
+    blocking::{Camera, Connect},
     camera::{profiles::PtzOpticsG2, IdleWait, MotionQuery},
     AffectedAxes, Error,
 };
@@ -30,14 +30,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
-    let result = observe_and_stop(&session);
+    let camera = session.camera();
+    let result = observe_and_stop(&camera);
     finish_session(result, session.close())?;
     Ok(())
 }
 
-fn observe_and_stop(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG2>()?;
-
+fn observe_and_stop(camera: &Camera<'_, PtzOpticsG2>) -> Result<(), Error> {
     // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`
     // (pan/tilt + zoom + focus).
     println!(

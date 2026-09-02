@@ -405,45 +405,38 @@ mod async_standard {
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn typed_builder_requires_a_port_unless_default_is_requested() {
+    async fn runtime_selected_network_transport_uses_profile_defaults() {
         let runtime = ProbeRuntime::new(
             grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
         );
         let calls = runtime.calls();
 
-        let error = Connect::builder()
-            .tcp("camera.local")
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect_err("bare TCP host without opt-in must be rejected");
-        assert!(matches!(error, Error::InvalidAddress { .. }));
-        assert!(calls.lock().expect("calls lock").is_empty());
-
-        let session = Connect::builder()
-            .tcp("camera.local")
-            .with_default_port()
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect("TCP default port opt-in");
+        let session = Connect::open::<PtzOpticsG2, _>(
+            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("runtime-selected TCP transport");
         assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
         session.shutdown().await.expect("shutdown");
 
-        let error = Connect::builder()
-            .udp("camera.local")
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect_err("bare UDP host without opt-in must be rejected");
-        assert!(matches!(error, Error::InvalidAddress { .. }));
-        assert!(calls.lock().expect("calls lock").is_empty());
-
-        let session = Connect::builder()
-            .udp("camera.local")
-            .with_default_port()
-            .open::<PtzOpticsG2, _>(runtime)
-            .await
-            .expect("UDP default port opt-in");
+        let session = Connect::open::<PtzOpticsG2, _>(
+            grafton_visca::camera::TransportOptions::udp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("runtime-selected UDP transport");
         assert_one_call(&calls, Kind::Udp, "camera.local:1259");
         session.shutdown().await.expect("shutdown");
+
+        let error = Connect::open::<SonyFR7, _>(
+            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+            runtime,
+        )
+        .await
+        .expect_err("runtime-selected transport still validates the profile");
+        assert!(matches!(error, Error::UnsupportedTransport { .. }));
+        assert!(calls.lock().expect("calls lock").is_empty());
     }
 
     #[cfg(feature = "transport-serial-tokio")]
@@ -600,7 +593,9 @@ mod blocking_standard {
 #[cfg(all(feature = "async", feature = "blocking", feature = "runtime-tokio"))]
 mod coexistence {
     #[allow(dead_code)]
-    async fn async_return_type() -> grafton_visca::Result<grafton_visca::Session> {
+    async fn async_return_type(
+    ) -> grafton_visca::Result<grafton_visca::CameraSession<grafton_visca::profiles::PtzOpticsG2>>
+    {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
         grafton_visca::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2, _>(
             "127.0.0.1:1259",
@@ -610,7 +605,9 @@ mod coexistence {
     }
 
     #[allow(dead_code)]
-    fn blocking_return_type() -> grafton_visca::Result<grafton_visca::blocking::Session> {
+    fn blocking_return_type() -> grafton_visca::Result<
+        grafton_visca::blocking::CameraSession<grafton_visca::profiles::PtzOpticsG2>,
+    > {
         grafton_visca::blocking::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2>(
             "127.0.0.1:1259",
         )

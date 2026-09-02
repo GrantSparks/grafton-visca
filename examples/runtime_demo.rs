@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
         let power = camera.power();

@@ -203,7 +203,7 @@
 //!
 //! // A session owns the transport; the camera is a view onto its one owner.
 //! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//! let camera = session.camera();
 //!
 //! // `home` is targeted: `settled` waits past applied for protocol settlement.
 //! camera.pan_tilt().home()?.settled()?;
@@ -381,7 +381,7 @@
 //!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?.settled()?;
 //!     session.close()
 //! }
@@ -396,7 +396,7 @@
 //!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, command::FocusLock};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.focus().set_lock(FocusLock::On)?;
 //!     camera.focus().set_lock(FocusLock::Off)?;
 //!     session.close()
@@ -418,7 +418,7 @@
 //!
 //!     // Create one owner-backed session using the convenience Connect helper
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!
 //!     // Quick starts are read-only by default.
 //!     let is_on = camera.power().state()?;
@@ -438,7 +438,7 @@
 //!     // Create one owner-backed session using Connect with a runtime
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!
 //!     let is_on = camera.power().state().await?;
 //!     let zoom = camera.zoom().position().await?;
@@ -466,7 +466,7 @@
 //!         let runtime = SmolRuntime::new();
 //!         let session =
 //!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!         let camera = session.camera::<PtzOpticsG2>()?;
+//!         let camera = session.camera();
 //!
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
@@ -495,7 +495,7 @@
 //!             });
 //!
 //!         let session = config.open_async(SmolRuntime::new()).await?;
-//!         let camera = session.camera::<PtzOpticsG2>()?;
+//!         let camera = session.camera();
 //!
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
@@ -518,7 +518,7 @@
 //!     use std::time::Duration;
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.pan_tilt().home()?.settled_with_timeout(Duration::from_secs(20))?;
 //!     camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
 //!     session.close()
@@ -546,12 +546,12 @@
 //!     use grafton_visca::prelude::blocking::*;
 //!
 //!     let sony = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
-//!     sony.camera::<SonyFR7>()?
+//!     sony.camera()
 //!         .nd_filter()
 //!         .set_mode(NdFilterMode::Preset)?;
 //!
 //!     let g2 = Connect::open_tcp::<PtzOpticsG2>("192.168.0.111")?;
-//!     let g2_camera = g2.camera::<PtzOpticsG2>()?;
+//!     let g2_camera = g2.camera();
 //!     // g2_camera.nd_filter().set_mode(NdFilterMode::Preset)?;
 //!     // ^ Compile error: G2 has no ND filter capability
 //!     let _ = g2_camera;
@@ -687,8 +687,8 @@
 //! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
-//! Pass the runtime explicitly through `Connect` or `CameraConfig`; both return
-//! the canonical owner-backed `Session`:
+//! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard
+//! network construction returns the canonical owner-backed `CameraSession<P>`:
 //!
 //! ```rust
 //! # #[cfg(feature = "runtime-tokio")]
@@ -700,7 +700,7 @@
 //!
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
 //! }
@@ -714,7 +714,7 @@
 //!
 //!     let runtime = SmolRuntime::new();
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
 //! }
@@ -1088,11 +1088,7 @@ pub use async_session::{Camera, CameraSession, Session};
 #[cfg(feature = "async")]
 pub mod session {
     //! Profile-generic async session facade.
-    #[cfg(feature = "transport-serial-tokio")]
-    pub use crate::camera::SerialConnectBuilder;
-    pub use crate::camera::{
-        CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
-    };
+    pub use crate::camera::{CameraConfig, Connect};
     pub use crate::{
         async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
     };
@@ -1105,12 +1101,8 @@ pub mod session {
 
 // Final construction names are available at the crate root in canonical
 // async builds.
-#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
-pub use crate::camera::SerialConnectBuilder;
 #[cfg(feature = "async")]
-pub use crate::camera::{CameraConfig, Connect, ConnectBuilder};
-#[cfg(feature = "async")]
-pub use crate::camera::{TcpConnectBuilder, UdpConnectBuilder};
+pub use crate::camera::{CameraConfig, Connect};
 
 #[cfg(feature = "blocking")]
 /// Synchronous lifecycle handles for blocking sessions.

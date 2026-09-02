@@ -24,28 +24,26 @@ pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::AdvancedAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::AdvancedAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::Camera<'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
 pub fn grafton_visca::blocking::Camera<'session, P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::blocking::Camera<'session, P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
 pub const fn grafton_visca::blocking::Camera<'session, P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::target(&self) -> grafton_visca::CameraId
+pub fn grafton_visca::blocking::Camera<'session, P>::with_submission_class(&self, grafton_visca::SubmissionClass) -> Self
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::exposure(&self) -> grafton_visca::blocking::ExposureAccessor<'_, 'session, P> where P: grafton_visca::capabilities::HasExposure
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
@@ -77,12 +75,12 @@ pub fn grafton_visca::blocking::Camera<'session, P>::zoom(&self) -> grafton_visc
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::Camera<'_, P>
 pub fn grafton_visca::blocking::Camera<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'session, P> core::marker::Freeze for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Freeze
-impl<'session, P> !core::marker::Send for grafton_visca::blocking::Camera<'session, P>
-impl<'session, P> !core::marker::Sync for grafton_visca::blocking::Camera<'session, P>
+impl<'session, P> core::marker::Send for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Send
+impl<'session, P> core::marker::Sync for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Sync
 impl<'session, P> core::marker::Unpin for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Unpin
 impl<'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::UnsafeUnpin
-impl<'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Camera<'session, P>
-impl<'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Camera<'session, P>
+impl<'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::CameraConfig<P>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::camera::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
@@ -104,8 +102,7 @@ pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
-pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
-pub fn grafton_visca::camera::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
+pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 pub fn grafton_visca::camera::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
@@ -138,11 +135,11 @@ impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton
 pub fn grafton_visca::blocking::CameraSession<P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<P> !core::marker::Freeze for grafton_visca::blocking::CameraSession<P>
 impl<P> core::marker::Send for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::Send
-impl<P> !core::marker::Sync for grafton_visca::blocking::CameraSession<P>
+impl<P> core::marker::Sync for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::Sync
 impl<P> core::marker::Unpin for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::Unpin
 impl<P> core::marker::UnsafeUnpin for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::marker::UnsafeUnpin
-impl<P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::CameraSession<P>
-impl<P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::CameraSession<P>
+impl<P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::RefUnwindSafe
+impl<P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::CameraSession<P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::Cancellation<'session>
 impl<'session> grafton_visca::blocking::Cancellation<'session>
 pub fn grafton_visca::blocking::Cancellation<'session>::detach(self)
@@ -160,11 +157,9 @@ impl<'session> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::block
 impl<'session> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Cancellation<'session>
 pub struct grafton_visca::blocking::Connect
 impl grafton_visca::blocking::Connect
-pub fn grafton_visca::blocking::Connect::builder() -> grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::Connect::open_tcp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::blocking::Connect::open_udp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
+pub fn grafton_visca::blocking::Connect::open<P>(grafton_visca::camera::TransportOptions) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile
+pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
+pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
 impl core::clone::Clone for grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::clone(&self) -> grafton_visca::blocking::Connect
 impl core::fmt::Debug for grafton_visca::blocking::Connect
@@ -177,22 +172,6 @@ impl core::marker::Unpin for grafton_visca::blocking::Connect
 impl core::marker::UnsafeUnpin for grafton_visca::blocking::Connect
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Connect
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Connect
-pub struct grafton_visca::blocking::ConnectBuilder
-impl grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::tcp(self, impl core::convert::Into<alloc::string::String>) -> grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::udp(self, impl core::convert::Into<alloc::string::String>) -> grafton_visca::blocking::UdpConnectBuilder
-impl core::clone::Clone for grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::clone(&self) -> grafton_visca::blocking::ConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Freeze for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::ConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::ConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ConnectBuilder
 pub struct grafton_visca::blocking::ExposureAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::auto_slow_shutter_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSonyAutoSlowShutter
@@ -240,12 +219,12 @@ pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::spotlight_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ExposureAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ExposureAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::FocusAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::FocusAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::auto(&self) -> grafton_visca::Result<()>
@@ -275,12 +254,12 @@ pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::FocusAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::FocusAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::ImageAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ImageAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
@@ -326,12 +305,12 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::sharpness_mod
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ImageAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ImageAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::MenuAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MenuAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::cancel(&self) -> grafton_visca::Result<()>
@@ -344,12 +323,12 @@ pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::toggle_display
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MenuAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MenuAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::MotionAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MotionAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::is_moving(&self) -> grafton_visca::Result<bool>
@@ -359,12 +338,12 @@ pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::wait_until_i
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::mode(&self) -> grafton_visca::Result<grafton_visca::MotionSyncMode>
@@ -375,12 +354,12 @@ pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_spee
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::NdFilterAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::auto_off(&self) -> grafton_visca::Result<()>
@@ -395,12 +374,12 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_up(&s
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> core::fmt::Debug for grafton_visca::blocking::NdFilterAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::NdFilterAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::Operation<'session, K> where K: grafton_visca::completion::Kind
 impl grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targeted>
 pub fn grafton_visca::blocking::Operation<'_, grafton_visca::completion::Targeted>::settled(self) -> grafton_visca::Result<(), grafton_visca::Error>
@@ -468,12 +447,12 @@ pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::up(&self, g
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::PowerAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PowerAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::PowerAccessor<'view, 'session, P>::off(&self) -> grafton_visca::Result<()>
@@ -482,12 +461,12 @@ pub fn grafton_visca::blocking::PowerAccessor<'view, 'session, P>::state(&self) 
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PowerAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PowerAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::PresetsAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::PresetsAccessor<'view, 'session, P>::recall(&self, grafton_visca::command::PresetNumber) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, grafton_visca::completion::Targeted>>
@@ -497,12 +476,12 @@ pub fn grafton_visca::blocking::PresetsAccessor<'view, 'session, P>::set_recall_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PresetsAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PresetsAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::Session
 impl grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::Session::camera<P>(&self) -> grafton_visca::Result<grafton_visca::blocking::Camera<'_, P>, grafton_visca::Error> where P: grafton_visca::profile::CompileTimeProfile
@@ -518,11 +497,11 @@ impl core::fmt::Debug for grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::Session::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl !core::marker::Freeze for grafton_visca::blocking::Session
 impl core::marker::Send for grafton_visca::blocking::Session
-impl !core::marker::Sync for grafton_visca::blocking::Session
+impl core::marker::Sync for grafton_visca::blocking::Session
 impl core::marker::Unpin for grafton_visca::blocking::Session
 impl core::marker::UnsafeUnpin for grafton_visca::blocking::Session
-impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Session
-impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Session
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
 pub struct grafton_visca::blocking::SessionConfig
 impl grafton_visca::SessionConfig
 pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
@@ -562,12 +541,12 @@ pub fn grafton_visca::blocking::SystemAccessor<'view, 'session, P>::version(&sel
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::SystemAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::SystemAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::TallyAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> grafton_visca::blocking::TallyAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::TallyAccessor<'view, 'session, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool>
@@ -586,42 +565,12 @@ pub fn grafton_visca::blocking::TallyAccessor<'view, 'session, P>::status(&self)
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> core::fmt::Debug for grafton_visca::blocking::TallyAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::TallyAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-pub struct grafton_visca::blocking::TcpConnectBuilder
-impl grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::open<P>(self) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::TcpConnectBuilder::with_default_port(self) -> Self
-impl core::clone::Clone for grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::clone(&self) -> grafton_visca::blocking::TcpConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::TcpConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TcpConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TcpConnectBuilder
-pub struct grafton_visca::blocking::UdpConnectBuilder
-impl grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::open<P>(self) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::blocking::UdpConnectBuilder::with_default_port(self) -> Self
-impl core::clone::Clone for grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::clone(&self) -> grafton_visca::blocking::UdpConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::UdpConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::UdpConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::UdpConnectBuilder
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>::atw(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasAutoTrackingWhiteBalance
@@ -657,12 +606,12 @@ pub fn grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>::set_se
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::WhiteBalanceAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::WhiteBalanceAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::ZoomAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
@@ -678,12 +627,12 @@ pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::wide_variable(
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ZoomAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub mod grafton_visca::camera
 pub mod grafton_visca::camera::profiles
 pub enum grafton_visca::camera::profiles::G2Gain
@@ -2335,8 +2284,7 @@ pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
-pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
-pub fn grafton_visca::camera::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
+pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 pub fn grafton_visca::camera::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
@@ -12197,28 +12145,26 @@ pub fn grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>::usb_audio_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::AdvancedAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::AdvancedAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::AdvancedAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::Camera<'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::advanced(&self) -> grafton_visca::blocking::AdvancedAccessor<'_, 'session, P>
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub const fn grafton_visca::blocking::Camera<'session, P>::capabilities(&self) -> &grafton_visca::capabilities::Capabilities
 pub fn grafton_visca::blocking::Camera<'session, P>::execute<C>(&self, &C) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::execute_with_submission_class<C>(&self, &C, grafton_visca::SubmissionClass) -> grafton_visca::Result<(), grafton_visca::Error> where C: grafton_visca::PlainCommand + ?core::marker::Sized
 pub fn grafton_visca::blocking::Camera<'session, P>::inquire<Q>(&self, &Q) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::inquire_with_submission_class<Q>(&self, &Q, grafton_visca::SubmissionClass) -> grafton_visca::Result<<Q as grafton_visca::Inquiry>::Response, grafton_visca::Error> where Q: grafton_visca::Inquiry + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::profile(&self) -> &grafton_visca::profile::ProfileSpec
 pub fn grafton_visca::blocking::Camera<'session, P>::set_submission_class(&mut self, core::option::Option<grafton_visca::SubmissionClass>)
 pub fn grafton_visca::blocking::Camera<'session, P>::state_cache(&self) -> grafton_visca::state_cache::StateCache
 pub const fn grafton_visca::blocking::Camera<'session, P>::submission_class(&self) -> core::option::Option<grafton_visca::SubmissionClass>
 pub fn grafton_visca::blocking::Camera<'session, P>::submit<K, O>(&self, &O) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
-pub fn grafton_visca::blocking::Camera<'session, P>::submit_with_submission_class<K, O>(&self, &O, grafton_visca::SubmissionClass) -> grafton_visca::Result<grafton_visca::blocking::Operation<'session, K>, grafton_visca::Error> where K: grafton_visca::completion::Kind, O: grafton_visca::OperationCommand<K> + ?core::marker::Sized
 pub const fn grafton_visca::blocking::Camera<'session, P>::target(&self) -> grafton_visca::CameraId
+pub fn grafton_visca::blocking::Camera<'session, P>::with_submission_class(&self, grafton_visca::SubmissionClass) -> Self
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
 pub fn grafton_visca::blocking::Camera<'session, P>::exposure(&self) -> grafton_visca::blocking::ExposureAccessor<'_, 'session, P> where P: grafton_visca::capabilities::HasExposure
 impl<'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<'session, P>
@@ -12250,12 +12196,12 @@ pub fn grafton_visca::blocking::Camera<'session, P>::zoom(&self) -> grafton_visc
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::Camera<'_, P>
 pub fn grafton_visca::blocking::Camera<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'session, P> core::marker::Freeze for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Freeze
-impl<'session, P> !core::marker::Send for grafton_visca::blocking::Camera<'session, P>
-impl<'session, P> !core::marker::Sync for grafton_visca::blocking::Camera<'session, P>
+impl<'session, P> core::marker::Send for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Send
+impl<'session, P> core::marker::Sync for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Sync
 impl<'session, P> core::marker::Unpin for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::Unpin
 impl<'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::marker::UnsafeUnpin
-impl<'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Camera<'session, P>
-impl<'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Camera<'session, P>
+impl<'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Camera<'session, P> where core::marker::PhantomData<fn() -> P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::CameraConfig<P>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::capabilities::Profile
 pub fn grafton_visca::camera::CameraConfig<P>::address(self, impl core::convert::Into<alloc::string::String>) -> Self
@@ -12277,8 +12223,7 @@ pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
-pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
-pub fn grafton_visca::camera::CameraConfig<P>::open_camera(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
+pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::session_config(&self) -> grafton_visca::Result<grafton_visca::SessionConfig>
 pub fn grafton_visca::camera::CameraConfig<P>::validate(&self) -> grafton_visca::Result<()>
@@ -12334,11 +12279,9 @@ impl<'session> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::block
 impl<'session> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Cancellation<'session>
 pub struct grafton_visca::prelude::blocking::Connect
 impl grafton_visca::blocking::Connect
-pub fn grafton_visca::blocking::Connect::builder() -> grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::Connect::open_tcp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::blocking::Connect::open_udp_camera<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
+pub fn grafton_visca::blocking::Connect::open<P>(grafton_visca::camera::TransportOptions) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile
+pub fn grafton_visca::blocking::Connect::open_tcp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
+pub fn grafton_visca::blocking::Connect::open_udp<P>(impl core::convert::Into<alloc::string::String>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
 impl core::clone::Clone for grafton_visca::blocking::Connect
 pub fn grafton_visca::blocking::Connect::clone(&self) -> grafton_visca::blocking::Connect
 impl core::fmt::Debug for grafton_visca::blocking::Connect
@@ -12351,22 +12294,6 @@ impl core::marker::Unpin for grafton_visca::blocking::Connect
 impl core::marker::UnsafeUnpin for grafton_visca::blocking::Connect
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Connect
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Connect
-pub struct grafton_visca::prelude::blocking::ConnectBuilder
-impl grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::tcp(self, impl core::convert::Into<alloc::string::String>) -> grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::udp(self, impl core::convert::Into<alloc::string::String>) -> grafton_visca::blocking::UdpConnectBuilder
-impl core::clone::Clone for grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::clone(&self) -> grafton_visca::blocking::ConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::ConnectBuilder
-pub fn grafton_visca::blocking::ConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Copy for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Freeze for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::ConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::ConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::ConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ConnectBuilder
 pub struct grafton_visca::prelude::blocking::Degrees<T>(pub T)
 impl<T> grafton_visca::units::Degrees<T>
 pub fn grafton_visca::units::Degrees<T>::into_inner(self) -> T
@@ -12440,12 +12367,12 @@ pub fn grafton_visca::blocking::ExposureAccessor<'view, 'session, P>::spotlight_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ExposureAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ExposureAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ExposureAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::FocusAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::FocusAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::auto(&self) -> grafton_visca::Result<()>
@@ -12475,12 +12402,12 @@ pub fn grafton_visca::blocking::FocusAccessor<'view, 'session, P>::zone(&self) -
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::FocusAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::FocusAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::FocusAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::GenericVisca
 impl core::clone::Clone for grafton_visca::camera::profiles::GenericVisca
 pub fn grafton_visca::camera::profiles::GenericVisca::clone(&self) -> grafton_visca::camera::profiles::GenericVisca
@@ -12705,12 +12632,12 @@ pub fn grafton_visca::blocking::ImageAccessor<'view, 'session, P>::sharpness_mod
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ImageAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ImageAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ImageAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::IrisLevel(_)
 impl grafton_visca::types::IrisLevel
 pub const grafton_visca::types::IrisLevel::MAX: Self
@@ -12759,12 +12686,12 @@ pub fn grafton_visca::blocking::MenuAccessor<'view, 'session, P>::toggle_display
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MenuAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MenuAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::MetricsSnapshot
 pub grafton_visca::prelude::blocking::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::active: usize
@@ -12817,12 +12744,12 @@ pub fn grafton_visca::blocking::MotionAccessor<'view, 'session, P>::wait_until_i
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::MotionQuery
 pub grafton_visca::prelude::blocking::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::blocking::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
@@ -12859,12 +12786,12 @@ pub fn grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>::set_spee
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> core::fmt::Debug for grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionSyncAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::NdFilterAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::auto_off(&self) -> grafton_visca::Result<()>
@@ -12879,12 +12806,12 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>::step_up(&s
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> core::fmt::Debug for grafton_visca::blocking::NdFilterAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::NdFilterAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::NdFilterAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::NearusBRC300
 impl core::clone::Clone for grafton_visca::camera::profiles::NearusBRC300
 pub fn grafton_visca::camera::profiles::NearusBRC300::clone(&self) -> grafton_visca::camera::profiles::NearusBRC300
@@ -13139,12 +13066,12 @@ pub fn grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>::up(&self, g
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PanTiltAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::PanTiltLimitUpdate
 impl grafton_visca::state_cache::PanTiltLimitUpdate
 pub const fn grafton_visca::state_cache::PanTiltLimitUpdate::corner(self) -> grafton_visca::command::PanTiltLimitCorner
@@ -13223,12 +13150,12 @@ pub fn grafton_visca::blocking::PowerAccessor<'view, 'session, P>::state(&self) 
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PowerAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PowerAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PowerAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::PresetNumber(_)
 impl grafton_visca::command::PresetNumber
 pub const grafton_visca::command::PresetNumber::MAX: u8
@@ -13269,12 +13196,12 @@ pub fn grafton_visca::blocking::PresetsAccessor<'view, 'session, P>::set_recall_
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PresetsAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::PresetsAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PresetsAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::PtzOptics30X
 impl core::clone::Clone for grafton_visca::camera::profiles::PtzOptics30X
 pub fn grafton_visca::camera::profiles::PtzOptics30X::clone(&self) -> grafton_visca::camera::profiles::PtzOptics30X
@@ -13858,11 +13785,11 @@ impl core::fmt::Debug for grafton_visca::blocking::Session
 pub fn grafton_visca::blocking::Session::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl !core::marker::Freeze for grafton_visca::blocking::Session
 impl core::marker::Send for grafton_visca::blocking::Session
-impl !core::marker::Sync for grafton_visca::blocking::Session
+impl core::marker::Sync for grafton_visca::blocking::Session
 impl core::marker::Unpin for grafton_visca::blocking::Session
 impl core::marker::UnsafeUnpin for grafton_visca::blocking::Session
-impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Session
-impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::Session
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::Session
 pub struct grafton_visca::prelude::blocking::SessionConfig
 impl grafton_visca::SessionConfig
 pub const fn grafton_visca::SessionConfig::admission_capacity(&self) -> core::num::nonzero::NonZeroUsize
@@ -14606,12 +14533,12 @@ pub fn grafton_visca::blocking::SystemAccessor<'view, 'session, P>::version(&sel
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::SystemAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::SystemAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::SystemAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::TallyAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> grafton_visca::blocking::TallyAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::TallyAccessor<'view, 'session, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool>
@@ -14630,27 +14557,12 @@ pub fn grafton_visca::blocking::TallyAccessor<'view, 'session, P>::status(&self)
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> core::fmt::Debug for grafton_visca::blocking::TallyAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::TallyAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P>
-pub struct grafton_visca::prelude::blocking::TcpConnectBuilder
-impl grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::open<P>(self) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsTcp
-pub fn grafton_visca::blocking::TcpConnectBuilder::with_default_port(self) -> Self
-impl core::clone::Clone for grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::clone(&self) -> grafton_visca::blocking::TcpConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::TcpConnectBuilder
-pub fn grafton_visca::blocking::TcpConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::TcpConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::TcpConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TcpConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TcpConnectBuilder
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::TallyAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::TiltSpeed(_)
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::MAX: Self
@@ -14691,21 +14603,6 @@ impl core::marker::Unpin for grafton_visca::types::TiltSpeed
 impl core::marker::UnsafeUnpin for grafton_visca::types::TiltSpeed
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::TiltSpeed
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::TiltSpeed
-pub struct grafton_visca::prelude::blocking::UdpConnectBuilder
-impl grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::open<P>(self) -> grafton_visca::Result<grafton_visca::blocking::Session> where P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::SupportsUdp
-pub fn grafton_visca::blocking::UdpConnectBuilder::with_default_port(self) -> Self
-impl core::clone::Clone for grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::clone(&self) -> grafton_visca::blocking::UdpConnectBuilder
-impl core::fmt::Debug for grafton_visca::blocking::UdpConnectBuilder
-pub fn grafton_visca::blocking::UdpConnectBuilder::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::marker::Freeze for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Send for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Sync for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::Unpin for grafton_visca::blocking::UdpConnectBuilder
-impl core::marker::UnsafeUnpin for grafton_visca::blocking::UdpConnectBuilder
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::UdpConnectBuilder
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::UdpConnectBuilder
 pub struct grafton_visca::prelude::blocking::UnitInterval(_)
 impl grafton_visca::units::UnitInterval
 pub const grafton_visca::units::UnitInterval::ONE: Self
@@ -14771,12 +14668,12 @@ pub fn grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>::set_se
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::WhiteBalanceAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::WhiteBalanceAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::WhiteBalanceAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::ZoomAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
@@ -14792,12 +14689,12 @@ pub fn grafton_visca::blocking::ZoomAccessor<'view, 'session, P>::wide_variable(
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::ZoomAccessor<'_, '_, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'_, '_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, 'session, P> core::marker::Freeze for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Freeze
-impl<'view, 'session, P> !core::marker::Send for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::marker::Sync for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::marker::Send for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Send
+impl<'view, 'session, P> core::marker::Sync for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Sync
 impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::Unpin
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
-impl<'view, 'session, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
-impl<'view, 'session, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P>
+impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
+impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::ZoomAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
 pub mod grafton_visca::profile
 #[non_exhaustive] pub enum grafton_visca::profile::ProfileEnvelope
 pub grafton_visca::profile::ProfileEnvelope::RawVisca
@@ -14913,6 +14810,7 @@ pub const fn grafton_visca::profile::ProfileSpec::command_timeouts(&self) -> gra
 pub const fn grafton_visca::profile::ProfileSpec::envelope(&self) -> grafton_visca::profile::ProfileEnvelope
 pub fn grafton_visca::profile::ProfileSpec::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub const fn grafton_visca::profile::ProfileSpec::maximum_command_sockets(&self) -> u8
+pub fn grafton_visca::profile::ProfileSpec::name(&self) -> &str
 pub const fn grafton_visca::profile::ProfileSpec::pan_tilt_coordinates(&self) -> core::option::Option<grafton_visca::profile::PanTiltCoordinateConversion>
 pub const fn grafton_visca::profile::ProfileSpec::position_inquiries(&self) -> grafton_visca::profile::PositionInquirySupport
 pub const fn grafton_visca::profile::ProfileSpec::preset_recall_axes(&self) -> core::option::Option<grafton_visca::AffectedAxes>
@@ -16833,7 +16731,7 @@ pub const fn grafton_visca::raw::AppliedOnly::policy(&self) -> grafton_visca::ra
 pub const fn grafton_visca::raw::AppliedOnly::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::AppliedOnly::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::AppliedOnly::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::AppliedOnly::with_policy<P>(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, P) -> grafton_visca::Result<Self> where P: core::convert::Into<grafton_visca::raw::Policy>
+pub fn grafton_visca::raw::AppliedOnly::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::AppliedOnly
 pub fn grafton_visca::raw::AppliedOnly::clone(&self) -> grafton_visca::raw::AppliedOnly
 impl core::cmp::Eq for grafton_visca::raw::AppliedOnly
@@ -16875,7 +16773,7 @@ pub const fn grafton_visca::raw::Inquiry<R>::retry_class(&self) -> grafton_visca
 pub const fn grafton_visca::raw::Inquiry<R>::route(&self) -> grafton_visca::InquiryRoute
 pub const fn grafton_visca::raw::Inquiry<R>::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::raw::Inquiry<R>::with_context<C>(impl core::convert::AsRef<[u8]>, grafton_visca::InquiryRoute, C, fn(&C, &[u8]) -> grafton_visca::Result<R>, grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self> where C: core::marker::Send + core::marker::Sync + 'static, R: 'static
-pub fn grafton_visca::raw::Inquiry<R>::with_policy<P>(impl core::convert::AsRef<[u8]>, grafton_visca::InquiryRoute, grafton_visca::ResponseDecoder<R>, P) -> grafton_visca::Result<Self> where P: core::convert::Into<grafton_visca::raw::Policy>
+pub fn grafton_visca::raw::Inquiry<R>::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::InquiryRoute, grafton_visca::ResponseDecoder<R>, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
 impl<R> core::clone::Clone for grafton_visca::raw::Inquiry<R>
 pub fn grafton_visca::raw::Inquiry<R>::clone(&self) -> Self
 impl<R> core::fmt::Debug for grafton_visca::raw::Inquiry<R>
@@ -16942,7 +16840,7 @@ pub const fn grafton_visca::raw::Plain::policy(&self) -> grafton_visca::raw::Pol
 pub const fn grafton_visca::raw::Plain::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::Plain::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Plain::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::Plain::with_policy<P>(impl core::convert::AsRef<[u8]>, P) -> grafton_visca::Result<Self> where P: core::convert::Into<grafton_visca::raw::Policy>
+pub fn grafton_visca::raw::Plain::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::Plain
 pub fn grafton_visca::raw::Plain::clone(&self) -> grafton_visca::raw::Plain
 impl core::cmp::Eq for grafton_visca::raw::Plain
@@ -16984,10 +16882,6 @@ pub fn grafton_visca::raw::Policy::clone(&self) -> grafton_visca::raw::Policy
 impl core::cmp::Eq for grafton_visca::raw::Policy
 impl core::cmp::PartialEq for grafton_visca::raw::Policy
 pub fn grafton_visca::raw::Policy::eq(&self, &grafton_visca::raw::Policy) -> bool
-impl core::convert::From<grafton_visca::raw::Policy> for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::from(grafton_visca::raw::Policy) -> Self
-impl core::convert::From<grafton_visca::raw::Spec> for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::from(grafton_visca::raw::Spec) -> Self
 impl core::fmt::Debug for grafton_visca::raw::Policy
 pub fn grafton_visca::raw::Policy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for grafton_visca::raw::Policy
@@ -17017,34 +16911,6 @@ impl<R> core::marker::Unpin for grafton_visca::ResponseDecoder<R> where DecoderI
 impl<R> core::marker::UnsafeUnpin for grafton_visca::ResponseDecoder<R> where DecoderInner<R>: core::marker::UnsafeUnpin
 impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ResponseDecoder<R>
 impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ResponseDecoder<R>
-pub struct grafton_visca::raw::Spec
-impl grafton_visca::raw::Spec
-pub const fn grafton_visca::raw::Spec::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::Spec::policy(self) -> grafton_visca::raw::Policy
-pub const fn grafton_visca::raw::Spec::reply_shape(self) -> grafton_visca::raw::RawReplyShape
-pub const fn grafton_visca::raw::Spec::with_reply_shape(self, grafton_visca::raw::RawReplyShape) -> Self
-impl core::clone::Clone for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::clone(&self) -> grafton_visca::raw::Spec
-impl core::cmp::Eq for grafton_visca::raw::Spec
-impl core::cmp::PartialEq for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::eq(&self, &grafton_visca::raw::Spec) -> bool
-impl core::convert::From<grafton_visca::raw::Policy> for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::from(grafton_visca::raw::Policy) -> Self
-impl core::convert::From<grafton_visca::raw::Spec> for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::from(grafton_visca::raw::Spec) -> Self
-impl core::fmt::Debug for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::raw::Spec
-pub fn grafton_visca::raw::Spec::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::raw::Spec
-impl core::marker::StructuralPartialEq for grafton_visca::raw::Spec
-impl core::marker::Freeze for grafton_visca::raw::Spec
-impl core::marker::Send for grafton_visca::raw::Spec
-impl core::marker::Sync for grafton_visca::raw::Spec
-impl core::marker::Unpin for grafton_visca::raw::Spec
-impl core::marker::UnsafeUnpin for grafton_visca::raw::Spec
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::Spec
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Spec
 pub struct grafton_visca::raw::Targeted
 impl grafton_visca::raw::Targeted
 pub const fn grafton_visca::raw::Targeted::affected_axes(&self) -> grafton_visca::AffectedAxes
@@ -17055,7 +16921,7 @@ pub const fn grafton_visca::raw::Targeted::policy(&self) -> grafton_visca::raw::
 pub const fn grafton_visca::raw::Targeted::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::Targeted::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Targeted::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::Targeted::with_policy<P>(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, P) -> grafton_visca::Result<Self> where P: core::convert::Into<grafton_visca::raw::Policy>
+pub fn grafton_visca::raw::Targeted::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::Targeted
 pub fn grafton_visca::raw::Targeted::clone(&self) -> grafton_visca::raw::Targeted
 impl core::cmp::Eq for grafton_visca::raw::Targeted
@@ -21704,6 +21570,7 @@ pub const fn grafton_visca::profile::ProfileSpec::command_timeouts(&self) -> gra
 pub const fn grafton_visca::profile::ProfileSpec::envelope(&self) -> grafton_visca::profile::ProfileEnvelope
 pub fn grafton_visca::profile::ProfileSpec::from_compile_time<P>() -> grafton_visca::Result<Self> where P: grafton_visca::profile::CompileTimeProfile
 pub const fn grafton_visca::profile::ProfileSpec::maximum_command_sockets(&self) -> u8
+pub fn grafton_visca::profile::ProfileSpec::name(&self) -> &str
 pub const fn grafton_visca::profile::ProfileSpec::pan_tilt_coordinates(&self) -> core::option::Option<grafton_visca::profile::PanTiltCoordinateConversion>
 pub const fn grafton_visca::profile::ProfileSpec::position_inquiries(&self) -> grafton_visca::profile::PositionInquirySupport
 pub const fn grafton_visca::profile::ProfileSpec::preset_recall_axes(&self) -> core::option::Option<grafton_visca::AffectedAxes>
