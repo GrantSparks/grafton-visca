@@ -6,10 +6,13 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
     protocol::framer::ProtocolFramer,
-    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
+    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::{envelope::FrameSequence, AsyncTransport, HasTransportConfig},
-    CameraId, Error, ViscaSocket,
+    CameraId, Error,
 };
+
+#[cfg(test)]
+use crate::{protocol::framer::RawIncompletePrefix, ViscaSocket};
 
 use super::{
     adapter::{
@@ -288,27 +291,15 @@ where
         if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
             return Ok(None);
         }
-        let Some(source) = self.state.framer.buffered_first_byte() else {
-            return Ok(None);
-        };
         if self.state.framer.buffered_first_raw_input_is_complete()? {
             return Ok(Some(RawPrefixEvidence::Complete));
         }
+        let Some((source, kind)) = self.state.framer.buffered_raw_incomplete_prefix()? else {
+            return Ok(None);
+        };
         let target = decode_response_target(self.state.routing, &[source])?.ok_or_else(|| {
             Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
         })?;
-        let bytes = self.state.framer.buffered_first_two_raw_input_bytes()?;
-        let kind = match bytes.get(1).copied() {
-            None => RawIncompletePrefix::SourceOnly,
-            // An ACK socket nibble is a preference for assigning a free
-            // socket, never evidence of who owns a named socket already.
-            Some(response) if response & 0xf0 == 0x40 => RawIncompletePrefix::Ack,
-            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
-            Some(0x60) => RawIncompletePrefix::SocketlessError,
-            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
-            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
-            Some(_) => RawIncompletePrefix::Noncorrelating,
-        };
         Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
     }
 

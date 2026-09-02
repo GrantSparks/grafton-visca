@@ -15,11 +15,14 @@ use crate::{
     profile::OperationalTuning,
     profile::ProfileSpec,
     protocol::framer::ProtocolFramer,
-    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
+    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::envelope::FrameSequence,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
     CameraId, Error,
 };
+
+#[cfg(test)]
+use crate::protocol::framer::RawIncompletePrefix;
 
 use super::{
     adapter::{
@@ -447,22 +450,12 @@ where
     if state.framer.buffered_first_raw_input_is_complete()? {
         return Ok(Some(RawPrefixEvidence::Complete));
     }
-    let prefix = state.framer.buffered_first_two_raw_input_bytes()?;
-    let Some(&source) = prefix.first() else {
+    let Some((source, kind)) = state.framer.buffered_raw_incomplete_prefix()? else {
         return Ok(None);
     };
     let target = decode_response_target(state.routing, &[source])?.ok_or_else(|| {
         Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
     })?;
-    let kind = match prefix.get(1).copied() {
-        None => RawIncompletePrefix::SourceOnly,
-        Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
-        Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
-        Some(0x60) => RawIncompletePrefix::SocketlessError,
-        Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S1),
-        Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S2),
-        Some(_) => RawIncompletePrefix::Noncorrelating,
-    };
     Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
 }
 

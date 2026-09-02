@@ -19,6 +19,8 @@ use std::{
 
 use smallvec::SmallVec;
 
+#[cfg(any(feature = "async", feature = "blocking"))]
+use crate::protocol::framer::RawIncompletePrefix;
 use crate::{raw::INLINE_BYTES, CameraId, Error, ViscaSocket};
 
 #[cfg(test)]

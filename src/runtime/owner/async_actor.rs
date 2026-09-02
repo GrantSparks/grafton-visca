@@ -24,101 +24,29 @@ use super::DiagnosticEvent;
 use super::OwnerMetrics;
 use super::ReceiptObservation;
 use super::{
-    cancellation_receipt_for, completion_pair, normalize_cancellation_observation,
-    normalize_command_outcome, normalize_inquiry_outcome, observation_outcome, prepend_effects,
-    AdmissionPermit, AppliedEffect, CancellationCore, CompletionObserver, DecodedFrame,
-    DiagnosticSubscription, Input, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore,
-    RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, SessionState,
-    ShutdownReason, TargetStateCache, TransmissionMeta, WaitSelection, WireWrite,
+    cancellation_receipt_for, clamp_receive_pause, completion_pair,
+    normalize_cancellation_observation, normalize_command_outcome, normalize_inquiry_outcome,
+    observation_outcome, prepend_effects, transient_receive_pause, AdmissionPermit, AppliedEffect,
+    CancellationCore, CompletionObserver, DecodedFrame, DiagnosticSubscription, Input,
+    OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId,
+    RequestLane, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetStateCache,
+    TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
+};
+
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+use super::{
+    MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
+    TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
     Effect, IgnoreReason, RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence,
     TransportKind,
 };
 
-/// Pause applied after the first transient receive fault so a transport that
-/// fails immediately cannot spin the actor. 1.x used the same bound.
-const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
-
-/// Ceiling on the escalating transient-fault pause.
-const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
-
 /// Independent cap for work deferred/discarded while one due raw correlation
 /// release waits behind retained stream framing. This is intentionally not the
 /// per-receive frame batch limit: several legal batches may already be buffered.
 const RAW_CORRELATION_RELEASE_WORK_LIMIT: usize = 64;
-
-/// Consecutive transient receive faults, with no successful read between them,
-/// after which the session ends with the underlying transport error.
-///
-/// A read that fails immediately and repeatedly is not a transient fault, it is
-/// a broken transport wearing one. The escalating pause spreads this many
-/// faults over roughly two seconds (10 + 20 + 40 + 80 + 160 ms, then 250 ms
-/// each), and [`TRANSIENT_RECEIVE_FAULT_SPAN`] holds that floor even when the
-/// pause is clamped away by a due deadline.
-const TRANSIENT_RECEIVE_FAULT_LIMIT: u32 = 12;
-
-/// Minimum wall-clock length of a fault run before it can end the session.
-const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
-
-/// A gap this long between two transient faults proves the transport recovered
-/// in between, so the run starts over rather than accumulating over hours.
-const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
-
-/// Clamp a transient pause so it can never push a due scheduler deadline past
-/// its wake, mirroring the blocking owner's clamp to its caller's deadline.
-fn clamp_transient_pause(pause: Duration, next_wake: Option<Instant>, now: Instant) -> Duration {
-    next_wake.map_or(pause, |wake| pause.min(wake.saturating_duration_since(now)))
-}
-
-/// Escalating pause for the `run`-th consecutive transient receive fault.
-fn transient_receive_pause(run: u32) -> Duration {
-    let doublings = run.saturating_sub(1).min(6);
-    TRANSIENT_RECEIVE_PAUSE
-        .saturating_mul(1u32 << doublings)
-        .min(MAXIMUM_TRANSIENT_RECEIVE_PAUSE)
-}
-
-/// One run of consecutive transient receive faults.
-#[derive(Debug, Default)]
-struct TransientFaultRun {
-    length: u32,
-    first_at: Option<Instant>,
-    last_at: Option<Instant>,
-}
-
-impl TransientFaultRun {
-    /// Record one transient fault and report the run it belongs to.
-    fn record(&mut self, at: Instant) -> (u32, Duration) {
-        let continues = self
-            .last_at
-            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
-        if continues {
-            self.length = self.length.saturating_add(1);
-        } else {
-            self.length = 1;
-            self.first_at = Some(at);
-        }
-        self.last_at = Some(at);
-        let span = self
-            .first_at
-            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
-        (self.length, span)
-    }
-
-    /// A successful read proves the transport is answering again.
-    fn reset(&mut self) {
-        self.length = 0;
-        self.first_at = None;
-        self.last_at = None;
-    }
-
-    /// Whether this run is long enough, and old enough, to be called permanent.
-    const fn is_permanent(length: u32, span: Duration) -> bool {
-        length >= TRANSIENT_RECEIVE_FAULT_LIMIT
-            && span.as_nanos() >= TRANSIENT_RECEIVE_FAULT_SPAN.as_nanos()
-    }
-}
 
 /// Whether one actor turn keeps the session alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2718,7 +2646,7 @@ where
                     self.state.input(Input::ReceiveFault { error }, received_at)
                 };
                 self.drive(driver, effects, runtime).await;
-                let pause = clamp_transient_pause(
+                let pause = clamp_receive_pause(
                     transient_receive_pause(length),
                     self.state.next_wake(),
                     Executor::now(runtime),
@@ -2800,7 +2728,7 @@ where
         buffered_stream_input: bool,
     ) -> TurnOutcome {
         self.idle_receive_run = self.idle_receive_run.saturating_add(1);
-        let pause = clamp_transient_pause(
+        let pause = clamp_receive_pause(
             transient_receive_pause(self.idle_receive_run),
             self.state.next_wake(),
             Executor::now(runtime),
@@ -5296,7 +5224,7 @@ mod tests {
         buffered: Arc<std::sync::atomic::AtomicBool>,
         discards: Arc<std::sync::atomic::AtomicUsize>,
         refuse_discard: bool,
-        prefix_kind: crate::runtime::engine::RawIncompletePrefix,
+        prefix_kind: crate::protocol::framer::RawIncompletePrefix,
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -5416,7 +5344,7 @@ mod tests {
                 buffered: Arc::clone(&buffered),
                 discards: Arc::clone(&discards),
                 refuse_discard,
-                prefix_kind: crate::runtime::engine::RawIncompletePrefix::NamedCompletionOrError(
+                prefix_kind: crate::protocol::framer::RawIncompletePrefix::NamedCompletionOrError(
                     ViscaSocket::S1,
                 ),
             }),
@@ -6574,7 +6502,7 @@ mod tests {
         // policy, which is correct for its other stale-prefix tests but cannot
         // exercise this fail-closed deferral cap.
         harness.driver.as_mut().unwrap().prefix_kind =
-            crate::runtime::engine::RawIncompletePrefix::SourceOnly;
+            crate::protocol::framer::RawIncompletePrefix::SourceOnly;
         let reads = harness.reads.clone();
         let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
         let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
@@ -6625,7 +6553,7 @@ mod tests {
         let mut driver = harness.driver.take().unwrap();
         // Make retained bytes deliberately unkeyed: each due wake must defer
         // rather than discard, so this test exercises the actor-local budget.
-        driver.prefix_kind = crate::runtime::engine::RawIncompletePrefix::SourceOnly;
+        driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
         // Admit and finish A, which installs A's inquiry tombstone. B remains
         // queued behind it.
@@ -8146,17 +8074,17 @@ mod tests {
     fn the_transient_pause_never_outlives_the_next_wake() {
         let now = Instant::now();
         let pause = Duration::from_millis(250);
-        assert_eq!(clamp_transient_pause(pause, None, now), pause);
+        assert_eq!(clamp_receive_pause(pause, None, now), pause);
         assert_eq!(
-            clamp_transient_pause(pause, Some(now + Duration::from_secs(1)), now),
+            clamp_receive_pause(pause, Some(now + Duration::from_secs(1)), now),
             pause
         );
         assert_eq!(
-            clamp_transient_pause(pause, Some(now + Duration::from_millis(3)), now),
+            clamp_receive_pause(pause, Some(now + Duration::from_millis(3)), now),
             Duration::from_millis(3)
         );
         assert_eq!(
-            clamp_transient_pause(pause, Some(now - Duration::from_millis(5)), now),
+            clamp_receive_pause(pause, Some(now - Duration::from_millis(5)), now),
             Duration::ZERO,
             "an overdue deadline is serviced immediately"
         );

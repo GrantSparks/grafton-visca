@@ -13,6 +13,7 @@ mod async_transport;
 mod blocking;
 #[cfg(feature = "blocking")]
 mod blocking_transport;
+mod turn;
 
 #[cfg(feature = "async")]
 #[allow(unused_imports)]
@@ -31,6 +32,22 @@ pub(crate) use blocking_transport::*;
 pub(crate) use adapter::{
     owner_policy_for_targets_with_tuning, profile_supports_transport, validate_profile_transport,
     OwnerEnvelope, RoutingState, TargetRegistry,
+};
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+use turn::{clamp_receive_pause, transient_receive_pause, TransientFaultRun};
+
+#[cfg(any(
+    all(test, feature = "blocking", not(feature = "async")),
+    all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+use turn::{
+    MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
+    TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 
 use std::{

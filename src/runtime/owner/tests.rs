@@ -199,6 +199,7 @@ mod blocking {
     use crate::{
         command::CommandKind,
         completion,
+        protocol::framer::RawIncompletePrefix,
         protocol::response::{decode_basic, BasicKind},
         transport::{builder::AddressingMode, Envelope, FrameSequence, RawVisca, SonyEncapsulated},
         CameraId, Error, ViscaSocket,
@@ -208,8 +209,8 @@ mod blocking {
     use super::cached_projection;
     use crate::runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, InquiryRoute, RawIncompletePrefix, RawPrefixEvidence, ReplyShape,
-        RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransportKind,
+        EnvelopeSequence, InquiryRoute, RawPrefixEvidence, ReplyShape, RequestContext, RetryPolicy,
+        SequenceWidth, TimeoutPolicy, TransportKind,
     };
 
     fn policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {

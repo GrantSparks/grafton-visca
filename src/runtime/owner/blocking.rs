@@ -9,19 +9,28 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{completion, AffectedAxes, CancellationOutcome, Error, ResponseDecoder};
+use crate::{
+    completion, protocol::framer::RawIncompletePrefix, AffectedAxes, CancellationOutcome, Error,
+    ResponseDecoder,
+};
 
 use super::{
-    cancellation_receipt_for, normalize_cancellation_observation, normalize_command_outcome,
-    normalize_inquiry_outcome, prepend_effects, AppliedEffect, BlockingTransportAdapter,
-    CancellationCore, CompletionObserver, DiagnosticEvent, OwnerInputTurn, OwnerPolicy, OwnerState,
-    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
-    RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
+    cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
+    normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
+    AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
+    OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, ReceiptObservation, RejectedCancellation,
+    RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, ShutdownReason, TransientFaultRun,
+    TransmissionMeta, WaitSelection, WireWrite,
+};
+
+#[cfg(all(test, not(feature = "async")))]
+use super::{
+    MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
+    TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
     DecodedFrame, Effect, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
-    RawCorrelationReleaseSet, RawIncompletePrefix, RawPrefixDisposition, RawPrefixEvidence,
-    TransportKind,
+    RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -3215,91 +3224,10 @@ impl BlockingOwner {
     }
 }
 
-/// Pause applied after the first transient receive fault so a transport that
-/// fails immediately cannot spin a caller's pump loop. 1.x used the same
-/// bound.
-const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
-
-/// Ceiling on the escalating transient-fault pause.
-const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
-
-/// Consecutive transient receive faults, with no successful read between them,
-/// after which the session ends with the underlying transport error.
-const TRANSIENT_RECEIVE_FAULT_LIMIT: u32 = 12;
-
-/// Minimum wall-clock length of a fault run before it can end the session.
-const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
-
-/// A gap this long between two transient faults proves the transport recovered
-/// in between, so the run starts over rather than accumulating over hours.
-const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
-
-/// Escalating pause for the `run`-th consecutive transient receive fault.
-fn transient_receive_pause(run: u32) -> Duration {
-    let doublings = run.saturating_sub(1).min(6);
-    TRANSIENT_RECEIVE_PAUSE
-        .saturating_mul(1u32 << doublings)
-        .min(MAXIMUM_TRANSIENT_RECEIVE_PAUSE)
-}
-
-/// Clamp a transient pause so it cannot delay an owner wake or caller deadline.
-fn clamp_transient_pause(
-    pause: Duration,
-    owner_deadline: Option<Instant>,
-    now: Instant,
-) -> Duration {
-    owner_deadline.map_or(pause, |deadline| {
-        pause.min(deadline.saturating_duration_since(now))
-    })
-}
-
 fn pause_after_transient_receive_fault(run: u32, owner_deadline: Option<Instant>) {
-    let pause = clamp_transient_pause(transient_receive_pause(run), owner_deadline, Instant::now());
+    let pause = clamp_receive_pause(transient_receive_pause(run), owner_deadline, Instant::now());
     if !pause.is_zero() {
         std::thread::sleep(pause);
-    }
-}
-
-/// One run of consecutive transient receive faults.
-#[derive(Debug, Default)]
-struct TransientFaultRun {
-    length: u32,
-    first_at: Option<Instant>,
-    last_at: Option<Instant>,
-}
-
-impl TransientFaultRun {
-    /// Record one transient fault and report the run it belongs to.
-    fn record(&mut self, at: Instant) -> (u32, Duration) {
-        let continues = self
-            .last_at
-            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
-        if continues {
-            self.length = self.length.saturating_add(1);
-        } else {
-            self.length = 1;
-            self.first_at = Some(at);
-        }
-        self.last_at = Some(at);
-        let span = self
-            .first_at
-            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
-        (self.length, span)
-    }
-
-    /// A successful byte-bearing read proves the transport is answering again,
-    /// so the next fault starts a fresh run.  An idle timeout consumed no bytes
-    /// and does not reset the run.
-    fn reset(&mut self) {
-        self.length = 0;
-        self.first_at = None;
-        self.last_at = None;
-    }
-
-    /// Whether this run is long enough, and old enough, to be called permanent.
-    const fn is_permanent(length: u32, span: Duration) -> bool {
-        length >= TRANSIENT_RECEIVE_FAULT_LIMIT
-            && span.as_nanos() >= TRANSIENT_RECEIVE_FAULT_SPAN.as_nanos()
     }
 }
 
@@ -4580,7 +4508,7 @@ mod tests {
 
     #[test]
     fn transient_fault_pause_escalates_and_stays_deadline_clamped() {
-        assert_eq!(transient_receive_pause(1), Duration::from_millis(10));
+        assert_eq!(transient_receive_pause(1), TRANSIENT_RECEIVE_PAUSE);
         assert_eq!(transient_receive_pause(2), Duration::from_millis(20));
         assert_eq!(transient_receive_pause(3), Duration::from_millis(40));
         assert_eq!(
@@ -4591,7 +4519,7 @@ mod tests {
 
         let now = Instant::now();
         assert_eq!(
-            clamp_transient_pause(
+            clamp_receive_pause(
                 MAXIMUM_TRANSIENT_RECEIVE_PAUSE,
                 Some(now + Duration::from_millis(3)),
                 now,

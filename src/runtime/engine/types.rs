@@ -5,8 +5,8 @@ use std::{num::NonZeroU64, sync::Arc, time::Duration};
 use smallvec::SmallVec;
 
 use crate::{
-    command::semantics::WriteOnlyState, raw::INLINE_BYTES, raw::MAX_BYTES, CameraId, Error,
-    ViscaSocket,
+    command::semantics::WriteOnlyState, protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES,
+    raw::MAX_BYTES, CameraId, Error, ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
@@ -587,24 +587,6 @@ pub(crate) enum RawPrefixEvidence {
         target: CameraId,
         kind: RawIncompletePrefix,
     },
-}
-
-/// The protocol identity, if any, visible in an incomplete raw frame prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RawIncompletePrefix {
-    /// The source byte (`0x9y..=0xFy`) arrived with no response-class byte.
-    SourceOnly,
-    /// `0x4y`: an ACK's nibble is an assignment preference, not an owner.
-    Ack,
-    /// `0x50`: socketless completion evidence.
-    SocketlessCompletion,
-    /// `0x60`: socketless error evidence.
-    SocketlessError,
-    /// `0x5y`/`0x6y` for one exact numbered socket.
-    NamedCompletionOrError(ViscaSocket),
-    /// Bytes cannot correlate to a raw request and therefore cannot revive or
-    /// bind a successor.
-    Noncorrelating,
 }
 
 /// The safe action for retained raw bytes at a correlation-release boundary.
