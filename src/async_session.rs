@@ -78,6 +78,7 @@ impl Session {
             &profiles,
             tuning,
             config.admission_capacity(),
+            config.strict_unconfirmed_poison(),
         )?;
         let policy = adapter.policy().clone();
 
@@ -204,12 +205,10 @@ impl Session {
     /// housekeeping pass and therefore also covered work in flight. To widen a
     /// deadline for a command that is already running, cancel it and resubmit.
     ///
-    /// The update is not a merge for runtime-mutable values: a field left unset
-    /// returns to its profile default rather than keeping the value a previous
-    /// call installed. [`OperationalTuning::strict_unconfirmed_poison`] is a
-    /// construction-only recovery policy, so setting it here is rejected; an
-    /// update that leaves it unset retains a construction-time strict opt-in in
-    /// [`Self::tuning`].
+    /// The update is not a merge: a field left unset returns to its profile
+    /// default rather than keeping the value a previous call installed.
+    /// Construction-only recovery policy lives on [`SessionConfig`], outside
+    /// `OperationalTuning`, and is therefore unaffected by this call.
     ///
     /// The update travels through the owner's control boundary and the owner is
     /// its only writer, so two session clones reconfiguring concurrently
@@ -220,9 +219,8 @@ impl Session {
     ///
     /// Rejects tuning that construction would reject for a registered profile:
     /// values that weaken pacing minima, raise a socket limit, undercut a
-    /// deadline, or specify incoherent retry timing. It also rejects an
-    /// explicit construction-only strict recovery setting, leaving the
-    /// session's current tuning untouched. Returns the session's terminal error
+    /// deadline, or specify incoherent retry timing, leaving the session's
+    /// current tuning untouched. Returns the session's terminal error
     /// if the owner has shut down; a retained terminal error takes precedence
     /// over validation of the proposed update.
     pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {

@@ -148,9 +148,7 @@ fn set_tuning_on_a_live_session_rejects_invalid_tuning_without_changing_it() {
 
 #[test]
 fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
-    let config = raw_config()
-        .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-        .expect("strict tuning is valid");
+    let config = raw_config().with_strict_unconfirmed_poison(true);
     let session = Session::open(ScriptedTransport::faulting(), config).expect("owner session");
     {
         let camera = session
@@ -164,11 +162,10 @@ fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
         assert!(matches!(error, Error::StreamPoisoned { .. }));
     }
 
-    // A strict-valued update is invalid on a live owner, but the retained
-    // terminal cause has precedence once the owner is poisoned. A facade-level
-    // validation would incorrectly return InvalidRequest here.
+    // Even an otherwise-valid update must report the retained terminal cause
+    // once the owner is poisoned.
     let error = session
-        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(false))
+        .set_tuning(OperationalTuning::new())
         .expect_err("set_tuning must not silently succeed on a poisoned session");
     assert!(
         matches!(error, Error::StreamPoisoned { .. }),
@@ -190,10 +187,10 @@ fn set_tuning_on_a_closed_session_returns_the_terminal_error() {
     let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
     session.shutdown().expect("clean shutdown");
 
-    // The session is Shutdown; even an otherwise-invalid strict policy change
-    // must report that retained terminal cause rather than InvalidRequest.
+    // The session is Shutdown; even an otherwise-valid update must report that
+    // retained terminal cause.
     let error = session
-        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
+        .set_tuning(OperationalTuning::new())
         .expect_err("set_tuning must not silently succeed on a closed session");
     assert!(
         matches!(error, Error::RuntimeShutdown),

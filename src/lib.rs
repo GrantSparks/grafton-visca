@@ -185,7 +185,7 @@
 //!   unsequenced command on a raw-VISCA envelope that merely loses its
 //!   ACK/completion does *not* poison (see *cancellation unconfirmed* above);
 //!   the whole-session poison is restored only behind the opt-in
-//!   `strict_unconfirmed_poison` tuning.
+//!   [`SessionConfig::with_strict_unconfirmed_poison`] policy.
 //!
 //! Recovery from a poisoned or closed session builds a fresh session from the
 //! reused configuration, starts with an unknown state cache, re-queries camera

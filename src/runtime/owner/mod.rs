@@ -1381,16 +1381,6 @@ impl OwnerState {
     /// session facades perform those profile-safety checks before the update
     /// reaches this point.
     pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
-        // The engine's strict raw-command recovery policy is selected at
-        // construction and deliberately has no engine retune operation. Do
-        // not let an internal caller accidentally install a live value that
-        // claims a policy the engine cannot have adopted.
-        tuning.validate_runtime_reconfiguration()?;
-        let tuning = if self.policy.protocol.strict_unconfirmed_poison {
-            tuning.strict_unconfirmed_poison(true)
-        } else {
-            tuning
-        };
         let baseline = self.policy.baseline;
         let command_spacing = tuning
             .command_spacing_override()

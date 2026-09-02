@@ -268,7 +268,7 @@ replacing the session. An active retry-budget expiry in `Sending`,
 `AwaitingAck`, `AwaitingCompletion`, or `Executing` follows the same per-request
 rule, while a retry still in a safe ready/backoff state finishes with its
 retained last error when the total budget expires. The whole-session poison is
-retained only behind the opt-in `strict_unconfirmed_poison` tuning (default off),
+retained only behind the opt-in `strict_unconfirmed_poison` session policy (default off),
 which restores the pre-fix behavior and surfaces it as `Error::StreamPoisoned`
 so those callers still establish a fresh session. The budget applies to every
 later noncancelled retry phase; a cancellation or per-request quarantine is

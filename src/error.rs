@@ -10,14 +10,26 @@
 //! around an application heartbeat and impose an application-owned silence
 //! threshold.
 //!
-//! | Outcome | What it proves | Application response |
-//! | --- | --- | --- |
-//! | [`Error::Timeout`] | This request exhausted its observer/protocol budget; the session may still be usable. | Bound any new logical attempt. Compare `received_frames` across heartbeats and replace the session when the application's silence threshold is met. |
-//! | [`Error::TransportBusy`] | Local blocking re-entrancy or temporary owner/transport contention. | Back off or serialize the caller; do not reconnect on this error alone. |
-//! | [`Error::UnsequencedCommandUnconfirmed`] | A sent command on a raw-VISCA envelope has an unknowable outcome; the session survives by default. | Never replay blindly. Reconcile the affected camera state before deciding whether to resubmit. |
-//! | [`Error::StreamPoisoned`] | Stream framing/write position is unknowable and the session is terminal. | Build a fresh transport/session, re-query state, then deliberately restore desired state. |
-//! | [`Error::ConnectionClosed`] | The peer or transport is gone and the session is terminal. | Build a fresh transport/session and re-query state. |
-//! | [`Error::RuntimeShutdown`] | This application deliberately ended the session. | Do not treat it as a field disconnect; reconnect only if the application intends to start another session. |
+//! ## Owner failure matrix
+//!
+//! This is the canonical event × envelope × transport mapping. "Any" includes
+//! both blocking and async owners; execution mode does not change a verdict.
+//!
+//! | Event | Envelope | Transport | Public outcome | `requires_new_session()` | Application response |
+//! | --- | --- | --- | --- | --- | --- |
+//! | Observer or inquiry/response deadline expires without correlation ambiguity | Any | Any | [`Error::Timeout`] | `false` | Bound any new logical attempt. A timeout alone is not liveness proof. |
+//! | A sent command's ACK/completion becomes unconfirmable under the default policy | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
+//! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
+//! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
+//! | Request or cancellation send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
+//! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
+//! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
+//! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
+//! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
+//! | Blocking owner re-entry, or a genuine first-dispatch command-socket collision | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
+//! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. |
+//! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
+//! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
 
 use thiserror::Error as ThisError;
 
@@ -52,6 +64,13 @@ pub enum ErrorKind {
 
     /// Operation was cancelled by user request.
     Cancelled,
+
+    /// A transmitted command or cancellation has an unknowable outcome.
+    ///
+    /// The affected request is finished, but the session remains usable by
+    /// default. Reconcile camera state before deciding whether to submit the
+    /// logical operation again.
+    Unconfirmed,
 
     /// Camera's command buffer is full (retryable).
     BufferFull,
@@ -129,8 +148,8 @@ pub enum ErrorKind {
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
 /// transport death from deliberate shutdown. A per-request correlation failure
 /// for an unsequenced command on a raw-VISCA envelope is different:
-/// [`Error::UnsequencedCommandUnconfirmed`] is false by default, so it does not
-/// by itself make the session unusable.
+/// [`Error::UnsequencedCommandUnconfirmed`] has
+/// [`ErrorKind::Unconfirmed`] and does not by itself make the session unusable.
 ///
 /// # VISCA Error Codes
 ///
@@ -338,9 +357,13 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(Cow<'static, str>),
 
-    /// Transport is busy and cannot be borrowed for a new operation.
-    /// This occurs when multiple operations try to use the transport concurrently
-    /// in blocking mode.
+    /// The blocking owner cannot enter this turn without violating exclusive
+    /// ownership.
+    ///
+    /// This has two meanings: a blocking call re-entered an owner turn already
+    /// in progress, or a newly submitted command lost a genuine first-dispatch
+    /// socket-capacity race. It is never a peer-disconnect verdict and is not
+    /// emitted by the async facade.
     #[error("Transport is busy with another operation")]
     TransportBusy,
 
@@ -369,8 +392,10 @@ pub enum Error {
     /// is therefore *not* proof of session death:
     /// [`Self::requires_new_session`] is `false`. Reconcile the affected camera
     /// state before deciding whether to resubmit. The strict
-    /// `strict_unconfirmed_poison` opt-in instead poisons the whole session,
-    /// which is surfaced as [`Self::StreamPoisoned`].
+    /// [`SessionConfig::with_strict_unconfirmed_poison`] opt-in instead poisons
+    /// the whole session, which is surfaced as [`Self::StreamPoisoned`].
+    ///
+    /// [`SessionConfig::with_strict_unconfirmed_poison`]: crate::SessionConfig::with_strict_unconfirmed_poison
     #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
 
@@ -518,8 +543,12 @@ impl Error {
             Self::ConnectionClosed { .. }
             | Self::TransportError(..)
             | Self::RuntimeShutdown
-            | Self::StreamPoisoned { .. }
-            | Self::UnsequencedCommandUnconfirmed => ErrorKind::IoClosed,
+            | Self::StreamPoisoned { .. } => ErrorKind::IoClosed,
+
+            // Unconfirmed: one transmitted operation has an unknowable result
+            Self::CancellationUnconfirmed | Self::UnsequencedCommandUnconfirmed => {
+                ErrorKind::Unconfirmed
+            }
 
             // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -556,7 +585,7 @@ impl Error {
             Self::TransportBusy | Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::CancellationUnconfirmed | Self::RuntimeIdentityExhausted => ErrorKind::Other,
+            Self::RuntimeIdentityExhausted => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),
@@ -1233,7 +1262,13 @@ mod tests {
             (
                 "unconfirmed unsequenced raw-VISCA command",
                 Error::UnsequencedCommandUnconfirmed,
-                ErrorKind::IoClosed,
+                ErrorKind::Unconfirmed,
+                None,
+            ),
+            (
+                "unconfirmed cancellation",
+                Error::CancellationUnconfirmed,
+                ErrorKind::Unconfirmed,
                 None,
             ),
             (
@@ -1320,9 +1355,14 @@ mod tests {
             ErrorKind::IoClosed
         );
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
+        // Unconfirmed
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),
-            ErrorKind::IoClosed
+            ErrorKind::Unconfirmed
+        );
+        assert_eq!(
+            Error::CancellationUnconfirmed.kind(),
+            ErrorKind::Unconfirmed
         );
 
         // Protocol
@@ -1353,7 +1393,6 @@ mod tests {
         assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
 
         // Other
-        assert_eq!(Error::CancellationUnconfirmed.kind(), ErrorKind::Other);
         assert_eq!(Error::RuntimeIdentityExhausted.kind(), ErrorKind::Other);
 
         // Io: inspect inner io::ErrorKind
@@ -1406,13 +1445,11 @@ mod tests {
         assert!(dropped.requires_new_session());
         assert!(poisoned.requires_new_session());
         assert!(!shutdown.requires_new_session());
-        // Issue #671: `UnsequencedCommandUnconfirmed` shares the `IoClosed` kind
-        // yet is, by default, a per-request outcome the session survives, so it
-        // must not require a new session. It is the strongest case that the
-        // verdict cannot be derived from the kind.
+        // Issue #726 gives recoverable correlation ambiguity its own category;
+        // it must neither masquerade as a closed connection nor require one.
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),
-            ErrorKind::IoClosed
+            ErrorKind::Unconfirmed
         );
         assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
     }

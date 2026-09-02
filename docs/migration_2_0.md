@@ -646,13 +646,12 @@ your own deadline) rather than from tuning.
 
 Two differences matter in practice.
 
-**The runtime-mutable fields are replaced whole, not merged.** Any mutable field
-left unset returns to the profile default rather than keeping a value an earlier
-call installed. Build the complete set of mutable `OperationalTuning` overrides
-each time. `strict_unconfirmed_poison` is the construction-only exception: an
-explicit `true` or `false` is rejected by `set_tuning`, while leaving it unset
-retains the session's construction-time policy and reports that retained value
-through `Session::tuning`.
+**Runtime tuning is replaced whole, not merged.** Any field left unset returns
+to the profile default rather than keeping a value an earlier call installed.
+Build the complete `OperationalTuning` value each time. Construction-only raw
+recovery policy no longer masquerades as one of those mutable fields: configure
+it with `SessionConfig::with_strict_unconfirmed_poison` (or the matching
+`CameraConfig` builder) before opening. `Session::tuning` reports tuning only.
 
 **In-flight work is not re-timed.** 1.2.0 recomputed deadlines on every
 housekeeping pass, so widening `ack_timeout` also rescued a command that was
@@ -709,17 +708,19 @@ Classify positive session-death evidence with `Error::requires_new_session()`
 rather than matching `ErrorKind::IoClosed` or individual variants. Transport
 close, explicit shutdown, and poison are deliberately distinct errors that
 share one kind, so the kind alone cannot tell a field disconnect apart from a
-shutdown this application requested. The table also includes the two common
-still-live outcomes that otherwise lead migration code into an unbounded retry
-loop:
+shutdown this application requested. Correlation uncertainty now has the
+dedicated `ErrorKind::Unconfirmed`; it is still not permission to replay. The
+canonical event × envelope × transport table lives in the
+[`error` module](../src/error.rs); this shorter recovery view highlights the
+outcomes most likely to cause an incorrect reconnect or retry loop:
 
 | Condition | Error | `requires_new_session()` | What to do |
 | --- | --- | --- | --- |
 | The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (`is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
-| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == IoClosed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| The blocking owner is temporarily borrowed/re-entered or otherwise cannot accept this turn | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
+| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
+| The blocking owner is re-entered or a new command loses a genuine first-dispatch socket-capacity race | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An
@@ -771,8 +772,9 @@ command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to
 already have acted on the camera) and keep using the session for unrelated work.
 A raw caller should therefore keep the session alive and reconcile before any
 deliberate resubmission. If you preferred the old hard-fail behavior, opt into
-`OperationalTuning::strict_unconfirmed_poison(true)`, which poisons the session
-and reports `StreamPoisoned` (`true`) exactly as before.
+`SessionConfig::with_strict_unconfirmed_poison(true)` (or the matching
+`CameraConfig` builder), which poisons the session and reports
+`StreamPoisoned` (`true`) exactly as before.
 
 **Behavior change (issue #675).** `read_timeout` and `write_timeout` now take
 effect on async sessions. In an earlier 2.0 preview both knobs were silently

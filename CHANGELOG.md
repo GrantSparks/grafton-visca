@@ -372,6 +372,21 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING** (#726), tracked in the pre-lock audit #729: Made the public failure model match the owner
+  verdicts before the 2.0 API lock. `ErrorKind::Unconfirmed` now classifies both
+  `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`; neither
+  recoverable per-request ambiguity masquerades as a closed connection.
+  Construction-only `strict_unconfirmed_poison` moved from
+  `OperationalTuning` to
+  `SessionConfig::with_strict_unconfirmed_poison` and the matching
+  `CameraConfig` builder, so every remaining tuning field can be replaced at
+  runtime without rejected policy values or synthetic readback reinjection.
+  `TransportBusy` now documents its two blocking-only causes: owner re-entry
+  and a genuine first-dispatch socket-capacity collision. The `error` module
+  publishes the canonical event × envelope × transport recovery table and the
+  migration guide links to it. This supersedes the interim #631/#671/#718
+  wording that placed immutable policy inside live tuning.
+
 - **Response deadlines now have an explicit inclusive wire boundary** (#731).
   A correlated ACK, completion, or inquiry reply sampled exactly at its
   response deadline wins; the same frame sampled strictly later is ignored as

@@ -237,6 +237,7 @@ pub(crate) fn owner_policy_for_targets(
         semantics,
         OperationalTuning::new(),
         crate::DEFAULT_ADMISSION_CAPACITY,
+        false,
     )
 }
 
@@ -249,6 +250,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     semantics: SendSemantics,
     tuning: OperationalTuning,
     admission_capacity: NonZeroUsize,
+    strict_unconfirmed_poison: bool,
 ) -> Result<OwnerPolicy, Error> {
     if profiles.is_empty() {
         return Err(Error::InvalidRequest(
@@ -386,7 +388,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             // fails on its own and quarantines its correlation, rather than
             // poisoning the whole session. The strict opt-in restores the
             // whole-session poison for deployments that prefer it.
-            strict_unconfirmed_poison: tuning.strict_unconfirmed_poison_override().unwrap_or(false),
+            strict_unconfirmed_poison,
         },
         target_policies,
     )?;
@@ -1348,6 +1350,7 @@ mod tests {
             SendSemantics::Datagram,
             OperationalTuning::new(),
             capacity,
+            false,
         )
         .unwrap();
         assert_eq!(raw_policy.protocol.envelope, EnvelopeKind::Raw);
@@ -1363,6 +1366,7 @@ mod tests {
             SendSemantics::Datagram,
             OperationalTuning::new(),
             capacity,
+            false,
         )
         .unwrap();
         assert_eq!(sony_policy.protocol.envelope, EnvelopeKind::Sony);

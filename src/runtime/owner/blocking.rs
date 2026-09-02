@@ -4383,6 +4383,7 @@ mod tests {
             &[(CameraId::CAMERA_1, &profile)],
             OperationalTuning::new(),
             std::num::NonZeroUsize::new(1).expect("non-zero capacity"),
+            false,
         )
         .expect("blocking adapter");
         let host = BlockingSessionHost::from_adapter(adapter).expect("blocking host");

@@ -381,53 +381,16 @@ async fn the_installed_tuning_reads_back_and_invalid_updates_are_rejected<E: Exe
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// `strict_unconfirmed_poison` selects the engine's raw-command recovery
-/// policy while the session is built. Runtime reconfiguration must therefore
-/// never make the readback claim a different policy: a default session cannot
-/// turn strict at runtime, while a strict session retains its construction
-/// policy when it replaces its mutable tuning or leaves it entirely unset.
-async fn strict_recovery_policy_is_construction_only_and_remains_visible_in_readback<
-    E: Executor,
->(
-    executor: E,
-) {
-    let default_session = Session::open(SilentTransport::new(), session_config(), executor.clone())
+/// Async parity for immutable strict policy and independently mutable tuning.
+async fn strict_recovery_policy_is_separate_from_runtime_tuning<E: Executor>(executor: E) {
+    let default_config = session_config();
+    assert!(!default_config.strict_unconfirmed_poison());
+    let strict_config = default_config.with_strict_unconfirmed_poison(true);
+    assert!(strict_config.strict_unconfirmed_poison());
+    let strict_session = Session::open(SilentTransport::new(), strict_config, executor)
         .await
-        .expect("default owner session");
-    let requested_strict = OperationalTuning::new().strict_unconfirmed_poison(true);
-    let error = default_session
-        .set_tuning(requested_strict)
-        .await
-        .expect_err("runtime tuning cannot enable construction-only strict recovery");
-    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
-    assert_eq!(
-        default_session.tuning(),
-        OperationalTuning::new(),
-        "a rejected default-to-strict update must not make readback claim strict recovery"
-    );
-    default_session.shutdown().await.expect("owner shutdown");
-
-    let strict = OperationalTuning::new().strict_unconfirmed_poison(true);
-    let strict_session = Session::open(
-        SilentTransport::new(),
-        session_config()
-            .with_tuning(strict)
-            .expect("strict tuning is valid"),
-        executor,
-    )
-    .await
-    .expect("strict owner session");
-
-    let error = strict_session
-        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(false))
-        .await
-        .expect_err("runtime tuning cannot disable construction-only strict recovery");
-    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
-    assert_eq!(
-        strict_session.tuning(),
-        strict,
-        "the rejected strict-to-default update leaves the strict readback intact"
-    );
+        .expect("strict owner session");
+    assert_eq!(strict_session.tuning(), OperationalTuning::new());
 
     let mutable_update = OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT);
     strict_session
@@ -436,18 +399,18 @@ async fn strict_recovery_policy_is_construction_only_and_remains_visible_in_read
         .expect("runtime-mutable tuning is still replaceable on a strict session");
     assert_eq!(
         strict_session.tuning(),
-        mutable_update.strict_unconfirmed_poison(true),
-        "a mutable update preserves the effective construction-time strict policy"
+        mutable_update,
+        "construction policy must not leak into tuning readback"
     );
 
     strict_session
         .set_tuning(OperationalTuning::new())
         .await
-        .expect("an unset strict field is not a policy change");
+        .expect("all tuning fields remain runtime-mutable");
     assert_eq!(
         strict_session.tuning(),
-        strict,
-        "clearing mutable overrides must not make a strict session read back as default"
+        OperationalTuning::new(),
+        "clearing tuning does not claim to change immutable session policy"
     );
     strict_session.shutdown().await.expect("owner shutdown");
 }
@@ -538,8 +501,7 @@ async fn run_matrix<E: Executor>(executor: E) {
     a_widened_inquiry_timeout_governs_a_pre_existing_view(executor.clone()).await;
     an_update_mid_flight_leaves_the_live_operation_alone(executor.clone()).await;
     the_installed_tuning_reads_back_and_invalid_updates_are_rejected(executor.clone()).await;
-    strict_recovery_policy_is_construction_only_and_remains_visible_in_readback(executor.clone())
-        .await;
+    strict_recovery_policy_is_separate_from_runtime_tuning(executor.clone()).await;
     concurrent_updates_from_two_handles_are_last_writer_wins(executor.clone()).await;
     a_camera_session_reconfigures_its_own_session(executor).await;
 }

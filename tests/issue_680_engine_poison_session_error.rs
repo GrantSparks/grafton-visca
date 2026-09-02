@@ -26,7 +26,7 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::ZoomStop,
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    DiagnosticEvent, Error, ErrorKind, OperationalTuning, SessionStatus,
+    DiagnosticEvent, Error, ErrorKind, SessionStatus,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -93,8 +93,7 @@ fn strict_session() -> Session {
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("raw runtime profile"),
     )
-    .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-    .expect("strict tuning is valid");
+    .with_strict_unconfirmed_poison(true);
     Session::open(PoisonOnReadTransport::new(), config).expect("owner session")
 }
 

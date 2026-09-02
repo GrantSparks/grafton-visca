@@ -201,11 +201,12 @@ tuning is not — `Session::set_tuning` replaces it at runtime, and
 `Session::tuning` reads back the live value. Every request prepared after the
 update uses the new deadlines, retry budget and pacing; a request already in
 flight keeps the deadlines it was admitted with. The
-`strict_unconfirmed_poison` recovery policy is the construction-only exception:
-configure it with `SessionConfig::with_tuning` before opening, because any
-runtime `set_tuning` override — `true` or `false` — is rejected. Leaving it unset
-in a runtime update preserves the construction-time policy. See [Operational
-tuning](#operational-tuning) and [Reconfiguring timeouts at
+Construction-only recovery policy is separate from tuning. Configure
+`strict_unconfirmed_poison` with
+`SessionConfig::with_strict_unconfirmed_poison` (or the matching
+`CameraConfig` builder) before opening; `set_tuning` then replaces every field
+in `OperationalTuning` without pretending to mutate that immutable policy. See
+[Operational tuning](#operational-tuning) and [Reconfiguring timeouts at
 runtime](migration_2_0.md#reconfiguring-timeouts-at-runtime).
 
 For one target, prefer the single-camera constructors: they name the profile

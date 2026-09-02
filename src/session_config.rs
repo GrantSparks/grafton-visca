@@ -36,6 +36,7 @@ pub struct SessionConfig {
     tuning: OperationalTuning,
     admission_capacity: NonZeroUsize,
     sony_sequence_reset_on_connect: bool,
+    strict_unconfirmed_poison: bool,
 }
 
 impl SessionConfig {
@@ -188,6 +189,26 @@ impl SessionConfig {
         self.sony_sequence_reset_on_connect
     }
 
+    /// Selects strict whole-session poisoning for unconfirmable raw commands.
+    ///
+    /// The default (`false`) fails only the affected command with
+    /// [`Error::UnsequencedCommandUnconfirmed`] and quarantines its raw-VISCA
+    /// correlation while the session and unrelated requests remain usable.
+    /// Setting `true` instead makes that uncertainty terminal and reports
+    /// [`Error::StreamPoisoned`]. The policy is fixed when the session opens
+    /// and has no effect on Sony's sequence-correlated envelope.
+    #[must_use]
+    pub const fn with_strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
+        self.strict_unconfirmed_poison = enabled;
+        self
+    }
+
+    /// Returns whether unconfirmable raw commands poison the whole session.
+    #[must_use]
+    pub const fn strict_unconfirmed_poison(&self) -> bool {
+        self.strict_unconfirmed_poison
+    }
+
     /// Checks operational tuning against every registered profile.
     ///
     /// This is the same check [`Self::with_tuning`] performs, exposed for the
@@ -301,6 +322,7 @@ impl SessionConfig {
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
             sony_sequence_reset_on_connect: false,
+            strict_unconfirmed_poison: false,
         }
     }
 
@@ -329,6 +351,7 @@ impl Default for SessionConfig {
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
             sony_sequence_reset_on_connect: false,
+            strict_unconfirmed_poison: false,
         }
     }
 }
@@ -354,5 +377,16 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true);
         assert!(sony.sony_sequence_reset_on_connect());
         sony.validate_for_transport(None).unwrap();
+    }
+
+    #[test]
+    fn strict_unconfirmed_poison_is_explicit_immutable_session_policy() {
+        let default = SessionConfig::from_compile_time::<GenericVisca>().unwrap();
+        assert!(!default.strict_unconfirmed_poison());
+
+        let strict = default.with_strict_unconfirmed_poison(true);
+        assert!(strict.strict_unconfirmed_poison());
+        assert_eq!(strict.tuning(), OperationalTuning::new());
+        strict.validate_for_transport(None).unwrap();
     }
 }

@@ -34,7 +34,7 @@ use grafton_visca::{
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
-    CameraId, CancellationOutcome, Error, OperationalTuning,
+    CameraId, CancellationOutcome, Error,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -329,7 +329,7 @@ fn raw_receive_fault_fails_one_command_and_keeps_the_session() {
 }
 
 /// Issue #671 strict opt-in, end to end: with
-/// `OperationalTuning::strict_unconfirmed_poison(true)`, the same receive fault
+/// `SessionConfig::with_strict_unconfirmed_poison(true)`, the same receive fault
 /// poisons the whole session, surfaced as `StreamPoisoned` (which requires a
 /// replacement session). This exercises the full tuning → adapter → engine
 /// plumbing of the opt-in through the real facade.
@@ -345,9 +345,7 @@ fn strict_opt_in_raw_receive_fault_poisons_the_session() {
         );
     let session = Session::open(
         transport,
-        session_config()
-            .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-            .expect("strict tuning is valid"),
+        session_config().with_strict_unconfirmed_poison(true),
     )
     .expect("owner session");
     let camera = session

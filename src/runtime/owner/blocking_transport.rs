@@ -96,6 +96,7 @@ where
             &[(target, profile)],
             tuning,
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
     }
 
@@ -106,6 +107,7 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
         // Keep the blocking startup boundary identical to async: reject a
         // known standard transport before reading startup configuration or
@@ -136,6 +138,7 @@ where
             transport.send_semantics(),
             tuning,
             admission_capacity,
+            strict_unconfirmed_poison,
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
@@ -162,8 +165,15 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, profiles, tuning, admission_capacity)
+        Self::new_with_targets(
+            transport,
+            profiles,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )
     }
 
     pub(crate) fn policy(&self) -> &OwnerPolicy {
@@ -822,6 +832,7 @@ mod tests {
             &profiles,
             OperationalTuning::new(),
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
         .unwrap();
         (adapter, io)
@@ -1657,6 +1668,7 @@ mod tests {
             &profiles,
             OperationalTuning::new(),
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
         .unwrap();
         let mut owner_policy = adapter.policy().clone();

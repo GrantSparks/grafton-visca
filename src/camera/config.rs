@@ -198,6 +198,8 @@ pub struct CameraConfig<P> {
     pub(crate) admission_capacity: NonZeroUsize,
     /// Whether to reset Sony VISCA-over-IP sequence state during session open.
     pub(crate) sony_sequence_reset_on_connect: bool,
+    /// Whether raw correlation uncertainty poisons the entire session.
+    pub(crate) strict_unconfirmed_poison: bool,
     /// Transport configuration for the underlying connection.
     pub(crate) transport_config: TransportConfig,
     /// Camera VISCA address (usually 1).
@@ -222,6 +224,7 @@ where
             tuning: OperationalTuning::new(),
             admission_capacity: crate::SessionConfig::default().admission_capacity(),
             sony_sequence_reset_on_connect: false,
+            strict_unconfirmed_poison: false,
             transport_config: TransportConfig::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
@@ -374,6 +377,23 @@ where
         self.sony_sequence_reset_on_connect
     }
 
+    /// Selects strict whole-session poisoning for unconfirmable raw commands.
+    ///
+    /// This is immutable construction policy; runtime tuning remains fully
+    /// replaceable after the session opens. See
+    /// [`crate::SessionConfig::with_strict_unconfirmed_poison`].
+    #[must_use]
+    pub const fn with_strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
+        self.strict_unconfirmed_poison = enabled;
+        self
+    }
+
+    /// Returns whether raw correlation uncertainty poisons the whole session.
+    #[must_use]
+    pub const fn strict_unconfirmed_poison(&self) -> bool {
+        self.strict_unconfirmed_poison
+    }
+
     /// Set transport configuration.
     pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
         self.transport_config = transport_config;
@@ -491,7 +511,8 @@ where
             .with_tuning(self.owner_tuning())?;
         Ok(config
             .with_admission_capacity(self.admission_capacity)
-            .with_sony_sequence_reset_on_connect(self.sony_sequence_reset_on_connect))
+            .with_sony_sequence_reset_on_connect(self.sony_sequence_reset_on_connect)
+            .with_strict_unconfirmed_poison(self.strict_unconfirmed_poison))
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
@@ -905,6 +926,19 @@ mod tests {
             .session_config()
             .expect("Sony session config")
             .sony_sequence_reset_on_connect());
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn canonical_session_config_preserves_strict_recovery_policy_outside_tuning() {
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, OperationalTuning};
+
+        let camera_config = CameraConfig::<PtzOpticsG2>::new().with_strict_unconfirmed_poison(true);
+        assert!(camera_config.strict_unconfirmed_poison());
+
+        let session_config = camera_config.session_config().expect("session config");
+        assert!(session_config.strict_unconfirmed_poison());
+        assert_eq!(session_config.tuning(), OperationalTuning::new());
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]

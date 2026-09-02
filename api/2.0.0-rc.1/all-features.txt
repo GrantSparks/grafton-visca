@@ -92,6 +92,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -100,6 +101,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -557,11 +559,13 @@ pub fn grafton_visca::SessionConfig::profile(&self, grafton_visca::CameraId) -> 
 pub fn grafton_visca::SessionConfig::register_target(&mut self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<&mut Self>
 pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<grafton_visca::CameraId>
 pub const fn grafton_visca::SessionConfig::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::SessionConfig::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -2455,6 +2459,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -2463,6 +2468,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -14485,6 +14491,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -14493,6 +14500,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -16475,11 +16483,13 @@ pub fn grafton_visca::SessionConfig::profile(&self, grafton_visca::CameraId) -> 
 pub fn grafton_visca::SessionConfig::register_target(&mut self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<&mut Self>
 pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<grafton_visca::CameraId>
 pub const fn grafton_visca::SessionConfig::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::SessionConfig::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -18810,6 +18820,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -18818,6 +18829,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -20517,11 +20529,13 @@ pub fn grafton_visca::SessionConfig::profile(&self, grafton_visca::CameraId) -> 
 pub fn grafton_visca::SessionConfig::register_target(&mut self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<&mut Self>
 pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<grafton_visca::CameraId>
 pub const fn grafton_visca::SessionConfig::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::SessionConfig::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -22489,7 +22503,6 @@ pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
-pub const fn grafton_visca::profile::OperationalTuning::strict_unconfirmed_poison(self, bool) -> Self
 impl core::clone::Clone for grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::profile::OperationalTuning::clone(&self) -> grafton_visca::profile::OperationalTuning
 impl core::cmp::Eq for grafton_visca::profile::OperationalTuning
@@ -26382,6 +26395,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -26390,6 +26404,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -26786,11 +26801,13 @@ pub fn grafton_visca::SessionConfig::profile(&self, grafton_visca::CameraId) -> 
 pub fn grafton_visca::SessionConfig::register_target(&mut self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<&mut Self>
 pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<grafton_visca::CameraId>
 pub const fn grafton_visca::SessionConfig::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::SessionConfig::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig
@@ -30892,6 +30909,7 @@ pub grafton_visca::ErrorKind::NotExecutable
 pub grafton_visca::ErrorKind::Other
 pub grafton_visca::ErrorKind::Protocol
 pub grafton_visca::ErrorKind::Timeout
+pub grafton_visca::ErrorKind::Unconfirmed
 pub grafton_visca::ErrorKind::Unsupported
 impl core::clone::Clone for grafton_visca::ErrorKind
 pub fn grafton_visca::ErrorKind::clone(&self) -> grafton_visca::ErrorKind
@@ -32019,6 +32037,7 @@ pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
 pub fn grafton_visca::CameraConfig<P>::transport(self, grafton_visca::camera::TransportOptions) -> Self
 pub fn grafton_visca::CameraConfig<P>::transport_config(self, grafton_visca::transport::TransportConfig) -> Self
@@ -32027,6 +32046,7 @@ pub const fn grafton_visca::CameraConfig<P>::tuning(&self) -> grafton_visca::pro
 pub fn grafton_visca::CameraConfig<P>::udp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsUdp
 pub const fn grafton_visca::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::Session>
@@ -33074,7 +33094,6 @@ pub const fn grafton_visca::profile::OperationalTuning::quick_timeout(self, core
 pub const fn grafton_visca::profile::OperationalTuning::retry_limit(self, u32) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::retry_timing(self, core::time::Duration, core::time::Duration, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::OperationalTuning::settlement_timeout(self, core::time::Duration) -> Self
-pub const fn grafton_visca::profile::OperationalTuning::strict_unconfirmed_poison(self, bool) -> Self
 impl core::clone::Clone for grafton_visca::profile::OperationalTuning
 pub fn grafton_visca::profile::OperationalTuning::clone(&self) -> grafton_visca::profile::OperationalTuning
 impl core::cmp::Eq for grafton_visca::profile::OperationalTuning
@@ -33576,11 +33595,13 @@ pub fn grafton_visca::SessionConfig::profile(&self, grafton_visca::CameraId) -> 
 pub fn grafton_visca::SessionConfig::register_target(&mut self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<&mut Self>
 pub fn grafton_visca::SessionConfig::sole_target(&self) -> core::option::Option<grafton_visca::CameraId>
 pub const fn grafton_visca::SessionConfig::sony_sequence_reset_on_connect(&self) -> bool
+pub const fn grafton_visca::SessionConfig::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::SessionConfig::target_count(&self) -> usize
 pub fn grafton_visca::SessionConfig::targets(&self) -> [core::option::Option<grafton_visca::CameraId>; 7]
 pub const fn grafton_visca::SessionConfig::tuning(&self) -> grafton_visca::profile::OperationalTuning
 pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
+pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
 pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::SessionConfig

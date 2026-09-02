@@ -7107,6 +7107,7 @@ mod tests {
             ],
             crate::OperationalTuning::new(),
             std::num::NonZeroUsize::new(4).unwrap(),
+            false,
         )
         .unwrap();
         let (handle, actor) =
@@ -7208,6 +7209,7 @@ mod tests {
             ],
             crate::OperationalTuning::new(),
             std::num::NonZeroUsize::new(4).unwrap(),
+            false,
         )
         .unwrap();
         let frame_limit = adapter.policy().limits.frames_per_receive;

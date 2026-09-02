@@ -339,7 +339,7 @@ backoff is included). That error is retryable and
 `requires_new_session() == false`: it proves only that this request received no
 answer. A response-bearing command on a raw-VISCA envelope can instead end as
 `UnsequencedCommandUnconfirmed` once its ACK/completion and ambiguity windows
-expire. That result has `ErrorKind::IoClosed` but also returns
+expire. That result has the dedicated `ErrorKind::Unconfirmed` and returns
 `requires_new_session() == false`, because the session remains usable by
 default and only that command's outcome is unknown. Neither result authorizes
 an infinite retry loop or a blind replay.
@@ -428,10 +428,11 @@ restart in place:
 
 0. Classify the failure with `Error::requires_new_session()`. It returns `true`
    for transport-level session death (`ConnectionClosed` or `StreamPoisoned`)
-   and `false` for the deliberate `RuntimeShutdown` and the default
-   per-request `UnsequencedCommandUnconfirmed` result, which all share
-   `ErrorKind::IoClosed`. Do not match the kind or individual variants to make
-   this decision. Fatal receive closure is normalized to `ConnectionClosed`
+   and `false` for deliberate `RuntimeShutdown` and the default per-request
+   `UnsequencedCommandUnconfirmed` result. The latter now has
+   `ErrorKind::Unconfirmed`; the terminal errors still share
+   `ErrorKind::IoClosed`, so use the predicate for the reconnect decision.
+   Fatal receive closure is normalized to `ConnectionClosed`
    with the original cause text; `StreamPoisoned` is reserved for an
    unknowable stream framing or write position. Note that
    `UnsequencedCommandUnconfirmed` returns `false` (issue #671): by default it is
