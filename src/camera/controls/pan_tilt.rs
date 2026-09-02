@@ -110,7 +110,7 @@ pub trait PanTiltControl {
     /// # Arguments
     /// * `direction` - Direction of movement (Up, Down, Left, Right, UpLeft, UpRight, DownLeft, DownRight, Stop)
     /// * `pan_speed` - Pan speed (0-24, camera-specific range)
-    /// * `tilt_speed` - Tilt speed (0-20, camera-specific range)
+    /// * `tilt_speed` - Tilt speed (0-24, camera-specific range)
     ///
     /// # Errors
     /// Returns an error if the command fails to send or receive a response.

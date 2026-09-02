@@ -405,10 +405,8 @@ async fn test_dyn_digital_zoom_range_requires_typed_range_support() {
 }
 
 #[tokio::test]
-async fn test_dyn_sony_fr7_supported_typed_zoom_and_focus_surfaces_succeed() {
+async fn test_dyn_sony_fr7_rejects_unverified_shared_focus_features_without_sending() {
     let transport = ScriptedTransport::new(vec![
-        helpers::sony_auto_respond_step(),
-        helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
         helpers::sony_auto_respond_step(),
     ]);
@@ -419,8 +417,8 @@ async fn test_dyn_sony_fr7_supported_typed_zoom_and_focus_surfaces_succeed() {
 
     assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
     assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
-    assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
-    assert!(caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+    assert!(!caps.supports_typed(TypedSupportSurface::FocusZone));
+    assert!(!caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
 
     dyn_camera
         .zoom()
@@ -436,21 +434,28 @@ async fn test_dyn_sony_fr7_supported_typed_zoom_and_focus_surfaces_succeed() {
         )
         .await
         .expect("SonyFR7 optical-plus-digital zoom should be supported");
-    dyn_camera
-        .focus()
-        .set_focus_zone(FocusZone::Center)
-        .await
-        .expect("SonyFR7 focus zone should be supported");
-    dyn_camera
+    let focus_zone = dyn_camera.focus().set_focus_zone(FocusZone::Center).await;
+    assert!(matches!(
+        focus_zone,
+        Err(Error::FeatureNotSupported {
+            feature: "focus zone"
+        })
+    ));
+    let af_sensitivity = dyn_camera
         .focus()
         .set_auto_focus_sensitivity(AutoFocusSensitivity::Normal)
-        .await
-        .expect("SonyFR7 AF sensitivity should be supported");
+        .await;
+    assert!(matches!(
+        af_sensitivity,
+        Err(Error::FeatureNotSupported {
+            feature: "auto-focus sensitivity"
+        })
+    ));
 
     assert_eq!(
         sent.sent().len(),
-        4,
-        "each supported SonyFR7 dyn typed call should submit one command"
+        2,
+        "unsupported shared focus calls must not submit commands"
     );
 }
 

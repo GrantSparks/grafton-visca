@@ -16,7 +16,6 @@ use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::capabilities::{PanTilt, Profile};
 use crate::command::{CommandBehavior, InquiryResponseSpec, ResponseParser, ViscaCommand};
-use crate::error::format_payload_hex;
 use crate::timeout::CommandCategory;
 use crate::types::{BroadcastDomain, DefogLevel, ExposureCompensationPosition, NdFilterPreset};
 use crate::{CameraId, Error};
@@ -64,6 +63,20 @@ pub(crate) enum BuiltinInquiryQuery {
         /// Canonical command for the shared request bytes.
         canonical: BuiltinInquiryCommand,
     },
+    /// Retains a 1.x public command/accessor for compatibility, but rejects it
+    /// before serialization because no source-backed request opcode exists.
+    Unavailable,
+}
+
+/// Reject a legacy inquiry whose historical bytes alias a different command.
+fn ensure_builtin_inquiry_available(name: &'static str) -> Result<(), Error> {
+    if name == "ResolutionInquiry" {
+        Err(Error::FeatureNotSupported {
+            feature: "resolution inquiry (no verified VISCA opcode)",
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// Profile-specific response decoding hook used by a built-in inquiry.
@@ -751,6 +764,7 @@ macro_rules! define_builtin_inquiries {
                     camera_id: CameraId,
                     buffer: &mut [u8],
                 ) -> Result<usize, Error> {
+                    ensure_builtin_inquiry_available(stringify!($struct))?;
                     let bytes = bytes::$bytes_const;
                     let len = bytes.len();
                     if buffer.len() < len {
@@ -881,14 +895,22 @@ macro_rules! define_builtin_inquiries {
                 for camera_num in 1..=8 {
                     let camera_id = CameraId::new(camera_num).expect("valid camera id");
                     $(
-                        assert_inquiry_matches_metadata(
-                            $struct,
-                            bytes::$bytes_const,
-                            InquiryKind::$kind,
-                            builtin_inquiry_timeout_category!($($timeout)?),
-                            camera_id,
-                            stringify!($struct),
-                        );
+                        if matches!($query, BuiltinInquiryQuery::Unavailable) {
+                            let mut buffer = [0_u8; 32];
+                            assert!(matches!(
+                                $struct.write_into(camera_id, &mut buffer),
+                                Err(Error::FeatureNotSupported { .. })
+                            ));
+                        } else {
+                            assert_inquiry_matches_metadata(
+                                $struct,
+                                bytes::$bytes_const,
+                                InquiryKind::$kind,
+                                builtin_inquiry_timeout_category!($($timeout)?),
+                                camera_id,
+                                stringify!($struct),
+                            );
+                        }
                     )*
                 }
             }
@@ -918,11 +940,13 @@ macro_rules! define_builtin_inquiries {
                                 left.query,
                                 BuiltinInquiryQuery::Alias { .. }
                                     | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                                    | BuiltinInquiryQuery::Unavailable
                             );
                             let right_explicit = matches!(
                                 right.query,
                                 BuiltinInquiryQuery::Alias { .. }
                                     | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                                    | BuiltinInquiryQuery::Unavailable
                             );
                             assert!(
                                 left_explicit || right_explicit,
@@ -955,6 +979,9 @@ macro_rules! define_builtin_inquiries {
                                 meta.name,
                                 canonical.name(),
                             );
+                        }
+                        BuiltinInquiryQuery::Unavailable => {
+                            assert!(meta.rationale.is_some(), "{} needs a rationale", meta.name);
                         }
                         BuiltinInquiryQuery::Queryable | BuiltinInquiryQuery::DecodeOnly => {}
                     }
@@ -1300,12 +1327,12 @@ macro_rules! builtin_inquiry_table {
         IrisInquiry => {
             const IRIS = [0x81, 0x09, 0x04, 0x4B];
             kind: Iris {
-                /// Iris position (0x0=Close to 0xC=F1.8).
+                /// Two-nibble iris position value; the supported range is profile-specific.
                 position: u8,
             };
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
-                Ok(Response::Inquiry(InquiryData::Iris { position: nibbles.last_nibble() }))
+                Ok(Response::Inquiry(InquiryData::Iris { position: nibbles.u8_pair(2) }))
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
@@ -1375,6 +1402,7 @@ macro_rules! builtin_inquiry_table {
                     0x01 => WhiteBalanceMode::Indoor,
                     0x02 => WhiteBalanceMode::Outdoor,
                     0x03 => WhiteBalanceMode::OnePush,
+                    0x04 => WhiteBalanceMode::ATW,
                     0x05 => WhiteBalanceMode::Manual,
                     0x20 => WhiteBalanceMode::ColorTemperature,
                     v => {
@@ -1706,7 +1734,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the current focus zone selection.
         FocusZoneInquiry => {
-            const FOCUS_ZONE = [0x81, 0x09, 0x04, 0x3C];
+            const FOCUS_ZONE = [0x81, 0x09, 0x04, 0xAA];
             kind: FocusZone {
                 /// Current focus zone setting.
                 zone: FocusZone,
@@ -1744,9 +1772,9 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 require_len(&payload, 1)?;
                 let sensitivity = match payload.as_slice()[0] {
-                    0x00 => AutoFocusSensitivity::Low,
-                    0x01 => AutoFocusSensitivity::Normal,
-                    0x02 => AutoFocusSensitivity::High,
+                    0x01 => AutoFocusSensitivity::High,
+                    0x02 => AutoFocusSensitivity::Normal,
+                    0x03 => AutoFocusSensitivity::Low,
                     v => {
                         return Err(Error::InvalidParameter {
                             parameter: "auto_focus_sensitivity",
@@ -1868,7 +1896,10 @@ macro_rules! builtin_inquiry_table {
             );
         }
 
-        /// Inquiry command to get the current video resolution mode.
+        /// Legacy resolution inquiry retained for 1.x API compatibility.
+        ///
+        /// No verified VISCA resolution opcode exists. Encoding this command
+        /// returns [`crate::Error::FeatureNotSupported`] without writing to the wire.
         ResolutionInquiry => {
             const RESOLUTION = [0x81, 0x09, 0x04, 0x63];
             kind: Resolution (ResolutionMode);
@@ -1878,9 +1909,9 @@ macro_rules! builtin_inquiry_table {
                 Ok(Response::Inquiry(InquiryData::Resolution(resolution_mode)))
             };
             response: true;
-            query: BuiltinInquiryQuery::Queryable;
+            query: BuiltinInquiryQuery::Unavailable;
             vendor_specific: false;
-            rationale: None;
+            rationale: Some("The legacy 09 04 63 bytes are CAM_PictureEffectModeInq, not a resolution query; retain the 1.x API but reject it locally until a source-backed resolution opcode exists.");
             typed: (ResolutionMode, (val) => Ok(val));
         }
 
@@ -1924,7 +1955,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the current picture effect mode.
         PictureEffectInquiry => {
-            const PICTURE_EFFECT = [0x81, 0x09, 0x04, 0x32];
+            const PICTURE_EFFECT = [0x81, 0x09, 0x04, 0x63];
             kind: PictureEffect {
                 /// Current picture effect (Off, Negative, Black & White, Sepia, etc.).
                 effect: PictureEffectMode,
@@ -2418,13 +2449,14 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the USB audio state.
         UsbAudioInquiry => {
-            const USB_AUDIO = [0x81, 0x09, 0x04, 0x7A];
+            const USB_AUDIO = [0x81, 0x2A, 0x02, 0xA0, 0x04];
             kind: UsbAudio {
                 /// Whether USB audio is enabled.
                 on: bool,
             };
             decode: |payload| {
-                let on = payload.parse_bool("usb_audio_status", BoolConvention::OnIs03)?;
+                require_len(&payload, 1)?;
+                let on = payload.parse_bool("usb_audio_status", BoolConvention::OnIs02)?;
                 Ok(Response::Inquiry(InquiryData::UsbAudio { on }))
             };
             response: true;
@@ -2944,92 +2976,136 @@ fn require_nonempty(payload: &Payload<'_>) -> Result<(), Error> {
 ///
 /// This decoder interprets pan/tilt positions as signed 16-bit values.
 fn decode_pan_tilt_position(payload: Payload<'_>) -> Result<Response, Error> {
-    if payload.len() == 8 {
-        let nibbles = Nibbles::<8>::try_from(payload)?;
-        let pan = nibbles.i16_quad(0);
-        let tilt = nibbles.i16_quad(4);
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else if payload.len() == 4 {
-        tracing::warn!(
-            "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
-            payload.as_slice()
-        );
-        let pan = if payload.len() >= 2 {
-            #[allow(clippy::cast_possible_wrap)]
-            let p = ((payload.as_slice()[0] as i16) << 8) | (payload.as_slice()[1] as i16);
-            p
-        } else {
-            0
-        };
-        let tilt = if payload.len() >= 4 {
-            #[allow(clippy::cast_possible_wrap)]
-            let t = ((payload.as_slice()[2] as i16) << 8) | (payload.as_slice()[3] as i16);
-            t
-        } else {
-            0
-        };
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else {
-        tracing::debug!(
-            "PanTiltPosition: Payload length {} doesn't match pan/tilt format (expected 8 or 4 bytes)",
-            payload.len()
-        );
-        Err(Error::DecoderNotFound {
-            inquiry_kind: InquiryKind::PanTiltPosition,
-            payload_hex: format_payload_hex(payload.as_slice()),
-        })
-    }
+    let nibbles = Nibbles::<8>::try_from(payload)?;
+    let pan = nibbles.i16_quad(0);
+    let tilt = nibbles.i16_quad(4);
+    Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+        pan,
+        tilt,
+    }))
 }
 
 /// Decode PanTiltPosition using the profile's coordinate-system conversion.
 fn decode_pan_tilt_position_for<P: Profile + PanTilt>(
     payload: Payload<'_>,
 ) -> Result<Response, Error> {
-    if payload.len() == 8 {
-        let nibbles = Nibbles::<8>::try_from(payload)?;
-        let pan_u16 = nibbles.u16_quad(0);
-        let tilt_u16 = nibbles.u16_quad(4);
-        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+    let nibbles = Nibbles::<8>::try_from(payload)?;
+    let pan_u16 = nibbles.u16_quad(0);
+    let tilt_u16 = nibbles.u16_quad(4);
+    let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
 
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else if payload.len() == 4 {
-        tracing::warn!(
-            "PanTiltPosition: Received compact format (4 bytes). Payload: {:02X?}. Treating as home position.",
-            payload.as_slice()
-        );
-        let pan_u16 = if payload.len() >= 2 {
-            ((payload.as_slice()[0] as u16) << 8) | (payload.as_slice()[1] as u16)
-        } else {
-            0x8000
-        };
-        let tilt_u16 = if payload.len() >= 4 {
-            ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16)
-        } else {
-            0x8000
-        };
-        let (pan, tilt) = P::COORDINATE_SYSTEM.convert_from_camera_coords(pan_u16, tilt_u16);
+    Ok(Response::Inquiry(InquiryData::PanTiltPosition {
+        pan,
+        tilt,
+    }))
+}
 
-        Ok(Response::Inquiry(InquiryData::PanTiltPosition {
-            pan,
-            tilt,
-        }))
-    } else {
-        tracing::debug!(
-            "PanTiltPosition: Payload length {} doesn't match pan/tilt format (expected 8 or 4 bytes)",
-            payload.len()
+#[cfg(test)]
+#[allow(clippy::panic)]
+mod issue_733_tests {
+    use super::*;
+    use crate::command::bytes::VISCA_TERMINATOR;
+
+    fn wire<C: ViscaCommand>(command: C) -> Vec<u8> {
+        let mut buffer = [0_u8; 16];
+        let len = command
+            .write_into(CameraId::CAMERA_1, &mut buffer)
+            .unwrap_or_else(|error| panic!("inquiry must encode: {error:?}"));
+        buffer[..len].to_vec()
+    }
+
+    #[test]
+    fn corrected_inquiry_opcodes_match_source_rows() {
+        assert_eq!(
+            wire(FocusZoneInquiry),
+            [0x81, 0x09, 0x04, 0xAA, VISCA_TERMINATOR]
         );
-        Err(Error::DecoderNotFound {
-            inquiry_kind: InquiryKind::PanTiltPosition,
-            payload_hex: format_payload_hex(payload.as_slice()),
-        })
+        assert_eq!(
+            wire(PictureEffectInquiry),
+            [0x81, 0x09, 0x04, 0x63, VISCA_TERMINATOR]
+        );
+        assert_eq!(
+            wire(UsbAudioInquiry),
+            [0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR]
+        );
+    }
+
+    #[test]
+    fn legacy_resolution_query_is_rejected_before_serialization() {
+        let mut buffer = [0xA5_u8; 8];
+        assert!(matches!(
+            ResolutionInquiry.write_into(CameraId::CAMERA_1, &mut buffer),
+            Err(Error::FeatureNotSupported {
+                feature: "resolution inquiry (no verified VISCA opcode)"
+            })
+        ));
+        assert_eq!(
+            buffer, [0xA5; 8],
+            "rejected query must not touch the wire buffer"
+        );
+    }
+
+    #[test]
+    fn corrected_single_value_decoders_cover_full_domains() {
+        let iris = dispatch(InquiryKind::Iris, Payload::new(&[0x00, 0x00, 0x01, 0x0E]))
+            .unwrap_or_else(|error| panic!("iris 0x1E must decode: {error:?}"));
+        assert!(matches!(
+            iris,
+            Response::Inquiry(InquiryData::Iris { position: 0x1E })
+        ));
+
+        let atw = dispatch(InquiryKind::WhiteBalanceMode, Payload::new(&[0x04]))
+            .unwrap_or_else(|error| panic!("ATW white balance must decode: {error:?}"));
+        assert!(matches!(
+            atw,
+            Response::Inquiry(InquiryData::WhiteBalanceMode {
+                mode: WhiteBalanceMode::ATW
+            })
+        ));
+
+        for (wire_value, expected) in [
+            (0x01, AutoFocusSensitivity::High),
+            (0x02, AutoFocusSensitivity::Normal),
+            (0x03, AutoFocusSensitivity::Low),
+        ] {
+            let decoded = dispatch(
+                InquiryKind::AutoFocusSensitivity,
+                Payload::new(&[wire_value]),
+            )
+            .unwrap_or_else(|error| panic!("AF sensitivity must decode: {error:?}"));
+            assert!(matches!(
+                decoded,
+                Response::Inquiry(InquiryData::AutoFocusSensitivity { sensitivity })
+                    if sensitivity == expected
+            ));
+        }
+
+        for (wire_value, expected) in [(0x02, true), (0x03, false)] {
+            let decoded = dispatch(InquiryKind::UsbAudio, Payload::new(&[wire_value]))
+                .unwrap_or_else(|error| panic!("USB audio state must decode: {error:?}"));
+            assert!(matches!(
+                decoded,
+                Response::Inquiry(InquiryData::UsbAudio { on }) if on == expected
+            ));
+        }
+    }
+
+    #[test]
+    fn compact_pan_tilt_payload_is_an_error() {
+        let result = dispatch(
+            InquiryKind::PanTiltPosition,
+            Payload::new(&[0x00, 0x01, 0x00, 0x02]),
+        );
+        let Err(error) = result else {
+            panic!("four data bytes must not decode as a standard pan/tilt position");
+        };
+        assert!(matches!(
+            error,
+            Error::InvalidResponseLength {
+                expected: 8,
+                actual: 4,
+                ..
+            }
+        ));
     }
 }

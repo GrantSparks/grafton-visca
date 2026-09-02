@@ -12,11 +12,11 @@ pub(crate) enum PayloadType {
     ViscaInquiry,
     /// VISCA reply payload (0x01 0x11).
     ViscaReply,
-    /// VISCA device setting command (0x01 0x02).
+    /// VISCA device setting command (0x01 0x20).
     ViscaDeviceSetting,
-    /// Control command (0x01 0x20).
+    /// Control command (0x02 0x00).
     ControlCommand,
-    /// Control reply (0x01 0x21).
+    /// Control reply (0x02 0x01).
     ControlReply,
 }
 
@@ -28,9 +28,9 @@ impl PayloadType {
             PayloadType::ViscaCommand => [0x01, 0x00],
             PayloadType::ViscaInquiry => [0x01, 0x10],
             PayloadType::ViscaReply => [0x01, 0x11],
-            PayloadType::ViscaDeviceSetting => [0x01, 0x02],
-            PayloadType::ControlCommand => [0x01, 0x20],
-            PayloadType::ControlReply => [0x01, 0x21],
+            PayloadType::ViscaDeviceSetting => [0x01, 0x20],
+            PayloadType::ControlCommand => [0x02, 0x00],
+            PayloadType::ControlReply => [0x02, 0x01],
         }
     }
 
@@ -41,9 +41,9 @@ impl PayloadType {
             [0x01, 0x00] => Some(PayloadType::ViscaCommand),
             [0x01, 0x10] => Some(PayloadType::ViscaInquiry),
             [0x01, 0x11] => Some(PayloadType::ViscaReply),
-            [0x01, 0x02] => Some(PayloadType::ViscaDeviceSetting),
-            [0x01, 0x20] => Some(PayloadType::ControlCommand),
-            [0x01, 0x21] => Some(PayloadType::ControlReply),
+            [0x01, 0x20] => Some(PayloadType::ViscaDeviceSetting),
+            [0x02, 0x00] => Some(PayloadType::ControlCommand),
+            [0x02, 0x01] => Some(PayloadType::ControlReply),
             _ => None,
         }
     }
@@ -156,9 +156,9 @@ mod tests {
             (PayloadType::ViscaCommand, [0x01, 0x00]),
             (PayloadType::ViscaInquiry, [0x01, 0x10]),
             (PayloadType::ViscaReply, [0x01, 0x11]),
-            (PayloadType::ViscaDeviceSetting, [0x01, 0x02]),
-            (PayloadType::ControlCommand, [0x01, 0x20]),
-            (PayloadType::ControlReply, [0x01, 0x21]),
+            (PayloadType::ViscaDeviceSetting, [0x01, 0x20]),
+            (PayloadType::ControlCommand, [0x02, 0x00]),
+            (PayloadType::ControlReply, [0x02, 0x01]),
         ];
 
         for (payload_type, expected_bytes) in test_cases {
@@ -201,7 +201,7 @@ mod tests {
             [0xFF, 0xFF], // All bits set
             [0x01, 0x01], // Invalid sub-type
             [0x01, 0x12], // Out of range sub-type
-            [0x02, 0x00], // Wrong major type
+            [0x02, 0x02], // Invalid control sub-type
             [0x01, 0xFF], // Invalid sub-type with correct major
             [0x80, 0x80], // High bit set
         ];

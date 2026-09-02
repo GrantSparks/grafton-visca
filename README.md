@@ -93,18 +93,18 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Push auto focus | `SonyFR7` |
-| Focus zone | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Auto focus sensitivity | `SonyFR7` |
+| Focus zone | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Auto focus sensitivity | No built-in profile currently marks this typed capability |
 | Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
 | One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -119,9 +119,9 @@ operations.
 | Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100` |
+| 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the

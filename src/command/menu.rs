@@ -183,7 +183,31 @@ impl DirectMenuControl {
 mod tests {
     use super::*;
 
-    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
+    use crate::{
+        command::{bytes::VISCA_TERMINATOR, ViscaCommand},
+        macros::test_utils::visca_test,
+    };
+
+    #[test]
+    fn direct_menu_ff_data_byte_is_followed_by_terminator() {
+        let command = DirectMenuControl::new(0x01, u8::MAX);
+        let bytes = command
+            .to_bytes(crate::CameraId::CAMERA_1)
+            .expect("direct menu code must encode");
+        assert_eq!(
+            bytes.as_ref(),
+            &[
+                0x81,
+                0x01,
+                0x7E,
+                0x04,
+                0x72,
+                0x01,
+                u8::MAX,
+                VISCA_TERMINATOR,
+            ]
+        );
+    }
 
     visca_test!(
         SetMenuDisplay,

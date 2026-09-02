@@ -198,6 +198,36 @@ mod tests {
     );
 
     #[test]
+    fn preset_255_keeps_data_and_terminator_bytes() {
+        for (action, action_byte) in [
+            (PresetAction::Reset, 0x00),
+            (PresetAction::Set, 0x01),
+            (PresetAction::Recall, 0x02),
+        ] {
+            let command = PresetCommand {
+                action,
+                preset_number: PresetNumber::new(255)
+                    .unwrap_or_else(|error| panic!("valid preset number: {error:?}")),
+            };
+            let bytes = command
+                .to_bytes(crate::CameraId::CAMERA_1)
+                .unwrap_or_else(|error| panic!("preset 255 must encode: {error:?}"));
+            assert_eq!(
+                bytes.as_ref(),
+                &[
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x3F,
+                    action_byte,
+                    u8::MAX,
+                    VISCA_TERMINATOR,
+                ]
+            );
+        }
+    }
+
+    #[test]
     fn test_preset_timeout_kind() {
         let cmd = PresetCommand {
             action: PresetAction::Recall,

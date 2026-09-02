@@ -1332,6 +1332,46 @@ macro_rules! __define_builtin_profiles {
             }
 
             #[test]
+            fn sony_fr7_does_not_claim_the_shared_exposure_and_image_families() {
+                use $crate::capabilities::{Exposure, Focus, ImageProcessing};
+
+                let facts = ProfileId::SonyFr7.registry_facts();
+                assert!(SonyFR7::EXPOSURE_MODES.is_empty());
+                assert_eq!(SonyFR7::IRIS_RANGE, None);
+                assert_eq!(SonyFR7::BRIGHTNESS_RANGE, None);
+                assert!(!SonyFR7::SUPPORTS_FOCUS_ZONE);
+                assert!(!SonyFR7::SUPPORTS_AF_SENSITIVITY);
+                assert!(!SonyFR7::SUPPORTS_NOISE_REDUCTION);
+                assert!(!SonyFR7::SUPPORTS_2D_NR);
+                assert!(!SonyFR7::SUPPORTS_3D_NR);
+                assert!(!SonyFR7::SUPPORTS_PICTURE_EFFECT);
+
+                for surface in [
+                    $crate::capabilities::TypedSupportSurface::IrisControl,
+                    $crate::capabilities::TypedSupportSurface::BrightnessControl,
+                    $crate::capabilities::TypedSupportSurface::FocusZone,
+                    $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+                    $crate::capabilities::TypedSupportSurface::PictureEffect,
+                ] {
+                    assert!(!facts.has_typed_support(surface), "unexpected FR7 {surface:?}");
+                }
+
+                for evidence_key in [
+                    "iris",
+                    "brightness",
+                    "focus_zone",
+                    "af_sensitivity",
+                    "noise_reduction",
+                    "picture_effect",
+                ] {
+                    assert!(facts.evidence.iter().any(|item| item.key == evidence_key));
+                }
+            }
+
+            #[test]
             fn typed_support_registry_covers_declared_surface_vocabulary() {
                 for facts in BUILTIN_PROFILE_FACTS {
                     for surface in facts.typed_support.iter() {
@@ -1348,6 +1388,7 @@ macro_rules! __define_builtin_profiles {
                         surface,
                         $crate::capabilities::TypedSupportSurface::OnePushFocus
                             | $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
+                            | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
                             | $crate::capabilities::TypedSupportSurface::MotionSync
                     ) {
                         assert!(
@@ -1456,10 +1497,10 @@ macro_rules! __define_builtin_profiles {
                     "Focus zone",
                     $crate::capabilities::TypedSupportSurface::FocusZone,
                 );
-                assert_row(
+                assert_literal_row(
                     readme,
                     "Auto focus sensitivity",
-                    $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
+                    "No built-in profile currently marks this typed capability",
                 );
                 assert_row(
                     readme,
@@ -2136,7 +2177,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [],
                     group: SonyProfessional,
                     vendor: "Sony",
-                    description: "Professional cinema camera with variable ND filter and full feature set",
+                    description: "Professional cinema camera with variable ND filter and model-specific exposure controls",
                     envelope: $crate::transport::SonyEncapsulated,
                     envelope_kind: SonyEncapsulated,
                     transport: {
@@ -2184,17 +2225,17 @@ macro_rules! define_builtin_profiles {
                         far_limit: 0xF000,
                         auto_focus: true,
                         one_push: false,
-                        focus_zone: true,
+                        focus_zone: false,
                         max_speed: 7,
-                        af_sensitivity: true,
+                        af_sensitivity: false,
                         near_limit_inquiry: true,
                     },
                     exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
-                        iris_range: Some(range!(u16, 0x00, 0x1E)),
+                        modes: profile_constants::NO_SHARED_EXPOSURE_MODES,
+                        iris_range: None,
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
-                        brightness_range: Some(range!(u16, 0, 17)),
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: true,
                         exposure_comp_range: range!(i8, -7, 7),
@@ -2219,11 +2260,11 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        noise_reduction: true,
-                        nr_2d: true,
-                        nr_3d: true,
+                        noise_reduction: false,
+                        nr_2d: false,
+                        nr_3d: false,
                         luminance: false,
-                        picture_effect: true,
+                        picture_effect: false,
                         luminance_range: None,
                         combined_flip: false,
                         save_after_flip: false,
@@ -2254,14 +2295,10 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: true },
                     typed_support: [
                         ExposureCompensation,
-                        BrightnessControl,
                         PushAutoFocus,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
-                        IrisControl,
-                        FocusZone,
-                        AutoFocusSensitivity,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -2276,10 +2313,6 @@ macro_rules! define_builtin_profiles {
                         SaturationControl,
                         HueControl,
                         GammaControl,
-                        NoiseReduction,
-                        NoiseReduction2D,
-                        NoiseReduction3D,
-                        PictureEffect,
                         Tally,
                         DirectMenu,
                         NdFilter,
@@ -2288,6 +2321,12 @@ macro_rules! define_builtin_profiles {
                     evidence: [
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
+                        ("iris", "Sony's FR7 command list documents vendor-relative iris Up/Down under 7E 04 4B and Auto Iris under 05 34, but not the shared 04 39 exposure-mode family, standard absolute iris-direct command, or 09 04 4B position inquiry."),
+                        ("brightness", "Sony's FR7 command list does not establish the shared exposure-brightness control or inquiry; keep the range and typed marker absent."),
+                        ("focus_zone", "Sony's FR7 command list does not establish focus-zone selection or inquiry; keep the shared typed surface absent."),
+                        ("af_sensitivity", "Sony's FR7 command list documents Push AF/MF under 7E 04 58, but not the shared 04 58 autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),
+                        ("noise_reduction", "Sony's FR7 command list does not establish the shared 04 50/53/54 noise-reduction family; keep the shared typed surfaces absent."),
+                        ("picture_effect", "Sony's FR7 command list does not establish the shared picture-effect control or inquiry; keep the typed surface absent."),
                     ],
                 }
 

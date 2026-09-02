@@ -13,21 +13,15 @@ where
     Exec: Executor + Send + Sync + Clone + 'static,
 {
     let normalized = grafton_visca::UnitInterval::new(0.75)?;
-    let iris = IrisLevel::new(1)?;
 
     let _ = session.set_digital_zoom(true);
     let _ = session.set_zoom_normalized_in_domain(normalized, ZoomDomain::OpticalPlusDigital);
-    let _ = session.exposure().iris_priority();
-    let _ = session.set_iris(iris);
-    let _ = session.exposure().set_brightness(BrightnessLevel::new(1)?);
     let _ = session.image().set_contrast(ContrastLevel::new(1)?);
     let _ = session.image().set_sharpness(SharpnessLevel::new(1)?);
-    let _ = session.exposure().brightness();
     let _ = session.image().contrast();
     let _ = session.image().sharpness_level();
     let _ = session.tally().red_on();
     let _ = session.tally().status();
-    let _ = session.exposure().iris();
     Ok(())
 }
 

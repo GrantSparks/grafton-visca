@@ -46,6 +46,8 @@ pub const MAX_COMMANDS_IN_FLIGHT_PER_CAMERA: usize = 2;
 /// - A command starts in `Queued` (waiting to be sent)
 /// - After being sent, it transitions to `AwaitingAck` (sent, waiting for ACK)
 /// - After ACK, commands with socket allocation transition to `Executing`
+/// - If the camera reuses a socket whose old completion was lost, the stale
+///   owner transitions to `Unconfirmed` without retaining a socket claim
 ///
 /// Each variant carries the timing information needed for timeout detection,
 /// eliminating the need for separate `sent_at` and socket tracking structures.
@@ -65,6 +67,12 @@ pub enum CommandPhase {
         /// When the socket was assigned.
         started_at: Instant,
     },
+    /// The camera authoritatively reused this command's former socket, so the
+    /// old command can no longer be correlated by raw VISCA socket number.
+    Unconfirmed {
+        /// Deadline for reporting terminal, non-retryable uncertainty.
+        deadline: Instant,
+    },
 }
 
 impl CommandPhase {
@@ -80,12 +88,21 @@ impl CommandPhase {
         matches!(self, CommandPhase::Executing { .. })
     }
 
+    /// Returns `true` if this command is awaiting an unconfirmed terminal result.
+    #[cfg(any(feature = "mode-async", test))]
+    #[inline]
+    pub fn is_unconfirmed(&self) -> bool {
+        matches!(self, CommandPhase::Unconfirmed { .. })
+    }
+
     /// Returns the socket if the command is in `Executing` phase.
     #[inline]
     pub fn socket(&self) -> Option<ViscaSocket> {
         match self {
             CommandPhase::Executing { socket, .. } => Some(*socket),
-            _ => None,
+            CommandPhase::Queued
+            | CommandPhase::AwaitingAck { .. }
+            | CommandPhase::Unconfirmed { .. } => None,
         }
     }
 }
@@ -626,6 +643,8 @@ pub(crate) enum TimeoutSource {
     Socket(ViscaSocket),
     /// Inquiry timed out waiting for data reply.
     Inquiry,
+    /// A displaced raw socket owner reached its correlation-ambiguity deadline.
+    Unconfirmed,
 }
 
 /// How a reply is correlated to its originating command.
@@ -1797,6 +1816,14 @@ impl SchedulerCore {
                 );
                 CancelOutcome::MarkedCancelOnAck
             }
+            CommandPhase::Unconfirmed { .. } => {
+                debug!(
+                    %cmd_id,
+                    ?camera_id,
+                    "Cancel requested after socket ownership became unconfirmed"
+                );
+                CancelOutcome::NoOp
+            }
         }
     }
 
@@ -2304,6 +2331,17 @@ impl SchedulerCore {
             .commands
             .iter()
             .filter_map(|(&cmd_id, state)| {
+                if let CommandPhase::Unconfirmed { deadline } = state.phase {
+                    if now > deadline {
+                        warn!(
+                            %cmd_id,
+                            "Command outcome remained unconfirmed after socket reassignment"
+                        );
+                        return Some((cmd_id, TimeoutSource::Unconfirmed));
+                    }
+                    return None;
+                }
+
                 let (sent_at, timeout_source, timeout) = match state.phase {
                     CommandPhase::Queued => return None,
                     CommandPhase::AwaitingAck { sent_at } => {
@@ -2313,6 +2351,7 @@ impl SchedulerCore {
                         let timeout = self.timeout_config.get_timeout(state.category());
                         (started_at, TimeoutSource::Socket(socket), timeout)
                     }
+                    CommandPhase::Unconfirmed { .. } => unreachable!("handled above"),
                 };
 
                 let elapsed = now.duration_since(sent_at);
@@ -2338,6 +2377,7 @@ impl SchedulerCore {
                             }
                         }
                         TimeoutSource::Inquiry => unreachable!("inquiries are checked separately"),
+                        TimeoutSource::Unconfirmed => unreachable!("handled above"),
                     }
                     Some((cmd_id, timeout_source))
                 } else {
@@ -2529,6 +2569,7 @@ impl SchedulerCore {
                     let timeout = self.timeout_config.get_timeout(state.category());
                     started_at + timeout
                 }
+                CommandPhase::Unconfirmed { deadline } => deadline,
             };
             Self::update_earliest(&mut earliest, deadline);
         }
@@ -2725,6 +2766,15 @@ impl SchedulerCore {
                 #[cfg(not(any(feature = "mode-async", test)))]
                 let _ = will_retry;
             }
+            TimeoutSource::Unconfirmed => {
+                self.finish_sequence(cmd_id);
+                self.commands.remove(&cmd_id);
+                actions.push(SchedulerAction::CommandFailed {
+                    id: cmd_id,
+                    error: Error::UnsequencedCommandUnconfirmed,
+                });
+                return;
+            }
         }
 
         // Unified retry/terminal-failure via queue_retry_for_command.
@@ -2733,7 +2783,7 @@ impl SchedulerCore {
         // use uncapped exponential backoff.
         let delay_exponent_cap = match source {
             TimeoutSource::Ack => Some(5),
-            TimeoutSource::Socket(_) | TimeoutSource::Inquiry => None,
+            TimeoutSource::Socket(_) | TimeoutSource::Inquiry | TimeoutSource::Unconfirmed => None,
         };
         if let Some(action) = self.queue_retry_for_command(cmd_id, now, delay_exponent_cap) {
             actions.push(action);
@@ -2788,35 +2838,31 @@ impl SchedulerCore {
             // meaningful within that camera's own pair.
             let camera_id = cmd_state.camera_id;
 
-            // Determine which socket to use with fallback logic
+            // The camera is authoritative about a socket it explicitly names.
             let assigned_socket = if let Some(s) = socket {
-                // Camera specified a socket - try to use it
-                if self.is_socket_free(camera_id, s) {
-                    // Requested socket is free, use it
-                    s
-                } else {
-                    // Requested socket is busy, try the other one
-                    let other = if s == ViscaSocket::S1 {
-                        ViscaSocket::S2
-                    } else {
-                        ViscaSocket::S1
-                    };
-
-                    if self.is_socket_free(camera_id, other) {
-                        debug!(
-                            "Camera {:?} requested {:?} but it's occupied, using {:?} instead",
-                            camera_id, s, other
-                        );
-                        other
-                    } else {
-                        // Both sockets are busy - command stays in AwaitingAck phase
+                if let Some(stale_id) = self.find_command_on_socket_for(camera_id, s) {
+                    if stale_id != target_id {
+                        // A camera only reuses a command socket after the prior
+                        // command has left it. Its old local owner therefore has
+                        // a lost completion and must relinquish the keyed claim;
+                        // assigning the new command to the other socket would
+                        // make later completion and cancel frames provably wrong.
+                        if let Some(stale) = self.commands.get_mut(&stale_id) {
+                            stale.phase = CommandPhase::Unconfirmed {
+                                deadline: now + self.timeout_config.ack_timeout,
+                            };
+                            stale.cancel_requested = false;
+                        }
                         warn!(
-                            "Camera {:?} assigned {:?} but both of its sockets are occupied",
-                            camera_id, s
+                            %stale_id,
+                            %target_id,
+                            ?camera_id,
+                            ?s,
+                            "Camera reused an occupied socket; displaced stale owner to unconfirmed quarantine"
                         );
-                        return (None, None);
                     }
                 }
+                s
             } else {
                 // No socket specified - pick the first free one
                 if self.is_socket_free(camera_id, ViscaSocket::S1) {
@@ -2979,13 +3025,12 @@ impl SchedulerCore {
     /// Check if a command is pending (either awaiting ACK or executing with socket).
     #[cfg(any(feature = "mode-async", test))]
     pub fn is_command_pending(&self, cmd_id: CommandId) -> bool {
-        self.commands
+        self.commands.get(&cmd_id).is_some_and(|s| {
+            s.phase.is_awaiting_ack() || s.phase.is_executing() || s.phase.is_unconfirmed()
+        }) || self
+            .inquiries
             .get(&cmd_id)
-            .is_some_and(|s| s.phase.is_awaiting_ack() || s.phase.is_executing())
-            || self
-                .inquiries
-                .get(&cmd_id)
-                .is_some_and(|s| s.phase.is_awaiting_reply())
+            .is_some_and(|s| s.phase.is_awaiting_reply())
     }
 
     /// Get the count of commands waiting for ACK.
@@ -3376,6 +3421,7 @@ impl SchedulerCore {
                 CommandPhase::Queued => "Command::Queued",
                 CommandPhase::AwaitingAck { .. } => "Command::AwaitingAck",
                 CommandPhase::Executing { .. } => "Command::Executing",
+                CommandPhase::Unconfirmed { .. } => "Command::Unconfirmed",
             }
         } else {
             match self.inquiries.get(&cmd_id).map(|state| state.phase) {

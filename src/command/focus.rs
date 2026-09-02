@@ -250,6 +250,8 @@ impl FocusZoneCommand {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
+/// The numeric discriminants are retained for 1.x API compatibility and are
+/// not the VISCA wire values; command encoding maps them explicitly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -271,9 +273,9 @@ visca_command! {
     };
     prefix = [0x01, 0x04, 0x58];
     param = match *sensitivity {
-        AutoFocusSensitivity::High => 0x02u8,
-        AutoFocusSensitivity::Normal => 0x01u8,
-        AutoFocusSensitivity::Low => 0x00u8,
+        AutoFocusSensitivity::High => 0x01u8,
+        AutoFocusSensitivity::Normal => 0x02u8,
+        AutoFocusSensitivity::Low => 0x03u8,
     };
     max_param_size = 1;
     category = CommandCategory::Quick;
@@ -599,7 +601,7 @@ mod tests {
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -609,7 +611,7 @@ mod tests {
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x01, VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x02, VISCA_TERMINATOR]
         );
 
         let cmd = AutoFocusSensitivityCommand {
@@ -619,8 +621,15 @@ mod tests {
             cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
                 .map(|b| b.to_vec())
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
-            vec![0x81, 0x01, 0x04, 0x58, 0x00, VISCA_TERMINATOR]
+            vec![0x81, 0x01, 0x04, 0x58, 0x03, VISCA_TERMINATOR]
         );
+    }
+
+    #[test]
+    fn test_auto_focus_sensitivity_discriminants_remain_stable() {
+        assert_eq!(AutoFocusSensitivity::Low as u8, 0x00);
+        assert_eq!(AutoFocusSensitivity::Normal as u8, 0x01);
+        assert_eq!(AutoFocusSensitivity::High as u8, 0x02);
     }
 
     #[test]
