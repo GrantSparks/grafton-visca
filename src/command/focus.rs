@@ -250,6 +250,8 @@ impl FocusZoneCommand {
 /// Auto Focus Sensitivity levels.
 ///
 /// Controls how responsive the auto focus system is to changes in the scene.
+/// The numeric discriminants are retained for 1.x API compatibility and are
+/// not the VISCA wire values; command encoding maps them explicitly.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
@@ -257,11 +259,11 @@ impl FocusZoneCommand {
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum AutoFocusSensitivity {
     /// Low sensitivity - slower focus response, more stable in changing scenes.
-    Low = 0x03,
+    Low = 0x00,
     /// Normal sensitivity - balanced focus response (default).
-    Normal = 0x02,
+    Normal = 0x01,
     /// High sensitivity - quick focus response to scene changes.
-    High = 0x01,
+    High = 0x02,
 }
 
 visca_command! {
@@ -621,6 +623,13 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             vec![0x81, 0x01, 0x04, 0x58, 0x03, VISCA_TERMINATOR]
         );
+    }
+
+    #[test]
+    fn test_auto_focus_sensitivity_discriminants_remain_stable() {
+        assert_eq!(AutoFocusSensitivity::Low as u8, 0x00);
+        assert_eq!(AutoFocusSensitivity::Normal as u8, 0x01);
+        assert_eq!(AutoFocusSensitivity::High as u8, 0x02);
     }
 
     #[test]
