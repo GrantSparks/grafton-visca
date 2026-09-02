@@ -432,8 +432,11 @@ entries below retain their original wording.
   duplicate `Input::Close` / `Poison` vocabulary is removed. A deadline-bound
   blocking submission that expires before its first write is now terminalized
   even when ordinary queueing was allowed, so it cannot return `Timeout` and
-  then write as an unobserved orphan in a later owner turn. This is an internal
-  architecture change with no public API change.
+  then write as an unobserved orphan in a later owner turn. Both shells now use
+  one shared idle-receive run: an immediately returning no-data blocking driver
+  receives the same escalating 10–250 ms, next-deadline-clamped pacing as async
+  instead of hot-spinning the caller thread. This is an internal architecture
+  change with no public API change.
 
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now

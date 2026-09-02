@@ -18,9 +18,9 @@ use super::{
     cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
     normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
     AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
-    OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, ReceiptObservation, RejectedCancellation,
-    RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, ShutdownReason, TransientFaultRun,
-    TransmissionMeta, WaitSelection, WireWrite,
+    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, ReceiptObservation,
+    RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, ShutdownReason,
+    TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
 };
 
 #[cfg(all(test, not(feature = "async")))]
@@ -1338,6 +1338,9 @@ pub(crate) struct BlockingOwner {
     /// eventually a dead transport, not a condition a caller-thread pump can
     /// recover by retrying forever.
     faults: TransientFaultRun,
+    /// Consecutive receives that returned no bytes. This is paced separately
+    /// from faults so an eager timeout cannot hot-spin or spend retry budget.
+    idle_receives: IdleReceiveRun,
 }
 
 impl BlockingOwner {
@@ -1347,6 +1350,7 @@ impl BlockingOwner {
             pumping: false,
             raw_release_input_gate: None,
             faults: TransientFaultRun::default(),
+            idle_receives: IdleReceiveRun::default(),
         })
     }
 
@@ -2558,11 +2562,11 @@ impl BlockingOwner {
             Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
             other => other,
         };
-        let (received, received_at, no_input) = match read {
+        let (received, received_at, no_input, idle_pause) = match read {
             Ok(BlockingReceive::TimedOut) => {
                 // A no-data return becomes a fence only after the stream
                 // framer has also shown that no partial bytes are retained.
-                (0, Instant::now(), true)
+                (0, Instant::now(), true, Some(self.idle_receives.record()))
             }
             Ok(BlockingReceive::Bytes(0)) => {
                 let effects = self.input_for_mode(
@@ -2577,7 +2581,8 @@ impl BlockingOwner {
                 // Any successful read breaks a transient-fault run, even when
                 // the bytes only complete a later frame.
                 self.faults.reset();
-                (received, Instant::now(), false)
+                self.idle_receives.reset();
+                (received, Instant::now(), false, None)
             }
             Err(Error::ResponseTooLarge { .. })
                 if self.state.policy().protocol.transport == TransportKind::Datagram =>
@@ -2589,6 +2594,7 @@ impl BlockingOwner {
                 // framing; treat it exactly like a malformed atomic datagram,
                 // keep the session running, and let a later packet decode.
                 self.faults.reset();
+                self.idle_receives.reset();
                 let _ = self
                     .state
                     .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
@@ -2822,6 +2828,7 @@ impl BlockingOwner {
                     if let Some(gate) = &mut self.raw_release_input_gate {
                         gate.await_until = Some(deadline);
                     }
+                    self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                     return Ok(PumpProgress {
                         decoded_frames: driven,
                     });
@@ -2840,6 +2847,7 @@ impl BlockingOwner {
                     deferrals: 0,
                     await_until: None,
                 });
+                self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                 return Ok(PumpProgress {
                     decoded_frames: driven,
                 });
@@ -2865,6 +2873,7 @@ impl BlockingOwner {
                     "blocking raw release remained unresolved after non-frame datagram input",
                 )?;
             }
+            self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
             return Ok(PumpProgress {
                 decoded_frames: driven,
             });
@@ -2885,9 +2894,30 @@ impl BlockingOwner {
                 return Err(error);
             }
         }
+        self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
         Ok(PumpProgress {
             decoded_frames: driven,
         })
+    }
+
+    fn pause_after_idle_receive(
+        &self,
+        pause: Option<Duration>,
+        mode: PumpMode,
+        observer_deadline: Option<Instant>,
+    ) {
+        let Some(pause) = pause else {
+            return;
+        };
+        let now = Instant::now();
+        let pause = clamp_receive_pause(
+            pause,
+            min_deadline(self.next_wake_for_mode(mode), observer_deadline),
+            now,
+        );
+        if let Some(deadline) = now.checked_add(pause) {
+            sleep_until(deadline);
+        }
     }
 
     fn next_wake_for_mode(&self, mode: PumpMode) -> Option<Instant> {
@@ -4444,6 +4474,41 @@ mod tests {
             assert!(reason.contains("simulated ICMP fault"));
         }
         assert_eq!(owner.state().state(), SessionState::Closed);
+    }
+
+    #[test]
+    fn immediately_idle_blocking_reads_are_paced_and_reset_by_bytes() {
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::Bytes(1)),
+            ]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let started = Instant::now();
+        for _ in 0..3 {
+            assert_eq!(
+                owner
+                    .pump_once(&mut driver, &mut reader, &mut decoder)
+                    .expect("an idle receive is not a boundary"),
+                0
+            );
+        }
+        assert!(
+            started.elapsed() >= Duration::from_millis(60),
+            "three immediately idle reads must incur the shared 10/20/40 ms pacing run"
+        );
+        assert_eq!(owner.idle_receives.length(), 3);
+
+        owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect("a byte-bearing read keeps the session running");
+        assert_eq!(owner.idle_receives.length(), 0);
     }
 
     #[test]

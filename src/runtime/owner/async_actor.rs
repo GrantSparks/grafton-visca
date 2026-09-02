@@ -27,8 +27,8 @@ use super::{
     cancellation_receipt_for, clamp_receive_pause, completion_pair,
     normalize_cancellation_observation, normalize_command_outcome, normalize_inquiry_outcome,
     observation_outcome, prepend_effects, transient_receive_pause, AdmissionPermit, AppliedEffect,
-    CancellationCore, CompletionObserver, DecodedFrame, DiagnosticSubscription, Input,
-    OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId,
+    CancellationCore, CompletionObserver, DecodedFrame, DiagnosticSubscription, IdleReceiveRun,
+    Input, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId,
     RequestLane, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetStateCache,
     TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
 };
@@ -1729,7 +1729,7 @@ where
     /// driver that reports "no data" immediately). Escalates a cooperative
     /// pause so an immediately-returning idle read cannot hot-spin the actor,
     /// without recording a transport fault or spending any retry budget (#675).
-    idle_receive_run: u32,
+    idle_receives: IdleReceiveRun,
     /// Engine-owned deadline currently keeping an ambiguous retained prefix
     /// under the old raw correlation scope (#713).
     raw_release_wait_until: Option<Instant>,
@@ -1792,7 +1792,7 @@ where
                 shutdown_signal: Arc::clone(&shutdown_signal),
                 terminal_error,
                 faults: TransientFaultRun::default(),
-                idle_receive_run: 0,
+                idle_receives: IdleReceiveRun::default(),
                 raw_release_wait_until: None,
                 runtime,
             },
@@ -2502,7 +2502,7 @@ where
                 self.faults.reset();
                 // Real bytes decoded: the transport is not idle, so restart the
                 // no-data escalation (#675).
-                self.idle_receive_run = 0;
+                self.idle_receives.reset();
                 // #672: a stream tolerates a delimited frame that did not
                 // classify by discarding it and staying Running, exactly as a
                 // datagram already does and as 1.x did (log-and-continue). Record
@@ -2701,7 +2701,7 @@ where
             // the discard becomes observable. A stream takes the terminal path
             // below and deliberately retains its existing framing semantics.
             self.faults.reset();
-            self.idle_receive_run = 0;
+            self.idle_receives.reset();
             let _ = self
                 .state
                 .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
@@ -2733,9 +2733,8 @@ where
         runtime: &R,
         buffered_stream_input: bool,
     ) -> TurnOutcome {
-        self.idle_receive_run = self.idle_receive_run.saturating_add(1);
         let pause = clamp_receive_pause(
-            transient_receive_pause(self.idle_receive_run),
+            self.idle_receives.record(),
             self.state.next_wake(),
             Executor::now(runtime),
         );

@@ -43,6 +43,35 @@ pub(super) fn clamp_receive_pause(
     })
 }
 
+/// One run of receives that returned immediately without bytes.
+///
+/// This is deliberately independent of [`TransientFaultRun`]: an idle receive
+/// is not a transport fault and must neither spend retry budget nor prove that
+/// a prior fault run recovered. Both owner shells nevertheless apply the same
+/// escalating pause so an eager driver cannot hot-spin.
+#[derive(Debug, Default)]
+pub(super) struct IdleReceiveRun {
+    length: u32,
+}
+
+impl IdleReceiveRun {
+    /// Record one idle receive and return its shared pacing interval.
+    pub(super) fn record(&mut self) -> Duration {
+        self.length = self.length.saturating_add(1);
+        transient_receive_pause(self.length)
+    }
+
+    /// A byte-bearing receive proves the transport is no longer idle.
+    pub(super) fn reset(&mut self) {
+        self.length = 0;
+    }
+
+    #[cfg(test)]
+    pub(super) const fn length(&self) -> u32 {
+        self.length
+    }
+}
+
 /// One run of consecutive transient receive faults.
 #[derive(Debug, Default)]
 pub(super) struct TransientFaultRun {
@@ -107,6 +136,17 @@ mod tests {
             ),
             Duration::from_millis(3)
         );
+    }
+
+    #[test]
+    fn idle_receive_run_uses_the_shared_pause_and_resets_on_bytes() {
+        let mut run = IdleReceiveRun::default();
+        assert_eq!(run.record(), TRANSIENT_RECEIVE_PAUSE);
+        assert_eq!(run.record(), Duration::from_millis(20));
+        assert_eq!(run.length(), 2);
+        run.reset();
+        assert_eq!(run.length(), 0);
+        assert_eq!(run.record(), TRANSIENT_RECEIVE_PAUSE);
     }
 
     #[test]
