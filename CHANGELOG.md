@@ -673,8 +673,11 @@ entries below retain their original wording.
   blocking owner's progress-based release contract. Both shells also use
   one shared idle-receive run: an immediately returning no-data blocking driver
   receives the same escalating 10–250 ms, next-deadline-clamped pacing as async
-  instead of hot-spinning the caller thread. This is an internal architecture
-  change with no public API change.
+  instead of hot-spinning the caller thread. Every blocking-owner timestamp and
+  pacing wait now passes through one private, std-only monotonic-clock seam;
+  production keeps the system clock while deterministic tests advance virtual
+  time without sleeping. This is an internal architecture change with no public
+  API change.
 
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now

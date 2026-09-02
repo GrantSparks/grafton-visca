@@ -115,6 +115,35 @@ pub(crate) trait BlockingFrameDecoder {
     }
 }
 
+/// Monotonic time and caller-thread sleeping used by the blocking owner.
+///
+/// Production installs [`SystemBlockingClock`]. Keeping this behind one
+/// executor-free seam lets deterministic owner tests advance virtual time
+/// without teaching the protocol engine or the blocking facade about an async
+/// runtime (#723).
+trait BlockingClock: fmt::Debug + Send + Sync {
+    fn now(&self) -> Instant;
+
+    /// Block, or advance a deterministic clock, by `duration`. Implementations
+    /// must make monotonic progress before returning for a nonzero duration.
+    fn sleep(&self, duration: Duration);
+}
+
+type SharedBlockingClock = Arc<dyn BlockingClock>;
+
+#[derive(Debug, Default)]
+struct SystemBlockingClock;
+
+impl BlockingClock for SystemBlockingClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
+    }
+}
+
 /// Blocking-mode linear command observation right.
 #[derive(Debug)]
 pub(crate) struct BlockingCommandReceipt {
@@ -160,6 +189,7 @@ pub(crate) struct BlockingCancellationReceipt {
 #[cfg(all(test, not(feature = "async")))]
 pub(crate) struct BlockingSessionCore<'a> {
     parts: RefCell<BlockingSessionParts<'a>>,
+    clock: SharedBlockingClock,
 }
 
 #[cfg(all(test, not(feature = "async")))]
@@ -185,6 +215,7 @@ impl<'a> BlockingSessionCore<'a> {
         R: BlockingReadDriver,
         F: BlockingFrameDecoder,
     {
+        let clock = Arc::clone(&owner.clock);
         Self {
             parts: RefCell::new(BlockingSessionParts {
                 owner,
@@ -192,6 +223,7 @@ impl<'a> BlockingSessionCore<'a> {
                 reader,
                 decoder,
             }),
+            clock,
         }
     }
 
@@ -281,11 +313,11 @@ pub(crate) trait BlockingControlHost {
 #[cfg(all(test, not(feature = "async")))]
 impl BlockingControlHost for BlockingSessionCore<'_> {
     fn now(&self) -> Instant {
-        Instant::now()
+        self.clock.now()
     }
 
     fn sleep(&self, duration: Duration) {
-        std::thread::sleep(duration);
+        self.clock.sleep(duration);
     }
 
     fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
@@ -339,6 +371,7 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 /// shared between threads.
 pub(crate) struct BlockingSessionHost {
     parts: Mutex<BlockingOwnedSessionParts>,
+    clock: SharedBlockingClock,
     state_cache: Arc<[Mutex<super::TargetStateCache>; 9]>,
     /// The owner's live operational tuning (#631). The blocking owner runs on
     /// the caller thread, so the update and every subsequent preparation are
@@ -367,6 +400,7 @@ impl BlockingSessionHost {
         let policy = adapter.policy().clone();
         let (driver, reader, decoder) = adapter.into_parts();
         let owner = BlockingOwner::new(policy)?;
+        let clock = Arc::clone(&owner.clock);
         let state_cache = owner.state().state_cache_registry();
         let tuning = owner.state().live_tuning();
         Ok(Self {
@@ -376,6 +410,7 @@ impl BlockingSessionHost {
                 reader: Box::new(reader),
                 decoder: Box::new(decoder),
             }),
+            clock,
             state_cache,
             tuning,
         })
@@ -516,12 +551,12 @@ impl BlockingSessionHost {
 
     /// Returns the caller-thread owner's monotonic clock instant.
     pub(crate) fn now(&self) -> Instant {
-        Instant::now()
+        self.clock.now()
     }
 
     /// Sleeps through the caller-thread owner's clock seam.
     pub(crate) fn sleep(&self, duration: Duration) {
-        std::thread::sleep(duration);
+        self.clock.sleep(duration);
     }
 
     /// Creates one observer deadline from the owner clock.
@@ -651,7 +686,7 @@ impl<'a> BlockingReceiptControl<'a> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.now(),
             #[cfg(all(test, not(feature = "async")))]
-            BlockingControlKind::Borrowed { .. } => Instant::now(),
+            BlockingControlKind::Borrowed { owner, .. } => owner.now(),
         }
     }
 
@@ -659,7 +694,7 @@ impl<'a> BlockingReceiptControl<'a> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.sleep(duration),
             #[cfg(all(test, not(feature = "async")))]
-            BlockingControlKind::Borrowed { .. } => std::thread::sleep(duration),
+            BlockingControlKind::Borrowed { owner, .. } => owner.sleep(duration),
         }
     }
 
@@ -1299,6 +1334,7 @@ fn observer_deadline(now: Instant, timeout: Duration) -> Result<Instant, Error> 
 
 /// Sleeps until an owner deadline, tolerating an early platform wake without
 /// turning a no-data fake into a busy loop.
+#[cfg(all(test, not(feature = "async")))]
 fn sleep_until(deadline: Instant) {
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         if remaining.is_zero() {
@@ -1342,6 +1378,7 @@ impl DriveReport {
 #[derive(Debug)]
 pub(crate) struct BlockingOwner {
     state: OwnerState,
+    clock: SharedBlockingClock,
     pumping: bool,
     /// A due raw release may not advance through a synchronous write, control,
     /// or scheduler turn before the next receive has established the exact
@@ -1358,13 +1395,40 @@ pub(crate) struct BlockingOwner {
 
 impl BlockingOwner {
     pub(crate) fn new(policy: OwnerPolicy) -> Result<Self, Error> {
+        Self::with_clock(policy, Arc::new(SystemBlockingClock))
+    }
+
+    /// Internal construction seam for deterministic caller-thread owner tests.
+    fn with_clock(policy: OwnerPolicy, clock: SharedBlockingClock) -> Result<Self, Error> {
         Ok(Self {
             state: OwnerState::new(policy)?,
+            clock,
             pumping: false,
             raw_release: RawReleaseTurn::default(),
             faults: TransientFaultRun::default(),
             idle_receives: IdleReceiveRun::default(),
         })
+    }
+
+    fn now(&self) -> Instant {
+        self.clock.now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        if !duration.is_zero() {
+            self.clock.sleep(duration);
+        }
+    }
+
+    /// Sleeps until an owner deadline, tolerating an early platform wake
+    /// without turning a no-data driver into a busy loop.
+    fn sleep_until(&self, deadline: Instant) {
+        while let Some(remaining) = deadline.checked_duration_since(self.now()) {
+            if remaining.is_zero() {
+                break;
+            }
+            self.sleep(remaining);
+        }
     }
 
     pub(crate) const fn state(&self) -> &OwnerState {
@@ -1551,7 +1615,7 @@ impl BlockingOwner {
         if !self.state.raw_ack_input_may_enable_dispatch(target) {
             return Ok(());
         }
-        let Some(deadline) = Instant::now().checked_add(ack_budget) else {
+        let Some(deadline) = self.now().checked_add(ack_budget) else {
             return Ok(());
         };
         self.enter()?;
@@ -1597,7 +1661,7 @@ impl BlockingOwner {
         // cannot spin; it exits when the pending ACK clears the gate, when the
         // budget elapses (the first write then fails fast), or when the pump
         // itself ends the session.
-        while self.state.raw_ack_input_may_enable_dispatch(target) && Instant::now() < deadline {
+        while self.state.raw_ack_input_may_enable_dispatch(target) && self.now() < deadline {
             self.pump_once_inner(
                 driver,
                 reader,
@@ -1990,7 +2054,7 @@ impl BlockingOwner {
         observer_deadline: Option<Instant>,
     ) -> Result<(), Error> {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
-        sleep_until(deadline);
+        self.sleep_until(deadline);
         self.service_due_without_dispatch(driver)
     }
 
@@ -2021,7 +2085,7 @@ impl BlockingOwner {
                     PumpMode::FirstDispatchWait,
                 )
                 .map_err(|error| self.boundary_error_or(error))?;
-            let now = Instant::now();
+            let now = self.now();
             // `pump_once_inner` owns both complete-frame replay and retained
             // prefix classification.  A gate still pending means the most
             // recent read was an early idle, a transient fault, or unresolved
@@ -2033,7 +2097,7 @@ impl BlockingOwner {
                     .await_until()
                     .filter(|await_until| *await_until > now)
                 {
-                    sleep_until(
+                    self.sleep_until(
                         observer_deadline.map_or(await_until, |observer| observer.min(await_until)),
                     );
                 }
@@ -2054,7 +2118,7 @@ impl BlockingOwner {
             // (for example because transport read_timeout is smaller). Sleep
             // only to pace the next *fresh* receive; that earlier idle is not
             // a boundary fence.
-            sleep_until(deadline);
+            self.sleep_until(deadline);
         }
         self.service_due_without_dispatch(driver)
     }
@@ -2165,7 +2229,7 @@ impl BlockingOwner {
             Input::Shutdown(ShutdownReason::FramingFailure {
                 reason: error.to_string().into_boxed_str(),
             }),
-            Instant::now(),
+            self.now(),
             PumpMode::FirstDispatchWait,
         );
         let _ = self.drive_for_mode(driver, effects, PumpMode::FirstDispatchWait);
@@ -2179,7 +2243,7 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
     ) -> Result<(), Error> {
-        let now = Instant::now();
+        let now = self.now();
         if self
             .state
             .next_wake_for(EngineTurn::DEADLINES_ONLY)
@@ -2219,7 +2283,7 @@ impl BlockingOwner {
         // Match the async owner boundary: once the caller-owned observer
         // deadline has elapsed, reject before staging admission or writing a
         // new inquiry.
-        if observer_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        if observer_deadline.is_some_and(|deadline| self.now() >= deadline) {
             return Err(Error::Timeout);
         }
         self.enter()?;
@@ -2277,7 +2341,7 @@ impl BlockingOwner {
         };
         let effects = self.state.input_with_turn(
             Input::Admit { ticket, request },
-            Instant::now(),
+            self.now(),
             EngineTurn::INPUT_ONLY,
         );
         let mut report = self.drive_without_due(driver, effects);
@@ -2292,7 +2356,7 @@ impl BlockingOwner {
             if let Some(error) = buffered_submission_error(&completion) {
                 return Err(error);
             }
-            let now = Instant::now();
+            let now = self.now();
             if observer_deadline.is_some_and(|deadline| now >= deadline) {
                 // No submission class returns a receipt after its caller
                 // deadline. Terminalize the still-unwritten entry before
@@ -2506,7 +2570,7 @@ impl BlockingOwner {
         // A blocking write/control turn may already have crossed H.  Arm the
         // gate before this read, but only a result sampled at/after H can
         // release it; an adapter is allowed to time out before owner_deadline.
-        let receive_started_at = Instant::now();
+        let receive_started_at = self.now();
         let raw_gate_before_receive = self.raw_release_gate_at(receive_started_at).is_some();
         let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
         let raw_release_wait = self.raw_release.await_until();
@@ -2546,7 +2610,7 @@ impl BlockingOwner {
             Ok(BlockingReceive::TimedOut) => {
                 // A no-data return becomes a fence only after the stream
                 // framer has also shown that no partial bytes are retained.
-                (0, Instant::now(), true, Some(self.idle_receives.record()))
+                (0, self.now(), true, Some(self.idle_receives.record()))
             }
             Ok(BlockingReceive::Bytes(0)) => {
                 let reason = "blocking transport returned zero bytes (EOF)";
@@ -2554,7 +2618,7 @@ impl BlockingOwner {
                     Input::Shutdown(ShutdownReason::TransportClosed {
                         reason: Some(reason.into()),
                     }),
-                    Instant::now(),
+                    self.now(),
                     mode,
                 );
                 let _ = self.drive_for_mode(driver, effects, mode);
@@ -2567,7 +2631,7 @@ impl BlockingOwner {
                 // the bytes only complete a later frame.
                 self.faults.reset();
                 self.idle_receives.reset();
-                (received, Instant::now(), false, None)
+                (received, self.now(), false, None)
             }
             Err(Error::ResponseTooLarge { .. })
                 if self.state.policy().protocol.transport == TransportKind::Datagram =>
@@ -2587,14 +2651,14 @@ impl BlockingOwner {
                 // boundary. At a due raw release it is therefore the required
                 // receive-first turn; discard it and release without counting
                 // toward a synthetic work cap (#725).
-                let received_at = Instant::now();
+                let received_at = self.now();
                 if self.raw_release_gate_at(received_at).is_some() {
                     self.advance_after_raw_release_input(driver, received_at, mode)?;
                 }
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
             Err(error) if super::receive_fault_is_transient(&error) => {
-                let received_at = Instant::now();
+                let received_at = self.now();
                 let raw_gate = self.raw_release_gate_at(received_at).is_some();
                 let (length, span) = self.faults.record(received_at);
                 if TransientFaultRun::is_permanent(length, span) {
@@ -2639,7 +2703,7 @@ impl BlockingOwner {
                 // may still be ready behind it. Keep the release gate armed;
                 // the shared escalating pause and sustained-fault boundary
                 // provide wall-clock liveness without a poll-count poison.
-                pause_after_transient_receive_fault(length, owner_deadline);
+                self.pause_after_transient_receive_fault(length, owner_deadline);
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
             Err(error) => {
@@ -2651,7 +2715,7 @@ impl BlockingOwner {
                     Input::Shutdown(ShutdownReason::TransportClosed {
                         reason: super::transport_close_reason(&error),
                     }),
-                    Instant::now(),
+                    self.now(),
                     mode,
                 );
                 let _ = self.drive_for_mode(driver, effects, mode);
@@ -2694,7 +2758,7 @@ impl BlockingOwner {
                                 Input::Shutdown(ShutdownReason::FramingFailure {
                                     reason: error.to_string().into_boxed_str(),
                                 }),
-                                Instant::now(),
+                                self.now(),
                                 mode,
                             );
                             let _ = self.drive_for_mode(driver, effects, mode);
@@ -2730,7 +2794,7 @@ impl BlockingOwner {
                             Input::Shutdown(ShutdownReason::FramingFailure {
                                 reason: error.to_string().into_boxed_str(),
                             }),
-                            Instant::now(),
+                            self.now(),
                             mode,
                         );
                         let _ = self.drive_for_mode(driver, effects, mode);
@@ -2863,15 +2927,20 @@ impl BlockingOwner {
         let Some(pause) = pause else {
             return;
         };
-        let now = Instant::now();
+        let now = self.now();
         let pause = clamp_receive_pause(
             pause,
             min_deadline(self.next_wake_for_mode(mode), observer_deadline),
             now,
         );
         if let Some(deadline) = now.checked_add(pause) {
-            sleep_until(deadline);
+            self.sleep_until(deadline);
         }
+    }
+
+    fn pause_after_transient_receive_fault(&self, run: u32, owner_deadline: Option<Instant>) {
+        let pause = clamp_receive_pause(transient_receive_pause(run), owner_deadline, self.now());
+        self.sleep(pause);
     }
 
     fn next_wake_for_mode(&self, mode: PumpMode) -> Option<Instant> {
@@ -2907,7 +2976,7 @@ impl BlockingOwner {
         // Cancellation is externally ordered state, not a receive proof.  If
         // a raw correlation deadline is visible, preserve it for the next
         // pump instead of letting this control turn release a successor.
-        let effects = self.input_for_mode(Input::Cancel { id }, Instant::now(), PumpMode::Normal);
+        let effects = self.input_for_mode(Input::Cancel { id }, self.now(), PumpMode::Normal);
         let _ = self.drive(driver, effects);
         let acknowledged = registration
             .acknowledgement
@@ -2987,7 +3056,7 @@ impl BlockingOwner {
         self.enter()?;
         let effects = self
             .state
-            .input(Input::Shutdown(ShutdownReason::Explicit), Instant::now());
+            .input(Input::Shutdown(ShutdownReason::Explicit), self.now());
         let _ = self.drive(driver, effects);
         self.leave();
         Ok(())
@@ -3017,7 +3086,7 @@ impl BlockingOwner {
                 // is the linearization point: defer due work if that deadline
                 // is now visible, so stale input accumulated during the write
                 // gets one receive turn before any successor can be staged.
-                let finished_at = Instant::now();
+                let finished_at = self.now();
                 let produced = if self.raw_release_gate_at(finished_at).is_some() {
                     self.state.finish_write_turn(
                         &staged,
@@ -3053,7 +3122,7 @@ impl BlockingOwner {
                 let produced = self.state.finish_write_turn(
                     &staged,
                     write_result,
-                    Instant::now(),
+                    self.now(),
                     EngineTurn::INPUT_ONLY,
                 );
                 prepend_effects(&mut effects, produced);
@@ -3219,13 +3288,6 @@ impl BlockingOwner {
     }
 }
 
-fn pause_after_transient_receive_fault(run: u32, owner_deadline: Option<Instant>) {
-    let pause = clamp_receive_pause(transient_receive_pause(run), owner_deadline, Instant::now());
-    if !pause.is_zero() {
-        std::thread::sleep(pause);
-    }
-}
-
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -3243,7 +3305,7 @@ mod tests {
         rc::Rc,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, Mutex,
         },
         time::{Duration, Instant},
     };
@@ -3468,6 +3530,51 @@ mod tests {
             _frame_limit: usize,
         ) -> Result<Vec<DecodedFrame>, Error> {
             Ok(Vec::new())
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct ManualBlockingClock {
+        state: Arc<Mutex<ManualBlockingClockState>>,
+    }
+
+    #[derive(Debug)]
+    struct ManualBlockingClockState {
+        now: Instant,
+        sleeps: Vec<Duration>,
+    }
+
+    impl ManualBlockingClock {
+        fn new(now: Instant) -> Self {
+            Self {
+                state: Arc::new(Mutex::new(ManualBlockingClockState {
+                    now,
+                    sleeps: Vec::new(),
+                })),
+            }
+        }
+
+        fn current(&self) -> Instant {
+            self.state.lock().expect("manual clock lock").now
+        }
+
+        fn sleeps(&self) -> Vec<Duration> {
+            self.state.lock().expect("manual clock lock").sleeps.clone()
+        }
+    }
+
+    impl BlockingClock for ManualBlockingClock {
+        fn now(&self) -> Instant {
+            self.current()
+        }
+
+        fn sleep(&self, duration: Duration) {
+            let mut state = self.state.lock().expect("manual clock lock");
+            state.now = state
+                .now
+                .checked_add(duration)
+                .expect("manual clock remains representable");
+            state.sleeps.push(duration);
         }
     }
 
@@ -4415,8 +4522,11 @@ mod tests {
     }
 
     #[test]
-    fn immediately_idle_blocking_reads_are_paced_and_reset_by_bytes() {
-        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+    fn injected_blocking_clock_paces_idle_reads_and_resets_by_bytes() {
+        let start = Instant::now();
+        let clock = ManualBlockingClock::new(start);
+        let mut owner = BlockingOwner::with_clock(raw_owner_policy(), Arc::new(clock.clone()))
+            .expect("blocking owner");
         let mut driver = FaultDriver;
         let mut reader = FaultReader {
             reads: VecDeque::from([
@@ -4428,7 +4538,6 @@ mod tests {
         };
         let mut decoder = EmptyDecoder;
 
-        let started = Instant::now();
         for _ in 0..3 {
             assert_eq!(
                 owner
@@ -4437,9 +4546,18 @@ mod tests {
                 0
             );
         }
-        assert!(
-            started.elapsed() >= Duration::from_millis(60),
-            "three immediately idle reads must incur the shared 10/20/40 ms pacing run"
+        assert_eq!(
+            clock.current(),
+            start + Duration::from_millis(70),
+            "three immediately idle reads advance the injected clock by 10/20/40 ms"
+        );
+        assert_eq!(
+            clock.sleeps(),
+            vec![
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+                Duration::from_millis(40),
+            ]
         );
         assert_eq!(owner.idle_receives.length(), 3);
 
@@ -4447,6 +4565,7 @@ mod tests {
             .pump_once(&mut driver, &mut reader, &mut decoder)
             .expect("a byte-bearing read keeps the session running");
         assert_eq!(owner.idle_receives.length(), 0);
+        assert_eq!(clock.current(), start + Duration::from_millis(70));
     }
 
     #[test]
