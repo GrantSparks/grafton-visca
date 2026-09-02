@@ -3723,18 +3723,36 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         start,
     );
     send_ok(&mut engine, &seed, None, start);
+    let mut background_command = command(2, CancellationPolicy::Supported);
+    let RuntimeRequest::Command {
+        context: command_context,
+        ..
+    } = &mut background_command
+    else {
+        unreachable!("command helper always constructs a command");
+    };
+    command_context.control.class = ControlClass::Background;
     let queued_command = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: command(2, CancellationPolicy::Supported),
+            request: background_command,
         },
         start,
     );
     let command_id = admitted(&queued_command);
+    let mut user_inquiry = inquiry(2, POWER);
+    let RuntimeRequest::Inquiry {
+        context: inquiry_context,
+        ..
+    } = &mut user_inquiry
+    else {
+        unreachable!("inquiry helper always constructs an inquiry");
+    };
+    inquiry_context.control.class = ControlClass::User;
     let inquiry = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: inquiry(2, POWER),
+            request: user_inquiry,
         },
         start,
     );
@@ -3742,10 +3760,10 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
     assert!(request_transmit_optional(&queued_command).is_none());
     assert!(request_transmit_optional(&inquiry).is_none());
     let selected = engine.advance(start + Duration::from_millis(10));
-    assert_eq!(request_transmit(&selected).1, command_id);
-    assert_ne!(request_transmit(&selected).1, inquiry_id);
+    assert_eq!(request_transmit(&selected).1, inquiry_id);
+    assert_ne!(request_transmit(&selected).1, command_id);
 
-    // FIFO among commands of the same private priority.
+    // FIFO among commands of the same explicit default priority.
     let mut fifo = engine_with_target(
         EnvelopeKind::Raw,
         TransportKind::Datagram,

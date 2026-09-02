@@ -1575,7 +1575,7 @@ mod blocking {
     }
 
     #[test]
-    fn malformed_stream_frame_does_not_busy_loop_the_tombstone_wait() {
+    fn early_idle_after_malformed_stream_frame_is_paced_to_tombstone_deadline() {
         let first_route = InquiryRoute(0x59);
         let successor_route = InquiryRoute(0x5a);
         let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
@@ -1583,8 +1583,7 @@ mod blocking {
             first_route,
             Duration::from_millis(15),
         );
-        let mut reader =
-            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
+        let mut reader = ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::Idle]);
         let mut decoder = FragmentTrackingDecoder::new([
             FragmentDecode::Malformed,
             // A stream's post-H empty receive still has to decode zero bytes
@@ -1609,7 +1608,7 @@ mod blocking {
         );
         assert!(
             Instant::now() >= hold_until,
-            "the owner slept to the hold boundary"
+            "production pacing, not the fake reader, slept to the hold boundary"
         );
         assert_eq!(driver.writes.len(), 2);
         assert!(successor.terminal().is_none());

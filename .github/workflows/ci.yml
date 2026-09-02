@@ -395,6 +395,8 @@ jobs:
         with:
           shared-key: behavioral-parity-1x
       - name: Validate and run the 1.x behavioral corpus
+        env:
+          EXPECTED_BEHAVIOR_FAMILY_COUNT: "12"
         run: bash .github/scripts/validate-behavioral-parity.sh
 
   release-drift:

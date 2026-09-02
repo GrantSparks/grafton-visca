@@ -100,7 +100,10 @@ Internally, both shells complete engine input through the same executor-free
 one ordinary dispatch; a deadline-only turn withholds ordinary dispatch while
 an exact first write is reconsidered; an input-only turn preserves retained
 wire evidence ahead of deadlines at the same sampled instant. These are
-options on one engine boundary, not feature-gated owner entry points.
+options on one engine boundary, not feature-gated owner entry points. A
+correlated frame sampled exactly at its response deadline therefore wins; a
+frame sampled strictly later is ignored as stale before the due transition,
+without making a frame for an unrelated live request stale.
 
 ## Target registry and preflight
 

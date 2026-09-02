@@ -357,6 +357,15 @@ entries below retain their original wording.
 
 ### Changed
 
+- **Response deadlines now have an explicit inclusive wire boundary** (#731).
+  A correlated ACK, completion, or inquiry reply sampled exactly at its
+  response deadline wins; the same frame sampled strictly later is ignored as
+  stale before the due transition and cannot revive or mutate the expired
+  request. An overdue request does not make a correlated frame for an unrelated
+  live request stale. This records the strict-late behavior introduced while
+  the 2.0 owner-turn ordering was hardened and pins equality and one-nanosecond-
+  late outcomes across raw and Sony response shapes.
+
 - **BREAKING** (#727): Collapsed the byte-identical brightness direct surface
   onto its one canonical spelling. Use `Brightness::SetLevel` and
   `brightness_set`; `Brightness::Direct`, `brightness_direct`, and
@@ -1036,12 +1045,16 @@ entries below retain their original wording.
   (`brightness_*` and `compensation_*`) recorded in the ledger with only the
   noun's own marker while all three facades gate them on
   `HasBrightnessControl` / `HasExposureCompensation`; the ledger now records
-  those typed markers. The hardcoded ledger-size assertions
-  (146/143/115/16/15/66) are derived from `BuiltinCommand::ALL` and the
-  generated inquiry table instead of written down, and the assertions that
-  matched another file's formatted source text — which rustfmt could break
-  with correct code — are replaced by derivations that survive reformatting.
-  Test-only: the public API is unchanged.
+  those typed markers. The semantic facade comparison and command
+  classifications are derived from `BuiltinCommand::ALL`, the generated
+  inquiry table, and the noun ledger. Closed-universe cardinalities remain
+  intentionally literal review sentinels: the compiled test exposes 149
+  commands (146 target-facing and three protocol exceptions), 62 inquiries,
+  14 nouns, and 217 noun-table rows, while the integration gate mirrors the
+  published constants. Assertions that depended only on another file's
+  rustfmt-sensitive layout were removed. Test-only: the public API is
+  unchanged. This #731 audit corrects the earlier draft's inaccurate claim
+  that every cardinality was derived.
 - Operation-handle drop semantics match 1.x exactly: drop is `detach` and
   never stops hardware (#567). Dropping a handle relinquishes the observer and
   nothing else, so an early `?`, a panic unwinding past it, or a forgotten
@@ -1246,6 +1259,12 @@ entries below retain their original wording.
   callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
+
+- Built-in inquiries now treat camera syntax error `0x02` as a retryable
+  rejection and consume their configured retry budget before failing (#731),
+  restoring the 1.x behavior. The exception is keyed by the prepared
+  built-in-inquiry fact: a custom inquiry receiving the same error remains
+  terminal and is never replayed implicitly.
 
 - The terminator regression now pins both legal final-`FF` data cases from
   #683: `PresetSet(255)` emits `... 01 FF FF`, and

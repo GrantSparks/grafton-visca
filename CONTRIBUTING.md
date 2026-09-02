@@ -382,7 +382,9 @@ audited traceability, not a protocol semantic model, so review the pinned test's
 assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
 substitute. A new behavior needs direct review in the implementation, tests,
 and changelog; update the corpus and its validator-pinned family and target sets
-together when it changes the covered 1.x contract.
+together when it changes the covered 1.x contract. CI independently pins the
+expected family count and publishes the required-family, manifest-row, and
+mapped-v2-test-row counts in its job summary.
 
 ### Code Documentation
 

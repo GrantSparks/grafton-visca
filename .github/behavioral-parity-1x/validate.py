@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -1186,6 +1187,39 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
     return len(behaviors), len(v2_tests)
 
 
+def validate_workflow_family_count(actual: int) -> None:
+    """Check CI's independent family-count pin when the workflow supplies it."""
+    raw = os.environ.get("EXPECTED_BEHAVIOR_FAMILY_COUNT")
+    if raw is None:
+        return
+    if not re.fullmatch(r"[1-9][0-9]*", raw):
+        raise ValidationError(
+            "EXPECTED_BEHAVIOR_FAMILY_COUNT must be a positive decimal integer"
+        )
+    expected = int(raw)
+    if actual != expected:
+        raise ValidationError(
+            "workflow family-count pin does not match the validated corpus: "
+            f"expected {expected}, found {actual}"
+        )
+
+
+def append_github_job_summary(behavior_rows: int, v2_test_rows: int) -> None:
+    """Publish successful corpus cardinalities when running in GitHub Actions."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with Path(summary_path).open("a", encoding="utf-8") as summary:
+        summary.write("### 1.x behavioral parity\n\n")
+        summary.write("| Verified corpus item | Count |\n")
+        summary.write("| --- | ---: |\n")
+        summary.write(
+            f"| Required behavior families | {len(EXPECTED_REQUIRED_FAMILIES)} |\n"
+        )
+        summary.write(f"| Manifest behavior rows | {behavior_rows} |\n")
+        summary.write(f"| Mapped v2 test rows | {v2_test_rows} |\n\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1210,6 +1244,8 @@ def main() -> int:
         if not manifest_path.is_absolute():
             manifest_path = (root / manifest_path).resolve()
         behaviors, v2_tests = validate_manifest(root, manifest_path, not args.skip_tests)
+        validate_workflow_family_count(behaviors)
+        append_github_job_summary(behaviors, v2_tests)
     except ValidationError as exc:
         print(f"behavioral parity validation failed: {exc}", file=sys.stderr)
         return 1

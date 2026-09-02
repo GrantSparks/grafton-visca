@@ -686,7 +686,6 @@ async fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket<E: Ex
 /// drop. The latch itself is pinned at engine level, where an `Input` sequence
 /// can actually produce that interleaving, by
 /// `runtime::engine::tests::ack_racing_its_own_write_result_is_latched_and_applied`,
-/// `racing_acks_are_never_attributed_while_two_commands_are_being_written` and
 /// `a_second_racing_ack_cannot_steal_the_latch_from_the_first` (#636).
 async fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump<E: Executor>(executor: E) {
     let transport = FaultTransport::new(

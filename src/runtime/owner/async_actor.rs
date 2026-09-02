@@ -4474,6 +4474,65 @@ mod tests {
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
+    /// A receive sampled even one nanosecond after its correlated completion
+    /// deadline is ordinary late input: the frame is ignored, the due
+    /// transition quarantines the raw socket, and quarantine expiry reports
+    /// the command's unconfirmed outcome. This keeps the actor-level overdue
+    /// half of the strict boundary contract alongside the equality test above
+    /// (#731).
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn async_receive_batch_rejects_an_overdue_completion() {
+        let runtime = ManualRuntime::new(Instant::now());
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+
+        let receipt = handle.submit(command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates
+            .send_async(Ok(TransmissionMeta { sequence: None }))
+            .await
+            .unwrap();
+        frames
+            .send_async(batch(vec![ack(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        assert_eq!(handle.snapshot().await.unwrap().active, 1);
+
+        runtime.advance(Duration::from_secs(5) + Duration::from_nanos(1));
+        frames
+            .send_async(batch(vec![completion(ViscaSocket::S1)]))
+            .await
+            .unwrap();
+        let snapshot = handle.snapshot().await.unwrap();
+        assert_eq!(snapshot.active, 1, "the raw socket remains quarantined");
+        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )));
+        runtime.advance(Duration::from_secs(1));
+        // A control may consume the actor's one due-boundary allowance. The
+        // second round trip proves that the ambiguity deadline was serviced.
+        let _ = handle.snapshot().await.unwrap();
+        let _ = handle.snapshot().await.unwrap();
+        let outcome = terminal_within_test_deadline(
+            &receipt,
+            "the overdue completion leaves the command to its ambiguity outcome",
+        )
+        .await;
+        assert!(matches!(
+            outcome,
+            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+        ));
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+    }
+
     /// A due engine wake may allow one ordinary control observation, but a
     /// chained backlog of real public controls cannot keep it from advancing
     /// engine time. The first metrics call intentionally observes the pending
@@ -6209,6 +6268,17 @@ mod tests {
     }
 
     #[cfg(feature = "runtime-tokio")]
+    async fn terminal_within_test_deadline(
+        receipt: &ReceiptCore,
+        context: &'static str,
+    ) -> RuntimeOutcome {
+        tokio::time::timeout(Duration::from_secs(1), receipt.terminal())
+            .await
+            .expect(context)
+            .expect("the receipt observation channel remains live")
+    }
+
+    #[cfg(feature = "runtime-tokio")]
     async fn establish_raw_inquiry_tombstone(
         handle: &AsyncOwnerHandle,
         harness: &BoundaryStreamHarness,
@@ -6216,7 +6286,11 @@ mod tests {
         let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
         assert!(matches!(
-            predecessor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &predecessor,
+                "the predecessor terminalizes at its inquiry deadline",
+            )
+            .await,
             RuntimeOutcome::Failed(Error::Timeout)
         ));
 
@@ -6715,7 +6789,11 @@ mod tests {
         let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         let _ = sent_rx.recv_async().await.unwrap();
         assert!(matches!(
-            predecessor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &predecessor,
+                "the production split-tail predecessor terminalizes",
+            )
+            .await,
             RuntimeOutcome::Failed(Error::Timeout)
         ));
 
@@ -6737,7 +6815,11 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            successor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &successor,
+                "the production split-tail successor receives its own reply",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
 
@@ -6777,7 +6859,11 @@ mod tests {
             let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
             let _ = sent_rx.recv_async().await.unwrap();
             assert!(matches!(
-                predecessor.terminal().await.unwrap(),
+                terminal_within_test_deadline(
+                    &predecessor,
+                    "the ambiguous-prefix predecessor terminalizes",
+                )
+                .await,
                 RuntimeOutcome::Failed(Error::Timeout)
             ));
             let successor = handle.submit(inquiry()).await.unwrap();
@@ -6811,10 +6897,11 @@ mod tests {
                 .await
                 .unwrap();
             assert!(matches!(
-                tokio::time::timeout(Duration::from_secs(1), successor.terminal())
-                    .await
-                    .expect("the successor remains usable after orphan discard")
-                    .unwrap(),
+                terminal_within_test_deadline(
+                    &successor,
+                    "the successor remains usable after orphan discard",
+                )
+                .await,
                 RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
             ));
             handle.shutdown().await.unwrap();
@@ -6863,7 +6950,11 @@ mod tests {
         chunk_tx.send_async(vec![0x51, 0xff]).await.unwrap();
 
         assert!(matches!(
-            x.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &x,
+                "the literal S1 tail completes X at the release boundary",
+            )
+            .await,
             RuntimeOutcome::Applied
         ));
         assert_eq!(
@@ -6918,7 +7009,7 @@ mod tests {
         );
         chunk_tx.send_async(vec![0xff]).await.unwrap();
         assert!(matches!(
-            x.terminal().await.unwrap(),
+            terminal_within_test_deadline(&x, "the retained live S1 prefix completes X").await,
             RuntimeOutcome::Applied
         ));
 
@@ -6978,7 +7069,8 @@ mod tests {
         );
         chunk_tx.send_async(vec![0x90, 0x51, 0xff]).await.unwrap();
         assert!(matches!(
-            x.terminal().await.unwrap(),
+            terminal_within_test_deadline(&x, "X completes only after its explicit S1 response",)
+                .await,
             RuntimeOutcome::Applied
         ));
 
@@ -7030,7 +7122,11 @@ mod tests {
             .send_async(vec![0x90, 0x50, 0xa1, 0xff])
             .await
             .unwrap();
-        let _ = predecessor.terminal().await.unwrap();
+        let _ = terminal_within_test_deadline(
+            &predecessor,
+            "the serial camera-A predecessor receives its reply",
+        )
+        .await;
 
         let camera_c = handle
             .submit(inquiry_for(CameraId::CAMERA_3))
@@ -7051,7 +7147,11 @@ mod tests {
         let _ = handle.snapshot().await.unwrap();
         chunk_tx.send_async(vec![0xc3, 0xff]).await.unwrap();
         assert!(matches!(
-            camera_c.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &camera_c,
+                "camera C completes from its preserved partial reply",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
         ));
 
@@ -7061,7 +7161,11 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            successor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &successor,
+                "camera A's queued successor receives its own reply",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
 
@@ -7121,7 +7225,11 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            predecessor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &predecessor,
+                "the frame-limit predecessor receives its reply",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
         ));
 
@@ -7154,7 +7262,11 @@ mod tests {
         chunk_tx.send_async(vec![0xa1, 0xff]).await.unwrap();
 
         assert!(matches!(
-            camera_c.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &camera_c,
+                "camera C completes after the frame-limit batch",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
         ));
         // The complete old inquiry reply is consumed on the ordinary input
@@ -7166,7 +7278,11 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            successor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &successor,
+                "camera A's successor completes after retained input drains",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
 
@@ -7206,7 +7322,11 @@ mod tests {
         let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         let _ = sent_rx.recv_async().await.unwrap();
         assert!(matches!(
-            predecessor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &predecessor,
+                "the retained-malformed predecessor terminalizes",
+            )
+            .await,
             RuntimeOutcome::Failed(Error::Timeout)
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
@@ -7231,7 +7351,11 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(
-            successor.terminal().await.unwrap(),
+            terminal_within_test_deadline(
+                &successor,
+                "the successor survives the retained malformed frame",
+            )
+            .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
 

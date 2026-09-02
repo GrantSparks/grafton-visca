@@ -1,13 +1,11 @@
 //! Runtime-neutral caller-owned session construction.
 //!
-//! This intentionally runs only when `async` is selected without Tokio or
-//! smol. It proves that a consumer-defined [`Executor`] can start and close a
-//! public [`Session`] over a caller-owned [`AsyncTransport`].
+//! This runs in every async-enabled matrix leg. It proves that a
+//! consumer-defined [`Executor`] can start and close a public [`Session`] over
+//! a caller-owned [`AsyncTransport`], whether or not one of the crate's runtime
+//! adapters is also enabled.
 
-#![cfg(all(
-    feature = "async",
-    not(any(feature = "runtime-tokio", feature = "runtime-smol"))
-))]
+#![cfg(feature = "async")]
 
 use std::{future::Future, pin::Pin, time::Duration};
 
@@ -16,7 +14,7 @@ use grafton_visca::{
     transport::{
         AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
-    Error, ExecError, Executor, Session, SessionConfig,
+    CameraId, Error, ExecError, Executor, ProfileSpec, Session, SessionConfig,
 };
 
 /// A small caller-owned executor that needs no crate runtime feature.
@@ -129,13 +127,16 @@ fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
     let executor = ThreadExecutor;
     executor
         .block_on(async move {
+            let expected_profile = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
             let session = Session::open(
                 IdleTransport::new(),
                 SessionConfig::from_compile_time::<PtzOpticsG2>()?,
                 executor,
             )
             .await?;
-            assert!(session.camera::<PtzOpticsG2>().is_ok());
+            let camera = session.camera::<PtzOpticsG2>()?;
+            assert_eq!(camera.target(), CameraId::CAMERA_1);
+            assert_eq!(camera.profile(), &expected_profile);
             session.close().await
         })
         .expect("runtime-neutral caller-owned session closes");
