@@ -872,7 +872,7 @@ impl PanSpeed {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x14", display_prefix = "Tilt Speed")]
+#[visca_value(min = "0x00", max = "0x18", display_prefix = "Tilt Speed")]
 pub struct TiltSpeed(u8);
 
 impl TiltSpeed {
@@ -1283,7 +1283,9 @@ mod tests {
         assert!(TiltSpeed::new(0).is_ok());
         assert!(TiltSpeed::new(1).is_ok());
         assert!(TiltSpeed::new(20).is_ok());
-        assert!(TiltSpeed::new(21).is_err());
+        assert!(TiltSpeed::new(21).is_ok());
+        assert!(TiltSpeed::new(24).is_ok());
+        assert!(TiltSpeed::new(25).is_err());
 
         let pan_speed = PanSpeed::from(SpeedLevel::Fast);
         assert_eq!(pan_speed.value(), 18);

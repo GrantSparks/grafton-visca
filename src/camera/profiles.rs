@@ -61,6 +61,10 @@ mod profile_constants {
         ExposureMode::Bright,
     ];
 
+    /// Profiles whose exposure controls use a model-specific command family
+    /// must not advertise the shared `04 39` VISCA modes.
+    pub const NO_SHARED_EXPOSURE_MODES: &[ExposureMode] = &[];
+
     pub const STANDARD_WB_MODES: &[WhiteBalanceMode] = &[
         WhiteBalanceMode::Auto,
         WhiteBalanceMode::Indoor,

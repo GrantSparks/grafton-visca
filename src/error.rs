@@ -354,6 +354,14 @@ pub enum Error {
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
 
+    /// A raw/unsequenced command was sent, but a lost completion made its
+    /// outcome impossible to correlate safely.
+    ///
+    /// The command is never replayed automatically because it may already have
+    /// been applied. Reconcile camera state before deciding whether to resubmit.
+    #[error("Unsequenced command outcome could not be confirmed")]
+    UnsequencedCommandUnconfirmed,
+
     /// Runtime command queue is at capacity.
     ///
     /// This error indicates that the runtime's pending command queue has reached
@@ -588,8 +596,8 @@ impl Error {
             | Self::TransportBusy
             | Self::CommandPending => ErrorKind::Busy,
 
-            // Other: truly uncategorizable
-            Self::LockPoisoned(..) => ErrorKind::Other,
+            // Other: correlation uncertainty and truly uncategorizable errors
+            Self::UnsequencedCommandUnconfirmed | Self::LockPoisoned(..) => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),
@@ -995,6 +1003,7 @@ mod tests {
         assert!(Error::CommandPending.is_retryable());
         // Issue #501: MaxRetriesExceeded must NOT be retryable (prevents infinite loops)
         assert!(!Error::MaxRetriesExceeded.is_retryable());
+        assert!(!Error::UnsequencedCommandUnconfirmed.is_retryable());
 
         assert!(!Error::SyntaxError.is_retryable());
         assert!(!Error::CommandNotExecutable.is_retryable());
@@ -1195,6 +1204,10 @@ mod tests {
         assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
 
         // Other
+        assert_eq!(
+            Error::UnsequencedCommandUnconfirmed.kind(),
+            ErrorKind::Other
+        );
         assert_eq!(Error::LockPoisoned("test").kind(), ErrorKind::Other);
 
         // Io: inspect inner io::ErrorKind

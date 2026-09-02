@@ -215,7 +215,7 @@ fn test_limit_set_encoding_with_coordinate_system() {
     assert_eq!(buffer[2], 0x06);
     assert_eq!(buffer[3], 0x07);
     assert_eq!(buffer[4], 0x00);
-    assert_eq!(buffer[5], 0x03); // UpRight corner
+    assert_eq!(buffer[5], 0x01); // UpRight corner
 
     // The pan/tilt values should be the converted camera coordinates
     // pan_u16 = 0x8000 + 500 = 0x81F4

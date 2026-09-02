@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-08-27
+## [1.2.0] - 2026-09-02
 
 ### Added
 
@@ -69,6 +69,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Auto-focus sensitivity now sends and decodes Sony's documented values —
+  `01` High, `02` Normal, and `03` Low — instead of the shifted `00`/`01`/`02`
+  mapping (#733). Checked against the `CAM_AFSensitivity` command and inquiry
+  rows in `docs/visca_reference.md` §§7.3 and 7.10 (R1).
+- Bright Direct now uses `04 4D`; `04 0D` remains reserved for Bright
+  Reset/Up/Down (#733). Checked against the Bright Direct row and erratum in
+  `docs/visca_reference.md` §7.5 (R8).
+- Pan/tilt limit Set/Clear now encodes the UpRight corner as `01`, with
+  DownLeft remaining `00` (#733). Checked against the limit rows in
+  `docs/visca_reference.md` §§8.4 and 9.4 (R6/R7).
+- Picture-effect, focus-zone, and USB-audio inquiries now use `09 04 63`,
+  `09 04 AA`, and `2A 02 A0 04`, respectively, and USB-audio replies decode
+  `02` as on and `03` as off (#733). The legacy `ResolutionInquiry` API now
+  rejects locally without sending because `09 04 63` is picture effect and no
+  verified resolution opcode exists. Checked against the inquiry rows in
+  `docs/visca_reference.md` §7.10 (R1).
+- Command construction now tracks termination explicitly, preserving a
+  trailing `FF` payload byte before appending the frame terminator; preset 255
+  and direct-menu values ending in `FF` are no longer truncated (#733).
+  Checked against the Sony message framing in `docs/visca_reference.md` §5.2
+  (R7).
+- `TiltSpeed` now accepts the full standard `00`–`18` value range, making
+  speeds 21–24 reachable for profiles that advertise them (#733). Checked
+  against the FR7 normal-speed row in `docs/visca_reference.md` §9.4 (R7).
+- Sony VISCA-over-IP now maps device-setting commands to payload type `01 20`,
+  control commands to `02 00`, and control replies to `02 01` (#733). Checked
+  against the payload-type table in `docs/visca_reference.md` §5.2 (R7).
+- Iris-position inquiry replies now assemble the documented two-nibble `pq`
+  value instead of discarding the high nibble (#733). Checked against
+  `CAM_IrisPosInq` in `docs/visca_reference.md` §7.10 (R1).
+- White-balance inquiry decoding now accepts reply value `04` as ATW (#733).
+  Checked against the FR7 white-balance mode row in
+  `docs/visca_reference.md` §9.4 (R7).
+- Four-byte pan/tilt position payloads now return a response-length error
+  instead of fabricating `(0, 0)`; the shared decoder requires the documented
+  eight-nibble position payload (#733). Checked against the pan/tilt position
+  inquiry rows in `docs/visca_reference.md` §§7.10 and 8.5 (R1/R6).
+- The Sony FR7 profile no longer advertises unsupported shared AE/iris,
+  brightness, focus-zone, AF-sensitivity, noise-reduction, or picture-effect
+  metadata and typed controls; raw/custom commands remain available (#733).
+  Checked against the current FR7 command-surface audit in
+  `docs/visca_reference.md` §9.4 (R7, Version 4.00).
+- An ACK's explicit socket number is now authoritative when a camera reuses a
+  socket after a lost Completion: the stale owner enters a bounded unconfirmed
+  quarantine, while completion and cancel routing follow the socket the camera
+  named. If correlation cannot be recovered, the stale request fails once with
+  non-retryable `Error::UnsequencedCommandUnconfirmed` (#733). Checked against
+  the ACK/socket semantics in `docs/visca_reference.md` §§6, 9.4, and 11.4
+  (R7).
 - The `Camera` documentation no longer claims a `Clone` that does not apply
   (#597). Both cfg blocks of the type-level docs stated "The `Camera` type is
   `Clone`" over a `camera.clone()` example, and the `runtime` module built its

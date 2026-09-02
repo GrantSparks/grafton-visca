@@ -317,7 +317,7 @@ impl ViscaCommand for Brightness {
             }
             Self::Direct(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_VALUE_PREFIX);
+                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
                 builder
                     .with_camera_id(camera_id)
@@ -1001,7 +1001,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x00,
@@ -1018,7 +1018,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x00,
@@ -1035,7 +1035,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x01,
@@ -1052,7 +1052,7 @@ mod tests {
             0x81,
             0x01,
             0x04,
-            0x0D,
+            0x4D,
             0x00,
             0x00,
             0x01,

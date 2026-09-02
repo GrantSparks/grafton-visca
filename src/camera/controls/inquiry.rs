@@ -138,13 +138,14 @@ pub trait InquiryControl {
     /// Returns an error if the inquiry fails or times out.
     fn white_balance_mode(&self) -> <Self::Mode as Mode>::Fut<'_, Result<WhiteBalanceMode, Error>>;
 
-    /// Get the current video resolution mode.
+    /// Legacy accessor for the current video resolution mode.
     ///
-    /// Returns the current video resolution setting.
-    /// Common modes include 1080p60, 1080p30, 720p60, etc.
+    /// This method remains in the 1.x API for source compatibility, but no
+    /// verified VISCA resolution opcode exists. It rejects locally without
+    /// sending a command.
     ///
     /// # Errors
-    /// Returns an error if the inquiry fails or times out.
+    /// Always returns [`Error::FeatureNotSupported`] in 1.2.0.
     fn resolution(
         &self,
     ) -> <Self::Mode as Mode>::Fut<'_, Result<crate::command::ResolutionMode, Error>>;

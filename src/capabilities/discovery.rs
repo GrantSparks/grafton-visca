@@ -909,9 +909,11 @@ mod tests {
         assert_eq!(caps.max_presets, 255);
         assert!(caps.supports_preset_tour);
         assert!(!caps.has_one_push_focus);
-        assert!(caps.has_focus_zone);
-        assert!(caps.has_af_sensitivity);
+        assert!(!caps.has_focus_zone);
+        assert!(!caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
+        assert!(!caps.has_iris_control);
+        assert!(!caps.supports_exposure_mode(ExposureMode::Iris));
         assert!(caps.has_rgb_gain);
         assert_eq!(caps.red_gain_range, Some(0..=0xFF));
         assert_eq!(caps.blue_gain_range, Some(0..=0xFF));
@@ -923,11 +925,15 @@ mod tests {
         assert!(!caps.has_motion_sync);
         assert_eq!(caps.max_motion_sync_speed, None);
         assert!(caps.has_variable_speed);
-        assert_eq!(caps.exposure_brightness_range, Some(0..=17));
+        assert_eq!(caps.exposure_brightness_range, None);
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=14));
         assert_eq!(caps.gamma_range, Some(0..=4));
+        assert!(!caps.has_noise_reduction);
+        assert!(!caps.has_2d_nr);
+        assert!(!caps.has_3d_nr);
+        assert!(!caps.has_picture_effect);
 
         assert!(caps.has_advanced_features());
     }
@@ -952,8 +958,14 @@ mod tests {
         assert!(fr7.supports_typed(TypedSupportSurface::DirectZoom));
         assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomToggle));
         assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomRange));
-        assert!(fr7.supports_typed(TypedSupportSurface::FocusZone));
-        assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+        assert!(!fr7.supports_typed(TypedSupportSurface::FocusZone));
+        assert!(!fr7.supports_typed(TypedSupportSurface::IrisControl));
+        assert!(!fr7.supports_typed(TypedSupportSurface::BrightnessControl));
+        assert!(!fr7.supports_typed(TypedSupportSurface::NoiseReduction));
+        assert!(!fr7.supports_typed(TypedSupportSurface::NoiseReduction2D));
+        assert!(!fr7.supports_typed(TypedSupportSurface::NoiseReduction3D));
+        assert!(!fr7.supports_typed(TypedSupportSurface::PictureEffect));
+        assert!(!fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
     }
 
     #[test]

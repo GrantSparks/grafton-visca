@@ -24,7 +24,6 @@ use grafton_visca::{
     runtime::TokioRuntime,
     testing::camera_simulator::{SimulatorBuilder, ViscaCameraSimulator},
     transport::RawVisca,
-    ResolutionMode,
 };
 
 const SIM_EXPOSURE_MODES: &[ExposureMode] = &[
@@ -527,9 +526,10 @@ async fn test_focus_mode_inquiries_integration() {
     // and has been disabled until proper documentation is found.
 }
 
-/// Test resolution inquiry
+/// The legacy resolution accessor is retained for 1.x compatibility but must
+/// fail locally because its historical opcode is the picture-effect inquiry.
 #[tokio::test(start_paused = true)]
-async fn test_resolution_inquiry_integration() {
+async fn test_resolution_inquiry_is_rejected_without_wrong_wire_semantics() {
     let simulator = ViscaCameraSimulator::new();
     let runtime = TokioRuntime::from_current().unwrap();
     let camera = CameraBuilder::with_executor(runtime)
@@ -537,18 +537,17 @@ async fn test_resolution_inquiry_integration() {
         .await
         .unwrap();
 
-    // Test resolution inquiry
-    let resolution = camera
+    let error = camera
         .image()
         .resolution()
         .await
-        .expect("resolution inquiry should succeed");
-    // The simulator returns 0x00 which maps to FullHD60
-    assert_eq!(
-        resolution,
-        ResolutionMode::FullHD60, // 0x00 = 1080p60
-        "Resolution inquiry should succeed"
-    );
+        .expect_err("resolution inquiry has no verified VISCA opcode");
+    assert!(matches!(
+        error,
+        grafton_visca::Error::FeatureNotSupported {
+            feature: "resolution inquiry (no verified VISCA opcode)"
+        }
+    ));
 }
 
 /// Test concurrent inquiries to verify socket manager handles them properly

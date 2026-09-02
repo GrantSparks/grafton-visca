@@ -33,8 +33,8 @@ fn use_ptzoptics_g2(
 }
 
 fn use_sony_fr7(camera: BlockingCamera<SonyFR7, BlockingTransportHandle>) -> Result<(), Error> {
-    camera.set_picture_effect(PictureEffectMode::BlackAndWhite)?;
-    let _ = camera.image().picture_effect()?;
+    camera.set_saturation(SaturationLevel::new(1)?)?;
+    let _ = camera.image().saturation()?;
     Ok(())
 }
 

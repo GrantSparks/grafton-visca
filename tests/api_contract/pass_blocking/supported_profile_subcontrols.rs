@@ -9,17 +9,12 @@ fn use_sony_fr7(camera: BlockingCamera<SonyFR7, BlockingTransportHandle>) -> Res
     camera.set_digital_zoom(true)?;
     camera
         .set_zoom_normalized_in_domain(UnitInterval::new(0.75)?, ZoomDomain::OpticalPlusDigital)?;
-    camera.exposure().iris_priority()?;
-    camera.set_iris(IrisLevel::new(1)?)?;
-    camera.exposure().set_brightness(BrightnessLevel::new(1)?)?;
     camera.image().set_contrast(ContrastLevel::new(1)?)?;
     camera.image().set_sharpness(SharpnessLevel::new(1)?)?;
-    let _ = camera.exposure().brightness()?;
     let _ = camera.image().contrast()?;
     let _ = camera.image().sharpness_level()?;
     camera.tally().red_on()?;
     let _ = camera.tally().status()?;
-    let _ = camera.exposure().iris()?;
     Ok(())
 }
 

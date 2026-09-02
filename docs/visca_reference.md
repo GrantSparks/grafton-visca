@@ -2,6 +2,7 @@
 
 **Document status:** Final consolidated reference - gap recommendations implemented
 **Date:** 2026-05-15
+**Last primary-source review:** 2026-09-02
 **Primary scope:** PTZOptics Gen‑2 NDI®\|HX cameras (`PT12X‑NDI`, `PT20X‑NDI`, `PT30X‑NDI`), Axis VISCA Interface API behavior, and only the Sony VISCA references needed to resolve protocol/opcode conflicts.
 
 This is the repository's canonical protocol reference. It replaces the former
@@ -56,7 +57,7 @@ Sony references are used here for:
 - Standard opcode interpretation where PTZOptics or Axis documentation contains a likely typo.
 - Standard commands such as Bright Direct `04 4D`, Gamma `04 5B`, and Sony digital-zoom inquiry behavior.
 
-This document does **not** claim full validation of all Sony FR7, Sony BRC, Sony EVI, Nearus, Marshall, AVer, Avonic, or other non-PTZOptics/non-Axis model profiles. Those broader profiles remain in Appendix A unless specifically validated in a row below.
+This document does **not** claim full validation of all Sony FR7, Sony BRC, Sony EVI, Nearus, Marshall, AVer, Avonic, or other non-PTZOptics/non-Axis model profiles. Those broader profiles remain in Appendix A unless specifically validated in a row below; the narrow FR7 command-surface boundary used by the built-in profile is recorded in section 9.4.
 
 ## 3. Executive decisions
 
@@ -291,6 +292,7 @@ PTZOptics specs list 16× digital zoom, but the checked PTZOptics Gen‑2 comman
 | Auto/manual toggle | `81 01 04 38 10 FF` |
 | Focus lock | `81 0A 04 68 02 FF` |
 | Focus unlock | `81 0A 04 68 03 FF` |
+| AF sensitivity High / Normal / Low | `81 01 04 58 01/02/03 FF` |
 | Focus mode inquiry | `81 09 04 38 FF` |
 | Focus position inquiry | `81 09 04 48 FF` |
 
@@ -643,6 +645,24 @@ Sony’s EVI-H100S/H100V technical manual confirms:
 - Gamma set uses `04 5B`; Gamma inquiry uses `09 04 5B`.
 - Sony EVI-H100 has a slow-shutter command/inquiry family, so “no VISCA slow-shutter inquiry exists” is not a valid universal statement. For PTZOptics Gen‑2, the checked PTZOptics sources do not establish the same slow-shutter inquiry.
 
+### 9.4 Sony FR7 command-surface boundary
+
+The current Sony ILME-FR7 / FR7K VISCA Command List, Version 4.00 (R7),
+was checked against the built-in `SonyFR7` profile on 2026-09-02. This is a
+conservative command-surface check, not a claim that every FR7 command has a
+typed implementation.
+
+| Area | R7 row / absence check | Built-in profile treatment |
+|---|---|---|
+| Iris and exposure | Iris Up/Down uses `8x 01 7E 04 4B 02/03 pp FF`; Auto Iris uses `8x 01 05 34 0p FF`. The list has no shared `04 39` AE-mode family, standard `04 0B`/`04 4B` iris family, or `09 04 4B` iris-position inquiry. | Do not expose the shared exposure-mode, iris, or brightness surfaces. |
+| Focus extensions | Push AF/MF uses `8x 01 7E 04 58 0p FF`. The list has no shared `04 58` AF-sensitivity or `04 AA` focus-zone command/inquiry families. | Keep Push AF, but do not expose shared AF-sensitivity or focus-zone metadata/markers. |
+| White balance | Mode uses `8x 01/09 04 35`; reply value `04` is ATW. | Accept `04` as `WhiteBalanceMode::ATW`. |
+| Pan/tilt | Normal speed step is `01`–`18` for both pan and tilt; limit position `q` is `0` DownLeft and `1` UpRight. | Permit `TiltSpeed` through `0x18` and encode UpRight as `0x01`. |
+| Shared image families | The command and inquiry lists have no shared `04 50`/`53`/`54` noise-reduction or `04 63` picture-effect families. | Do not advertise those metadata facts or typed surfaces for FR7. |
+
+R7 also confirms the payload-type table in section 5.2 and that the socket
+number in ACK, Completion, and Error identifies the camera command buffer used.
+
 ## 10. Resolved inconsistencies and final treatments
 
 | # | Issue | Final treatment | Confidence |
@@ -865,7 +885,7 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 
 - PTZOptics SuperJoy G1 User Manual, port assignments: https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf
 - PTZOptics firmware changelog, SOC `6.3.12`: https://ptzoptics.com/firmware-changelog/
-- Sony ILME-FR7 VISCA Command List, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME-FR7 VISCA Command List, Version 4.00, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 
 ## A.8 Current PTZOptics NDI page field-of-view inconsistencies
 
@@ -883,7 +903,7 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 
 ## A.9 Broader Sony FR7 / BRC / EVI / Nearus / third-party model sections
 
-**Current treatment:** Background only. Do not present those profiles as fully validated in this PTZOptics/Axis document.
+**Current treatment:** Background only except for the narrow FR7 transport and command-surface rows in sections 5.2 and 9.4. Do not present the remaining profiles as fully validated in this PTZOptics/Axis document.
 
 **Why it remains open:** The uploaded unified guide explicitly says the non-PTZOptics and non-Axis sections were not re-validated in the prior patch set. This final document used Sony manuals only to resolve transport and opcode semantics, not to validate every model-family capability.
 
@@ -897,7 +917,7 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 
 **Helpful sources:**
 
-- Sony ILME‑FR7 VISCA Command List: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME‑FR7 VISCA Command List, Version 4.00: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 - Sony EVI-H100S/H100V Technical Manual: https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf
 - Axis VISCA Interface API Description: https://www.axis.com/dam/public/70/3d/31/visca-interface-api-description-en-US-266656.pdf
 - Uploaded Unified VISCA Protocol Implementation Guide: `visca_unified_reference(2).md`
@@ -1014,7 +1034,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance, and the conservative FR7 command-surface boundary in section 9.4. |
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, slow shutter profile note, 240 ms post-preset caveat. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
 

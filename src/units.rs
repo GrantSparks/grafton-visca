@@ -382,7 +382,7 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
                 max: 100,
             });
         }
-        let value = (percentage.0 / 100.0 * 20.0) as u8;
+        let value = (percentage.0 / 100.0 * 24.0) as u8;
         TiltSpeed::new(value)
     }
 }
@@ -561,6 +561,13 @@ mod tests {
         let fstop = FStop::Closed;
         let iris = IrisLevel::from(fstop);
         assert_eq!(iris.value(), 0x00);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn full_tilt_speed_percentage_reaches_the_public_maximum() {
+        let speed = TiltSpeed::try_from(Percentage(100.0)).unwrap();
+        assert_eq!(speed.value(), 24);
     }
 
     #[test]

@@ -1647,9 +1647,12 @@ fn test_ack_without_socket_nibble_both_busy() {
 }
 
 #[test]
-fn test_ack_with_busy_socket_fallback() {
-    // Test: ACK requests busy socket, fallback to free socket
-    let mut core = SchedulerCore::new(TimeoutConfig::default());
+fn test_ack_reused_socket_is_authoritative_and_displaces_stale_owner() {
+    let timeout_config = TimeoutConfig {
+        ack_timeout: Duration::from_millis(100),
+        ..TimeoutConfig::default()
+    };
+    let mut core = SchedulerCore::new(timeout_config);
     let now = Instant::now();
     let camera_id = CameraId::CAMERA_1;
 
@@ -1680,24 +1683,64 @@ fn test_ack_with_busy_socket_fallback() {
     let event = SchedulerEvent::Ack { source };
     core.process_event(event, now);
 
-    // Second ACK requests S1 (busy), should fallback to S2
+    // Command 1's completion is lost. The camera has nevertheless freed S1,
+    // so its ACK for command 2 names S1 again.
     let source = ReplySource::from_fields(Some(cmd_id(2)), None, Some(ViscaSocket::S1));
     let event = SchedulerEvent::Ack { source };
     core.process_event(event, now);
 
-    // Verify S1 still has command 1
+    // The camera's assignment wins: command 2 owns S1 and command 1 no longer
+    // has any keyed socket claim. S2 must not be synthesized.
     let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S1);
     assert!(!free, "S1 should be occupied");
-    assert_eq!(socket_cmd_id, Some(cmd_id(1)), "Command 1 should be on S1");
+    assert_eq!(socket_cmd_id, Some(cmd_id(2)), "Command 2 should own S1");
 
-    // Verify S2 has command 2 (fallback allocation)
     let (free, socket_cmd_id, _) = core.socket_state(ViscaSocket::S2);
-    assert!(!free, "S2 should be occupied");
+    assert!(free, "S2 should remain free");
+    assert_eq!(socket_cmd_id, None);
+    assert!(matches!(
+        core.commands.get(&cmd_id(1)).map(|entry| entry.phase),
+        Some(CommandPhase::Unconfirmed { .. })
+    ));
+
+    // Cancellation now targets the socket the camera actually named.
     assert_eq!(
-        socket_cmd_id,
-        Some(cmd_id(2)),
-        "Command 2 should be on S2 (fallback)"
+        core.request_cancel_by_id(cmd_id(2)),
+        CancelOutcome::SendCancel {
+            camera_id,
+            socket: ViscaSocket::S1,
+        }
     );
+
+    // A completion on S1 resolves to command 2, never the stale command 1.
+    let actions = core.process_event(
+        SchedulerEvent::Completion {
+            source: ReplySource::BySocket {
+                socket: ViscaSocket::S1,
+            },
+            response: Response::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        },
+        now,
+    );
+    assert!(matches!(
+        actions.as_slice(),
+        [SchedulerAction::CommandComplete { id, .. }] if *id == cmd_id(2)
+    ));
+    assert!(core.commands.contains_key(&cmd_id(1)));
+
+    // The displaced request terminates as unconfirmed without an automatic
+    // replay once its short ambiguity window expires.
+    let actions = core.check_timeouts(now + Duration::from_millis(101));
+    assert!(matches!(
+        actions.as_slice(),
+        [SchedulerAction::CommandFailed {
+            id,
+            error: Error::UnsequencedCommandUnconfirmed,
+        }] if *id == cmd_id(1)
+    ));
+    assert!(!core.commands.contains_key(&cmd_id(1)));
 }
 
 #[test]

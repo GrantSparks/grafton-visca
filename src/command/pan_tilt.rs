@@ -5,7 +5,7 @@
 //!
 //! # Speed Limits
 //! - Pan speed: 0x00 to 0x18 (0-24 decimal)
-//! - Tilt speed: 0x00 to 0x14 (0-20 decimal)
+//! - Tilt speed: 0x00 to 0x18 (0-24 decimal; profiles may impose a lower maximum)
 //!
 //! # VISCA Compliance
 //! All commands in this module are part of the baseline VISCA specification and should be
@@ -60,7 +60,7 @@ impl PanTiltLimitCorner {
     pub const fn to_byte(self) -> u8 {
         match self {
             Self::DownLeft => 0x00,
-            Self::UpRight => 0x03,
+            Self::UpRight => 0x01,
         }
     }
 }
@@ -168,7 +168,7 @@ mod tests {
             tilt: TiltPosition::new(0x0456).expect("valid test tilt position"),
         },
         &[
-            0x81, 0x01, 0x06, 0x07, 0x00, 0x03, 0x00, 0x07, 0x08, 0x09, 0x00, 0x04, 0x05, 0x06,
+            0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x07, 0x08, 0x09, 0x00, 0x04, 0x05, 0x06,
             0xFF
         ]
     );
@@ -180,8 +180,29 @@ mod tests {
             corner: PanTiltLimitCorner::UpRight,
         },
         &[
-            0x81, 0x01, 0x06, 0x07, 0x01, 0x03, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
+            0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
             0xFF
+        ]
+    );
+
+    visca_test!(
+        PanTilt,
+        test_pan_tilt_move_accepts_tilt_speed_24,
+        PanTilt::Move {
+            direction: PanTiltDirection::Up,
+            pan_speed: PanSpeed::new(0x18).expect("valid test pan speed"),
+            tilt_speed: TiltSpeed::new(0x18).expect("valid test tilt speed"),
+        },
+        &[
+            0x81,
+            0x01,
+            0x06,
+            0x01,
+            0x18,
+            0x18,
+            0x03,
+            0x01,
+            VISCA_TERMINATOR,
         ]
     );
 }
@@ -211,7 +232,7 @@ pub enum PanTilt {
         direction: PanTiltDirection,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18; profile-specific maximum applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera to an absolute pan/tilt position.
@@ -224,7 +245,7 @@ pub enum PanTilt {
         tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18; profile-specific maximum applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera relative to its current position.
@@ -237,7 +258,7 @@ pub enum PanTilt {
         tilt: TiltPosition,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18; profile-specific maximum applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera to an absolute pan/tilt position using raw camera units.
@@ -252,7 +273,7 @@ pub enum PanTilt {
         tilt_u16: u16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18; profile-specific maximum applies).
         tilt_speed: TiltSpeed,
     },
     /// Move camera relative to its current position using raw camera units.
@@ -267,7 +288,7 @@ pub enum PanTilt {
         tilt_u16: u16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x14).
+        /// Tilt movement speed (0x00-0x18; profile-specific maximum applies).
         tilt_speed: TiltSpeed,
     },
     /// Set pan/tilt movement boundaries.

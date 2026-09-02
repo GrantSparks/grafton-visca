@@ -165,9 +165,6 @@ pub mod exposure {
     /// Brightness direct value prefix.
     pub const BRIGHTNESS_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00];
 
-    /// Brightness value prefix (alternative).
-    pub const BRIGHTNESS_VALUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0D, 0x00, 0x00];
-
     /// Spot AE (auto exposure) control prefix.
     #[cfg(test)]
     pub const SPOT_AE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5A];
@@ -489,7 +486,8 @@ mod validation_tests {
     fn test_inquiry_format_validation() {
         // All inquiry commands should:
         // 1. Start with 0x81 (camera ID)
-        // 2. Have 0x09 as second byte (inquiry command type)
+        // 2. Use the baseline 0x09 inquiry family unless explicitly
+        //    classified as a vendor-specific extension
         // 3. End with 0xFF (terminator)
         // 4. Duplicate bytes must be explicitly classified in metadata.
 
@@ -501,11 +499,13 @@ mod validation_tests {
             };
             // Check format
             assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", meta.name);
-            assert_eq!(
-                inq[1], 0x09,
-                "Inquiry {} should have 0x09 as second byte",
-                meta.name
-            );
+            if inq[1] != 0x09 {
+                assert!(
+                    meta.vendor_specific,
+                    "Baseline inquiry {} should have 0x09 as second byte",
+                    meta.name
+                );
+            }
             assert_eq!(
                 inq[inq.len() - 1],
                 0xFF,
@@ -519,11 +519,13 @@ mod validation_tests {
                         prev_query,
                         BuiltinInquiryQuery::Alias { .. }
                             | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                            | BuiltinInquiryQuery::Unavailable
                     );
                     let current_explicit = matches!(
                         meta.query,
                         BuiltinInquiryQuery::Alias { .. }
                             | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
+                            | BuiltinInquiryQuery::Unavailable
                     );
                     assert!(
                         prev_explicit || current_explicit,
@@ -563,7 +565,6 @@ mod validation_tests {
             exposure::SHUTTER_DIRECT_PREFIX,
             exposure::BRIGHTNESS_CONTROL_PREFIX,
             exposure::BRIGHTNESS_DIRECT_PREFIX,
-            exposure::BRIGHTNESS_VALUE_PREFIX,
             exposure::SPOT_AE_PREFIX,
             // Flip and image-processing prefixes
             flip::PREFIX,
