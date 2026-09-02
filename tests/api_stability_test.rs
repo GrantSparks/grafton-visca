@@ -199,6 +199,7 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
+    fn assert_send_sync<T: Send + Sync>() {}
 
     assert_profile::<PtzOpticsG2>();
     let _: PhantomData<Camera<'static, PtzOpticsG2>> = PhantomData;
@@ -206,6 +207,8 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     let _: PhantomData<SessionConfig> = PhantomData;
     let _: PhantomData<Operation<'static, AppliedOnly>> = PhantomData;
     let _: PhantomData<Operation<'static, Targeted>> = PhantomData;
+    assert_send_sync::<Session>();
+    assert_send_sync::<Camera<'static, PtzOpticsG2>>();
 }
 
 #[cfg(all(feature = "blocking", feature = "async"))]

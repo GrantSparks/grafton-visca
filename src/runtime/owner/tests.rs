@@ -5975,6 +5975,30 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
     );
 }
 
+/// Issue #729: normalizing a custom transport's already-typed close must not
+/// duplicate the public variant prefix.
+#[test]
+fn transport_close_normalization_keeps_one_connection_closed_prefix() {
+    let direct = Error::ConnectionClosed {
+        reason: Some("peer closed connection".into()),
+    };
+    let reason = transport_close_reason(&direct).expect("typed close reason");
+    assert_eq!(&*reason, "peer closed connection");
+
+    let contextual = direct.with_context("control socket receive");
+    let reason = transport_close_reason(&contextual).expect("contextual close reason");
+    assert_eq!(&*reason, "control socket receive: peer closed connection");
+
+    let normalized = boundary_error_for_input(&Input::Shutdown(ShutdownReason::TransportClosed {
+        reason: Some(reason),
+    }))
+    .expect("shutdown boundary");
+    assert_eq!(
+        normalized.to_string(),
+        "Connection closed: control socket receive: peer closed connection"
+    );
+}
+
 /// Issue #637: a datagram send failure fails one request while the session
 /// keeps running, so the value the caller sees must never claim a replacement
 /// session is required.

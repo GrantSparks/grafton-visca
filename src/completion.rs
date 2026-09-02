@@ -112,8 +112,7 @@ pub struct Targeted;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct AppliedOnly;
 
-#[doc(hidden)]
-pub struct AppliedOnlySettlementPlan;
+pub(crate) struct AppliedOnlySettlementPlan;
 
 impl core::fmt::Debug for AppliedOnlySettlementPlan {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -121,8 +120,7 @@ impl core::fmt::Debug for AppliedOnlySettlementPlan {
     }
 }
 
-#[doc(hidden)]
-pub struct TargetedSettlementPlan {
+pub(crate) struct TargetedSettlementPlan {
     pub(crate) inner: crate::prepared::SettlementPlan,
 }
 

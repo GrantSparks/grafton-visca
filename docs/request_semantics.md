@@ -18,8 +18,8 @@ The rule is intentionally narrow:
 
 Custom wire frames use the single canonical raw namespace. The four request
 classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
-`raw::AppliedOnly`; their explicit policy values use `raw::Policy` or
-`raw::Spec`. Each class has one primary `new` constructor and one
+`raw::AppliedOnly`; their explicit policy values use `raw::Policy`. Each class
+has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
 use `from_fn` or `with_context`, and request values expose `bytes()` and their
 semantic accessors (`route()` or `affected_axes()`).
@@ -101,7 +101,7 @@ primitive.
 
 A raw command declares the reply protocol the camera will use, so the owner does
 not assume every command follows the ACK-then-completion shape. The axis is
-`raw::RawReplyShape`, carried on `raw::Policy`/`raw::Spec` and set with
+`raw::RawReplyShape`, carried on `raw::Policy` and set with
 `Policy::with_reply_shape`:
 
 - `AckThenCompletion` (the default) — the command is acknowledged, assigned a

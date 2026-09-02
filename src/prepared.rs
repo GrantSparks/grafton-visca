@@ -716,10 +716,20 @@ where
             "write_into must report exactly encoded_size bytes within the supplied buffer".into(),
         ));
     }
-    if written < 2 || bytes[0] != target.to_address_byte() {
+    if written < 2 {
         return Err(Error::InvalidRequest(
-            "write_into must encode the explicit target address and a non-empty VISCA message"
-                .into(),
+            "encoded request must contain a VISCA target address and message body".into(),
+        ));
+    }
+    if bytes[0] != target.to_address_byte() {
+        return Err(Error::InvalidRequest(
+            format!(
+                "request targets VISCA address 0x{:02x}, but the selected camera target is {} (0x{:02x})",
+                bytes[0],
+                target,
+                target.to_address_byte()
+            )
+            .into(),
         ));
     }
     // The raw namespace and downstream `Request` implementations share this

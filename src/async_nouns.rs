@@ -6,6 +6,11 @@
 //! same path as [`crate::Camera::execute`], [`crate::Camera::inquire`], and
 //! [`crate::Camera::submit`].
 //!
+//! An async noun method borrows its accessor for the returned future. Bind the
+//! accessor before passing multiple noun futures to `join!`, `select!`, or a
+//! task collection; see the concurrency note in the 2.0 usage guide. A direct
+//! `camera.power().on().await` remains valid.
+//!
 //! The methods themselves are not written here: they are generated from the
 //! shared row table in [`crate::noun_table`], which the blocking and erased
 //! facades consume from the same rows.  This module owns only what is specific

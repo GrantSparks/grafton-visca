@@ -1,13 +1,15 @@
 //! Caller-thread owner for the blocking mode.
 
 use std::{
-    cell::RefCell,
     collections::VecDeque,
     fmt,
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, Mutex, TryLockError},
     time::{Duration, Instant},
 };
+
+#[cfg(all(test, not(feature = "async")))]
+use std::cell::RefCell;
 
 use crate::{
     completion, protocol::framer::RawIncompletePrefix, AffectedAxes, CancellationOutcome, Error,
@@ -322,12 +324,13 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 /// Owning caller-thread host used by the minimal public blocking session.
 ///
 /// The transport adapter is split once at construction and all three views are
-/// retained inside this one `RefCell`.  Handles borrow this host immutably and
-/// each operation obtains one mutable host turn, so an owning session does not
-/// require a self-referential `BlockingSessionCore`.
+/// retained inside this one `Mutex`. Handles borrow this host immutably and
+/// each operation obtains one fail-fast mutable host turn, so an owning session
+/// does not require a self-referential `BlockingSessionCore` and can safely be
+/// shared between threads.
 pub(crate) struct BlockingSessionHost {
-    parts: RefCell<BlockingOwnedSessionParts>,
-    state_cache: Arc<[std::sync::Mutex<super::TargetStateCache>; 9]>,
+    parts: Mutex<BlockingOwnedSessionParts>,
+    state_cache: Arc<[Mutex<super::TargetStateCache>; 9]>,
     /// The owner's live operational tuning (#631). The blocking owner runs on
     /// the caller thread, so the update and every subsequent preparation are
     /// already ordered by the one owner turn each takes.
@@ -358,7 +361,7 @@ impl BlockingSessionHost {
         let state_cache = owner.state().state_cache_registry();
         let tuning = owner.state().live_tuning();
         Ok(Self {
-            parts: RefCell::new(BlockingOwnedSessionParts {
+            parts: Mutex::new(BlockingOwnedSessionParts {
                 owner,
                 driver: Box::new(driver),
                 reader: Box::new(reader),
@@ -378,10 +381,11 @@ impl BlockingSessionHost {
             &mut dyn BlockingFrameDecoder,
         ) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let mut parts = self
-            .parts
-            .try_borrow_mut()
-            .map_err(|_| Error::TransportBusy)?;
+        let mut parts = match self.parts.try_lock() {
+            Ok(parts) => parts,
+            Err(TryLockError::WouldBlock) => return Err(Error::TransportBusy),
+            Err(TryLockError::Poisoned(_)) => return Err(poisoned_owner_turn()),
+        };
         let BlockingOwnedSessionParts {
             owner,
             driver,
@@ -402,8 +406,14 @@ impl BlockingSessionHost {
             ReceiptCore,
         ) -> Result<T, RejectedCancellation>,
     ) -> Result<T, RejectedCancellation> {
-        let Ok(mut parts) = self.parts.try_borrow_mut() else {
-            return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+        let mut parts = match self.parts.try_lock() {
+            Ok(parts) => parts,
+            Err(TryLockError::WouldBlock) => {
+                return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(RejectedCancellation::kept(receipt, poisoned_owner_turn()));
+            }
         };
         let BlockingOwnedSessionParts { owner, driver, .. } = &mut *parts;
         operation(owner, driver.as_mut(), receipt)
@@ -508,6 +518,12 @@ impl BlockingSessionHost {
     /// Creates one observer deadline from the owner clock.
     pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
         observer_deadline(self.now(), timeout)
+    }
+}
+
+fn poisoned_owner_turn() -> Error {
+    Error::StreamPoisoned {
+        reason: "blocking owner panicked while holding its serialized turn".into(),
     }
 }
 
@@ -2676,7 +2692,7 @@ impl BlockingOwner {
                 // stream, exactly as the async owner does.
                 let effects = self.input_for_mode(
                     Input::Shutdown(ShutdownReason::TransportClosed {
-                        reason: Some(error.to_string().into_boxed_str()),
+                        reason: super::transport_close_reason(&error),
                     }),
                     Instant::now(),
                     mode,

@@ -30,7 +30,7 @@
 //!
 //! Raw policy is explicit and owned by each value. Timeout, retry, and control
 //! classes are required constructor arguments (or can be supplied as a
-//! [`crate::raw::Policy`] or [`crate::raw::Spec`]); no default, optional metadata, byte-based
+//! [`crate::raw::Policy`]); no default, optional metadata, byte-based
 //! inference, or caller-selected operation class exists.
 //!
 //! A raw command also declares its [`crate::raw::RawReplyShape`]: the default
@@ -150,86 +150,11 @@ pub struct Policy {
     reply_shape: RawReplyShape,
 }
 
-/// The caller-facing policy specification used to build a raw request.
-///
-/// `Spec` is intentionally distinct from [`Policy`]: a specification is the
-/// value supplied at a construction boundary, while `Policy` is the compact
-/// policy retained by a constructed request. Both carry the same three
-/// semantic classes and neither exposes a queue position or lifecycle state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Spec {
-    policy: Policy,
-}
-
-/// The error every raw policy/spec constructor returns for an urgent request.
-///
-/// Shared so [`Policy::new`] and [`Spec::new`] cannot drift in wording. It is a
-/// free `const fn` returning the [`Error`] by value: a `const fn` cannot drop an
-/// intermediate `Result`, so each constructor keeps its own one-line `matches!`
-/// guard (pinned together by `raw_policy_rejects_urgent_control_class`) rather
-/// than delegating through a fallible call.
+/// The error returned when a raw policy selects the owner-only urgent lane.
 const fn urgent_control_class_error() -> Error {
     Error::InvalidRequest(Cow::Borrowed(
         "raw policy cannot select ControlClass::Urgent; the urgent lane is reserved for owner-issued stops and protocol cancellation (issue pan_tilt().stop() for preemption)",
     ))
-}
-
-impl Spec {
-    /// Creates an explicit raw-request specification.
-    ///
-    /// Rejects [`ControlClass::Urgent`] on the same grounds as [`Policy::new`].
-    pub const fn new(
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        if matches!(control, ControlClass::Urgent) {
-            return Err(urgent_control_class_error());
-        }
-        Ok(Self {
-            policy: Policy {
-                timeout,
-                retry,
-                control,
-                reply_shape: RawReplyShape::AckThenCompletion,
-            },
-        })
-    }
-
-    /// Returns this specification with the given reply shape.
-    ///
-    /// The default is [`RawReplyShape::AckThenCompletion`]; see
-    /// [`Policy::with_reply_shape`].
-    #[must_use]
-    pub const fn with_reply_shape(self, reply_shape: RawReplyShape) -> Self {
-        Self {
-            policy: self.policy.with_reply_shape(reply_shape),
-        }
-    }
-
-    /// Returns the declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-
-    /// Returns the normalized policy represented by this specification.
-    #[must_use]
-    pub const fn policy(self) -> Policy {
-        self.policy
-    }
-}
-
-impl From<Policy> for Spec {
-    fn from(policy: Policy) -> Self {
-        Self { policy }
-    }
-}
-
-impl From<Spec> for Policy {
-    fn from(spec: Spec) -> Self {
-        spec.policy
-    }
 }
 
 impl Policy {
@@ -489,13 +414,10 @@ impl Plain {
     }
 
     /// Creates a bounded raw plain command from an explicit policy value.
-    pub fn with_policy<P>(bytes: impl AsRef<[u8]>, policy: P) -> Result<Self>
-    where
-        P: Into<Policy>,
-    {
+    pub fn with_policy(bytes: impl AsRef<[u8]>, policy: Policy) -> Result<Self> {
         Ok(Self {
             wire: Wire::new(bytes)?,
-            policy: policy.into(),
+            policy,
         })
     }
 
@@ -603,16 +525,12 @@ impl<R> Inquiry<R> {
     /// [`RawReplyShape::AckThenCompletion`]: an inquiry always awaits its reply,
     /// so a completion-only or no-reply shape is meaningless for it and is
     /// rejected here rather than silently ignored.
-    pub fn with_policy<P>(
+    pub fn with_policy(
         bytes: impl AsRef<[u8]>,
         route: InquiryRoute,
         decoder: ResponseDecoder<R>,
-        policy: P,
-    ) -> Result<Self>
-    where
-        P: Into<Policy>,
-    {
-        let policy = policy.into();
+        policy: Policy,
+    ) -> Result<Self> {
         validate_inquiry_reply_shape(policy.reply_shape())?;
         validate_route(route)?;
         Ok(Self {
@@ -799,11 +717,11 @@ impl Targeted {
     /// [`RawReplyShape::NoReply`] is rejected because a targeted operation's
     /// `applied()`/`settled()` lifecycle requires terminal camera evidence, not
     /// merely a successful local write.
-    pub fn with_policy<P>(bytes: impl AsRef<[u8]>, axes: AffectedAxes, policy: P) -> Result<Self>
-    where
-        P: Into<Policy>,
-    {
-        let policy = policy.into();
+    pub fn with_policy(
+        bytes: impl AsRef<[u8]>,
+        axes: AffectedAxes,
+        policy: Policy,
+    ) -> Result<Self> {
         validate_operation_reply_shape(policy.reply_shape())?;
         Ok(Self {
             wire: Wire::new(bytes)?,
@@ -930,11 +848,11 @@ impl AppliedOnly {
     /// [`RawReplyShape::NoReply`] is rejected because an applied-only
     /// operation's `applied()` lifecycle requires terminal camera evidence, not
     /// merely a successful local write.
-    pub fn with_policy<P>(bytes: impl AsRef<[u8]>, axes: AffectedAxes, policy: P) -> Result<Self>
-    where
-        P: Into<Policy>,
-    {
-        let policy = policy.into();
+    pub fn with_policy(
+        bytes: impl AsRef<[u8]>,
+        axes: AffectedAxes,
+        policy: Policy,
+    ) -> Result<Self> {
         validate_operation_reply_shape(policy.reply_shape())?;
         Ok(Self {
             wire: Wire::new(bytes)?,
@@ -1336,13 +1254,16 @@ mod tests {
         )
         .expect_err("the owner target must reject a mismatched wire address");
         assert!(matches!(error, Error::InvalidRequest(_)));
+        let message = error.to_string();
+        assert!(message.contains("selected camera target is Camera 1"));
+        assert!(!message.contains("write_into"));
         assert_eq!(command.bytes(), &[0x82, 0x01, 0xff]);
     }
 
     /// #679: raw policy cannot manufacture the urgent safety lane.
     ///
-    /// `Policy::new`, `Spec::new`, and every raw constructor that funnels
-    /// through them reject [`ControlClass::Urgent`], so ordinary raw traffic can
+    /// `Policy::new` and every raw constructor that funnels through it reject
+    /// [`ControlClass::Urgent`], so ordinary raw traffic can
     /// never enter the FIFO safety lane and dilute a genuine stop. The three
     /// ordinary lanes stay admissible, so the guard rejects only urgent and
     /// nothing wider.
@@ -1357,14 +1278,6 @@ mod tests {
             ),
             "Policy::new must reject the urgent safety lane"
         );
-        assert!(
-            matches!(
-                Spec::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Urgent),
-                Err(Error::InvalidRequest(_))
-            ),
-            "Spec::new must reject the urgent safety lane"
-        );
-
         // Every raw request constructor funnels its class through `Policy::new`,
         // so the rejection reaches each of the four request classes.
         assert!(Plain::new(
@@ -1588,13 +1501,6 @@ mod tests {
             assert_eq!(policy.timeout_class(), TimeoutClass::Quick);
             assert_eq!(policy.retry_class(), RetryClass::Never);
             assert_eq!(policy.control_class(), ControlClass::Normal);
-
-            // The spec carries the same axis and lowers to the same policy.
-            let spec = Spec::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-                .expect("valid spec")
-                .with_reply_shape(shape);
-            assert_eq!(spec.reply_shape(), shape);
-            assert_eq!(spec.policy().reply_shape(), shape);
 
             // Each command reports the shape through its inherent accessor and
             // the `Request::reply_shape` hook preparation reads.

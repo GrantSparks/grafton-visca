@@ -2359,6 +2359,28 @@ pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
     }
 }
 
+/// Retains a fatal receive cause without nesting the public
+/// `Connection closed:` display prefix inside a new `ConnectionClosed`.
+///
+/// Custom transports are allowed to report [`Error::ConnectionClosed`]
+/// directly. Both owners still normalize that event through their common
+/// shutdown input, so unwrap an existing close reason before constructing the
+/// canonical boundary error. Context wrappers are retained without restoring
+/// the redundant variant prefix (#729).
+pub(crate) fn transport_close_reason(error: &Error) -> Option<Box<str>> {
+    match error {
+        Error::ConnectionClosed { reason } => reason.as_deref().map(Box::<str>::from),
+        Error::WithContext { context, source } => {
+            let reason = match transport_close_reason(source) {
+                Some(source) => format!("{context}: {source}"),
+                None => context.to_string(),
+            };
+            Some(reason.into_boxed_str())
+        }
+        _ => Some(error.to_string().into_boxed_str()),
+    }
+}
+
 /// Normalize one datagram send failure into a per-request error.
 ///
 /// A datagram send failure fails exactly one request and the session keeps

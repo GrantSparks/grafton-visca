@@ -871,6 +871,15 @@ impl ProfileSpec {
         ProfileSpecBuilder::from_compile_time::<P>().build()
     }
 
+    /// Returns the human-readable name of this runtime profile.
+    ///
+    /// This is the canonical accessor for the model name stored in the
+    /// profile's capability inventory.
+    #[must_use]
+    pub fn name(&self) -> &str {
+        self.capabilities.model_name.as_str()
+    }
+
     /// Checks that this validated runtime inventory has the same protocol
     /// identity as the inventory lowered from a compile-time profile.
     ///

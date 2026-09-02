@@ -543,6 +543,12 @@ pub use construction::{
 /// multiple operation handles never creates a second protocol authority. This
 /// value is the RAII owner of its caller-thread host: dropping it releases
 /// the host and transport without sending shutdown or a protocol STOP.
+///
+/// `Session` is `Send + Sync`. Owner turns remain fail-fast: overlapping calls
+/// from different threads return [`Error::TransportBusy`] instead of waiting.
+/// Applications that want waiting serialization can place the session in a
+/// `Mutex` and derive each [`Camera`] while holding that lock; a camera view
+/// must not outlive the guard it borrows from.
 #[derive(Debug)]
 pub struct Session {
     host: BlockingSessionHost,
@@ -1237,6 +1243,8 @@ impl<'session> BlockingCameraCore<'session> {
 ///
 /// The profile parameter supplies compile-time capability gates; owner and
 /// transport state remain in the shared borrowed core.
+/// The view is `Send + Sync`; concurrent owner turns retain the session's
+/// fail-fast [`Error::TransportBusy`] behavior.
 #[must_use]
 pub struct Camera<'session, P: CompileTimeProfile> {
     core: BlockingCameraCore<'session>,

@@ -311,6 +311,34 @@ pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
 one runtime.
 
+### Sharing a blocking session
+
+`blocking::Session` and its borrowed `Camera<'_, P>` views are `Send + Sync`.
+The owner still admits only one fail-fast turn at a time, so overlapping calls
+from multiple threads return `Error::TransportBusy`. If callers should wait
+rather than retry, put the session in `Arc<Mutex<Session>>`, lock it for one
+operation, and derive the camera view from the guard. The view must remain
+inside the guard's scope:
+
+```rust,no_run
+use std::sync::{Arc, Mutex};
+use grafton_visca::{blocking, profiles::PtzOpticsG2};
+
+fn share(session: blocking::Session) -> grafton_visca::Result<()> {
+    let session = Arc::new(Mutex::new(session));
+    std::thread::scope(|scope| {
+        let session = Arc::clone(&session);
+        let worker = scope.spawn(move || -> grafton_visca::Result<()> {
+            let guard = session.lock().expect("camera session lock");
+            let camera = guard.camera::<PtzOpticsG2>()?;
+            camera.power().on()
+        });
+        worker.join().expect("camera worker")
+    })?;
+    Ok(())
+}
+```
+
 ## Static, dynamic, and generic operations
 
 Static cameras expose the same 14 noun views in blocking and async forms:
@@ -321,6 +349,19 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`.
 `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
 `is_moving_axes(MotionQuery)` is the axis-selecting form.
+
+Async noun futures borrow the temporary accessor. A direct call such as
+`camera.motion().stop_all_motion().await` is fine; bind each accessor before a
+macro retains several futures:
+
+```rust,ignore
+let sony_motion = sony.motion();
+let raw_motion = raw.motion();
+let (sony_result, raw_result) = tokio::join!(
+    sony_motion.stop_all_motion(),
+    raw_motion.stop_all_motion(),
+);
+```
 
 Blocking runtime-profile code uses `BlockingDynSessionCamera`. Its generic
 `execute`, `inquire`, and `submit` methods return native synchronous results and

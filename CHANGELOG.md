@@ -372,6 +372,16 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING** (#729): Collapsed the content-identical `raw::Spec` into the
+  canonical `raw::Policy` and made the two hidden settlement-plan structs
+  owner-private. Runtime profiles now expose `ProfileSpec::name()`, raw target
+  mismatches name the selected camera instead of the internal `write_into`
+  hook, and receive-side normalization no longer produces a doubled
+  `Connection closed:` prefix. Blocking `Session` and borrowed `Camera` views
+  are now `Send + Sync`; their internal mutex preserves fail-fast
+  `TransportBusy` turns, while the usage guide documents external
+  `Mutex<Session>` serialization and the async noun-accessor binding idiom.
+
 - **BREAKING** (#726), tracked in the pre-lock audit #729: Made the public failure model match the owner
   verdicts before the 2.0 API lock. `ErrorKind::Unconfirmed` now classifies both
   `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`; neither

@@ -345,7 +345,7 @@ Three behavioural differences are worth reading before porting:
   `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
   `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
-  `Urgent` variant, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+  `Urgent` variant, and the raw escape hatch's `raw::Policy` rejects
   `ControlClass::Urgent` at construction (a raw caller who needs preemption
   issues the typed stop instead). The urgent lane is reachable only by the
   crate's own stops and owner-issued cancellation.

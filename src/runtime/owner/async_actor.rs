@@ -2594,7 +2594,7 @@ where
                         driver,
                         runtime,
                         ShutdownReason::TransportClosed {
-                            reason: Some(error.to_string().into_boxed_str()),
+                            reason: super::transport_close_reason(&error),
                         },
                         received_at,
                     )

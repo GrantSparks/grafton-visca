@@ -152,13 +152,13 @@ encoding.
 
 1. `ControlClass::Urgent` remains request-owned safety metadata. Public
    per-handle and per-call QoS uses `SubmissionClass::{Background, Normal,
-   User}`, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+   User}`, and the raw escape hatch's `raw::Policy` rejects
    `ControlClass::Urgent` at construction (#679). No public route — QoS override
    or raw policy — can create or demote urgent work. The raw hatch likewise
    rejects the owner-only socket-cancel and interface-clear wire shapes (#678),
    so no target-scoped `execute` can emit an owner-only primitive.
    **Extended (issue #700):** the raw hatch no longer assumes every command
-   follows the ACK-then-completion protocol. `raw::Policy`/`raw::Spec` carry a
+   follows the ACK-then-completion protocol. `raw::Policy` carries a
    `raw::RawReplyShape` axis (`AckThenCompletion` default, `CompletionOnly`,
    `NoReply`), lowered through `prepared.rs` into the engine's `RequestContext` as
    a protocol-policy fact — the engine never infers the shape from wire bytes. A
