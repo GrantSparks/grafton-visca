@@ -328,7 +328,14 @@ impl ProfileTiming {
         self.cancellation_timeout
     }
 
-    /// Returns the pre-ack cancellation ambiguity deadline.
+    /// Returns the bounded response-correlation ambiguity window.
+    ///
+    /// The owner uses this for socketless cancellation intent, late
+    /// confirmation after an unconfirmed raw ACK/completion or late write
+    /// result, and the target tombstone left by a successful raw command that
+    /// declares no correlatable response. Once ACK establishes an exact socket,
+    /// this window may extend but never shorten the command's completion
+    /// deadline.
     #[must_use]
     pub const fn ambiguity_timeout(self) -> Duration {
         self.ambiguity_timeout

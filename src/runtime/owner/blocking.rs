@@ -4575,6 +4575,9 @@ mod tests {
         // Every read reports idle immediately. Shared 10/20/40 ms pacing is
         // clamped to the ACK deadline, so the final pump returns exactly as
         // the outer drain budget expires and the loop cannot run another tail.
+        // The predecessor remains an attributable late-ACK candidate after
+        // that boundary; a later submission-side drain may therefore keep
+        // servicing input through its ambiguity window.
         let mut reader = FaultReader {
             reads: std::iter::repeat_n(Ok(BlockingReceive::TimedOut), 8).collect(),
         };
@@ -4593,7 +4596,7 @@ mod tests {
             owner.state().request_state(predecessor.id()),
             Some((Phase::AwaitingLateAck { .. }, CancelState::None))
         ));
-        assert!(!owner
+        assert!(owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
     }

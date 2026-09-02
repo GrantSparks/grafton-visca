@@ -372,6 +372,21 @@ entries below retain their original wording.
 
 ### Changed
 
+- **Hardened the final engine correlation boundaries** (#724). An ACK-bearing
+  raw request remains open during its bounded late-ACK window, so an
+  attributable ACK is accepted consistently with or without later cancel
+  intent; displaced and non-ACK-capable holds remain inert. Once ACK has
+  established an exact socket, cancellation intent, a successful cancel write,
+  or a failed datagram cancel write can extend but never shorten the original
+  command completion deadline. A compatible failed stream write still poisons
+  even when its result arrives after the request budget. Retuning now runs the
+  production debug invariant hook, `AwaitingCompletion` and raw
+  uncorrelatable-shape exclusivity have explicit audits, and the shared
+  invariant generator now covers `CompletionOnly`, `NoReply`, raw
+  quarantine/tombstones, strict poisoning, and single-flight inquiries with
+  coverage floors. The architecture transition table and ambiguity-timing
+  rustdoc record these settled rules.
+
 - **BREAKING** (#729): Collapsed the content-identical `raw::Spec` into the
   canonical `raw::Policy` and made the two hidden settlement-plan structs
   owner-private. The per-operation `*_with_submission_class` family is replaced

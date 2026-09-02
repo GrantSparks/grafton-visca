@@ -2175,75 +2175,74 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
 }
 
 #[test]
-fn cancellation_ambiguity_closes_an_executing_response_before_its_completion_deadline() {
-    let setup = |start| {
-        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-        let mut request = command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            ReplyShape::AckThenCompletion,
-            RetryPolicy::NEVER,
-        );
-        let RuntimeRequest::Command { context, .. } = &mut request else {
-            unreachable!("test constructs a command");
-        };
-        context.timeout.completion = Duration::from_secs(1);
-        let (admission, id) = admit(&mut engine, 1, request, start);
-        send_ok(&mut engine, &admission, None, start);
-        engine.handle(
-            frame(
-                1,
-                None,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            ),
-            start,
-        );
-        let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
-        assert!(cancel_transmit_optional(&cancellation).is_some());
-        let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
-            Some(CancelState::Sending {
-                ambiguity_deadline, ..
-            }) => ambiguity_deadline,
-            cancellation => panic!("expected a sent cancellation, got {cancellation:?}"),
-        };
-        assert!(matches!(
-            phase_of(&engine, id),
-            Some(Phase::Executing { .. })
-        ));
-        (
-            engine,
-            id,
-            ambiguity_deadline,
-            frame(
-                1,
-                None,
-                DecodedResponse::Completion {
-                    socket: Some(ViscaSocket::S1),
-                },
-            ),
-        )
-    };
-
+fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadline() {
     let start = Instant::now();
-    let (mut equal_engine, equal_id, deadline, equal_input) = setup(start);
-    let equal = equal_engine.handle(equal_input, deadline);
-    assert!(ignored_reasons(&equal).is_empty());
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut request = command_with_reply_shape_and_retry(
+        1,
+        CancellationPolicy::Supported,
+        ReplyShape::AckThenCompletion,
+        RetryPolicy::NEVER,
+    );
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("test constructs a command");
+    };
+    context.timeout.completion = Duration::from_secs(1);
+    let (admission, id) = admit(&mut engine, 1, request, start);
+    send_ok(&mut engine, &admission, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
+    let (cancel_transmission, _, _) = cancel_transmit(&cancellation);
+    let ambiguity_deadline = match engine.entry(id).map(Entry::cancellation) {
+        Some(CancelState::Sending {
+            ambiguity_deadline, ..
+        }) => ambiguity_deadline,
+        cancellation => panic!("expected a sent cancellation, got {cancellation:?}"),
+    };
+    engine.handle(
+        Input::TransmissionFinished {
+            transmission: cancel_transmission,
+            result: Ok(TransmissionMeta { sequence: None }),
+        },
+        start + Duration::from_millis(1),
+    );
     assert!(matches!(
-        terminal_outcome(&equal, equal_id),
+        phase_of(&engine, id),
+        Some(Phase::AwaitingCancellationResolution { deadline, .. })
+            if deadline == start + Duration::from_secs(1)
+    ));
+
+    let ambiguity_passed = engine.advance(ambiguity_deadline + Duration::from_nanos(1));
+    assert!(!ambiguity_passed
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
+    assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), Some(id));
+
+    let completed = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(60),
+    );
+    assert!(ignored_reasons(&completed).is_empty());
+    assert!(matches!(
+        terminal_outcome(&completed, id),
         Some(RuntimeOutcome::Applied)
     ));
-    equal_engine.assert_invariants().unwrap();
-
-    let (mut late_engine, late_id, deadline, late_input) = setup(start);
-    let late = late_engine.handle(late_input, deadline + Duration::from_nanos(1));
-    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
-    assert!(matches!(
-        terminal_failure(&late, late_id),
-        Some(Error::UnsequencedCommandUnconfirmed)
-    ));
-    late_engine.assert_invariants().unwrap();
+    engine.assert_invariants().unwrap();
 }
 
 #[test]
@@ -3027,7 +3026,7 @@ fn zero_spacing_drains_pending_cancellations_in_admission_order() {
 }
 
 #[test]
-fn cancellation_ambiguity_deadline_wins_over_later_pacing_eligibility() {
+fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     engine.policy.command_spacing = Duration::from_millis(100);
@@ -3061,25 +3060,30 @@ fn cancellation_ambiguity_deadline_wins_over_later_pacing_eligibility() {
         request_transmit_optional(&engine.handle(Input::Cancel { id }, requested_at,)).is_none()
     );
     let ambiguity_deadline = start + Duration::from_millis(51);
-    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    let pacing_deadline = start + Duration::from_millis(100);
+    assert_eq!(engine.next_wake(), Some(pacing_deadline));
 
-    let expired = engine.advance(ambiguity_deadline);
-    assert!(!expired.iter().any(|effect| matches!(
+    let ambiguity_passed = engine.advance(ambiguity_deadline);
+    assert!(!ambiguity_passed.iter().any(|effect| matches!(
         effect,
         Effect::Transmit {
             kind: Transmission::Cancel { .. },
             ..
         }
     )));
-    assert!(expired.iter().any(|effect| matches!(
-        effect,
-        Effect::Terminal {
-            id: seen,
-            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
-        } if *seen == id
-    )));
-    // Issue #671: the ambiguity expiry fails only this request; the raw session
-    // stays live rather than poisoning.
+    assert!(!ambiguity_passed
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::Executing { .. })
+    ));
+
+    let paced = engine.advance(pacing_deadline);
+    assert_eq!(cancel_transmit(&paced).1, id);
+    assert!(!paced
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -3098,8 +3102,9 @@ fn cancel_in_late_ack_quarantine_extends_eligibility_to_its_ambiguity_deadline()
     let id = admitted(&request);
     send_ok(&mut engine, &request, None, start);
 
-    // The ordinary raw ACK timeout starts an inert #671 quarantine. It is
-    // still marked `None`, so a late ACK cannot re-open it before cancellation.
+    // The ordinary raw ACK timeout starts a bounded late-confirmation window.
+    // It is still marked `None`; adding cancellation extends the window but
+    // does not change which ACK evidence the original request accepts.
     let original_deadline = start + Duration::from_millis(70);
     let timed_out = engine.advance(start + Duration::from_millis(20));
     assert!(!timed_out
@@ -3114,8 +3119,8 @@ fn cancel_in_late_ack_quarantine_extends_eligibility_to_its_ambiguity_deadline()
         Some(CancelState::None)
     );
 
-    // A later cancellation creates a live late-ACK path through its own 50ms
-    // ambiguity window, not the earlier quarantine deadline.
+    // A later cancellation extends the live late-ACK path through its own 50ms
+    // ambiguity window, beyond the earlier confirmation deadline.
     let extended_deadline = start + Duration::from_millis(80);
     let cancelled = engine.handle(Input::Cancel { id }, start + Duration::from_millis(30));
     assert!(cancelled
@@ -4014,6 +4019,34 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     engine.assert_invariants().unwrap();
 }
 
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "engine invariant violated")]
+fn retune_runs_the_production_debug_invariant_hook() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admission, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admission, None, start);
+    let RuntimeRequest::Command { context, .. } = &mut engine
+        .entries
+        .get_mut(&id)
+        .expect("completion-only request remains live")
+        .request
+    else {
+        unreachable!("test admitted a command");
+    };
+    context.reply_shape = ReplyShape::AckThenCompletion;
+
+    engine
+        .retune(Duration::ZERO, Duration::ZERO, [None; 9])
+        .unwrap();
+}
+
 #[test]
 fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let start = Instant::now();
@@ -4503,18 +4536,76 @@ fn fixture_observation(
     format!("observer=diagnostics outcome={outcome}")
 }
 
-/// Every session shape the engine can actually be configured into.
+/// Every materially distinct session shape used by the invariant generators.
 ///
-/// Issue #636: the invariant fuzzers predated #620 and only ever ran raw
-/// framing over a datagram transport, so the Sony correlation indexes, the
-/// stream poisoning path, and every socketless frame shape were generated by
-/// nothing.
-const FUZZ_CONFIGURATIONS: [(EnvelopeKind, TransportKind); 4] = [
-    (EnvelopeKind::Raw, TransportKind::Datagram),
-    (EnvelopeKind::Raw, TransportKind::Stream),
-    (EnvelopeKind::Sony, TransportKind::Datagram),
-    (EnvelopeKind::Sony, TransportKind::Stream),
+/// Issue #636 added both envelopes and transports. Issue #724 extends the
+/// matrix with the policy axes that change state-machine behavior: raw
+/// single-flight inquiries and strict unconfirmed-command poisoning.
+#[derive(Clone, Copy, Debug)]
+struct FuzzConfiguration {
+    envelope: EnvelopeKind,
+    transport: TransportKind,
+    inquiry_capacity: usize,
+    strict_unconfirmed_poison: bool,
+}
+
+const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 6] = [
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Raw,
+        transport: TransportKind::Datagram,
+        inquiry_capacity: 8,
+        strict_unconfirmed_poison: false,
+    },
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Raw,
+        transport: TransportKind::Stream,
+        inquiry_capacity: 8,
+        strict_unconfirmed_poison: false,
+    },
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Sony,
+        transport: TransportKind::Datagram,
+        inquiry_capacity: 8,
+        strict_unconfirmed_poison: false,
+    },
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Sony,
+        transport: TransportKind::Stream,
+        inquiry_capacity: 8,
+        strict_unconfirmed_poison: false,
+    },
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Raw,
+        transport: TransportKind::Datagram,
+        inquiry_capacity: 1,
+        strict_unconfirmed_poison: false,
+    },
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Raw,
+        transport: TransportKind::Datagram,
+        inquiry_capacity: 8,
+        strict_unconfirmed_poison: true,
+    },
 ];
+
+fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
+    let mut configured = policy(configuration.envelope, configuration.transport);
+    configured.inquiry_capacity = configuration.inquiry_capacity;
+    configured.strict_unconfirmed_poison = configuration.strict_unconfirmed_poison;
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    for target in [camera(1), camera(2)] {
+        engine
+            .register_target(
+                target,
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                },
+            )
+            .unwrap();
+    }
+    engine
+}
 
 /// A receive-side fault the owner has already classified as transient.
 fn fuzz_receive_fault(action: u64) -> Error {
@@ -4640,10 +4731,19 @@ fn fuzz_step(
     match action % 12 {
         0 => {
             *ticket = ticket.wrapping_add(1);
-            let request = if action & 0x10000 == 0 {
-                command(target, CancellationPolicy::Supported)
-            } else {
-                inquiry(target, route)
+            let request = match (action >> 16) & 0x3 {
+                0 => command(target, CancellationPolicy::Supported),
+                1 => inquiry(target, route),
+                2 => command_with_reply_shape(
+                    target,
+                    CancellationPolicy::Supported,
+                    ReplyShape::CompletionOnly,
+                ),
+                _ => command_with_reply_shape(
+                    target,
+                    CancellationPolicy::Supported,
+                    ReplyShape::NoReply,
+                ),
             };
             engine.handle(
                 Input::Admit {
@@ -4761,19 +4861,34 @@ struct FuzzCoverage {
     acknowledged: usize,
     applied: usize,
     replied: usize,
+    written: usize,
     retried: usize,
     cancelled: usize,
     ignored: usize,
+    completion_only: usize,
+    quarantined: usize,
+    tombstoned: usize,
+    single_flight_blocked: usize,
+    strict_poisoned: usize,
 }
 
 impl FuzzCoverage {
-    fn record(&mut self, effects: &[Effect]) {
+    fn record(&mut self, engine: &ProtocolEngine, effects: &[Effect]) {
         for effect in effects {
             match effect {
                 Effect::Transition {
                     to: Phase::Executing { .. },
                     ..
                 } => self.acknowledged += 1,
+                Effect::Transition {
+                    to: Phase::AwaitingCompletion { .. },
+                    ..
+                } => self.completion_only += 1,
+                Effect::Transition {
+                    to: Phase::AwaitingLateAck { .. } | Phase::AwaitingCancellationResolution { .. },
+                    cancellation: CancelState::None,
+                    ..
+                } => self.quarantined += 1,
                 Effect::Terminal {
                     outcome: RuntimeOutcome::Applied,
                     ..
@@ -4786,20 +4901,60 @@ impl FuzzCoverage {
                     outcome: RuntimeOutcome::Cancelled,
                     ..
                 } => self.cancelled += 1,
+                Effect::Terminal {
+                    outcome: RuntimeOutcome::Written,
+                    ..
+                } => self.written += 1,
                 Effect::RetryScheduled { .. } => self.retried += 1,
                 Effect::Ignored(_) => self.ignored += 1,
+                Effect::SessionChanged {
+                    to: SessionState::Poisoned,
+                    ..
+                } if engine.policy.strict_unconfirmed_poison => self.strict_poisoned += 1,
                 _ => {}
             }
+        }
+        if engine
+            .raw_target_tombstones
+            .iter()
+            .any(|tombstone| tombstone.is_some())
+        {
+            self.tombstoned += 1;
+        }
+        if engine.policy.inquiry_capacity == 1
+            && engine.inquiries_inflight() == 1
+            && engine.entries.values().any(|entry| {
+                entry.request.is_inquiry() && matches!(entry.phase, Phase::Ready { .. })
+            })
+        {
+            self.single_flight_blocked += 1;
         }
     }
 }
 
-/// Seeds each generated session with one complete, one replied, one retried,
-/// and one cancelled request before the stale/reordered stream begins. The
-/// seed is deliberately real protocol traffic: raw retries use a conclusive
+fn fuzz_coverage_floor_met(configuration: FuzzConfiguration, coverage: &FuzzCoverage) -> bool {
+    coverage.acknowledged > 0
+        && coverage.applied > 0
+        && coverage.replied > 0
+        && coverage.written > 0
+        && coverage.retried > 0
+        && coverage.cancelled > 0
+        && coverage.ignored > 0
+        && coverage.completion_only > 0
+        && (configuration.envelope != EnvelopeKind::Raw || coverage.tombstoned > 0)
+        && (configuration.envelope != EnvelopeKind::Raw
+            || configuration.strict_unconfirmed_poison
+            || coverage.quarantined > 0)
+        && (configuration.inquiry_capacity != 1 || coverage.single_flight_blocked > 0)
+        && (!configuration.strict_unconfirmed_poison || coverage.strict_poisoned > 0)
+}
+
+/// Seeds every generated session with real traffic through each required state
+/// family before the stale/reordered stream begins. Raw retries use a conclusive
 /// camera rejection, while Sony retries carry and reuse an envelope sequence.
-/// That keeps the coverage assertions meaningful after raw ambiguity became a
-/// terminal session error rather than a retry trigger.
+/// Reply-shape, quarantine, tombstone, single-flight, and strict-policy seeds
+/// prevent generator drift from silently deleting the newer #700/#712/#671
+/// state space (#724).
 fn seed_admit(
     engine: &mut ProtocolEngine,
     ticket: &mut u64,
@@ -4815,17 +4970,18 @@ fn seed_admit(
         },
         now,
     );
-    coverage.record(&effects);
+    coverage.record(engine, &effects);
     effects
 }
 
 fn seed_fuzz_coverage(
     engine: &mut ProtocolEngine,
-    envelope: EnvelopeKind,
+    configuration: FuzzConfiguration,
     ticket: &mut u64,
     now: &mut Instant,
     coverage: &mut FuzzCoverage,
 ) {
+    let envelope = configuration.envelope;
     let sequence =
         |value| (envelope == EnvelopeKind::Sony).then_some((value, SequenceWidth::Full32));
     let write_sequence = |value| (envelope == EnvelopeKind::Sony).then_some(value);
@@ -4849,7 +5005,7 @@ fn seed_fuzz_coverage(
         },
         *now,
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let acknowledged = engine.handle(
         frame(
             1,
@@ -4860,7 +5016,7 @@ fn seed_fuzz_coverage(
         ),
         *now + Duration::from_micros(1),
     );
-    coverage.record(&acknowledged);
+    coverage.record(engine, &acknowledged);
     let completed = engine.handle(
         frame(
             1,
@@ -4871,7 +5027,7 @@ fn seed_fuzz_coverage(
         ),
         *now + Duration::from_micros(2),
     );
-    coverage.record(&completed);
+    coverage.record(engine, &completed);
     assert!(completed.iter().any(|effect| matches!(
         effect,
         Effect::Terminal {
@@ -4899,7 +5055,7 @@ fn seed_fuzz_coverage(
         },
         *now + Duration::from_micros(1),
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let replied = engine.handle(
         frame(
             1,
@@ -4911,7 +5067,7 @@ fn seed_fuzz_coverage(
         ),
         *now + Duration::from_micros(2),
     );
-    coverage.record(&replied);
+    coverage.record(engine, &replied);
     assert!(replied.iter().any(|effect| matches!(
         effect,
         Effect::Terminal {
@@ -4940,7 +5096,7 @@ fn seed_fuzz_coverage(
         },
         *now,
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let rejection = engine.handle(
         frame(
             2,
@@ -4952,7 +5108,7 @@ fn seed_fuzz_coverage(
         ),
         *now + Duration::from_micros(1),
     );
-    coverage.record(&rejection);
+    coverage.record(engine, &rejection);
     assert!(rejection.iter().any(|effect| matches!(
         effect,
         Effect::RetryScheduled { id, attempt: 1, .. } if *id == retry_id
@@ -4965,7 +5121,7 @@ fn seed_fuzz_coverage(
         })
         .expect("retry ready time");
     let retry = engine.advance(retry_ready);
-    coverage.record(&retry);
+    coverage.record(engine, &retry);
     let (retry_transmission, retried, _) = request_transmit(&retry);
     assert_eq!(retried, retry_id);
     let sent = engine.handle(
@@ -4977,7 +5133,7 @@ fn seed_fuzz_coverage(
         },
         retry_ready,
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let acknowledged = engine.handle(
         frame(
             2,
@@ -4988,7 +5144,7 @@ fn seed_fuzz_coverage(
         ),
         retry_ready + Duration::from_micros(1),
     );
-    coverage.record(&acknowledged);
+    coverage.record(engine, &acknowledged);
     let completed = engine.handle(
         frame(
             2,
@@ -4999,7 +5155,7 @@ fn seed_fuzz_coverage(
         ),
         retry_ready + Duration::from_micros(2),
     );
-    coverage.record(&completed);
+    coverage.record(engine, &completed);
     *now = retry_ready + Duration::from_micros(2);
 
     // Cancellation is a separate wire operation. A successful response keeps
@@ -5021,7 +5177,7 @@ fn seed_fuzz_coverage(
         },
         *now,
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let acknowledged = engine.handle(
         frame(
             1,
@@ -5032,12 +5188,12 @@ fn seed_fuzz_coverage(
         ),
         *now + Duration::from_micros(1),
     );
-    coverage.record(&acknowledged);
+    coverage.record(engine, &acknowledged);
     let cancellation = engine.handle(
         Input::Cancel { id: cancel_id },
         *now + Duration::from_micros(2),
     );
-    coverage.record(&cancellation);
+    coverage.record(engine, &cancellation);
     let (cancel_transmission, _, _) = cancel_transmit(&cancellation);
     let sent = engine.handle(
         Input::TransmissionFinished {
@@ -5048,7 +5204,7 @@ fn seed_fuzz_coverage(
         },
         *now + Duration::from_micros(2),
     );
-    coverage.record(&sent);
+    coverage.record(engine, &sent);
     let cancellation_response = if envelope == EnvelopeKind::Raw {
         DecodedResponse::Error {
             socket: Some(ViscaSocket::S2),
@@ -5063,7 +5219,7 @@ fn seed_fuzz_coverage(
         frame(1, sequence(0x5105), cancellation_response),
         *now + Duration::from_micros(3),
     );
-    coverage.record(&cancelled);
+    coverage.record(engine, &cancelled);
     assert!(
         cancelled.iter().any(|effect| matches!(
             effect,
@@ -5081,24 +5237,224 @@ fn seed_fuzz_coverage(
         frame(1, sequence(0xdead_beef), DecodedResponse::Unknown),
         *now,
     );
-    coverage.record(&stale);
+    coverage.record(engine, &stale);
     assert!(stale
         .iter()
         .any(|effect| matches!(effect, Effect::Ignored(_))));
+
+    // Completion-only reaches its socketless response phase, then completes.
+    let completion_only = seed_admit(
+        engine,
+        ticket,
+        coverage,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        *now + Duration::from_micros(1),
+    );
+    let (transmission, completion_only_id, _) = request_transmit(&completion_only);
+    let sent = engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta {
+                sequence: write_sequence(0x5106),
+            }),
+        },
+        *now + Duration::from_micros(1),
+    );
+    coverage.record(engine, &sent);
+    let completed = engine.handle(
+        frame(
+            1,
+            sequence(0x5106),
+            DecodedResponse::Completion { socket: None },
+        ),
+        *now + Duration::from_micros(2),
+    );
+    coverage.record(engine, &completed);
+    assert!(matches!(
+        terminal_outcome(&completed, completion_only_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    *now += Duration::from_micros(2);
+
+    // No-reply reaches its distinct local-write terminal. On raw framing both
+    // this and the preceding completion-only terminal leave a bounded target
+    // tombstone; observe it before releasing it for subsequent seeds.
+    let no_reply = seed_admit(
+        engine,
+        ticket,
+        coverage,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::NoReply),
+        *now + Duration::from_micros(1),
+    );
+    let (transmission, no_reply_id, _) = request_transmit(&no_reply);
+    let written = engine.handle(
+        Input::TransmissionFinished {
+            transmission,
+            result: Ok(TransmissionMeta {
+                sequence: write_sequence(0x5107),
+            }),
+        },
+        *now + Duration::from_micros(1),
+    );
+    coverage.record(engine, &written);
+    assert!(matches!(
+        terminal_outcome(&written, no_reply_id),
+        Some(RuntimeOutcome::Written)
+    ));
+    *now += Duration::from_micros(1);
+    if envelope == EnvelopeKind::Raw {
+        let released = engine.advance(*now + Duration::from_millis(50));
+        coverage.record(engine, &released);
+        *now += Duration::from_millis(50);
+    }
+
+    // A raw single-flight policy must actually hold a second inquiry behind a
+    // live first inquiry, then retain its target-only tombstone after timeout.
+    if envelope == EnvelopeKind::Raw && configuration.inquiry_capacity == 1 {
+        let first = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            *now,
+        );
+        let (first_transmission, first_id, _) = request_transmit(&first);
+        let first_sent = engine.handle(
+            Input::TransmissionFinished {
+                transmission: first_transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            *now,
+        );
+        coverage.record(engine, &first_sent);
+        let second = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            inquiry_with_retry(1, ZOOM, RetryPolicy::NEVER),
+            *now,
+        );
+        let second_id = admitted(&second);
+        assert!(request_transmit_optional(&second).is_none());
+
+        let timed_out = engine.advance(*now + Duration::from_millis(30));
+        coverage.record(engine, &timed_out);
+        assert!(matches!(
+            terminal_failure(&timed_out, first_id),
+            Some(Error::Timeout)
+        ));
+        let released = engine.advance(*now + Duration::from_millis(80));
+        coverage.record(engine, &released);
+        let (second_transmission, transmitted_id, _) = request_transmit(&released);
+        assert_eq!(transmitted_id, second_id);
+        let second_sent = engine.handle(
+            Input::TransmissionFinished {
+                transmission: second_transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            *now + Duration::from_millis(80),
+        );
+        coverage.record(engine, &second_sent);
+        let replied = engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::InquiryReply {
+                    route: Some(ZOOM),
+                    payload: smallvec![2],
+                },
+            ),
+            *now + Duration::from_millis(80) + Duration::from_micros(1),
+        );
+        coverage.record(engine, &replied);
+        *now += Duration::from_millis(80) + Duration::from_micros(1);
+    }
+
+    // Raw ACK loss reaches either the default per-request confirmation window
+    // or the strict whole-session poison branch. Keep this last for strict mode,
+    // since poisoning intentionally makes all later generated inputs inert.
+    if envelope == EnvelopeKind::Raw {
+        let command = seed_admit(
+            engine,
+            ticket,
+            coverage,
+            command_with_reply_shape_and_retry(
+                2,
+                CancellationPolicy::Supported,
+                ReplyShape::AckThenCompletion,
+                RetryPolicy::NEVER,
+            ),
+            *now,
+        );
+        let (transmission, id, _) = request_transmit(&command);
+        let sent = engine.handle(
+            Input::TransmissionFinished {
+                transmission,
+                result: Ok(TransmissionMeta { sequence: None }),
+            },
+            *now,
+        );
+        coverage.record(engine, &sent);
+        let ack_timeout = engine.advance(*now + Duration::from_millis(20));
+        coverage.record(engine, &ack_timeout);
+        if configuration.strict_unconfirmed_poison {
+            assert_eq!(engine.state(), SessionState::Poisoned);
+        } else {
+            assert!(matches!(
+                phase_of(engine, id),
+                Some(Phase::AwaitingLateAck { .. })
+            ));
+            let late_ack = engine.handle(
+                frame(
+                    2,
+                    None,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                *now + Duration::from_millis(21),
+            );
+            coverage.record(engine, &late_ack);
+            let completed = engine.handle(
+                frame(
+                    2,
+                    None,
+                    DecodedResponse::Completion {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                *now + Duration::from_millis(22),
+            );
+            coverage.record(engine, &completed);
+            assert!(matches!(
+                terminal_outcome(&completed, id),
+                Some(RuntimeOutcome::Applied)
+            ));
+        }
+        *now += Duration::from_millis(22);
+    }
     engine.assert_invariants().unwrap();
 }
 
 #[test]
 fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
-    for (index, (envelope, transport)) in FUZZ_CONFIGURATIONS.into_iter().enumerate() {
+    for (index, configuration) in FUZZ_CONFIGURATIONS.into_iter().enumerate() {
+        let envelope = configuration.envelope;
+        let transport = configuration.transport;
         let start = Instant::now();
-        let mut engine = engine(envelope, transport);
-        // Seeded per configuration so the four runs are not the same stream.
+        let mut engine = fuzz_engine(configuration);
+        // Seeded per configuration so the runs are not the same stream.
         let mut random = 0x5425_49ab_cdef_0123_u64 ^ (index as u64).wrapping_mul(0x9E37_79B9);
         let mut ticket = 0_u64;
         let mut now = start;
         let mut coverage = FuzzCoverage::default();
-        seed_fuzz_coverage(&mut engine, envelope, &mut ticket, &mut now, &mut coverage);
+        seed_fuzz_coverage(
+            &mut engine,
+            configuration,
+            &mut ticket,
+            &mut now,
+            &mut coverage,
+        );
         const STEPS: u64 = 2_000;
         for step in 0..STEPS {
             random = random
@@ -5114,32 +5470,25 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                 &mut ticket,
                 &mut now,
             );
-            coverage.record(&effects);
+            coverage.record(&engine, &effects);
             engine.assert_invariants().unwrap_or_else(|violation| {
                 panic!("{envelope:?}/{transport:?} step {step}: {violation}")
             });
         }
-        // A configuration that never got a command acknowledged, applied,
-        // replied, retried or cancelled would be auditing nothing at all.
         assert!(
-            coverage.acknowledged > 0
-                && coverage.applied > 0
-                && coverage.replied > 0
-                && coverage.retried > 0
-                && coverage.cancelled > 0
-                && coverage.ignored > 0,
-            "{envelope:?}/{transport:?} reached too little of the engine: {coverage:?}"
+            fuzz_coverage_floor_met(configuration, &coverage),
+            "{configuration:?} reached too little of the engine: {coverage:?}"
         );
         // A failed stream write poisons the session (its byte-stream position is
         // unknowable). A raw datagram's unconfirmed outcome no longer does:
         // issue #671 fails only that command and quarantines its correlation, so
         // the session survives. Datagram sessions therefore stay live in default
-        // mode regardless of envelope; only a stream ends poisoned here (the
-        // fuzz never drives the strict opt-in or an explicit poison input).
+        // mode regardless of envelope; streams and the strict raw configuration
+        // end poisoned here.
         assert_eq!(
             engine.state() == SessionState::Poisoned,
-            transport == TransportKind::Stream,
-            "{envelope:?}/{transport:?} ended in {:?}",
+            transport == TransportKind::Stream || configuration.strict_unconfirmed_poison,
+            "{configuration:?} ended in {:?}",
             engine.state()
         );
     }
@@ -5156,22 +5505,34 @@ mod generated_invariant_properties {
         ///
         /// The session shape is generated too, so Sony correlation, stream
         /// poisoning, socketless frames, receive faults and network-change
-        /// frames are all in the search space (#636).
+        /// frames are all in the search space (#636). The seeded coverage floor
+        /// additionally makes reply-shape, quarantine/tombstone, single-flight,
+        /// and strict-policy drift a property failure (#724).
         #[test]
         fn arbitrary_ordered_and_stale_inputs_preserve_invariants_property(
             configuration in 0_usize..FUZZ_CONFIGURATIONS.len(),
             actions in prop::collection::vec(any::<u64>(), 1..256)
         ) {
-            let (envelope, transport) = FUZZ_CONFIGURATIONS[configuration];
+            let configuration = FUZZ_CONFIGURATIONS[configuration];
+            let envelope = configuration.envelope;
+            let transport = configuration.transport;
             let start = Instant::now();
-            let mut engine = engine(envelope, transport);
+            let mut engine = fuzz_engine(configuration);
             let mut ticket = 0_u64;
             let mut now = start;
+            let mut coverage = FuzzCoverage::default();
+            seed_fuzz_coverage(
+                &mut engine,
+                configuration,
+                &mut ticket,
+                &mut now,
+                &mut coverage,
+            );
 
             let steps = actions.len();
             for (step, action) in actions.into_iter().enumerate() {
                 now += Duration::from_micros((action & 0x3f).saturating_add(1));
-                let _ = fuzz_step(
+                let effects = fuzz_step(
                     &mut engine,
                     envelope,
                     transport,
@@ -5180,8 +5541,13 @@ mod generated_invariant_properties {
                     &mut ticket,
                     &mut now,
                 );
+                coverage.record(&engine, &effects);
                 prop_assert!(engine.assert_invariants().is_ok());
             }
+            prop_assert!(
+                fuzz_coverage_floor_met(configuration, &coverage),
+                "{configuration:?} reached too little of the engine: {coverage:?}"
+            );
         }
     }
 }
@@ -5369,6 +5735,85 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
     assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), Some(id));
     let expired = engine.advance(start + Duration::from_millis(52));
     assert_eq!(terminal_id(&expired), Some(id));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut request_context = context(1, CancellationPolicy::Supported);
+    request_context.timeout.completion = Duration::from_millis(100);
+    request_context.timeout.ambiguity = Duration::from_millis(50);
+    let (admission, id) = admit(
+        &mut engine,
+        1,
+        RuntimeRequest::Command {
+            wire: wire(0x81),
+            context: request_context,
+            applied_state: None,
+        },
+        start,
+    );
+    send_ok(&mut engine, &admission, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(1),
+    );
+    let cancellation = engine.handle(Input::Cancel { id }, start + Duration::from_millis(2));
+    let (cancel_tx, _, _) = cancel_transmit(&cancellation);
+    let failed = engine.handle(
+        Input::TransmissionFinished {
+            transmission: cancel_tx,
+            result: Err(Error::TransportError("cancel write".into())),
+        },
+        start + Duration::from_millis(2),
+    );
+    assert!(failed.iter().any(|effect| matches!(
+        effect,
+        Effect::CancellationObservation {
+            id: seen,
+            observation: CancellationObservation::Failed(Error::TransportError(_)),
+        } if *seen == id
+    )));
+
+    let former_ambiguity_deadline = start + Duration::from_millis(52);
+    assert_eq!(
+        engine.next_wake(),
+        Some(start + Duration::from_millis(101)),
+        "exact socket ownership leaves the command completion deadline in charge"
+    );
+    let ambiguity_passed = engine.advance(former_ambiguity_deadline);
+    assert!(!ambiguity_passed
+        .iter()
+        .any(|effect| matches!(effect, Effect::Terminal { id: seen, .. } if *seen == id)));
+    assert!(matches!(
+        phase_of(&engine, id),
+        Some(Phase::Executing { .. })
+    ));
+    assert_eq!(engine.socket_owner(camera(1), ViscaSocket::S1), Some(id));
+
+    let completed = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(60),
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
@@ -8520,10 +8965,10 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
     }
 }
 
-/// A cancellation's ambiguity deadline is independent of a first attempt's
-/// total budget.
+/// Once ACK establishes exact socket correlation, neither the admission budget
+/// nor cancellation ambiguity shortens the command's completion window.
 #[test]
-fn initial_budget_does_not_shorten_cancellation_ambiguity() {
+fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     let start = Instant::now();
     let budget_deadline = start + Duration::from_millis(10);
     let mut request = command_with_retry(1, immediate_retry_budget(Duration::from_millis(10)));
@@ -8563,17 +9008,34 @@ fn initial_budget_does_not_shorten_cancellation_ambiguity() {
         cancellation => panic!("expected pending cancellation, got {cancellation:?}"),
     };
     assert_eq!(ambiguity_deadline, start + Duration::from_millis(50));
-    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    let completion_deadline = start + Duration::from_secs(1);
+    assert_eq!(engine.next_wake(), Some(completion_deadline));
 
     let at_budget = engine.advance(budget_deadline);
     assert!(terminal_outcome(&at_budget, id).is_none());
     assert!(engine.entry(id).is_some());
-    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    assert_eq!(engine.next_wake(), Some(completion_deadline));
 
-    let resolved = engine.advance(ambiguity_deadline);
+    let at_ambiguity = engine.advance(ambiguity_deadline);
+    assert!(terminal_outcome(&at_ambiguity, id).is_none());
     assert!(matches!(
-        terminal_failure(&resolved, id),
-        Some(Error::CancellationUnconfirmed)
+        phase_of(&engine, id),
+        Some(Phase::Executing { .. })
+    ));
+
+    let resolved = engine.handle(
+        frame(
+            1,
+            Some((sequence, SequenceWidth::Full32)),
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(60),
+    );
+    assert!(matches!(
+        terminal_outcome(&resolved, id),
+        Some(RuntimeOutcome::Applied)
     ));
     engine.assert_invariants().unwrap();
 }
@@ -9123,13 +9585,12 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #671 core safety (ACK path): a raw command whose ACK is lost fails only
-/// itself and quarantines its unacknowledged slot for the ambiguity window. A
-/// late ACK arriving during the quarantine is ignored — never applied, never
-/// misattributed — the slot blocks a new command on that target until it
-/// releases, and the session never poisons.
+/// Issue #724: an ACK timeout opens a bounded late-confirmation window; it does
+/// not terminalize the request. An attributable ACK in that window establishes
+/// the original command's socket, never binds to its queued successor, and lets
+/// both requests continue normally.
 #[test]
-fn raw_ack_timeout_quarantines_and_ignores_a_late_ack() {
+fn raw_ack_timeout_accepts_an_attributable_late_ack() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let admission = engine.handle(
@@ -9170,8 +9631,9 @@ fn raw_ack_timeout_quarantines_and_ignores_a_late_ack() {
         Some(Phase::Ready { .. })
     ));
 
-    // A late ACK for the quarantined command is ignored, not applied: it must not
-    // re-open the request nor bind to the queued command.
+    // The original is still the unique positional candidate, so its late ACK is
+    // accepted and cannot bind to the queued request. Establishing S1 releases
+    // the raw pre-ACK gate and lets the successor use the second socket.
     let late = engine.handle(
         frame(
             1,
@@ -9182,37 +9644,43 @@ fn raw_ack_timeout_quarantines_and_ignores_a_late_ack() {
         ),
         start + Duration::from_millis(30),
     );
-    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(ignored_reasons(&late).is_empty());
     assert!(matches!(
         engine.entry(id).map(Entry::phase),
-        Some(Phase::AwaitingLateAck { .. })
+        Some(Phase::Executing {
+            socket: ViscaSocket::S1,
+            ..
+        })
     ));
-    assert!(matches!(
-        engine.entry(queued_id).map(Entry::phase),
-        Some(Phase::Ready { .. })
-    ));
-
-    // At the ambiguity deadline (20ms + 50ms) the command fails and the slot
-    // releases, letting the queued command finally dispatch. Never poisoned.
-    let resolved = engine.advance(start + Duration::from_millis(70));
-    assert!(matches!(
-        terminal_failure(&resolved, id),
-        Some(Error::UnsequencedCommandUnconfirmed)
-    ));
-    assert_eq!(engine.state(), SessionState::Running);
     assert!(matches!(
         engine.entry(queued_id).map(Entry::phase),
         Some(Phase::Sending { .. })
     ));
+    assert_eq!(request_transmit(&late).1, queued_id);
+
+    let resolved = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(31),
+    );
+    assert!(matches!(
+        terminal_outcome(&resolved, id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #671 core safety (completion path): a raw command whose completion is
-/// lost holds its already-owned socket quarantined (correlation is exact there).
-/// A late completion for that socket is ignored, not applied, and the socket is
-/// released only when the command fails at the ambiguity deadline. No poison.
+/// An owned socket remains exact correlation evidence during the bounded
+/// post-timeout window, so a completion received before that window closes can
+/// still finish the request.
 #[test]
-fn raw_completion_timeout_quarantines_socket_and_ignores_a_late_completion() {
+fn raw_completion_timeout_accepts_an_exact_late_completion() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let admission = engine.handle(
@@ -9249,7 +9717,7 @@ fn raw_completion_timeout_quarantines_socket_and_ignores_a_late_completion() {
     ));
     assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
 
-    // A late completion for the quarantined socket is ignored, not applied.
+    // The still-open request owns S1 exactly, so its late completion applies.
     let late = engine.handle(
         frame(
             1,
@@ -9260,19 +9728,9 @@ fn raw_completion_timeout_quarantines_socket_and_ignores_a_late_completion() {
         ),
         start + Duration::from_millis(50),
     );
-    assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
     assert!(matches!(
-        engine.entry(id).map(Entry::phase),
-        Some(Phase::AwaitingCancellationResolution { .. })
-    ));
-    assert_eq!(engine.state(), SessionState::Running);
-
-    // At the ambiguity deadline (40ms + 50ms) the command fails and the socket
-    // releases.
-    let resolved = engine.advance(start + Duration::from_millis(90));
-    assert!(matches!(
-        terminal_failure(&resolved, id),
-        Some(Error::UnsequencedCommandUnconfirmed)
+        terminal_outcome(&late, id),
+        Some(RuntimeOutcome::Applied)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     assert_eq!(socket_of(&engine, id), None);
@@ -9500,10 +9958,9 @@ fn a_post_ack_completion_timeout_retries_the_command() {
 
 /// Issue #673's blocking drain is limited to a predecessor whose next accepted
 /// frame can actually be an ACK. The broader raw unacknowledged predicate still
-/// reserves the target for completion-only commands and #671 quarantines, but
-/// neither of those states should make a blocking submit wait on a useless
-/// receive. A cancellation-driven late-ACK state remains eligible because its
-/// late ACK is still accepted and can establish the socket needed for cancel.
+/// reserves the target for completion-only commands and non-ACK-capable holds,
+/// but neither should make a blocking submit wait on a useless receive. A
+/// late-ACK confirmation window remains eligible with or without cancellation.
 #[cfg(feature = "blocking")]
 #[test]
 fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
@@ -9549,8 +10006,8 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
         assert!(!runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 
-    // The default #671 late-ACK quarantine has no accepted ACK path. It must
-    // retain the raw exclusivity slot without arming the blocking drain.
+    // The default #671 late-ACK window remains ACK-capable even without a later
+    // cancellation request, so blocking submission may drain it.
     {
         let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let (admitted_effects, id) = admit(
@@ -9569,7 +10026,7 @@ fn blocking_preack_gate_requires_an_ack_capable_predecessor() {
             runtime.entry(id).map(Entry::cancellation),
             Some(CancelState::None)
         );
-        assert!(!runtime.raw_ack_input_may_enable_dispatch(camera(1)));
+        assert!(runtime.raw_ack_input_may_enable_dispatch(camera(1)));
     }
 
     // Cancellation requested before the ACK deadline deliberately keeps the
@@ -9657,6 +10114,92 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
     assert_eq!(
         engine.assert_invariants().unwrap_err().as_ref(),
         "more than one raw command is unacknowledged on a target"
+    );
+}
+
+#[test]
+fn awaiting_completion_invariant_requires_the_completion_only_shape() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (admission, id) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut engine, &admission, None, start);
+    let RuntimeRequest::Command { context, .. } = &mut engine
+        .entries
+        .get_mut(&id)
+        .expect("completion-only request remains live")
+        .request
+    else {
+        unreachable!("test admitted a command");
+    };
+    context.reply_shape = ReplyShape::AckThenCompletion;
+
+    assert_eq!(
+        engine.assert_invariants().unwrap_err().as_ref(),
+        "awaiting-completion phase belongs to a non-completion-only command"
+    );
+}
+
+#[test]
+fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
+    let start = Instant::now();
+    let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (completion, _) = admit(
+        &mut runtime,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut runtime, &completion, None, start);
+
+    // A real urgent request cannot cross the #700 exclusive lane.
+    let (blocked, blocked_id) = admit(
+        &mut runtime,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&blocked).is_none());
+    assert!(matches!(
+        phase_of(&runtime, blocked_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    // White-box corruption gives the urgent request an in-flight phase while
+    // preserving its queue/index consistency by using a separately valid
+    // engine. The ordinary two-candidate audit permits an urgent exception;
+    // the #700 exclusivity audit must still reject this mixed state.
+    let mut corrupted = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (completion, _) = admit(
+        &mut corrupted,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        start,
+    );
+    send_ok(&mut corrupted, &completion, None, start);
+    let (urgent, urgent_id) = admit(
+        &mut corrupted,
+        2,
+        urgent_command(2, CancellationPolicy::Supported),
+        start,
+    );
+    let RuntimeRequest::Command { context, .. } = &mut corrupted
+        .entries
+        .get_mut(&urgent_id)
+        .expect("urgent request remains live")
+        .request
+    else {
+        unreachable!("test admitted a command");
+    };
+    context.target = camera(1);
+    assert!(request_transmit_optional(&urgent).is_some());
+    assert_eq!(
+        corrupted.assert_invariants().unwrap_err().as_ref(),
+        "uncorrelatable raw command does not own its target exclusively"
     );
 }
 

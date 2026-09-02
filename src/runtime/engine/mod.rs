@@ -189,6 +189,10 @@ pub(crate) struct Entry {
     dispatched_socket_capacity: Option<u8>,
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
+    /// Whether an `AwaitingLateAck` phase still represents an ACK-capable
+    /// request, rather than an unkeyed hold left by a displaced socket owner or
+    /// a command shape that never accepts ACKs.
+    late_ack_eligible: bool,
     deferred_ack: Option<DeferredAck>,
     deferred_completion: Option<DeferredCompletion>,
 }
@@ -441,6 +445,7 @@ impl ProtocolEngine {
                 policy.command_sockets = *sockets;
             }
         }
+        self.debug_assert_invariants();
         Ok(())
     }
 
@@ -824,6 +829,7 @@ impl ProtocolEngine {
                 dispatched_socket_capacity: None,
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
+                late_ack_eligible: false,
                 deferred_ack: None,
                 deferred_completion: None,
             },
@@ -1310,6 +1316,14 @@ impl ProtocolEngine {
             && !entry.request.is_inquiry()
             && entry.request.context().control.class == ControlClass::Urgent
             && self.raw_unacknowledged_command_count(target) == 1
+            // The #714 safety lane can cross only an ordinary ACK-bearing
+            // positional candidate. Completion-only and no-reply commands have
+            // no response identity and retain the #700 exclusive target lane.
+            && self.entries.values().all(|candidate| {
+                candidate.request.context().target != target
+                    || !raw_unacknowledged_command_candidate(candidate)
+                    || candidate.request.context().reply_shape == ReplyShape::AckThenCompletion
+            })
     }
 
     fn raw_command_gate_blocks(&self, entry: &Entry, target: CameraId) -> bool {
@@ -1407,12 +1421,10 @@ impl ProtocolEngine {
     /// This deliberately uses the sole *ACK-capable* predecessor rather than
     /// [`Self::raw_command_unacknowledged`]. The latter is the broader
     /// correlation/exclusivity predicate and must continue to count
-    /// completion-only commands and #671 late-ACK quarantines. Neither can
-    /// release a socket by accepting an ACK: `AwaitingCompletion` has no ACK
-    /// phase, while an `AwaitingLateAck` entry with `CancelState::None` is a
-    /// quarantine whose late frames are ignored. A cancellation-driven late-ACK
-    /// entry remains eligible because its ACK is still accepted and may assign
-    /// the socket needed to issue cancellation.
+    /// completion-only commands and #671 late-ACK confirmation windows.
+    /// `AwaitingCompletion` cannot release a socket by accepting an ACK, while
+    /// an ACK-bearing `AwaitingLateAck` entry remains open through its bounded
+    /// window and can still accept an attributable ACK.
     ///
     /// When the sole ACK-capable predecessor is still in its unacknowledged
     /// window while a command socket remains free, its ACK clears the gate and
@@ -1435,9 +1447,9 @@ impl ProtocolEngine {
     /// ambiguous.
     ///
     /// The `Sending` phase is included for the deferred-ACK race. A late-ACK
-    /// quarantine is included only when cancellation intent is present: the
-    /// default #671 quarantine (`CancelState::None`) deliberately ignores late
-    /// frames and must never cause a blocking submission to wait for one.
+    /// confirmation window is included with or without cancellation intent:
+    /// the request has not reached a terminal outcome yet, and an attributable
+    /// ACK may still establish its socket before the window closes.
     fn raw_ack_capable_candidate(&self, target: CameraId) -> Option<RequestId> {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
@@ -1447,14 +1459,11 @@ impl ProtocolEngine {
             if entry.request.is_inquiry()
                 || entry.request.context().target != target
                 || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !matches!(
+                || !(matches!(
                     entry.phase,
                     Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                ) && !matches!(
-                    entry.phase,
-                    Phase::AwaitingLateAck { .. }
-                        if !matches!(entry.cancellation, CancelState::None)
-                )
+                ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
+                    && entry.late_ack_eligible)
             {
                 continue;
             }
@@ -1477,6 +1486,9 @@ impl ProtocolEngine {
             return;
         };
         let from = entry.phase;
+        if !matches!(to, Phase::AwaitingLateAck { .. }) {
+            entry.late_ack_eligible = false;
+        }
         entry.phase = to;
         entry.cancellation = cancellation;
         effects.push(Effect::Transition {
@@ -1485,6 +1497,29 @@ impl ProtocolEngine {
             to,
             cancellation,
         });
+    }
+
+    /// Enters the shared unkeyed hold while retaining whether an ACK is still a
+    /// legitimate response for this request. The phase alone also represents
+    /// displaced socket owners and completion-only holds, neither of which may
+    /// consume an ACK (#724).
+    fn transition_to_late_ack(
+        &mut self,
+        id: RequestId,
+        deadline: Instant,
+        cancellation: CancelState,
+        eligible: bool,
+        effects: &mut Vec<Effect>,
+    ) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.late_ack_eligible = eligible;
+        }
+        self.transition(
+            id,
+            Phase::AwaitingLateAck { deadline },
+            cancellation,
+            effects,
+        );
     }
 
     fn transmission_finished(
@@ -1753,14 +1788,31 @@ impl ProtocolEngine {
                 };
                 let observation_deadline =
                     add_duration(now, entry.request.context().timeout.cancellation);
+                // ACK already established exact socket correlation. A
+                // cancellation may extend that ownership window, but its
+                // shorter ambiguity deadline must never truncate the original
+                // command completion deadline (#724).
+                let resolution_deadline = match entry.phase {
+                    Phase::Executing {
+                        socket: owned,
+                        deadline,
+                        ..
+                    }
+                    | Phase::AwaitingCancellationResolution {
+                        socket: owned,
+                        deadline,
+                    } if owned == socket => deadline.max(ambiguity_deadline),
+                    _ => ambiguity_deadline,
+                };
                 self.transition(
                     owner.request,
                     Phase::AwaitingCancellationResolution {
                         socket,
                         // Capacity/correlation are conservatively retained through
-                        // the full ambiguity quarantine even if an observer-facing
-                        // cancellation response timeout is shorter.
-                        deadline: ambiguity_deadline,
+                        // the later of the original completion and ambiguity
+                        // deadlines, even if the observer-facing cancellation
+                        // response timeout is shorter.
+                        deadline: resolution_deadline,
                     },
                     CancelState::AwaitingTerminal {
                         ambiguity_deadline,
@@ -2120,17 +2172,6 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        // Issue #671: a raw command that has already failed
-        // `UnsequencedCommandUnconfirmed` is only holding its correlation slot
-        // (its socket, or its place as the sole unacknowledged command) until
-        // the ambiguity deadline. Any late frame that resolves to it is ignored,
-        // never applied: applying it could re-open a request the caller was told
-        // is unconfirmed, and dropping it here keeps the slot reserved so the
-        // late reply cannot be misattributed to a later command.
-        if self.entries.get(&id).is_some_and(is_unconfirmed_quarantine) {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-            return;
-        }
         match frame.response {
             DecodedResponse::Ack { socket } => self.ack(id, socket, now, effects),
             DecodedResponse::Completion { socket } => {
@@ -2355,12 +2396,11 @@ impl ProtocolEngine {
                 || entry.request.is_inquiry()
                 || entry.request.context().target != target
                 || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !matches!(
+                || !(matches!(
                     entry.phase,
-                    Phase::Sending { .. }
-                        | Phase::AwaitingAck { .. }
-                        | Phase::AwaitingLateAck { .. }
-                )
+                    Phase::Sending { .. } | Phase::AwaitingAck { .. }
+                ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
+                    && entry.late_ack_eligible)
             {
                 continue;
             }
@@ -2424,14 +2464,15 @@ impl ProtocolEngine {
             {
                 continue;
             }
+            let ack_lifecycle = matches!(
+                entry.phase,
+                Phase::Sending { .. } | Phase::AwaitingAck { .. }
+            ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
+                && entry.late_ack_eligible;
             let is_candidate = entry.request.context().reply_shape != ReplyShape::NoReply
-                && (matches!(
-                    entry.phase,
-                    Phase::Sending { .. }
-                        | Phase::AwaitingAck { .. }
-                        | Phase::AwaitingLateAck { .. }
-                ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                    && matches!(entry.phase, Phase::AwaitingCompletion { .. })));
+                && (ack_lifecycle
+                    || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
+                        && matches!(entry.phase, Phase::AwaitingCompletion { .. })));
             if !is_candidate {
                 continue;
             }
@@ -2551,12 +2592,7 @@ impl ProtocolEngine {
             entry.deferred_ack = None;
             entry.deferred_completion = None;
         }
-        self.transition(
-            stale,
-            Phase::AwaitingLateAck { deadline },
-            CancelState::None,
-            effects,
-        );
+        self.transition_to_late_ack(stale, deadline, CancelState::None, false, effects);
     }
 
     fn ack(
@@ -2577,7 +2613,8 @@ impl ProtocolEngine {
             return;
         }
         match entry.phase {
-            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {}
+            Phase::AwaitingAck { .. } => {}
+            Phase::AwaitingLateAck { .. } if entry.late_ack_eligible => {}
             // Issue #297: the camera answered before this owner applied the
             // write result for the frame being answered. Latch the ACK on the
             // entry; `successful_transmission` applies it the instant the
@@ -2601,6 +2638,7 @@ impl ProtocolEngine {
             // camera nonetheless sends one it is spurious for this shape, so it
             // is ignored — it must never assign the command a socket.
             Phase::AwaitingCompletion { .. }
+            | Phase::AwaitingLateAck { .. }
             | Phase::Ready { .. }
             | Phase::Executing { .. }
             | Phase::AwaitingReply { .. }
@@ -2636,10 +2674,7 @@ impl ProtocolEngine {
             cancellation,
             effects,
         );
-        if matches!(
-            cancellation,
-            CancelState::Requested { .. } | CancelState::ObservationFailed { .. }
-        ) {
+        if matches!(cancellation, CancelState::Requested { .. }) {
             self.emit_cancel(id, socket, now, effects);
         }
     }
@@ -3213,7 +3248,7 @@ impl ProtocolEngine {
                         selected = Some((budget, 1, 0));
                     }
                 }
-                if let Some(ambiguity) = cancellation_ambiguity(entry.cancellation) {
+                if let Some(ambiguity) = active_cancellation_ambiguity(entry) {
                     if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
                         selected = Some((ambiguity, 0, 0));
                     }
@@ -3285,10 +3320,10 @@ impl ProtocolEngine {
     /// [`Error::UnsequencedCommandUnconfirmed`] while holding whatever
     /// correlation it still owns — its command socket, or its place as the sole
     /// unacknowledged raw command on the target — quarantined until the
-    /// ambiguity deadline. A late ACK or completion then resolves to the
-    /// quarantine and is ignored ([`Self::frame`]) instead of binding to a later
-    /// command that reuses the socket or the unacknowledged slot. The session
-    /// and every unrelated request keep running.
+    /// ambiguity deadline. The request remains open during that bounded window:
+    /// an attributable late ACK or exact socket completion can still apply,
+    /// while the retained slot prevents it from binding to a later command. The
+    /// session and every unrelated request keep running.
     ///
     /// The caller must have already established that this is a raw command with
     /// no cancellation in flight; the quarantine phases are distinguished from
@@ -3309,10 +3344,11 @@ impl ProtocolEngine {
         };
         let ambiguity_deadline = add_duration(now, entry.request.context().timeout.ambiguity);
         let cancellation = entry.cancellation;
+        let reply_shape = entry.request.context().reply_shape;
         match entry.phase {
             Phase::Executing { socket, .. } => {
-                // Correlation is exact — this request owns `socket`. Hold it so a
-                // late completion resolves here and is ignored, never bound to a
+                // Correlation is exact — this request owns `socket`. Hold it so
+                // a late completion can still resolve here and never bind to a
                 // later command that reuses the socket.
                 self.transition(
                     id,
@@ -3326,32 +3362,18 @@ impl ProtocolEngine {
             }
             Phase::AwaitingAck { .. } => {
                 // No socket is owned yet; hold the sole-unacknowledged-command
-                // slot so a late ACK resolves here and is ignored.
-                self.transition(
-                    id,
-                    Phase::AwaitingLateAck {
-                        deadline: ambiguity_deadline,
-                    },
-                    cancellation,
-                    effects,
-                );
+                // slot. The request remains open, so an attributable late ACK
+                // can still establish its socket before the window closes.
+                self.transition_to_late_ack(id, ambiguity_deadline, cancellation, true, effects);
             }
             Phase::AwaitingCompletion { .. } => {
                 // Issue #700: a completion-only command owns no socket, so — like
                 // AwaitingAck — it holds the sole-command slot rather than a
                 // socket. Reuse the same late-slot quarantine: it keeps the target
                 // reserved so no later command can be dispatched into the
-                // ambiguity window, and any late completion is dropped by the
-                // resolver (it no longer matches a completion-only candidate) or
-                // by the quarantine guard in `frame`.
-                self.transition(
-                    id,
-                    Phase::AwaitingLateAck {
-                        deadline: ambiguity_deadline,
-                    },
-                    cancellation,
-                    effects,
-                );
+                // ambiguity window. A late completion stays inert because this
+                // phase no longer matches a completion-only candidate.
+                self.transition_to_late_ack(id, ambiguity_deadline, cancellation, false, effects);
             }
             Phase::Sending { transmission, .. } => {
                 // The write is still in flight. Drop its correlation so the
@@ -3363,12 +3385,12 @@ impl ProtocolEngine {
                     entry.deferred_ack = None;
                     entry.deferred_completion = None;
                 }
-                self.transition(
+                let eligible = reply_shape == ReplyShape::AckThenCompletion;
+                self.transition_to_late_ack(
                     id,
-                    Phase::AwaitingLateAck {
-                        deadline: ambiguity_deadline,
-                    },
+                    ambiguity_deadline,
                     cancellation,
+                    eligible,
                     effects,
                 );
             }
@@ -3390,7 +3412,7 @@ impl ProtocolEngine {
         };
         let phase = entry.phase;
         let ambiguity_due =
-            cancellation_ambiguity(entry.cancellation).is_some_and(|deadline| deadline <= now);
+            active_cancellation_ambiguity(entry).is_some_and(|deadline| deadline <= now);
         if due.kind_order == 0 && ambiguity_due {
             // The ambiguity window has already closed, so nothing further needs
             // quarantining here: fail this one request (default) or poison the
@@ -3456,12 +3478,11 @@ impl ProtocolEngine {
             Phase::AwaitingAck { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
                 if let CancelState::Requested { ambiguity_deadline } = entry.cancellation {
-                    self.transition(
+                    self.transition_to_late_ack(
                         due.request,
-                        Phase::AwaitingLateAck {
-                            deadline: ambiguity_deadline,
-                        },
+                        ambiguity_deadline,
                         entry.cancellation,
+                        true,
                         effects,
                     );
                 } else if self.policy.envelope == EnvelopeKind::Raw {
@@ -3488,12 +3509,11 @@ impl ProtocolEngine {
                     // Cancelled but never socketed (issue #700): hold the
                     // socketless sole-command slot until the ambiguity deadline,
                     // exactly as the AwaitingAck cancel path does.
-                    self.transition(
+                    self.transition_to_late_ack(
                         due.request,
-                        Phase::AwaitingLateAck {
-                            deadline: ambiguity_deadline,
-                        },
+                        ambiguity_deadline,
                         entry.cancellation,
+                        false,
                         effects,
                     );
                 } else if self.policy.envelope == EnvelopeKind::Raw {
@@ -4150,6 +4170,12 @@ impl ProtocolEngine {
             if entry.deferred_ack.is_some() && !matches!(entry.phase, Phase::Sending { .. }) {
                 return Err("deferred ACK outlived the write it raced".into());
             }
+            if entry.late_ack_eligible
+                && (!matches!(entry.phase, Phase::AwaitingLateAck { .. })
+                    || entry.request.context().reply_shape != ReplyShape::AckThenCompletion)
+            {
+                return Err("late-ACK eligibility is phase- or shape-incompatible".into());
+            }
             if entry.request.context().reply_shape == ReplyShape::CompletionOnly
                 && (entry.deferred_ack.is_some()
                     || matches!(
@@ -4165,6 +4191,13 @@ impl ProtocolEngine {
                     || entry.cancel_attempted_socket.is_some())
             {
                 return Err("completion-only command has ACK/socket cancellation state".into());
+            }
+            if matches!(entry.phase, Phase::AwaitingCompletion { .. })
+                && entry.request.context().reply_shape != ReplyShape::CompletionOnly
+            {
+                return Err(
+                    "awaiting-completion phase belongs to a non-completion-only command".into(),
+                );
             }
             if entry.deferred_completion.is_some() && !matches!(entry.phase, Phase::Sending { .. })
             {
@@ -4255,6 +4288,7 @@ impl ProtocolEngine {
         if self.policy.envelope == EnvelopeKind::Raw {
             let mut unacknowledged = [0_u8; 9];
             let mut urgent = [0_u8; 9];
+            let mut uncorrelatable = [0_u8; 9];
             for entry in self.entries.values() {
                 if !raw_unacknowledged_command_candidate(entry) {
                     continue;
@@ -4264,10 +4298,22 @@ impl ProtocolEngine {
                 if entry.request.context().control.class == ControlClass::Urgent {
                     urgent[target] = urgent[target].saturating_add(1);
                 }
+                if entry.request.context().reply_shape != ReplyShape::AckThenCompletion {
+                    uncorrelatable[target] = uncorrelatable[target].saturating_add(1);
+                }
                 if unacknowledged[target] > 2 || (unacknowledged[target] > 1 && urgent[target] == 0)
                 {
                     return Err("more than one raw command is unacknowledged on a target".into());
                 }
+            }
+            if unacknowledged
+                .iter()
+                .zip(uncorrelatable)
+                .any(|(count, uncorrelatable)| uncorrelatable != 0 && *count != 1)
+            {
+                return Err(
+                    "uncorrelatable raw command does not own its target exclusively".into(),
+                );
             }
         } else {
             // The per-request unconfirmed quarantine is a raw-only construct: a
@@ -4374,13 +4420,32 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
     }
 }
 
+/// The cancellation ambiguity deadline while it can still bound correlation.
+///
+/// Before ACK there is no independent response identity, and after the normal
+/// completion deadline the quarantine phase is itself governed by ambiguity.
+/// While a request owns an exact socket, however, its legitimate completion
+/// remains attributable through the completion deadline. A later
+/// `AwaitingCancellationResolution` phase already stores the greater of that
+/// deadline and cancellation ambiguity, so the substate must not shorten it
+/// either (#724).
+fn active_cancellation_ambiguity(entry: &Entry) -> Option<Instant> {
+    (!matches!(
+        entry.phase,
+        Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
+    ))
+    .then(|| cancellation_ambiguity(entry.cancellation))
+    .flatten()
+}
+
 /// The effective response deadline for an already-correlated entry.
 ///
 /// A response may only mutate the phase that is currently awaiting it. The
-/// cancellation ambiguity window can close that phase earlier, so it bounds the
-/// same response while cancellation is active. The observer-facing cancellation
-/// timeout is deliberately absent: it resolves only the observer and leaves the
-/// original response correlation live through the ambiguity deadline. The active
+/// cancellation ambiguity window can close a socketless phase earlier, so it
+/// bounds the same response until an ACK establishes exact socket ownership.
+/// An executing request instead keeps its response correlation through its
+/// completion deadline. The observer-facing cancellation timeout is deliberately
+/// absent: it resolves only the observer. The active
 /// admission-to-terminal budget also bounds response correlation: otherwise an
 /// input-first frame just after that earlier budget could complete the request
 /// before its due work runs. A `Sending` request has no protocol phase deadline,
@@ -4399,7 +4464,7 @@ fn correlated_response_deadline(entry: &Entry) -> Option<Instant> {
     };
     [
         phase_deadline,
-        cancellation_ambiguity(entry.cancellation),
+        active_cancellation_ambiguity(entry),
         retry_budget_deadline(entry),
     ]
     .into_iter()
@@ -4664,9 +4729,7 @@ fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
     };
     match entry.cancellation {
         CancelState::Sending { socket, .. } => socket == phase_socket,
-        CancelState::AwaitingTerminal { .. } => {
-            matches!(entry.phase, Phase::AwaitingCancellationResolution { .. })
-        }
+        CancelState::AwaitingTerminal { .. } => true,
         CancelState::None
         | CancelState::Requested { .. }
         | CancelState::ObservationFailed { .. } => false,
@@ -4692,14 +4755,15 @@ fn phase_owns_socket(phase: Phase, socket: ViscaSocket) -> bool {
 
 /// Whether an entry is a per-request unconfirmed-command quarantine (issue #671).
 ///
-/// A raw command that has failed (or will fail at its ambiguity deadline) with
+/// A raw command that will fail at its ambiguity deadline with
 /// [`Error::UnsequencedCommandUnconfirmed`] holds its correlation slot until
 /// then in [`Phase::AwaitingLateAck`] (its unacknowledged-command slot) or
 /// [`Phase::AwaitingCancellationResolution`] (its owned socket). These two
 /// phases are otherwise driven by the cancellation path, which always carries a
 /// non-[`CancelState::None`] state, so [`CancelState::None`] uniquely marks the
-/// quarantine. Any late frame that resolves to such an entry must be ignored,
-/// never applied, so it cannot re-open the request or be misattributed.
+/// unconfirmed hold. The request is still open: only response evidence valid for
+/// that hold may apply before expiry, and the retained slot prevents it from
+/// being misattributed to a successor.
 fn is_unconfirmed_quarantine(entry: &Entry) -> bool {
     matches!(entry.cancellation, CancelState::None) && is_quarantine_phase(entry.phase)
 }
