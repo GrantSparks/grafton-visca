@@ -278,8 +278,8 @@ encoding.
    command pacing and socket capacity; if two candidates are open, ACK/error
    evidence binds to neither (#714). `CompletionOnly` and `NoReply` are never
    draining successors, while a cancellation-driven late-ACK state remains
-   eligible only when its ACK is still accepted. This documents a local
-   ratification, not a change to the GitHub issue bodies.
+   eligible only when its ACK is still accepted. The maintainer decision is
+   recorded on the [#673 issue trail](https://github.com/GrantSparks/grafton-visca/issues/673#issuecomment-5508129187).
 11. Fixed-format ACK, completion, error, and network-change frames require
     their exact protocol lengths; a known prefix with trailing bytes is
     malformed, not a valid response or an unknown extension. Fixed ACK,
@@ -349,9 +349,13 @@ encoding.
     preserved. Source-only, ACK (whose socket nibble is assignment preference
     rather than ownership), and socketless `0x50`/`0x60` prefixes remain
     ambiguous for narrower inquiry/pre-ACK/unkeyed or socket-scoped releases,
-    so input continues to drain first. If 64 bounded turns cannot resolve them,
-    the owner fails closed before successor dispatch rather than discard or
-    misbind them.
+    so input continues to drain first. The former 64-turn fail-closed rule had
+    no stable wall-clock duration and is superseded by #713: both owners use
+    one engine-owned grace interval, bounded by the read timeout and 100 ms. A
+    completing tail is processed under the old scope; an unresolved orphan
+    prefix is discarded and reported malformed at expiry without poisoning the
+    session. The historical decision and supersession are recorded on the
+    [#713 issue trail](https://github.com/GrantSparks/grafton-visca/issues/713#issuecomment-5508129430).
 
 ## Release-candidate boundary
 

@@ -4,6 +4,25 @@
 supported destination for applications migrating from pre-2.0 vocabulary; the
 historical names are not part of the 2.0 contract.
 
+## First compile break: control calls return operation handles
+
+Movement and other lifecycle-bearing control methods no longer return a bare
+`Result<()>`. They return a `#[must_use] Result<Operation<K>>` on the blocking
+facade, or an async future yielding that result. The handle is the authority to
+observe application, wait for profile-selected settlement, cancel, or detach.
+
+| 1.x pattern | 2.0 pattern |
+| --- | --- |
+| `camera.pan_tilt_home().await?;` | `camera.pan_tilt().home().await?.applied().await?;` |
+| `camera.zoom_stop()?;` | `camera.zoom().stop()?.applied()?;` |
+| Fire a command and later cancel by command/socket ID | Keep the returned `Operation<K>` and call `cancel()` on that handle. |
+| Ignore a successful control return | Bind the handle and explicitly call `applied()`, `settled()`, `cancel()`, or `detach()`; `#[must_use]` makes an accidental drop visible. |
+
+This applies across pan/tilt, zoom, focus, presets, iris, and ND-filter
+operations—not only normalized zoom. A completed VISCA command is not always a
+physical-rest observation; choose `settled()` only when the profile supplies
+the required position inquiry and that distinction matters.
+
 ## Construction and feature selection
 
 | 1.x category | 2.0 destination |
@@ -17,7 +36,7 @@ historical names are not part of the 2.0 contract.
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
 | `CameraVariant` and root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
-| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; `Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
+| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; reach for `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config)` only when you drive the transport yourself. |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
@@ -44,6 +63,7 @@ by `cfg(mode-async)` on the exported items rather than by a check.
 | `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime |
 | blocking XOR async, enforced by `cfg` | `blocking` and `async` are independent and **co-enableable** in one build |
 | `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ pure engine/domain layers only |
+| `transport-serial` did not select an explicit blocking feature | `transport-serial` now enables `blocking`; use `transport-serial-tokio` for async Tokio serial |
 
 So one 2.0 build can expose both `grafton_visca::Camera` (async) and
 `grafton_visca::blocking::Camera`. If you relied on 1.x's implicit-blocking
@@ -105,12 +125,44 @@ the async `Session` / `CameraSession<P>` rows above.
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
-| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | The `menu()` noun: `menu().display(true)` / `menu().display(false)` for explicit open/close, `menu().status()` to read whether it is open, and `menu().navigate(...)` / `menu().select()` for cursor control. There is no single toggle; choose the state explicitly. |
+| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
 | Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | Same names on `zoom()`: `zoom().set_normalized(UnitInterval)` and `zoom().set_normalized_in_domain(UnitInterval, ZoomDomain)`. They are now **targeted operations** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 
 Dynamic views remain async and object-safe. They erase profile/request types but
 share the static session's owner, timeout, pacing, cancellation, and state
 cache. There is no dynamic policy layer that can bypass static preparation.
+
+### Pan/tilt widths and explicit profile gates
+
+Raw pan/tilt coordinates are `i32` in 2.0 so the BRC-300's documented signed
+20-bit pan field can be represented without truncation. This changes
+`PanTiltPosition`, `PanTiltPositionRaw`, the pan/tilt field of
+`MovementTolerance`, inquiry payloads, `PanTiltExt::{validate_pan,validate_tilt}`,
+`ProfileSpecBuilder::pan_tilt`, `Capabilities::{pan_range,tilt_range}`, and
+`PanTilt::{PAN_RANGE,TILT_RANGE}` (including every built-in profile constant).
+Code that persisted `i16` remains value-compatible after an explicit widening;
+generic signatures and custom profile implementations must change their type to
+`i32`. Use checked narrowing only when talking to a standard 16-bit profile.
+`Error::CameraMoving` does not need a width migration because that unused
+variant is removed in 2.0 (#722).
+
+Each profile also selects a `PanTiltWireCodec`. Do not assume that every
+VISCA-compatible model uses the common two-speed/four-plus-four-nibble layout;
+the profile owns coordinate widths, signedness, axis polarity, and framing.
+
+Optional typed controls now name the exact evidence boundary:
+
+| 1.x/broad assumption | 2.0 bound or action |
+| --- | --- |
+| Exposure-mode methods were available through broad exposure support | Add `HasExposureMode`; `SonyFR7` intentionally does not implement it because its documented family is different. |
+| `iris_control()` followed the standard iris-control marker | Add `HasIrisControlInquiry`. No built-in profile opts into the ambiguous `09 04 2B` status inquiry; standard iris position/control remains under `HasIrisControl` where documented. |
+| One focus-zone marker covered command and inquiry | The inquiry requires `HasFocusZoneInquiry`. Only `PtzOpticsG2` and the legacy `PtzOptics30X` profile carry it; `PtzOpticsG3` and `SonyFR7` no longer compile for this unsourced inquiry. |
+| Aggregate noise-reduction support implied setters and inquiries | Use `HasNoiseReduction2D` / `HasNoiseReduction3D` for inquiries and the matching `*Control` markers for setters, as detailed below. |
+| PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
+| Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
+| USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
+| `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
+| `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
 
 ### Wire corrections and removed ambiguous inquiries
 
@@ -485,6 +537,36 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, async `subscribe_diagnostics`, and blocking `drain_diagnostics`. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
 | 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
+
+### Removed compatibility and helper vocabulary
+
+Several 1.x names described implementation machinery rather than a stable
+camera operation. They have no name-preserving alias in 2.0:
+
+| 1.x API | 2.0 destination |
+| --- | --- |
+| `mode::{Mode, Blocking, Async}` and the public `mode` module | Select the `blocking` and/or `async` Cargo feature and use `blocking::Camera<P>` or async `Camera<P>`. The two facades can coexist; mode is no longer a camera type parameter. |
+| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<'session, Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
+| Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
+| `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
+| `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
+| `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Raw values still carry explicit timeout, retry, control, and reply-shape policy. |
+| `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<completion::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnly`, then call `submit::<completion::AppliedOnly, _>`. |
+| `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder and `InquiryRoute`; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
+| `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
+| Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
+| `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
+| `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure is normalized to `RuntimeShutdown`; actual session death is `ConnectionClosed` or `StreamPoisoned`. Prefer `requires_new_session()` for the recovery decision. |
+| `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout`; VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
+
+Three retained public values also changed construction shape:
+
+| 1.x/earlier RC call | 2.0 call |
+| --- | --- |
+| `DirectMenuControl::new(control1, control2)` returning the value directly | `DirectMenuControl::new(control1, control2)?`; the constructor rejects a data `FF` followed by an address byte because that would begin a second VISCA frame. |
+| `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. |
+| Tuple construction or one-field matching of `ZoomTarget(position)` | `ZoomTarget::new(position)` for a raw target, or `ZoomTarget::from_normalized(value, domain, profile)?` when normalization provenance must survive until profile validation. |
+| `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
 
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
