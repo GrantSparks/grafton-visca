@@ -2452,19 +2452,15 @@ impl ProtocolEngine {
             .is_none_or(|owner| owner == id)
     }
 
-    /// Chooses the socket an ACK assigns using only the evidence in that ACK.
+    /// Chooses an uncontested socket for an ACK.
     ///
-    /// A camera that names a free socket is authoritative about it. When the
-    /// named socket is instead held by another request — typically because a
-    /// completion frame was lost and the camera reused the socket — the ACK
-    /// falls back to the target's other socket if it is free (issue #620/#682).
-    /// The candidate request was already uniquely identified before this runs
-    /// (a raw ACK resolves to the sole unacknowledged command), so binding it to
-    /// the free socket cannot mis-attribute the ACK; it only avoids wedging the
-    /// command, which — before issue #671 — cascaded to a session poison at its
-    /// ACK deadline. An ACK with no socket nibble takes the first free physical
-    /// socket available to that dispatched attempt. `None` means every socket it
-    /// may still use is already taken and the ACK stays inert.
+    /// A named raw ACK is reconciled against stale local ownership by
+    /// [`Self::assign_ack_socket`] before reaching this helper. Sequenced Sony
+    /// ACKs retain the #620/#682 other-socket compatibility fallback because
+    /// their request and later terminal frames carry an independent sequence
+    /// identity. A socketless ACK takes the first free physical socket
+    /// available to that dispatched attempt. `None` means no safe assignment
+    /// exists.
     fn assign_socket(
         &self,
         target: CameraId,
@@ -2476,6 +2472,9 @@ impl ProtocolEngine {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
             }
+            if self.policy.envelope == EnvelopeKind::Raw {
+                return None;
+            }
             let other = other_socket(socket);
             if assignment_socket_count > 1 && self.socket_available(target, other, id) {
                 return Some(other);
@@ -2486,6 +2485,66 @@ impl ProtocolEngine {
             .into_iter()
             .take(assignment_socket_count)
             .find(|socket| self.socket_available(target, *socket, id))
+    }
+
+    /// Applies a camera's authoritative raw socket assignment.
+    ///
+    /// If a named raw socket is still indexed to another request, the camera
+    /// has proved that local claim stale: the older completion was lost while
+    /// the camera released and reused the socket. Move that older request to an
+    /// inert unkeyed ambiguity quarantine, then bind the new uniquely resolved
+    /// ACK to the socket it actually names (#721). Inventing the other socket
+    /// would make cancellation bytes and every later socket-keyed terminal
+    /// disagree with the camera.
+    fn assign_ack_socket(
+        &mut self,
+        target: CameraId,
+        requested: Option<ViscaSocket>,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) -> Option<ViscaSocket> {
+        if self.policy.envelope == EnvelopeKind::Raw {
+            if let Some(socket) = requested {
+                if let Some(stale) = self
+                    .socket_owner(target, socket)
+                    .filter(|owner| *owner != id)
+                {
+                    self.quarantine_displaced_raw_socket_owner(stale, now, effects);
+                }
+            }
+        }
+        self.assign_socket(target, requested, id)
+    }
+
+    /// Relinquishes a socket claim superseded by an authoritative camera ACK.
+    fn quarantine_displaced_raw_socket_owner(
+        &mut self,
+        stale: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        let Some(ambiguity) = self.entries.get(&stale).map(|entry| {
+            debug_assert_eq!(self.policy.envelope, EnvelopeKind::Raw);
+            entry.request.context().timeout.ambiguity
+        }) else {
+            return;
+        };
+        let deadline = add_duration(now, ambiguity);
+        self.release_attempt_ownership(stale);
+        if let Some(entry) = self.entries.get_mut(&stale) {
+            // Any cancellation write that named the displaced socket is now
+            // stale too. Its late result must not resurrect socket ownership.
+            entry.cancel_attempted_socket = None;
+            entry.deferred_ack = None;
+            entry.deferred_completion = None;
+        }
+        self.transition(
+            stale,
+            Phase::AwaitingLateAck { deadline },
+            CancelState::None,
+            effects,
+        );
     }
 
     fn ack(
@@ -2540,7 +2599,7 @@ impl ProtocolEngine {
             }
         }
         let target = entry.request.context().target;
-        let Some(socket) = self.assign_socket(target, socket, id) else {
+        let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
             effects.push(Effect::Ignored(IgnoreReason::SocketConflict));
             return;
         };

@@ -61,6 +61,15 @@ entries below retain their original wording.
   invalid response merely because the current portal's inquiry row lists
   `0..=5`. Blocking and async round-trip regressions cover G2, G3, and 30X.
 
+- A raw ACK that names a socket still owned locally after a lost completion now
+  treats the camera's assignment as authoritative (#721). The stale owner
+  relinquishes that socket and enters an inert, unkeyed ambiguity quarantine;
+  the new request owns the named socket, emits cancellation for that socket,
+  and receives its completion there. The displaced request fails
+  `UnsequencedCommandUnconfirmed` at its ambiguity deadline instead of stealing
+  the successor's completion. Sequence-correlated Sony compatibility retains
+  the bounded #620/#682 other-socket fallback.
+
 - **BREAKING**: Static `camera.exposure().mode()` and `.set_mode(...)` now
   require `HasExposureMode`. The built-in marker is emitted only for
   `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`; Sony FR7 and every other
@@ -581,14 +590,13 @@ entries below retain their original wording.
   decision D8. See `docs/migration_2_0.md` for the row a raw user feels.
 
 - **Restored the #620 bounded other-socket ACK fallback** (#682). At the earlier
-  2.0-preview head an ACK naming a socket another request still owned returned
-  `SocketConflict` and left the command wedged on `AwaitingAck`, which — because
-  the ACK deadline is what #671 poisoned on — turned a single lost completion
-  frame (the camera then reuses the socket) into a session poison. The named-ACK
-  fallback to the target's other free socket is restored: the ACK's candidate is
-  uniquely identified before assignment, so the fallback cannot mis-attribute it;
-  it only keeps the next command from wedging. Composed with the #671 model, no
-  cascade to session death remains.
+  2.0-preview head a sequence-correlated ACK naming a socket another request
+  still owned returned `SocketConflict` and left the command wedged on
+  `AwaitingAck`. The uniquely identified Sony request may use the target's
+  other free socket, preserving the 1.x compatibility behavior without a
+  session-death cascade. Raw VISCA has no independent sequence identity for
+  later terminals; #721 supersedes the raw collision behavior by honoring the
+  camera's named socket and quarantining the stale local owner.
 
 - **Recorded the reviewed 1.x behavior decisions and their direct v2 evidence**
   (#676, review ratification per #692). The historical guide records three
@@ -1553,12 +1561,12 @@ entries below retain their original wording.
   free command socket to a socketless ACK — 1.x behavior — and attributes a
   socketless completion by envelope sequence, or by sole socket ownership on
   raw VISCA. Genuinely malformed frames are still rejected.
-- Named ACK sockets are evidence-based (#565, clarified by #682). A free named
-  socket is assigned exactly. If another request still owns the named socket,
-  the uniquely identified candidate falls back to the target's other free
-  socket; only when no socket is free does the ACK stay inert with
-  `SocketConflict`. A socketless ACK may select the first free registered
-  socket.
+- Named ACK sockets are evidence-based (#565, clarified by #682 and #721). A
+  free named socket is assigned exactly. On raw VISCA, an occupied named socket
+  proves the older local owner stale; that owner enters an unkeyed quarantine
+  and the new request receives the named socket. A sequence-correlated Sony
+  request may use the other free socket for #620/#682 compatibility. A
+  socketless ACK may select the first free registered socket.
 - Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
   engine before the write result for the frame it answers is now latched on
   that request and applied the instant the write is confirmed, instead of being

@@ -254,11 +254,12 @@ command it may route the legitimate per-target inquiry FIFO, while a
 command-plus-inquiry collision is ignored. An explicit socket routes only its
 exact target/socket owner, and a socketless error never targets `Executing`.
 A named ACK socket is exact evidence as well: if another request owns that
-socket, the uniquely identified candidate falls back to the target's other
-free socket (issues #620/#682). Only when every socket is occupied does the
-ACK remain inert with `SocketConflict`. A socketless ACK may select the first
-free registered socket. Sony-encapsulated commands may pipeline before ACK
-because their envelope sequence number provides exact correlation.
+socket on raw VISCA, the camera's new assignment supersedes the stale local
+owner (#721). The old request moves to unkeyed ambiguity quarantine and the new
+request owns the named socket. A socketless ACK may select the first free
+registered socket. Sony-encapsulated commands may pipeline before ACK because
+their envelope sequence number provides exact correlation; they retain the
+bounded #620/#682 other-free-socket compatibility fallback.
 
 The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
 nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change

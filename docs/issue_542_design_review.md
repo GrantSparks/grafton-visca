@@ -215,13 +215,13 @@ encoding.
    An explicit socket routes only its exact target/socket owner, and a
    socketless error never targets `Executing`. A named ACK socket is exact when
    that socket is free; if another request owns it — typically because a lost
-   completion made the camera reuse the socket — the ACK falls back to the
-   target's other free socket rather than being dropped (issues #620/#682),
-   because its candidate request was already uniquely identified before the
-   assignment and so cannot be mis-attributed. Only when no socket is free is
-   the ACK inert with `SocketConflict`; a socketless ACK likewise selects the
-   first free registered socket. Sony sequencing retains pre-ACK pipelining and
-   exact sequence correlation. Raw correlation holds follow the same evidence
+   completion made the camera reuse the socket — the camera's new assignment
+   supersedes the stale local claim (#721). The old request relinquishes the
+   socket into an unkeyed ambiguity quarantine and the new request owns the
+   named socket for completion and cancellation. A socketless ACK still selects
+   the first free registered socket. Sony sequencing retains pre-ACK pipelining,
+   exact sequence correlation, and the bounded #620/#682 other-free-socket
+   compatibility fallback. Raw correlation holds follow the same evidence
    boundary: cancellation and unconfirmed-correlation holds for an owned S1/S2
    release only that exact target/socket, while pre-ACK or otherwise unowned
    ambiguity remains unkeyed. These scopes remain distinct when simultaneous.

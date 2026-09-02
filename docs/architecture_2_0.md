@@ -213,12 +213,13 @@ throughput and immediate socket reuse; the target quarantine is reserved for
 the uncorrelatable reply shapes.
 When a raw ACK names a free socket, that socket is exact evidence. When the
 named socket is instead held by another request — the classic cause is a lost
-completion frame that made the camera reuse the socket — the ACK falls back to
-the target's other free socket (issues #620/#682). Its candidate request was
-already uniquely identified before the assignment, so the fallback cannot
-mis-attribute the ACK; it only keeps the command from wedging on `AwaitingAck`.
-Only when no socket is free does the ACK remain inert with `SocketConflict`. A
-socketless ACK likewise selects the first free registered socket.
+completion frame that made the camera reuse the socket — the camera's new
+assignment supersedes the stale local owner (#721). The older request releases
+the socket and enters an unkeyed ambiguity quarantine; the uniquely identified
+successor owns the named socket for its completion and any cancellation packet.
+A socketless ACK still selects the first free registered socket. The bounded
+#620/#682 other-free-socket fallback remains only for sequence-correlated Sony
+traffic, whose later terminals have an independent request identity.
 
 For a raw socketless error, the evidence rule is equally strict: route the
 unique unacknowledged command only when no inquiry owner is live; otherwise
@@ -417,7 +418,8 @@ Other targets and all command work remain independently eligible (#712).
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | ACK in `AwaitingAck`, or cancellation-driven `AwaitingLateAck`, with a free socket | Assign the socket and transition to `Executing`; if cancel intent is already recorded on a supported target, emit one socket cancellation. A default raw unconfirmed-quarantine `AwaitingLateAck` instead ignores late frames. |
 | Unsequenced ACK/error while two raw positional candidates are open | Ignore it as ambiguous and bind it to neither candidate; never use admission order or recency (#714). |
-| ACK naming a busy socket | Fall back to the target's other free socket when it has more than one (issues #620/#682); when none is free the ACK stays inert as `Ignored(SocketConflict)`. |
+| Raw ACK naming a busy socket | Treat the camera's named socket as authoritative: move the stale local owner to an unkeyed ambiguity quarantine and assign the named socket to the uniquely resolved successor (#721). |
+| Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise remain inert as `Ignored(SocketConflict)`. |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. Retain the bounded broad target-response tombstone before same-target raw response-bearing command or inquiry work starts; a later `NoReply` may only extend that fixed hold. |

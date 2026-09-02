@@ -3864,7 +3864,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
 }
 
 #[test]
-fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_fallback() {
+fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reuse() {
     let start = Instant::now();
     let mut engine = engine_with_target(
         EnvelopeKind::Raw,
@@ -3926,9 +3926,11 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_fallback(
     let third_id = admitted(&third);
     assert!(request_transmit_optional(&third).is_none());
 
-    // The camera reuses the busy first socket in its ACK, so the second
-    // pre-retune request must fall back to the still-physical S2.
-    let fallback = engine.handle(
+    // The camera reuses the busy first socket in its ACK. Even though the
+    // second attempt was dispatched under the old two-socket capacity, raw
+    // ownership follows that named assignment and quarantines the stale first
+    // owner (#721).
+    let reused = engine.handle(
         frame(
             1,
             None,
@@ -3938,24 +3940,29 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_fallback(
         ),
         start + Duration::from_millis(2),
     );
-    assert!(!fallback
+    assert!(!reused
         .iter()
         .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::SocketConflict))));
     assert!(matches!(
         phase_of(&engine, second_id),
         Some(Phase::Executing {
-            socket: ViscaSocket::S2,
+            socket: ViscaSocket::S1,
             ..
         })
     ));
     assert_eq!(
-        engine.socket_owner(camera(1), ViscaSocket::S2),
+        engine.socket_owner(camera(1), ViscaSocket::S1),
         Some(second_id)
     );
+    let first_quarantine_deadline = match phase_of(&engine, first_id) {
+        Some(Phase::AwaitingLateAck { deadline }) => deadline,
+        phase => panic!("displaced first request did not quarantine: {phase:?}"),
+    };
 
-    // The lower limit continues to gate future work until both legacy
-    // in-flight commands have drained.
-    let first_complete = engine.handle(
+    // The named completion belongs to the second request. The lower retuned
+    // limit and the displaced predecessor's unkeyed hold keep new work queued
+    // until that hold expires.
+    let second_complete = engine.handle(
         frame(
             1,
             None,
@@ -3965,24 +3972,23 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_fallback(
         ),
         start + Duration::from_millis(3),
     );
-    assert!(request_transmit_optional(&first_complete).is_none());
+    assert_eq!(terminal_id(&second_complete), Some(second_id));
+    assert!(request_transmit_optional(&second_complete).is_none());
     assert!(matches!(
         phase_of(&engine, third_id),
         Some(Phase::Ready { .. })
     ));
-    assert!(engine.entry(first_id).is_none());
 
-    let second_complete = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S2),
-            },
-        ),
-        start + Duration::from_millis(4),
+    let released = engine.advance(first_quarantine_deadline);
+    assert!(matches!(
+        terminal_failure(&released, first_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(
+        request_transmit(&released).1,
+        third_id,
+        "retuned one-socket work dispatches after the stale hold releases"
     );
-    assert_eq!(request_transmit(&second_complete).1, third_id);
     assert_eq!(
         engine.entry(third_id).unwrap().dispatched_socket_capacity,
         Some(1)
@@ -5897,11 +5903,11 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #620/#682: a named socket already held by another request falls back
-/// to the target's free socket, while a camera whose sockets are all taken gets
-/// no invented assignment and a one-socket target has no second socket to use.
+/// A raw named-socket collision needs mutable reconciliation by the ACK path;
+/// the pure assignment helper never invents the other socket. Socketless ACKs
+/// retain first-free compatibility, and a fully occupied target remains inert.
 #[test]
-fn socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_one() {
+fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -5933,11 +5939,12 @@ fn socket_assignment_falls_back_from_an_occupied_named_socket_and_never_invents_
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
 
-    // Socket one is taken by another request: the named-socket ACK falls back to
-    // the free socket two (issue #620/#682), and a socketless ACK also uses it.
+    // Socket one is taken by another request. A raw named ACK cannot silently
+    // become socket two; the authoritative ACK path must displace the stale
+    // owner first (#721). A socketless ACK may still select the free socket.
     assert_eq!(
         engine.assign_socket(camera(1), Some(ViscaSocket::S1), second_id),
-        Some(ViscaSocket::S2)
+        None
     );
     assert_eq!(
         engine.assign_socket(camera(1), None, second_id),
@@ -6014,15 +6021,12 @@ fn unattributable_socketless_ack_is_inert() {
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #620/#682: an ACK naming a socket another request still owns — the
-/// classic case is a lost completion frame that made the camera reuse the
-/// socket — falls back to the target's free socket instead of being dropped.
-/// The candidate was already uniquely identified (the sole unacknowledged raw
-/// command), so this cannot mis-attribute the ACK; it only keeps the command
-/// from wedging on `AwaitingAck`, which before issue #671 cascaded into a
-/// session poison at that command's ACK deadline. Nothing is poisoned.
+/// Issue #721: when a raw camera reuses a socket after the older completion was
+/// lost, its named ACK is authoritative. The stale local owner moves to an
+/// unkeyed ambiguity quarantine; the new request owns the named socket, uses
+/// it for cancellation, and receives its named completion there.
 #[test]
-fn ack_naming_an_occupied_socket_falls_back_to_the_free_socket() {
+fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = engine.handle(
@@ -6054,9 +6058,8 @@ fn ack_naming_an_occupied_socket_falls_back_to_the_free_socket() {
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
 
-    // The camera names socket one for the second command (it reused the socket
-    // after losing the first command's completion). The second command falls
-    // back to the free socket two rather than being wedged.
+    // The camera names socket one for the second command after releasing and
+    // reusing it. Local ownership must follow that evidence.
     let reused = engine.handle(
         frame(
             1,
@@ -6070,27 +6073,45 @@ fn ack_naming_an_occupied_socket_falls_back_to_the_free_socket() {
 
     assert!(ignored_reasons(&reused).is_empty());
     assert_eq!(engine.state(), SessionState::Running);
-    assert_eq!(socket_of(&engine, first_id), Some(ViscaSocket::S1));
-    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S2));
+    let first_quarantine_deadline = match engine.entry(first_id).map(Entry::phase) {
+        Some(Phase::AwaitingLateAck { deadline }) => deadline,
+        phase => panic!("stale first owner did not enter quarantine: {phase:?}"),
+    };
+    assert_eq!(socket_of(&engine, first_id), None);
+    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S1));
     assert!(matches!(
         engine.entry(second_id).map(Entry::phase),
         Some(Phase::Executing { .. })
     ));
 
-    // The second command completes on the socket it actually owns; no cascade to
-    // a session poison anywhere.
+    let cancellation = engine.handle(Input::Cancel { id: second_id }, start);
+    let (_, cancelled_id, cancel_socket) = cancel_transmit(&cancellation);
+    assert_eq!(
+        (cancelled_id, cancel_socket),
+        (second_id, ViscaSocket::S1),
+        "cancellation must name the camera-assigned socket"
+    );
+
+    // A completion on S1 now belongs to the new owner, never the displaced
+    // predecessor.
     let done = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S2),
+                socket: Some(ViscaSocket::S1),
             },
         ),
         start,
     );
     assert_eq!(terminal_id(&done), Some(second_id));
     assert_eq!(engine.state(), SessionState::Running);
+
+    let expired = engine.advance(first_quarantine_deadline);
+    assert!(matches!(
+        terminal_failure(&expired, first_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
     engine.assert_invariants().unwrap();
 }
 
