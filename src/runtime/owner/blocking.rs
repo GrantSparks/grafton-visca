@@ -1625,7 +1625,15 @@ impl BlockingOwner {
                 PumpMode::PreAckDrain,
             )?;
         }
-        Ok(())
+        // An adapter may report idle before the requested receive deadline.
+        // The shared idle backoff then paces the next probe up to the earlier
+        // engine/caller deadline. If that sleep reaches `deadline`, the loop
+        // condition cannot take another receive turn to run its normal
+        // deadline tail. Service due work once without ordinary dispatch so an
+        // already-expired predecessor enters its bounded quarantine instead of
+        // making the immediately-following first-write admission misclassify
+        // the stale pre-ACK phase as generic `TransportBusy`.
+        self.service_due_without_dispatch(driver)
     }
 
     /// Class-specific typed admission seam retaining operation semantics.
@@ -3296,9 +3304,9 @@ mod tests {
 
     use super::*;
     use crate::runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, SessionState, TargetPolicy,
-        TimeoutPolicy,
+        CancelState, CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage,
+        EnvelopeKind, Phase, ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, SessionState,
+        TargetPolicy, TimeoutPolicy,
     };
     use crate::{
         command::CommandKind,
@@ -4509,6 +4517,68 @@ mod tests {
             .pump_once(&mut driver, &mut reader, &mut decoder)
             .expect("a byte-bearing read keeps the session running");
         assert_eq!(owner.idle_receives.length(), 0);
+    }
+
+    #[test]
+    fn preack_drain_runs_due_tail_when_idle_pacing_reaches_its_budget() {
+        const ACK_BUDGET: Duration = Duration::from_millis(50);
+
+        let mut policy = raw_owner_policy();
+        policy.targets[usize::from(CameraId::CAMERA_1.id())]
+            .as_mut()
+            .expect("camera one is registered")
+            .command_sockets = 2;
+        policy.baseline.command_sockets[usize::from(CameraId::CAMERA_1.id())] = Some(2);
+        let mut owner = BlockingOwner::new(policy).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut predecessor = raw_request(
+            CameraId::CAMERA_1,
+            ReplyShape::AckThenCompletion,
+            Duration::from_secs(1),
+        );
+        let RuntimeRequest::Command { context, .. } = &mut predecessor else {
+            unreachable!("raw_request constructs a command");
+        };
+        context.timeout.ack = ACK_BUDGET;
+        let predecessor = owner
+            .submit(&mut driver, predecessor)
+            .expect("predecessor reaches the wire");
+        let ack_deadline = owner
+            .state()
+            .request_state(predecessor.id())
+            .and_then(|(phase, cancellation)| match (phase, cancellation) {
+                (Phase::AwaitingAck { deadline, .. }, CancelState::None) => Some(deadline),
+                _ => None,
+            })
+            .expect("predecessor awaits its ACK");
+        assert!(owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+
+        // Every read reports idle immediately. Shared 10/20/40 ms pacing is
+        // clamped to the ACK deadline, so the final pump returns exactly as
+        // the outer drain budget expires and the loop cannot run another tail.
+        let mut reader = FaultReader {
+            reads: std::iter::repeat_n(Ok(BlockingReceive::TimedOut), 8).collect(),
+        };
+        let mut decoder = EmptyDecoder;
+        owner
+            .drain_raw_preack_gate_inner(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                ack_deadline,
+            )
+            .expect("expired pre-ACK work is serviced without dispatch");
+
+        assert!(matches!(
+            owner.state().request_state(predecessor.id()),
+            Some((Phase::AwaitingLateAck { .. }, CancelState::None))
+        ));
+        assert!(!owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
     }
 
     #[test]
