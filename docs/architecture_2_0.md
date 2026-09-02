@@ -111,9 +111,10 @@ profile/configuration conflicts are rejected before transport I/O.
 
 `camera()` is valid only when exactly one target is registered. A multi-target
 session must use `camera_for(target)`, which also verifies that the requested
-compile-time profile exactly matches the registered `ProfileSpec`. Dynamic
-views use the same sole-target rule and an explicit target selection for
-multi-target sessions.
+compile-time profile matches the registered `ProfileSpec`'s protocol identity:
+capability and reply-domain facts, pan/tilt coordinate codec, and envelope.
+Operational timing and transport policy may differ. Dynamic views use the same
+sole-target rule and an explicit target selection for multi-target sessions.
 
 Multi-target registration is rejected before socket creation on any
 IP-addressed transport, which is every standard TCP and UDP configuration and

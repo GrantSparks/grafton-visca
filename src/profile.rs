@@ -919,11 +919,13 @@ impl ProfileSpec {
         ProfileSpecBuilder::from_compile_time::<P>().build()
     }
 
-    /// Checks that this validated runtime inventory is exactly the inventory
-    /// lowered from a compile-time profile.
+    /// Checks that this validated runtime inventory has the same protocol
+    /// identity as the inventory lowered from a compile-time profile.
     ///
-    /// Static capability bounds are only sound when every protocol fact agrees,
-    /// not merely the profile identifier or broad capability bits.  Keep this
+    /// Static capability bounds are sound when the runtime capability and
+    /// reply-domain facts, coordinate codec, and envelope agree. Operational
+    /// timing, socket, transport, cancellation, and settlement policy may be
+    /// tuned without losing access to the matching static facade. Keep this
     /// comparison pure so session projection can reject a mismatched view
     /// before owner admission or protocol I/O.
     #[cfg(any(feature = "async", feature = "blocking", test))]
@@ -931,8 +933,7 @@ impl ProfileSpec {
     where
         P: CompileTimeProfile,
     {
-        let expected = Self::from_compile_time::<P>()?;
-        if self == &expected {
+        if self.matches_compile_time_profile::<P>() {
             Ok(())
         } else {
             Err(Error::InvalidRequest(
@@ -942,8 +943,8 @@ impl ProfileSpec {
         }
     }
 
-    /// Returns whether every profile fact matches the generated compile-time
-    /// projection for `P`.
+    /// Returns whether the protocol identity facts match the generated
+    /// compile-time projection for `P`.
     ///
     /// This deliberately compares the unvalidated builder projection. It is
     /// used while validating a `ProfileSpec`, so constructing the validated
@@ -955,14 +956,7 @@ impl ProfileSpec {
         let expected = ProfileSpecBuilder::from_compile_time::<P>();
         self.capabilities == expected.capabilities
             && self.pan_tilt_coordinates == expected.pan_tilt_coordinates
-            && Some(self.transports) == expected.transports
             && Some(self.envelope) == expected.envelope
-            && Some(self.timing) == expected.timing
-            && Some(self.maximum_command_sockets) == expected.maximum_command_sockets
-            && Some(self.supports_operation_complete) == expected.supports_operation_complete
-            && Some(self.supports_command_cancel) == expected.supports_command_cancel
-            && Some(self.preset_recall_axes) == expected.preset_recall_axes
-            && Some(self.position_inquiries) == expected.position_inquiries
     }
 
     /// Returns runtime feature and conversion facts.
@@ -1270,8 +1264,13 @@ impl ProfileSpec {
         if let Some(profile_id) = self.capabilities.profile_id {
             if !profile_id.matches_profile_spec(&self) {
                 return Err(invalid_profile_fields(
-                    &["capabilities.profile_id", "capabilities"],
-                    "built-in identity does not match the runtime profile facts",
+                    &[
+                        "capabilities.profile_id",
+                        "capabilities",
+                        "pan_tilt_coordinates",
+                        "envelope",
+                    ],
+                    "built-in identity does not match the runtime protocol identity facts",
                 ));
             }
         }
@@ -3113,14 +3112,12 @@ mod tests {
     }
 
     #[test]
-    fn compile_time_projection_requires_full_profile_equality() {
+    fn compile_time_projection_allows_operational_timing_tuning() {
         let base = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("built-in profile");
         let coordinates = base.pan_tilt_coordinates().expect("coordinates");
         let timing = base.timing();
-        let mut altered_capabilities = base.capabilities().clone();
-        altered_capabilities.profile_id = None;
-        let altered = ProfileSpec::builder(altered_capabilities)
+        let altered = ProfileSpec::builder(base.capabilities().clone())
             .pan_tilt_coordinates(
                 coordinates.coordinate_system(),
                 coordinates.pan_degrees_to_units(),
@@ -3155,11 +3152,15 @@ mod tests {
         assert_ne!(altered, base);
         assert!(altered
             .ensure_compile_time::<crate::profiles::PtzOpticsG2>()
-            .is_err());
+            .is_ok());
+        assert_eq!(
+            altered.capabilities().profile_id,
+            Some(crate::profiles::ProfileId::PtzOpticsG2)
+        );
     }
 
     #[test]
-    fn built_in_identity_covers_non_capability_profile_facts() {
+    fn built_in_identity_covers_capabilities_coordinates_and_envelope_only() {
         let base =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("built-in profile");
         let coordinates = base.pan_tilt_coordinates().expect("coordinates");
@@ -3212,7 +3213,7 @@ mod tests {
             coordinates.coordinate_system(),
             !base.supports_command_cancel(),
         )
-        .is_err());
+        .is_ok());
     }
 
     #[test]

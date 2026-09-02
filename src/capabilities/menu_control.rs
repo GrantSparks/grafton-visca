@@ -13,14 +13,54 @@ pub trait MenuCapability {
     const SUPPORTS_DIRECT_CONTROL: bool = false;
 }
 
-/// Marker trait for cameras that support direct menu control.
-///
-/// This trait is implemented for camera profiles that support advanced
-/// direct menu control commands beyond basic navigation. Currently,
-/// only the Sony FR7 supports this feature.
-#[diagnostic::on_unimplemented(
-    message = "profile `{Self}` does not declare direct menu control support",
-    label = "profile `{Self}` does not implement `HasDirectMenuControl`",
-    note = "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support"
-)]
-pub trait HasDirectMenuControl: MenuCapability {}
+macro_rules! define_direct_menu_marker_entry {
+    (
+        DirectMenu,
+        $marker:ident,
+        $marker_doc:literal,
+        $diagnostic:literal
+    ) => {
+        #[doc = $marker_doc]
+        #[diagnostic::on_unimplemented(
+            message = $diagnostic,
+            label = "profile does not implement the required typed-support marker",
+            note = "see the generated marker tables in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support"
+        )]
+        pub trait $marker: MenuCapability {}
+    };
+    (
+        $surface:ident,
+        $marker:ident,
+        $marker_doc:literal,
+        $diagnostic:literal
+    ) => {};
+}
+
+macro_rules! define_direct_menu_marker {
+    (
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    bit: $bit:literal,
+                    wire: $wire:literal,
+                    area: $area:literal,
+                    api: $api:literal,
+                    surface_doc: $surface_doc:literal,
+                    marker_doc: $marker_doc:literal,
+                    diagnostic: $diagnostic:literal,
+                },
+            )*
+        ]
+    ) => {
+        $(define_direct_menu_marker_entry!(
+            $surface,
+            $marker,
+            $marker_doc,
+            $diagnostic
+        );)*
+    };
+}
+
+super::typed_support_registry::typed_support_registry!(define_direct_menu_marker);

@@ -428,7 +428,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode control"
+            feature: "shared exposure-mode family"
         }
     ));
     let error = fr7_nouns
@@ -439,7 +439,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "inquiry ExposureModeInquiry"
+            feature: "shared exposure-mode family"
         }
     ));
     assert!(
@@ -481,7 +481,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode control"
+            feature: "shared exposure-mode family"
         }
     ));
     let error = partial_nouns
@@ -492,7 +492,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "typed inquiry ExposureModeInquiry"
+            feature: "shared exposure-mode family"
         }
     ));
     assert!(

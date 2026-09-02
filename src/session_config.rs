@@ -232,7 +232,8 @@ impl SessionConfig {
         Self::slot_checked(target).and_then(|slot| self.targets[slot].clone())
     }
 
-    /// Returns one registered profile only when it exactly matches `P`.
+    /// Returns one registered profile only when its capabilities, coordinate
+    /// codec, and envelope match `P`.
     ///
     /// This is the shared pure projection boundary used by both execution
     /// facades. It performs no owner, transport, or protocol work.

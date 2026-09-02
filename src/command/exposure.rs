@@ -14,6 +14,10 @@ use crate::{
     visca_command,
 };
 
+/// Shared diagnostic vocabulary for the standard `04 39` command/inquiry
+/// family. Both direct requests and generated noun accessors use this label.
+pub(crate) const SHARED_EXPOSURE_MODE_FEATURE: &str = "shared exposure-mode family";
+
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

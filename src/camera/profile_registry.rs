@@ -222,162 +222,39 @@ macro_rules! __assert_image_processing_marker {
     (false for $profile:ty, $assert_marker:ident) => {};
 }
 
-macro_rules! __impl_typed_support_marker {
-    (DirectZoom for $profile:ty) => {
-        impl $crate::capabilities::HasDirectZoom for $profile {}
-    };
-    (DigitalZoomToggle for $profile:ty) => {
-        impl $crate::capabilities::HasDigitalZoomToggle for $profile {}
-    };
-    (DigitalZoomRange for $profile:ty) => {
-        impl $crate::capabilities::HasDigitalZoomRange for $profile {}
-    };
-    (ExposureMode for $profile:ty) => {
-        impl $crate::capabilities::HasExposureMode for $profile {}
-    };
-    (IrisControl for $profile:ty) => {
-        impl $crate::capabilities::HasIrisControl for $profile {}
-    };
-    (IrisControlInquiry for $profile:ty) => {
-        impl $crate::capabilities::HasIrisControlInquiry for $profile {}
-    };
-    (OnePushFocus for $profile:ty) => {
-        impl $crate::capabilities::HasOnePushFocus for $profile {}
-    };
-    (PtzOpticsSnapFocus for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsSnapFocus for $profile {}
-    };
-    (PtzOpticsAntiFlicker for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsAntiFlicker for $profile {}
-    };
-    (PtzOpticsSettingsSave for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsSettingsSave for $profile {}
-    };
-    (PtzOpticsPresetRecallSpeed for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsPresetRecallSpeed for $profile {}
-    };
-    (SonySpotlight for $profile:ty) => {
-        impl $crate::capabilities::HasSonySpotlight for $profile {}
-    };
-    (SonyAutoSlowShutter for $profile:ty) => {
-        impl $crate::capabilities::HasSonyAutoSlowShutter for $profile {}
-    };
-    (PtzOpticsMulticastStreaming for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsMulticastStreaming for $profile {}
-    };
-    (PtzOpticsNdiQuality for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsNdiQuality for $profile {}
-    };
-    (FocusLock for $profile:ty) => {
-        impl $crate::capabilities::HasFocusLock for $profile {}
-    };
-    (PushAutoFocus for $profile:ty) => {
-        impl $crate::capabilities::HasPushAutoFocus for $profile {}
-    };
-    (FocusZone for $profile:ty) => {
-        impl $crate::capabilities::HasFocusZone for $profile {}
-    };
-    (FocusZoneInquiry for $profile:ty) => {
-        impl $crate::capabilities::HasFocusZoneInquiry for $profile {}
-    };
-    (AutoFocusSensitivity for $profile:ty) => {
-        impl $crate::capabilities::HasAutoFocusSensitivity for $profile {}
-    };
-    (FocusNearLimitInquiry for $profile:ty) => {
-        impl $crate::capabilities::HasFocusNearLimitInquiry for $profile {}
-    };
-    (BacklightCompensation for $profile:ty) => {
-        impl $crate::capabilities::HasBacklightCompensation for $profile {}
-    };
-    (WideDynamicRange for $profile:ty) => {
-        impl $crate::capabilities::HasWideDynamicRange for $profile {}
-    };
-    (ExposureCompensation for $profile:ty) => {
-        impl $crate::capabilities::HasExposureCompensation for $profile {}
-    };
-    (BrightnessControl for $profile:ty) => {
-        impl $crate::capabilities::HasBrightnessControl for $profile {}
-    };
-    (OnePushWhiteBalance for $profile:ty) => {
-        impl $crate::capabilities::HasOnePushWhiteBalance for $profile {}
-    };
-    (AutoTrackingWhiteBalance for $profile:ty) => {
-        impl $crate::capabilities::HasAutoTrackingWhiteBalance for $profile {}
-    };
-    (AutoWhiteBalanceSensitivity for $profile:ty) => {
-        impl $crate::capabilities::HasAutoWhiteBalanceSensitivity for $profile {}
-    };
-    (ColorTemperature for $profile:ty) => {
-        impl $crate::capabilities::HasColorTemperature for $profile {}
-    };
-    (RgbGain for $profile:ty) => {
-        impl $crate::capabilities::HasRgbGain for $profile {}
-    };
-    (RgbTuning for $profile:ty) => {
-        impl $crate::capabilities::HasRgbTuning for $profile {}
-    };
-    (ImageFlip for $profile:ty) => {
-        impl $crate::capabilities::HasImageFlip for $profile {}
-    };
-    (ImageMirror for $profile:ty) => {
-        impl $crate::capabilities::HasImageMirror for $profile {}
-    };
-    (CombinedImageFlip for $profile:ty) => {
-        impl $crate::capabilities::HasCombinedImageFlip for $profile {}
-    };
-    (ContrastControl for $profile:ty) => {
-        impl $crate::capabilities::HasContrastControl for $profile {}
-    };
-    (SharpnessControl for $profile:ty) => {
-        impl $crate::capabilities::HasSharpnessControl for $profile {}
-    };
-    (SaturationControl for $profile:ty) => {
-        impl $crate::capabilities::HasSaturationControl for $profile {}
-    };
-    (HueControl for $profile:ty) => {
-        impl $crate::capabilities::HasHueControl for $profile {}
-    };
-    (LuminanceControl for $profile:ty) => {
-        impl $crate::capabilities::HasLuminanceControl for $profile {}
-    };
-    (GammaControl for $profile:ty) => {
-        impl $crate::capabilities::HasGammaControl for $profile {}
-    };
-    (NoiseReduction2D for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction2D for $profile {}
-    };
-    (NoiseReduction3D for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction3D for $profile {}
-    };
-    (NoiseReduction2DControl for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction2DControl for $profile {}
-    };
-    (NoiseReduction3DControl for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction3DControl for $profile {}
-    };
-    (PictureEffect for $profile:ty) => {
-        impl $crate::capabilities::HasPictureEffect for $profile {}
-    };
-    (Tally for $profile:ty) => {
-        impl $crate::capabilities::HasTally for $profile {}
-    };
-    (DirectMenu for $profile:ty) => {
-        impl $crate::capabilities::menu_control::HasDirectMenuControl for $profile {}
-    };
-    (NdFilter for $profile:ty) => {
-        impl $crate::capabilities::HasNdFilter for $profile {}
-    };
-    (VariableSpeed for $profile:ty) => {
-        impl $crate::capabilities::HasVariableSpeed for $profile {}
-    };
-    (MotionSync for $profile:ty) => {
-        impl $crate::capabilities::HasMotionSync for $profile {}
-    };
-    (UsbAudio for $profile:ty) => {
-        impl $crate::capabilities::HasUsbAudio for $profile {}
+macro_rules! define_typed_support_marker_impls {
+    (
+        $dollar:tt
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    bit: $bit:literal,
+                    wire: $wire:literal,
+                    area: $area:literal,
+                    api: $api:literal,
+                    surface_doc: $surface_doc:literal,
+                    marker_doc: $marker_doc:literal,
+                    diagnostic: $diagnostic:literal,
+                },
+            )*
+        ]
+    ) => {
+        macro_rules! __impl_typed_support_marker {
+            $(
+                ($surface for $dollar profile:ty) => {
+                    impl $crate::capabilities::$marker for $dollar profile {}
+                };
+            )*
+        }
     };
 }
 
+crate::capabilities::typed_support_registry::typed_support_registry!(
+    define_typed_support_marker_impls,
+    $
+);
 macro_rules! __define_builtin_profiles {
     (
         groups {
@@ -843,14 +720,15 @@ macro_rules! __define_builtin_profiles {
         ];
 
         impl ProfileId {
-            /// Returns whether the runtime profile is exactly the one emitted
-            /// for this built-in profile.
+            /// Returns whether the runtime profile carries this built-in
+            /// profile's capability, coordinate-codec, and envelope identity.
             ///
             /// `profile_id` is public so downstream callers can mutate a
             /// discovered inventory.  It is therefore an identity claim,
             /// not an authority token; vendor-specific request validation
-            /// must only rely on it after every profile fact has been checked
-            /// against the generated profile row.
+            /// must only rely on it after the protocol identity facts have
+            /// been checked against the generated profile row. Operational
+            /// policy may be tuned independently.
             pub(crate) fn matches_profile_spec(
                 &self,
                 profile: &$crate::ProfileSpec,
@@ -1053,99 +931,8 @@ macro_rules! __define_builtin_profiles {
         fn typed_support_marker_trait_name(
             surface: $crate::capabilities::TypedSupportSurface,
         ) -> &'static str {
-            match surface {
-                $crate::capabilities::TypedSupportSurface::DirectZoom => "HasDirectZoom",
-                $crate::capabilities::TypedSupportSurface::DigitalZoomToggle => {
-                    "HasDigitalZoomToggle"
-                }
-                $crate::capabilities::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
-                $crate::capabilities::TypedSupportSurface::ExposureMode => "HasExposureMode",
-                $crate::capabilities::TypedSupportSurface::IrisControl => "HasIrisControl",
-                $crate::capabilities::TypedSupportSurface::IrisControlInquiry => {
-                    "HasIrisControlInquiry"
-                }
-                $crate::capabilities::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
-                $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus => {
-                    "HasPtzOpticsSnapFocus"
-                }
-                $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker => {
-                    "HasPtzOpticsAntiFlicker"
-                }
-                $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave => {
-                    "HasPtzOpticsSettingsSave"
-                }
-                $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed => {
-                    "HasPtzOpticsPresetRecallSpeed"
-                }
-                $crate::capabilities::TypedSupportSurface::SonySpotlight => "HasSonySpotlight",
-                $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter => {
-                    "HasSonyAutoSlowShutter"
-                }
-                $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming => {
-                    "HasPtzOpticsMulticastStreaming"
-                }
-                $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality => {
-                    "HasPtzOpticsNdiQuality"
-                }
-                $crate::capabilities::TypedSupportSurface::FocusLock => "HasFocusLock",
-                $crate::capabilities::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
-                $crate::capabilities::TypedSupportSurface::FocusZone => "HasFocusZone",
-                $crate::capabilities::TypedSupportSurface::FocusZoneInquiry => {
-                    "HasFocusZoneInquiry"
-                }
-                $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity => {
-                    "HasAutoFocusSensitivity"
-                }
-                $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry => {
-                    "HasFocusNearLimitInquiry"
-                }
-                $crate::capabilities::TypedSupportSurface::BacklightCompensation => {
-                    "HasBacklightCompensation"
-                }
-                $crate::capabilities::TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
-                $crate::capabilities::TypedSupportSurface::ExposureCompensation => {
-                    "HasExposureCompensation"
-                }
-                $crate::capabilities::TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
-                $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance => {
-                    "HasOnePushWhiteBalance"
-                }
-                $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance => {
-                    "HasAutoTrackingWhiteBalance"
-                }
-                $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
-                    "HasAutoWhiteBalanceSensitivity"
-                }
-                $crate::capabilities::TypedSupportSurface::ColorTemperature => "HasColorTemperature",
-                $crate::capabilities::TypedSupportSurface::RgbGain => "HasRgbGain",
-                $crate::capabilities::TypedSupportSurface::RgbTuning => "HasRgbTuning",
-                $crate::capabilities::TypedSupportSurface::ImageFlip => "HasImageFlip",
-                $crate::capabilities::TypedSupportSurface::ImageMirror => "HasImageMirror",
-                $crate::capabilities::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
-                $crate::capabilities::TypedSupportSurface::ContrastControl => "HasContrastControl",
-                $crate::capabilities::TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
-                $crate::capabilities::TypedSupportSurface::SaturationControl => "HasSaturationControl",
-                $crate::capabilities::TypedSupportSurface::HueControl => "HasHueControl",
-                $crate::capabilities::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
-                $crate::capabilities::TypedSupportSurface::GammaControl => "HasGammaControl",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl => {
-                    "HasNoiseReduction2DControl"
-                }
-                $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl => {
-                    "HasNoiseReduction3DControl"
-                }
-                $crate::capabilities::TypedSupportSurface::PictureEffect => "HasPictureEffect",
-                $crate::capabilities::TypedSupportSurface::Tally => "HasTally",
-                $crate::capabilities::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
-                $crate::capabilities::TypedSupportSurface::NdFilter => "HasNdFilter",
-                $crate::capabilities::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
-                $crate::capabilities::TypedSupportSurface::MotionSync => "HasMotionSync",
-                $crate::capabilities::TypedSupportSurface::UsbAudio => "HasUsbAudio",
-            }
+            surface.marker_trait_name()
         }
-
         #[cfg(test)]
         mod registry_tests {
             use super::*;
@@ -2221,6 +2008,41 @@ macro_rules! __define_builtin_profiles {
                     readme,
                     "USB audio control and inquiry",
                     $crate::capabilities::TypedSupportSurface::UsbAudio,
+                );
+            }
+
+            #[test]
+            fn camera_profile_support_vocabulary_table_is_generated_from_the_registry() {
+                const BEGIN: &str = "<!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->";
+                const END: &str = "<!-- END GENERATED TYPED SUPPORT VOCABULARY -->";
+
+                let guide = include_str!("../../docs/camera_profile_support.md");
+                let mut expected = String::from(BEGIN);
+                expected.push_str(
+                    "\n| Area | Marker | Typed surface |\n| ---- | ------ | ------------- |",
+                );
+                for surface in $crate::capabilities::TypedSupportSurface::ALL {
+                    expected.push_str(&format!(
+                        "\n| {} | `{}` | {} |",
+                        surface.documentation_area(),
+                        surface.marker_trait_name(),
+                        surface.documentation_api(),
+                    ));
+                }
+                expected.push('\n');
+                expected.push_str(END);
+
+                let start = guide
+                    .find(BEGIN)
+                    .expect("typed-support vocabulary table start marker");
+                let relative_end = guide[start..]
+                    .find(END)
+                    .expect("typed-support vocabulary table end marker");
+                let end = start + relative_end + END.len();
+                assert_eq!(
+                    &guide[start..end],
+                    expected,
+                    "regenerate the typed-support contributor table from the declarative registry"
                 );
             }
 

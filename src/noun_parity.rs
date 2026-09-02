@@ -885,61 +885,8 @@ fn assert_accessor_trait_impls(source: &str, label: &str) {
 
 /// Maps a typed support capability to the marker imported by static facades.
 const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
-    match surface {
-        TypedSupportSurface::DirectZoom => "HasDirectZoom",
-        TypedSupportSurface::DigitalZoomToggle => "HasDigitalZoomToggle",
-        TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
-        TypedSupportSurface::ExposureMode => "HasExposureMode",
-        TypedSupportSurface::IrisControl => "HasIrisControl",
-        TypedSupportSurface::IrisControlInquiry => "HasIrisControlInquiry",
-        TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
-        TypedSupportSurface::PtzOpticsSnapFocus => "HasPtzOpticsSnapFocus",
-        TypedSupportSurface::PtzOpticsAntiFlicker => "HasPtzOpticsAntiFlicker",
-        TypedSupportSurface::PtzOpticsSettingsSave => "HasPtzOpticsSettingsSave",
-        TypedSupportSurface::PtzOpticsPresetRecallSpeed => "HasPtzOpticsPresetRecallSpeed",
-        TypedSupportSurface::SonySpotlight => "HasSonySpotlight",
-        TypedSupportSurface::SonyAutoSlowShutter => "HasSonyAutoSlowShutter",
-        TypedSupportSurface::PtzOpticsMulticastStreaming => "HasPtzOpticsMulticastStreaming",
-        TypedSupportSurface::PtzOpticsNdiQuality => "HasPtzOpticsNdiQuality",
-        TypedSupportSurface::FocusLock => "HasFocusLock",
-        TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
-        TypedSupportSurface::FocusZone => "HasFocusZone",
-        TypedSupportSurface::FocusZoneInquiry => "HasFocusZoneInquiry",
-        TypedSupportSurface::AutoFocusSensitivity => "HasAutoFocusSensitivity",
-        TypedSupportSurface::FocusNearLimitInquiry => "HasFocusNearLimitInquiry",
-        TypedSupportSurface::BacklightCompensation => "HasBacklightCompensation",
-        TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
-        TypedSupportSurface::ExposureCompensation => "HasExposureCompensation",
-        TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
-        TypedSupportSurface::OnePushWhiteBalance => "HasOnePushWhiteBalance",
-        TypedSupportSurface::AutoTrackingWhiteBalance => "HasAutoTrackingWhiteBalance",
-        TypedSupportSurface::AutoWhiteBalanceSensitivity => "HasAutoWhiteBalanceSensitivity",
-        TypedSupportSurface::ColorTemperature => "HasColorTemperature",
-        TypedSupportSurface::RgbGain => "HasRgbGain",
-        TypedSupportSurface::RgbTuning => "HasRgbTuning",
-        TypedSupportSurface::ImageFlip => "HasImageFlip",
-        TypedSupportSurface::ImageMirror => "HasImageMirror",
-        TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
-        TypedSupportSurface::ContrastControl => "HasContrastControl",
-        TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
-        TypedSupportSurface::SaturationControl => "HasSaturationControl",
-        TypedSupportSurface::HueControl => "HasHueControl",
-        TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
-        TypedSupportSurface::GammaControl => "HasGammaControl",
-        TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
-        TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
-        TypedSupportSurface::NoiseReduction2DControl => "HasNoiseReduction2DControl",
-        TypedSupportSurface::NoiseReduction3DControl => "HasNoiseReduction3DControl",
-        TypedSupportSurface::PictureEffect => "HasPictureEffect",
-        TypedSupportSurface::Tally => "HasTally",
-        TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
-        TypedSupportSurface::NdFilter => "HasNdFilter",
-        TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
-        TypedSupportSurface::MotionSync => "HasMotionSync",
-        TypedSupportSurface::UsbAudio => "HasUsbAudio",
-    }
+    surface.marker_trait_name()
 }
-
 /// Returns the marker used by the default gate on one static noun.
 const fn noun_marker(noun: StaticNoun) -> Option<&'static str> {
     match noun {

@@ -46,6 +46,14 @@ permission check for those surfaces. Built-in profiles derive marker impls and
 profiles must keep optional marker impls and `TYPED_SUPPORT` in sync; do not use
 metadata constants as a fallback permission source.
 
+The two broad baseline markers are intentionally asymmetric. Implementing
+`Exposure` establishes a usable baseline exposure domain, so every
+`ProfileMetadata + Exposure` type receives `HasExposure`. `ImageProcessing`
+must be implemented only because `Profile` needs a uniform discovery shape and
+can validly contain no image surface at all; `HasImageProcessing` therefore
+requires an explicit, source-backed opt-in. A downstream profile with any typed
+image noun must implement that marker itself.
+
 This split also applies inside broad baseline areas. A profile may support zoom
 tele/wide movement without supporting direct absolute zoom, digital zoom toggle,
 or optical-plus-digital positioning. A profile may support exposure mode and
@@ -53,35 +61,34 @@ gain without iris control. A profile may support basic focus without one-push
 AF, focus zone, AF sensitivity, or focus near-limit inquiry. Model those
 surfaces with precise markers rather than runtime-only guards.
 
-Current built-in sub-capability markers include:
+Current built-in sub-capability markers include the generated table below. Its
+rows come from `src/capabilities/typed_support_registry.rs`; edit that
+declarative vocabulary rather than this marked region.
 
+<!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
 | Zoom | `HasDirectZoom` | Static gate for `camera.zoom().set_position`, `.set_normalized`, and `.set_normalized_in_domain` |
 | Zoom | `HasDigitalZoomToggle` | `camera.zoom().set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate only when `.set_normalized_in_domain(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
-| Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
+| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate when `.set_normalized_in_domain(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
 | Exposure | `HasIrisControl` | iris reset/up/down/direct control and `IrisInquiryControl` (`09 04 4B` position) |
-| Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
+| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
+| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
+| Focus | `HasFocusLock` | focus-lock control |
+| Focus | `HasPushAutoFocus` | Sony Push AF press/release control |
+| Focus | `HasFocusZone` | focus-zone selection control |
+| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
+| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
 | Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` and dynamic-range inquiry |
 | Exposure | `HasExposureCompensation` | exposure-compensation controls and inquiries |
 | Exposure | `HasBrightnessControl` | exposure brightness controls and inquiry |
-| Exposure | `HasPtzOpticsAntiFlicker` | PTZOptics anti-flicker control and inquiry |
-| Exposure | `HasSonySpotlight` | Sony spotlight controls |
-| Exposure | `HasSonyAutoSlowShutter` | Sony automatic slow-shutter controls |
 | White balance | `HasOnePushWhiteBalance` | one-push white balance mode and trigger |
 | White balance | `HasAutoTrackingWhiteBalance` | ATW white balance mode |
 | White balance | `HasAutoWhiteBalanceSensitivity` | AWB sensitivity control |
 | Color | `HasColorTemperature` | color-temperature mode, setters, and inquiry |
 | Color | `HasRgbGain` | red/blue gain controls and inquiries |
 | Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
-| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
-| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
-| Focus | `HasFocusZone` | focus-zone selection control |
-| Focus | `HasFocusZoneInquiry` | focus-zone inquiry |
-| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
-| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Image | `HasImageFlip` | vertical image flip control and inquiry |
 | Image | `HasImageMirror` | horizontal mirror control |
 | Image | `HasCombinedImageFlip` | combined flip-mode command |
@@ -93,19 +100,26 @@ Current built-in sub-capability markers include:
 | Image | `HasGammaControl` | gamma control and inquiry |
 | Image | `HasNoiseReduction2D` | 2D noise-reduction mode and level inquiries |
 | Image | `HasNoiseReduction3D` | 3D noise-reduction level inquiry |
-| Image | `HasNoiseReduction2DControl` | 2D noise-reduction mode/level controls and disable |
-| Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
 | Image | `HasPictureEffect` | picture-effect control and inquiry |
 | Tally | `HasTally` | tally light controls and inquiries |
 | Menu | `HasDirectMenuControl` | direct menu controls |
 | ND filter | `HasNdFilter` | ND filter controls and inquiries |
 | Variable speed | `HasVariableSpeed` | variable speed mode controls |
+| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
+| Focus | `HasFocusZoneInquiry` | focus-zone inquiry (independent of selection control) |
 | Streaming | `HasUsbAudio` | USB audio control and inquiry |
+| Exposure | `HasPtzOpticsAntiFlicker` | PTZOptics anti-flicker control and inquiry |
+| System | `HasPtzOpticsSettingsSave` | PTZOptics settings-save command |
+| Presets | `HasPtzOpticsPresetRecallSpeed` | PTZOptics preset-recall speed control |
+| Exposure | `HasSonySpotlight` | Sony spotlight controls |
+| Exposure | `HasSonyAutoSlowShutter` | Sony automatic slow-shutter controls |
 | Streaming | `HasPtzOpticsMulticastStreaming` | PTZOptics multicast-streaming controls |
 | Streaming | `HasPtzOpticsNdiQuality` | PTZOptics NDI-quality control |
-| Presets | `HasPtzOpticsPresetRecallSpeed` | PTZOptics preset-recall speed control |
-| System | `HasPtzOpticsSettingsSave` | PTZOptics settings-save command |
-| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
+| Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
+| Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
+| Image | `HasNoiseReduction2DControl` | 2D noise-reduction mode/level controls and disable |
+| Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
+<!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 ## Built-In Transport Matrix
 

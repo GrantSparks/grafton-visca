@@ -1219,6 +1219,20 @@ entries below retain their original wording.
 
 ### Fixed
 
+- Runtime profiles that retain a built-in profile's capabilities, pan/tilt
+  coordinate codec, and envelope may now tune operational timing, transports,
+  socket/cancellation policy, settlement axes, and inquiry availability while
+  still projecting the matching compile-time camera facade (#728). Reply
+  domains remain capability-owned and never depend on mutable profile identity.
+  The shared `04 39` exposure-mode command and inquiry now report one
+  `shared exposure-mode family` rejection on every unsupported profile. The 51
+  optional typed surfaces, their private dense bits, stable serde spellings,
+  public marker traits, registry marker impls, and contributor vocabulary table
+  are generated from one declarative registry; the old bit-30 persistence claim
+  was removed because `TypedSupportSet` serializes names and exposes no numeric
+  representation. The intentional `HasExposure`/`HasImageProcessing` baseline
+  asymmetry is now documented.
+
 - Silent open peers are now covered by the recovery contract (#719).
   `MetricsSnapshot::received_frames` provides positive liveness evidence for
   application-owned heartbeats; recovery docs and the runnable example explain

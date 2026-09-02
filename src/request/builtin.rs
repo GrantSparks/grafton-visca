@@ -460,12 +460,12 @@ fn validate_exposure_mode(
     require(capabilities.has_exposure, "exposure control")?;
     require(
         capabilities.supports_exposure_mode(mode),
-        "shared exposure-mode control",
+        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )?;
     validate_static_typed_command(
         profile,
         StaticBuiltinCommand::ExposureMode,
-        "shared exposure-mode control",
+        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )
 }
 
@@ -6226,7 +6226,7 @@ mod tests {
             assert!(matches!(
                 error,
                 Error::FeatureNotSupported {
-                    feature: "shared exposure-mode control"
+                    feature: "shared exposure-mode family"
                 }
             ));
         }
@@ -6278,7 +6278,7 @@ mod tests {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode control"
+                feature: "shared exposure-mode family"
             }
         ));
         assert_eq!(request_write_count(), 0);

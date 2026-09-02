@@ -275,7 +275,13 @@ fn validate_builtin_inquiry_surface(
     if source_backed && capabilities.supports_typed(surface) {
         Ok(())
     } else {
-        Err(Error::FeatureNotSupported { feature: inquiry })
+        Err(Error::FeatureNotSupported {
+            feature: if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
+                crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
+            } else {
+                inquiry
+            },
+        })
     }
 }
 
@@ -341,15 +347,6 @@ macro_rules! define_builtin_inquiry_profile_validation {
             $profile: &crate::ProfileSpec,
         ) -> crate::Result<()> {
             match inquiry {
-                // An exposure domain can retain model-specific shutter, gain,
-                // or vendor controls without documenting the shared `04 39`
-                // AE-mode command and inquiry family. Keep its inquiry on the
-                // same source-backed inventory that admits mode changes.
-                "ExposureModeInquiry" if $profile.capabilities().exposure_modes.is_empty() => {
-                    Err(crate::Error::FeatureNotSupported {
-                        feature: "inquiry ExposureModeInquiry",
-                    })
-                }
                 $($arms)*
                 _ => Ok(()),
             }

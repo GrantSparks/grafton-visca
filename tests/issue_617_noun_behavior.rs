@@ -377,7 +377,7 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode control"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -399,7 +399,7 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "inquiry ExposureModeInquiry"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -786,7 +786,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode control"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -814,7 +814,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "inquiry ExposureModeInquiry"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
