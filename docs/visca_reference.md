@@ -259,9 +259,9 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 For raw VISCA, do not send a second command for the same target while its
 first command is still unacknowledged. The one raw candidate spans `Sending`,
-`AwaitingAck`, `AwaitingCompletion`, and `AwaitingLateAck`. The
-`AwaitingCompletion` phase is the completion-only shape: it holds the target
-channel exclusively and never earns a socket. For an ACK-bearing command,
+`AwaitingAck`, and `AwaitingCompletion`. The `AwaitingCompletion` phase is the
+completion-only shape: it holds the target channel exclusively and never earns
+a socket. For an ACK-bearing command,
 once the ACK establishes the first command's socket, the scheduler may use the
 camera's remaining socket capacity while that command executes. Raw ACK and
 error routing never uses a
@@ -272,8 +272,8 @@ command-plus-inquiry collision is ignored. An explicit socket routes only its
 exact target/socket owner, and a socketless error never targets `Executing`.
 A named ACK socket is exact evidence as well: if another request owns that
 socket on raw VISCA, the camera's new assignment supersedes the stale local
-owner (#721). The old request moves to unkeyed ambiguity quarantine and the new
-request owns the named socket. A socketless ACK may select the first free
+owner (#721). The old request fails immediately and leaves an inert keyed
+`PreAck` hold; the new request owns the named socket. A socketless ACK may select the first free
 registered socket. Sony-encapsulated commands may pipeline before ACK because
 their envelope sequence number provides exact correlation; they retain the
 bounded #620/#682 other-free-socket compatibility fallback.

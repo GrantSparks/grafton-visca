@@ -3951,26 +3951,25 @@ mod blocking {
             phase => panic!("request A was not awaiting an ACK: {phase:?}"),
         };
         owner.wake(&mut driver, ack_deadline).unwrap();
-        // Issue #671: A's lost ACK quarantines it per-request rather than
-        // poisoning the session. A's own deadline still fired at exactly
-        // `ack_deadline` (B's paced submission never advanced it), moving A into
-        // its late-ACK quarantine while the session stays live and B keeps
-        // waiting behind A's still-reserved unacknowledged slot.
-        assert!(a.terminal().is_none());
+        // Issue #671/#723: A's own deadline still fires exactly here and emits
+        // its per-request terminal. The inert raw hold keeps B waiting without
+        // retaining A as a live phase.
         assert!(matches!(
-            owner.state().request_state(a_id).map(|state| state.0),
-            Some(Phase::AwaitingLateAck { .. })
+            a.terminal(),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         ));
+        assert!(owner.state().request_state(a_id).is_none());
+        assert_eq!(owner.state().active_len(), 1);
         assert_eq!(owner.state().state(), SessionState::Running);
         drop(b);
     }
 
-    /// Issue #673/#724: the blocking pre-ACK drain skips a predecessor that
+    /// Issue #673/#723: the blocking pre-ACK drain skips a predecessor that
     /// cannot accept an ACK. Completion-only commands retain raw exclusivity
-    /// without an ACK path, while an ACK-capable late-ACK window is deliberately
-    /// drainable so attributable evidence can release it early.
+    /// without an ACK path, and a terminal keyed hold has no live request to
+    /// drain for.
     #[test]
-    fn blocking_preack_drain_skips_completion_only_and_accepts_late_ack() {
+    fn blocking_preack_drain_skips_completion_only_and_terminal_hold() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
 
@@ -4023,25 +4022,21 @@ mod blocking {
             .wake(&mut driver, ack_deadline + Duration::from_millis(1))
             .unwrap();
         assert!(matches!(
-            owner.state().request_state(quarantine.id()),
-            Some((Phase::AwaitingLateAck { .. }, CancelState::None))
+            quarantine.terminal(),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         ));
-        assert!(owner
+        assert!(owner.state().request_state(quarantine.id()).is_none());
+        assert!(!owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
 
         let mut reader = DeadlineReader {
             deadline: None,
-            result: Some(Ok(BlockingReceive::Bytes(1))),
+            result: Some(Err(Error::ConnectionClosed {
+                reason: Some("unexpected terminal-hold ACK pump".into()),
+            })),
         };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            )]]),
-        };
+        let mut decoder = EmptyDecoder;
         owner
             .drain_raw_preack_gate_for_test(
                 &mut driver,
@@ -4050,17 +4045,8 @@ mod blocking {
                 CameraId::CAMERA_1,
                 Duration::from_millis(1),
             )
-            .expect("the attributable late ACK releases the #671 window");
-        assert!(matches!(
-            owner.state().request_state(quarantine.id()),
-            Some((
-                Phase::Executing {
-                    socket: ViscaSocket::S1,
-                    ..
-                },
-                CancelState::None
-            ))
-        ));
+            .expect("a terminal keyed hold must not pump for an ACK");
+        assert!(owner.state().request_state(quarantine.id()).is_none());
         assert!(!owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
@@ -6166,7 +6152,6 @@ mod lifecycle_trace {
                     socket.as_socket_number()
                 )
             }
-            Phase::AwaitingLateAck { .. } => "awaiting-late-ack".to_owned(),
         }
     }
 

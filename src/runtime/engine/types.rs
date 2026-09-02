@@ -470,16 +470,17 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) raw_release_grace: Duration,
     /// Opt-in strict recovery mode for the raw envelope.
     ///
-    /// When `false` (the default), a raw command whose ACK or completion can no
-    /// longer be confirmed — a lost ACK/completion datagram, a spent retry
-    /// budget, or an expired cancellation-ambiguity window — fails on its own
-    /// with [`Error::UnsequencedCommandUnconfirmed`] while its socket or
-    /// unacknowledged-command slot is quarantined for the ambiguity window so a
-    /// late reply cannot misbind; the session and every unrelated request keep
-    /// running. When `true`, the same events instead poison the whole session
-    /// (the pre-fix behavior), for deployments that would rather hard-fail than
-    /// risk a subtle correlation error. This flag is meaningless for the Sony
-    /// envelope, whose sequence correlation never needs the quarantine.
+    /// When `false` (the default), an uncancelled raw command whose ACK or
+    /// completion can no longer be confirmed — including at a spent retry
+    /// budget — immediately fails on its own with
+    /// [`Error::UnsequencedCommandUnconfirmed`] and leaves only the applicable
+    /// keyed correlation hold through the ambiguity interval. An active
+    /// cancellation remains live until its own resolution bound and fails with
+    /// the same error if that bound expires. The session and every unrelated
+    /// request keep running. When `true`, the same events instead poison the
+    /// whole session (the pre-fix behavior), for deployments that would rather
+    /// hard-fail than risk a subtle correlation error. This flag is meaningless
+    /// for the Sony envelope, whose sequence correlation needs no raw hold.
     pub(crate) strict_unconfirmed_poison: bool,
 }
 
@@ -717,9 +718,10 @@ pub(crate) enum IgnoreReason {
 /// Which of a request's own protocol deadlines expired.
 ///
 /// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
-/// deadlines are deliberately not part of this vocabulary: they resolve a
-/// quarantine rather than the request's own protocol progress, and they are
-/// already reported through [`Effect::CancellationObservation`].
+/// deadlines are deliberately not part of this vocabulary: they resolve the
+/// separate cancellation lifecycle rather than the request's ordinary protocol
+/// progress, and they are already reported through
+/// [`Effect::CancellationObservation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeadlineKind {
     /// The acknowledgement deadline for a sent command expired.
@@ -846,11 +848,10 @@ pub(crate) enum Phase {
         ready_at: std::time::Instant,
         queue_generation: u64,
     },
+    /// A socket-owned command whose emitted cancellation is awaiting a
+    /// conclusive terminal response.
     AwaitingCancellationResolution {
         socket: ViscaSocket,
-        deadline: std::time::Instant,
-    },
-    AwaitingLateAck {
         deadline: std::time::Instant,
     },
 }

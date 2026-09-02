@@ -679,6 +679,23 @@ entries below retain their original wording.
   time without sleeping. This is an internal architecture change with no public
   API change.
 
+- **BREAKING: unified raw uncertainty behind one keyed hold table**
+  (2026-09-02; #723; supersedes the live late-ACK/quarantine wording under
+  #724, #721, and #718). `Socket(S1|S2)`, `PreAck`, `InquiryUnkeyed`, and
+  `AllResponses` are now the only bounded raw-correlation hold scopes; overlaps
+  extend one target/scope entry and erase conflicting owner identity instead of
+  choosing by recency. Once an uncancelled raw ACK, completion, or active-budget
+  deadline makes the result unconfirmable, the request immediately reports
+  `UnsequencedCommandUnconfirmed` and is removed; its inert hold filters late
+  input and gates only compatible successors until expiry, but cannot consume a
+  response or be cancelled. A displaced raw socket owner follows the same
+  immediate-terminal rule. Real cancellation remains a live lifecycle:
+  pre-socket intent may keep `AwaitingAck` open to its ambiguity deadline, while
+  an emitted socket cancel uses `AwaitingCancellationResolution`, which is now
+  invalid with `CancelState::None`. The obsolete engine phase and public
+  `DiagnosticPhase::AwaitingLateAck` variant are removed, and all three public
+  API snapshots are regenerated.
+
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now
   `Option<FrameSequence>` instead of `Option<u32>`, and the new public

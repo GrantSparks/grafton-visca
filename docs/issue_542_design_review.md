@@ -201,10 +201,10 @@ encoding.
    calling the software work release-candidate complete.
 7. Raw VISCA does not use universal FIFO pre-ACK attribution. It normally keeps
    one unacknowledged command candidate per target across `Sending`,
-   `AwaitingAck`, `AwaitingCompletion`, and `AwaitingLateAck`. One intrinsic
-   `Urgent` command may cross one existing candidate as the #714 safety-lane
-   exception; while both are open, unsequenced ACK/error evidence binds to
-   neither. `AwaitingCompletion` is the
+   `AwaitingAck`, and `AwaitingCompletion`. One intrinsic `Urgent` command may
+   cross one existing candidate as the #714 safety-lane exception; while both
+   are open, unsequenced ACK/error evidence binds to neither.
+   `AwaitingCompletion` is the
    completion-only shape: it holds the target channel exclusively and never
    earns a socket. For an ACK-bearing command, socket-level concurrency reopens
    as soon as ACK establishes ownership. Raw ACK and error routing never uses
@@ -216,17 +216,17 @@ encoding.
    socketless error never targets `Executing`. A named ACK socket is exact when
    that socket is free; if another request owns it — typically because a lost
    completion made the camera reuse the socket — the camera's new assignment
-   supersedes the stale local claim (#721). The old request relinquishes the
-   socket into an unkeyed ambiguity quarantine and the new request owns the
+   supersedes the stale local claim (#721). The old request immediately fails
+   unconfirmed and leaves an inert keyed `PreAck` hold; the new request owns the
    named socket for completion and cancellation. A socketless ACK still selects
    the first free registered socket. Sony sequencing retains pre-ACK pipelining,
    exact sequence correlation, and the bounded #620/#682 other-free-socket
    compatibility fallback. Raw correlation holds follow the same evidence
-   boundary: cancellation and unconfirmed-correlation holds for an owned S1/S2
-   release only that exact target/socket, while pre-ACK or otherwise unowned
-   ambiguity remains unkeyed. These scopes remain distinct when simultaneous.
-   A terminal `NoReply`/`CompletionOnly` tombstone is instead a broad
-   target-response hold. A matched raw inquiry reply creates no hold; an
+   boundary: the one keyed table stores exact `Socket(S1|S2)`, `PreAck`,
+   `InquiryUnkeyed`, and `AllResponses` scopes, which remain distinct when
+   simultaneous and merge overlapping owners conservatively. A terminal
+   `NoReply`/`CompletionOnly` command leaves the broad `AllResponses` scope. A
+   matched raw inquiry reply creates no hold; an
    uncertain timeout/error/retry release retains only the profile's short
    reply-skew hold. That narrow scope blocks a new same-target inquiry and
    filters stale unkeyed inquiry data/reply and socketless-error evidence, while
@@ -242,20 +242,20 @@ encoding.
    ACK, and only a later ACK deadline without an ACK enters the unconfirmed
    recovery below. The `strict_unconfirmed_poison` opt-in instead poisons the
    session on that receive fault only when no cancel intent is recorded; a
-   recorded cancel follows cancellation-driven late-ACK resolution and poisons
+   recorded cancel follows its live pre-ACK/cancellation resolution and poisons
    only if that deadline remains unconfirmed. It still never replays the
    command.
    **Ratified per-request default (issue #671, superseding the earlier
    whole-session poison rule and the #565/#566 narrowing):** each resulting
-   unconfirmed-recovery trigger — an ACK, completion, or cancellation ambiguity
-   timeout, or an active retry-budget expiry — fails only that one command with
-   `UnsequencedCommandUnconfirmed` — a
-   per-request outcome the session survives (its `requires_new_session()` is
-   `false`) — and quarantines the correlation still at stake (the owned socket,
-   or the command's place as the sole unacknowledged raw command) until the
-   ambiguity deadline, so a late response in that hold cannot bind to a later
-   command; the hold filters only the evidence within its own scope. The session
-   and every unrelated request keep running. Whole-session
+   unconfirmed-recovery trigger for an uncancelled request — an ACK or completion
+   timeout, or an active retry-budget expiry — immediately fails only that one
+   command with `UnsequencedCommandUnconfirmed`, a per-request outcome the
+   session survives (its `requires_new_session()` is `false`). The removed
+   request leaves only the applicable keyed hold until the ambiguity bound, so
+   a late response cannot bind to a later command or resurrect its old owner.
+   A request with active cancellation remains live through its own resolution
+   deadline and fails there if still unconfirmed. The session and every
+   unrelated request keep running. Whole-session
    poison is retained only behind the opt-in `strict_unconfirmed_poison`
    `OperationalTuning` mode (default off), which restores the pre-fix behavior
    and surfaces it as `StreamPoisoned` so a poisoned session still requires a
@@ -271,14 +271,15 @@ encoding.
    **Ratified clarification for #673/#714:** issue #542 §4's older blanket
    sentence that blocking submission “never waits for ACK” is superseded by two
    bounded decisions. An ordinary ACK-bearing operation may drain the sole live
-   raw ACK-capable predecessor under its own ACK budget (#673). A lost-ACK
-   `AwaitingLateAck` predecessor instead gives ordinary first dispatch a timed
-   wait to its ambiguity deadline, never generic contention. An intrinsically
+   raw ACK-capable predecessor under its own ACK budget (#673), including a live
+   `AwaitingAck` request extended by cancellation intent. A lost-ACK predecessor
+   is already terminal under #723; its inert `PreAck` hold instead gives ordinary
+   first dispatch a timed wait to the hold deadline, never generic contention or
+   late rescue. An intrinsically
    `Urgent` stop bypasses that drain and the one-candidate gate, subject to
    command pacing and socket capacity; if two candidates are open, ACK/error
    evidence binds to neither (#714). `CompletionOnly` and `NoReply` are never
-   draining successors, while a cancellation-driven late-ACK state remains
-   eligible only when its ACK is still accepted. The maintainer decision is
+   draining successors. The maintainer decision is
    recorded on the [#673 issue trail](https://github.com/GrantSparks/grafton-visca/issues/673#issuecomment-5508129187).
 11. Fixed-format ACK, completion, error, and network-change frames require
     their exact protocol lengths; a known prefix with trailing bytes is
@@ -338,11 +339,12 @@ encoding.
     1.x once implemented it.
 18. At a byte-stream correlation-expiry boundary, complete buffered frames are
     correlated before the due release; partial bytes are not decoded as frames.
-    Unless the due release also includes the broad target-response tombstone
-    from a `NoReply` or `CompletionOnly` terminal, a named completion/error
+    Unless the due release also includes the broad target-response
+    `AllResponses` hold from a `NoReply` or `CompletionOnly` terminal, a named
+    completion/error
     prefix may survive another socket's release only when it names a still-live
     non-releasing target/socket owner. Matching stale socket evidence may be
-    discarded and other-target serial input is retained. That broad tombstone
+    discarded and other-target serial input is retained. That broad hold
     instead discards every response-shaped partial prefix for its target,
     including source-only, ACK, socketless `0x50`/`0x60`, and named terminal
     prefixes; noncorrelating evidence and other-target serial input are

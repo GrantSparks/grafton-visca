@@ -4412,10 +4412,10 @@ mod tests {
 
     /// A receive sampled even one nanosecond after its correlated completion
     /// deadline is ordinary late input: the frame is ignored, the due
-    /// transition quarantines the raw socket, and quarantine expiry reports
-    /// the command's unconfirmed outcome. This keeps the actor-level overdue
-    /// half of the strict boundary contract alongside the equality test above
-    /// (#731).
+    /// transition reports the command's unconfirmed outcome immediately while
+    /// a keyed hold keeps the raw socket unavailable. This keeps the
+    /// actor-level overdue half of the strict boundary contract alongside the
+    /// equality test above (#731/#723).
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn async_receive_batch_rejects_an_overdue_completion() {
@@ -4445,19 +4445,17 @@ mod tests {
             .await
             .unwrap();
         let snapshot = handle.snapshot().await.unwrap();
-        assert_eq!(snapshot.active, 1, "the raw socket remains quarantined");
+        assert_eq!(
+            snapshot.active, 0,
+            "a correlation hold is not a live request"
+        );
         assert!(snapshot.diagnostics.iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
         )));
-        runtime.advance(Duration::from_secs(1));
-        // A control may consume the actor's one due-boundary allowance. The
-        // second round trip proves that the ambiguity deadline was serviced.
-        let _ = handle.snapshot().await.unwrap();
-        let _ = handle.snapshot().await.unwrap();
         let outcome = terminal_within_test_deadline(
             &receipt,
-            "the overdue completion leaves the command to its ambiguity outcome",
+            "the overdue completion decides the command immediately",
         )
         .await;
         assert!(matches!(

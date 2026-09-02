@@ -163,10 +163,8 @@ pub enum DiagnosticPhase {
     AwaitingReply,
     /// Waiting before a retry.
     Backoff,
-    /// Resolving a cancellation.
+    /// Resolving an emitted cancellation on an owned command socket.
     AwaitingCancellationResolution,
-    /// Resolving an acknowledgement after an ambiguous cancellation.
-    AwaitingLateAck,
 }
 
 /// Sanitized response category from one received frame.
@@ -445,7 +443,6 @@ impl DiagnosticEvent {
             Phase::AwaitingCancellationResolution { .. } => {
                 DiagnosticPhase::AwaitingCancellationResolution
             }
-            Phase::AwaitingLateAck { .. } => DiagnosticPhase::AwaitingLateAck,
         };
         let session = |value: SessionState| match value {
             SessionState::Running => SessionStatus::Running,

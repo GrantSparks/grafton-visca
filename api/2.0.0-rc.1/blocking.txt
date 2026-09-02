@@ -11521,7 +11521,6 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::Diag
 pub grafton_visca::observability::DiagnosticPhase::AwaitingAck
 pub grafton_visca::observability::DiagnosticPhase::AwaitingCancellationResolution
 pub grafton_visca::observability::DiagnosticPhase::AwaitingCompletion
-pub grafton_visca::observability::DiagnosticPhase::AwaitingLateAck
 pub grafton_visca::observability::DiagnosticPhase::AwaitingReply
 pub grafton_visca::observability::DiagnosticPhase::Backoff
 pub grafton_visca::observability::DiagnosticPhase::Executing
@@ -20287,7 +20286,6 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::Diag
 pub grafton_visca::DiagnosticPhase::AwaitingAck
 pub grafton_visca::DiagnosticPhase::AwaitingCancellationResolution
 pub grafton_visca::DiagnosticPhase::AwaitingCompletion
-pub grafton_visca::DiagnosticPhase::AwaitingLateAck
 pub grafton_visca::DiagnosticPhase::AwaitingReply
 pub grafton_visca::DiagnosticPhase::Backoff
 pub grafton_visca::DiagnosticPhase::Executing

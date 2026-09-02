@@ -121,7 +121,9 @@ pub(crate) trait BlockingFrameDecoder {
 /// executor-free seam lets deterministic owner tests advance virtual time
 /// without teaching the protocol engine or the blocking facade about an async
 /// runtime (#723).
-trait BlockingClock: fmt::Debug + Send + Sync {
+trait BlockingClock:
+    fmt::Debug + Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe
+{
     fn now(&self) -> Instant;
 
     /// Block, or advance a deterministic clock, by `duration`. Implementations
@@ -4607,9 +4609,9 @@ mod tests {
         // Every read reports idle immediately. Shared 10/20/40 ms pacing is
         // clamped to the ACK deadline, so the final pump returns exactly as
         // the outer drain budget expires and the loop cannot run another tail.
-        // The predecessor remains an attributable late-ACK candidate after
-        // that boundary; a later submission-side drain may therefore keep
-        // servicing input through its ambiguity window.
+        // At that boundary the predecessor receives its terminal and leaves an
+        // inert hold; a later submission-side drain must not service input for
+        // a request which no longer exists.
         let mut reader = FaultReader {
             reads: std::iter::repeat_n(Ok(BlockingReceive::TimedOut), 8).collect(),
         };
@@ -4625,10 +4627,11 @@ mod tests {
             .expect("expired pre-ACK work is serviced without dispatch");
 
         assert!(matches!(
-            owner.state().request_state(predecessor.id()),
-            Some((Phase::AwaitingLateAck { .. }, CancelState::None))
+            predecessor.terminal(),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         ));
-        assert!(owner
+        assert!(owner.state().request_state(predecessor.id()).is_none());
+        assert!(!owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
     }

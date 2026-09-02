@@ -32,7 +32,7 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    request::builtin::{FocusStop, ZoomStop},
+    request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{
         AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
@@ -362,9 +362,10 @@ async fn raw_receive_fault_fails_one_command_and_keeps_the_session<E: Executor>(
         "an unconfirmed raw command is never replayed after a receive fault"
     );
 
-    // The session survived the receive fault: later work still completes.
+    // The session survived the receive fault: later ordinary work waits out the
+    // inert keyed hold, then completes normally.
     camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&FocusDrive::Far)
         .await
         .expect("the session survives a transient receive fault")
         .applied()

@@ -11,6 +11,7 @@ pub(crate) use types::*;
 use std::{
     array,
     borrow::Cow,
+    cmp::Ordering,
     collections::{BTreeMap, VecDeque},
     num::NonZeroU64,
     sync::Arc,
@@ -86,25 +87,70 @@ struct DeferredCompletion {
     socket: Option<ViscaSocket>,
 }
 
-/// A bounded raw-VISCA correlation hold left behind by a terminal response
-/// whose wire frame has no request identity.
+/// One raw-VISCA correlation scope retained after its live owner can no longer
+/// safely consume unsequenced input.
 ///
-/// Raw frames carry no request identity. `NoReply`/`CompletionOnly` terminals
-/// and inquiry terminals leave different evidence behind: the former can
-/// imitate every response shape, while the latter can only imitate a raw
-/// inquiry reply or socketless error.  Keep their deadlines independently so
-/// one cannot accidentally broaden or shorten the other.
-///
-/// This is deliberately not an `Entry`: the caller has already received its
-/// terminal outcome, and these holds have no observer, retry, or cancellation
-/// lifecycle of their own.
+/// Every bounded quarantine is keyed through this vocabulary. `Socket` is an
+/// exact command-completion identity, `PreAck` is the target-local positional
+/// command slot, `InquiryUnkeyed` is target/data-only inquiry correlation, and
+/// `AllResponses` is the broad hold left by a command that never earned a wire
+/// identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct RawTerminalTombstone {
-    /// A terminal from an uncorrelatable command can imitate any raw response.
-    terminal_deadline: Option<Instant>,
-    /// An inquiry response has no request identity, but cannot imitate a
-    /// socket-owned command terminal.
-    inquiry_deadline: Option<Instant>,
+enum RawHoldScope {
+    Socket(ViscaSocket),
+    PreAck,
+    InquiryUnkeyed,
+    AllResponses,
+}
+
+impl RawHoldScope {
+    const fn order(self) -> u8 {
+        match self {
+            Self::Socket(ViscaSocket::S1) => 0,
+            Self::Socket(ViscaSocket::S2) => 1,
+            Self::PreAck => 2,
+            Self::InquiryUnkeyed => 3,
+            Self::AllResponses => 4,
+        }
+    }
+}
+
+/// Stable private ordering key without imposing ordering traits on the public
+/// `CameraId` or `ViscaSocket` API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawHoldKey {
+    target: CameraId,
+    scope: RawHoldScope,
+}
+
+impl RawHoldKey {
+    const fn new(target: CameraId, scope: RawHoldScope) -> Self {
+        Self { target, scope }
+    }
+}
+
+impl Ord for RawHoldKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.target.id(), self.scope.order()).cmp(&(other.target.id(), other.scope.order()))
+    }
+}
+
+impl PartialOrd for RawHoldKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// One time-bounded entry in the engine's authoritative raw quarantine table.
+///
+/// `owner` is retained when exactly one request supplied the hold. Overlapping
+/// holds from different requests deliberately collapse it to `None`: the scope
+/// remains unsafe until the later deadline, but no request identity may be
+/// guessed from that overlap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawHold {
+    until: Instant,
+    owner: Option<RequestId>,
 }
 
 /// Time-bounded retained-input decision for one due raw release (#713).
@@ -112,57 +158,6 @@ struct RawTerminalTombstone {
 struct RawReleaseGate {
     releases: RawCorrelationReleaseSet,
     await_until: Instant,
-}
-
-impl RawTerminalTombstone {
-    const fn terminal(deadline: Instant) -> Self {
-        Self {
-            terminal_deadline: Some(deadline),
-            inquiry_deadline: None,
-        }
-    }
-
-    const fn inquiry(deadline: Instant) -> Self {
-        Self {
-            terminal_deadline: None,
-            inquiry_deadline: Some(deadline),
-        }
-    }
-
-    const fn is_active(self) -> bool {
-        self.terminal_deadline.is_some() || self.inquiry_deadline.is_some()
-    }
-
-    /// A successor blocked by its applicable scope waits until every such
-    /// deadline has expired, not merely the earliest one.
-    fn dispatch_deadline(self) -> Option<Instant> {
-        self.terminal_deadline
-            .into_iter()
-            .chain(self.inquiry_deadline)
-            .max()
-    }
-
-    fn next_deadline(self) -> Option<Instant> {
-        self.terminal_deadline
-            .into_iter()
-            .chain(self.inquiry_deadline)
-            .min()
-    }
-
-    fn expire_at(&mut self, now: Instant) {
-        if self
-            .terminal_deadline
-            .is_some_and(|deadline| deadline <= now)
-        {
-            self.terminal_deadline = None;
-        }
-        if self
-            .inquiry_deadline
-            .is_some_and(|deadline| deadline <= now)
-        {
-            self.inquiry_deadline = None;
-        }
-    }
 }
 
 /// The one authoritative lifecycle record for an admitted request.
@@ -189,10 +184,6 @@ pub(crate) struct Entry {
     dispatched_socket_capacity: Option<u8>,
     cancel_attempted_socket: Option<ViscaSocket>,
     cancellation_observation_open: bool,
-    /// Whether an `AwaitingLateAck` phase still represents an ACK-capable
-    /// request, rather than an unkeyed hold left by a displaced socket owner or
-    /// a command shape that never accepts ACKs.
-    late_ack_eligible: bool,
     deferred_ack: Option<DeferredAck>,
     deferred_completion: Option<DeferredCompletion>,
 }
@@ -328,10 +319,11 @@ pub(crate) struct ProtocolEngine {
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
     socket_owners: [[Option<SocketOwner>; 2]; 9],
     raw_inquiries: [VecDeque<CorrelationOwner>; 9],
-    /// A terminal raw response correlation can have emitted a delayed frame.
-    /// Hold later response-bearing work on that target until its ambiguity
-    /// deadline.
-    raw_target_tombstones: [Option<RawTerminalTombstone>; 9],
+    /// Every time-bounded raw correlation quarantine, keyed by target and
+    /// protocol scope. Live correlation owners remain in their exact indexes;
+    /// once ownership becomes unsafe it moves here instead of being encoded in
+    /// an entry phase or a parallel target array.
+    holds: BTreeMap<RawHoldKey, RawHold>,
     raw_release_gate: Option<RawReleaseGate>,
     next_request_id: IdAllocator,
     next_transmission_id: IdAllocator,
@@ -366,7 +358,7 @@ impl ProtocolEngine {
             lower_sequences: BTreeMap::new(),
             socket_owners: [[None; 2]; 9],
             raw_inquiries: array::from_fn(|_| VecDeque::new()),
-            raw_target_tombstones: [None; 9],
+            holds: BTreeMap::new(),
             raw_release_gate: None,
             next_request_id: IdAllocator::new(),
             next_transmission_id: IdAllocator::new(),
@@ -494,7 +486,7 @@ impl ProtocolEngine {
         }
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
-            if self.raw_tombstone_blocks_dispatch(entry, target)
+            if self.raw_hold_blocks_dispatch(entry, target)
                 || self.inquiries_inflight() >= self.policy.inquiry_capacity
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
@@ -503,9 +495,9 @@ impl ProtocolEngine {
         } else {
             let target = entry.request.context().target;
             let policy = self.targets[target.id() as usize]?;
-            if self.raw_tombstone_blocks_dispatch(entry, target)
+            if self.raw_hold_blocks_dispatch(entry, target)
                 || self.raw_command_gate_blocks(entry, target)
-                || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+                || self.command_capacity_used(target) >= usize::from(policy.command_sockets)
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return None;
@@ -711,13 +703,7 @@ impl ProtocolEngine {
         if self.has_pending_cancellation() {
             return FirstDispatch::Blocked;
         }
-        if let Some(deadline) = self.raw_tombstone_dispatch_deadline(entry) {
-            return FirstDispatch::WaitUntil {
-                deadline,
-                reason: FirstDispatchWait::RawCorrelationTombstone,
-            };
-        }
-        if let Some(deadline) = self.raw_unconfirmed_preack_dispatch_deadline(entry) {
+        if let Some(deadline) = self.raw_hold_dispatch_deadline(entry) {
             return FirstDispatch::WaitUntil {
                 deadline,
                 reason: FirstDispatchWait::RawCorrelationTombstone,
@@ -829,7 +815,6 @@ impl ProtocolEngine {
                 dispatched_socket_capacity: None,
                 cancel_attempted_socket: None,
                 cancellation_observation_open: false,
-                late_ack_eligible: false,
                 deferred_ack: None,
                 deferred_completion: None,
             },
@@ -1117,7 +1102,7 @@ impl ProtocolEngine {
         };
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
-            if self.raw_tombstone_blocks_dispatch(entry, target)
+            if self.raw_hold_blocks_dispatch(entry, target)
                 || self.inquiries_inflight() >= self.policy.inquiry_capacity
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
@@ -1131,9 +1116,9 @@ impl ProtocolEngine {
             let Some(policy) = self.targets[target.id() as usize] else {
                 return false;
             };
-            if self.raw_tombstone_blocks_dispatch(entry, target)
+            if self.raw_hold_blocks_dispatch(entry, target)
                 || self.raw_command_gate_blocks(entry, target)
-                || self.commands_inflight(target) >= usize::from(policy.command_sockets)
+                || self.command_capacity_used(target) >= usize::from(policy.command_sockets)
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return false;
@@ -1206,10 +1191,14 @@ impl ProtocolEngine {
                             | Phase::AwaitingCompletion { .. }
                             | Phase::Executing { .. }
                             | Phase::AwaitingCancellationResolution { .. }
-                            | Phase::AwaitingLateAck { .. }
                     )
             })
             .count()
+    }
+
+    fn command_capacity_used(&self, target: CameraId) -> usize {
+        self.commands_inflight(target)
+            .saturating_add(self.raw_socket_hold_count(target))
     }
 
     /// Whether a released uncorrelatable command retains a broad raw-response
@@ -1220,8 +1209,32 @@ impl ProtocolEngine {
     /// pre-ACK drain for ordinary ACK-bearing work.
     fn raw_target_command_correlation_quarantined(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
-            && self.raw_target_tombstones[target.id() as usize]
-                .is_some_and(|tombstone| tombstone.terminal_deadline.is_some())
+            && (self.raw_hold(target, RawHoldScope::AllResponses).is_some()
+                || self.raw_hold(target, RawHoldScope::PreAck).is_some())
+    }
+
+    fn raw_hold(&self, target: CameraId, scope: RawHoldScope) -> Option<RawHold> {
+        self.holds.get(&RawHoldKey::new(target, scope)).copied()
+    }
+
+    /// Adds or extends one exact raw hold. Different owners overlapping on the
+    /// same key erase identity rather than choosing one by recency.
+    fn extend_raw_hold(
+        &mut self,
+        target: CameraId,
+        scope: RawHoldScope,
+        until: Instant,
+        owner: Option<RequestId>,
+    ) {
+        let key = RawHoldKey::new(target, scope);
+        if let Some(existing) = self.holds.get_mut(&key) {
+            existing.until = existing.until.max(until);
+            if existing.owner != owner {
+                existing.owner = None;
+            }
+        } else {
+            self.holds.insert(key, RawHold { until, owner });
+        }
     }
 
     /// Whether a target terminal tombstone prevents this ready request from
@@ -1231,35 +1244,89 @@ impl ProtocolEngine {
     /// the narrow inquiry skew blocks only another inquiry. A second `NoReply`
     /// consumes no response at all, so it can safely write and extend a broad
     /// hold.
-    fn raw_tombstone_blocks_dispatch(&self, entry: &Entry, target: CameraId) -> bool {
+    fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: CameraId) -> bool {
+        self.raw_hold_dispatch_deadline_for(entry, target).is_some()
+    }
+
+    fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: CameraId) -> Option<Instant> {
         if self.policy.envelope != EnvelopeKind::Raw {
-            return false;
+            return None;
         }
-        let Some(tombstone) = self.raw_target_tombstones[target.id() as usize] else {
-            return false;
-        };
-        if tombstone.terminal_deadline.is_some() {
-            return entry.request.is_inquiry()
-                || entry.request.context().reply_shape != ReplyShape::NoReply;
-        }
+        let response_bearing = entry.request.is_inquiry()
+            || entry.request.context().reply_shape != ReplyShape::NoReply;
+        let all_responses = response_bearing
+            .then(|| self.raw_hold(target, RawHoldScope::AllResponses))
+            .flatten()
+            .map(|hold| hold.until);
         // A late inquiry reply has only target/data correlation. It can bind
         // to a later inquiry, but it cannot be mistaken for the ACK of an
         // ordinary or urgent command (#712).
-        tombstone.inquiry_deadline.is_some() && entry.request.is_inquiry()
+        let inquiry_unkeyed = entry
+            .request
+            .is_inquiry()
+            .then(|| self.raw_hold(target, RawHoldScope::InquiryUnkeyed))
+            .flatten()
+            .map(|hold| hold.until);
+        let pre_ack = (!entry.request.is_inquiry()
+            && !self.raw_preack_hold_bypass_available(entry, target))
+        .then(|| self.raw_hold(target, RawHoldScope::PreAck))
+        .flatten()
+        .map(|hold| hold.until);
+        // Exact socket holds consume physical command capacity. If live work
+        // alone still leaves room, the earliest held socket release is the
+        // deterministic point at which this request can be reconsidered.
+        let socket_capacity = if entry.request.is_inquiry() {
+            None
+        } else {
+            let capacity = self.command_sockets(target);
+            let live = self.commands_inflight(target);
+            let held = self.raw_socket_hold_count(target);
+            (live < capacity && live.saturating_add(held) >= capacity)
+                .then(|| self.raw_socket_hold_wake(target))
+                .flatten()
+        };
+        all_responses
+            .into_iter()
+            .chain(inquiry_unkeyed)
+            .chain(pre_ack)
+            .chain(socket_capacity)
+            .max()
+    }
+
+    fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: CameraId) -> bool {
+        !entry.request.is_inquiry()
+            && entry.request.context().control.class == ControlClass::Urgent
+            && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
+            && self.raw_unacknowledged_command_count(target) == 0
+    }
+
+    fn raw_socket_hold_count(&self, target: CameraId) -> usize {
+        [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .filter(|socket| {
+                self.raw_hold(target, RawHoldScope::Socket(*socket))
+                    .is_some()
+            })
+            .count()
+    }
+
+    fn raw_socket_hold_wake(&self, target: CameraId) -> Option<Instant> {
+        [ViscaSocket::S1, ViscaSocket::S2]
+            .into_iter()
+            .filter_map(|socket| {
+                self.raw_hold(target, RawHoldScope::Socket(socket))
+                    .map(|hold| hold.until)
+            })
+            .min()
     }
 
     /// The deterministic release time for a ready request blocked only by a
     /// fixed raw target tombstone. Blocking first-write submission uses this
     /// to classify a caller deadline as a time-bound wait rather than generic
     /// queue backpressure.
-    fn raw_tombstone_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
+    fn raw_hold_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
         let target = entry.request.context().target;
-        self.raw_tombstone_blocks_dispatch(entry, target)
-            .then(|| {
-                self.raw_target_tombstones[target.id() as usize]
-                    .and_then(RawTerminalTombstone::dispatch_deadline)
-            })
-            .flatten()
+        self.raw_hold_dispatch_deadline_for(entry, target)
     }
 
     /// Whether a raw completion-only command can be made the target's sole
@@ -1267,12 +1334,14 @@ impl ProtocolEngine {
     /// tombstone is incompatible: a socketless completion from the older
     /// command would otherwise be indistinguishable from this new command's
     /// terminal frame.
-    fn raw_terminal_tombstone_active(&self, target: CameraId) -> bool {
+    fn raw_target_hold_active(&self, target: CameraId) -> bool {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
-        self.raw_target_tombstones[target.id() as usize]
-            .is_some_and(RawTerminalTombstone::is_active)
+        self.raw_hold(target, RawHoldScope::AllResponses).is_some()
+            || self
+                .raw_hold(target, RawHoldScope::InquiryUnkeyed)
+                .is_some()
     }
 
     /// Raw VISCA has no request identity before the camera assigns a socket.
@@ -1327,36 +1396,10 @@ impl ProtocolEngine {
     }
 
     fn raw_command_gate_blocks(&self, entry: &Entry, target: CameraId) -> bool {
-        self.raw_command_unacknowledged(target)
-            && !self.raw_urgent_gate_bypass_available(entry, target)
-    }
-
-    /// Known release of a lost-ACK positional candidate that currently keeps
-    /// this request behind the raw command gate.
-    ///
-    /// Blocking first-write submission must wait this bounded correlation
-    /// deadline instead of reporting generic contention (#714). The async
-    /// scheduler already leaves the request queued until the same due work.
-    fn raw_unconfirmed_preack_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
-        if entry.request.is_inquiry() {
-            return None;
-        }
-        let target = entry.request.context().target;
-        if !self.raw_command_gate_blocks(entry, target) {
-            return None;
-        }
-        self.entries
-            .values()
-            .filter_map(|candidate| {
-                (candidate.request.context().target == target
-                    && matches!(candidate.cancellation, CancelState::None))
-                .then_some(candidate.phase)
-            })
-            .filter_map(|phase| match phase {
-                Phase::AwaitingLateAck { deadline } => Some(deadline),
-                _ => None,
-            })
-            .min()
+        (self.raw_command_unacknowledged(target)
+            && !self.raw_urgent_gate_bypass_available(entry, target))
+            || (self.raw_hold(target, RawHoldScope::PreAck).is_some()
+                && !self.raw_preack_hold_bypass_available(entry, target))
     }
 
     /// Whether an uncorrelatable raw command is still occupying `target`.
@@ -1374,9 +1417,7 @@ impl ProtocolEngine {
                         ReplyShape::NoReply => matches!(entry.phase, Phase::Sending { .. }),
                         ReplyShape::CompletionOnly => matches!(
                             entry.phase,
-                            Phase::Sending { .. }
-                                | Phase::AwaitingCompletion { .. }
-                                | Phase::AwaitingLateAck { .. }
+                            Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
                         ),
                         ReplyShape::AckThenCompletion => false,
                     }
@@ -1402,12 +1443,12 @@ impl ProtocolEngine {
         }
         match entry.request.context().reply_shape {
             ReplyShape::NoReply => {
-                self.commands_inflight(target) > 0 || self.raw_inquiry_inflight(target)
+                self.command_capacity_used(target) > 0 || self.raw_inquiry_inflight(target)
             }
             ReplyShape::CompletionOnly => {
-                self.commands_inflight(target) > 0
+                self.command_capacity_used(target) > 0
                     || self.raw_inquiry_inflight(target)
-                    || self.raw_terminal_tombstone_active(target)
+                    || self.raw_target_hold_active(target)
             }
             ReplyShape::AckThenCompletion => false,
         }
@@ -1421,10 +1462,8 @@ impl ProtocolEngine {
     /// This deliberately uses the sole *ACK-capable* predecessor rather than
     /// [`Self::raw_command_unacknowledged`]. The latter is the broader
     /// correlation/exclusivity predicate and must continue to count
-    /// completion-only commands and #671 late-ACK confirmation windows.
-    /// `AwaitingCompletion` cannot release a socket by accepting an ACK, while
-    /// an ACK-bearing `AwaitingLateAck` entry remains open through its bounded
-    /// window and can still accept an attributable ACK.
+    /// completion-only commands. `AwaitingCompletion` cannot release a socket
+    /// by accepting an ACK.
     ///
     /// When the sole ACK-capable predecessor is still in its unacknowledged
     /// window while a command socket remains free, its ACK clears the gate and
@@ -1438,7 +1477,7 @@ impl ProtocolEngine {
         !self.raw_target_command_correlation_quarantined(target)
             && self.raw_ack_capable_candidate(target).is_some()
             && self.targets[target.id() as usize].is_some_and(|policy| {
-                self.commands_inflight(target) < usize::from(policy.command_sockets)
+                self.command_capacity_used(target) < usize::from(policy.command_sockets)
             })
     }
 
@@ -1446,10 +1485,10 @@ impl ProtocolEngine {
     /// be an ACK, or `None` when there is no such command or the state is
     /// ambiguous.
     ///
-    /// The `Sending` phase is included for the deferred-ACK race. A late-ACK
-    /// confirmation window is included with or without cancellation intent:
-    /// the request has not reached a terminal outcome yet, and an attributable
-    /// ACK may still establish its socket before the window closes.
+    /// The `Sending` phase is included for the deferred-ACK race. A cancelled
+    /// pre-ACK request remains in `AwaitingAck` through its ambiguity deadline,
+    /// so an attributable ACK may still establish its socket before that
+    /// window closes.
     fn raw_ack_capable_candidate(&self, target: CameraId) -> Option<RequestId> {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
@@ -1459,11 +1498,10 @@ impl ProtocolEngine {
             if entry.request.is_inquiry()
                 || entry.request.context().target != target
                 || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !(matches!(
+                || !matches!(
                     entry.phase,
                     Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
-                    && entry.late_ack_eligible)
+                )
             {
                 continue;
             }
@@ -1486,9 +1524,6 @@ impl ProtocolEngine {
             return;
         };
         let from = entry.phase;
-        if !matches!(to, Phase::AwaitingLateAck { .. }) {
-            entry.late_ack_eligible = false;
-        }
         entry.phase = to;
         entry.cancellation = cancellation;
         effects.push(Effect::Transition {
@@ -1497,29 +1532,6 @@ impl ProtocolEngine {
             to,
             cancellation,
         });
-    }
-
-    /// Enters the shared unkeyed hold while retaining whether an ACK is still a
-    /// legitimate response for this request. The phase alone also represents
-    /// displaced socket owners and completion-only holds, neither of which may
-    /// consume an ACK (#724).
-    fn transition_to_late_ack(
-        &mut self,
-        id: RequestId,
-        deadline: Instant,
-        cancellation: CancelState,
-        eligible: bool,
-        effects: &mut Vec<Effect>,
-    ) {
-        if let Some(entry) = self.entries.get_mut(&id) {
-            entry.late_ack_eligible = eligible;
-        }
-        self.transition(
-            id,
-            Phase::AwaitingLateAck { deadline },
-            cancellation,
-            effects,
-        );
     }
 
     fn transmission_finished(
@@ -1802,7 +1814,12 @@ impl ProtocolEngine {
                         socket: owned,
                         deadline,
                     } if owned == socket => deadline.max(ambiguity_deadline),
-                    _ => ambiguity_deadline,
+                    _ => {
+                        effects.push(Effect::Ignored(
+                            IgnoreReason::IncompatibleTransmissionResult,
+                        ));
+                        return;
+                    }
                 };
                 self.transition(
                     owner.request,
@@ -1930,9 +1947,9 @@ impl ProtocolEngine {
     /// The read-side pause/escalation the owner already performs handles the
     /// transport itself. The strict opt-in mode instead poisons the whole
     /// session with [`Error::StreamPoisoned`] only when no cancellation intent
-    /// is recorded. A cancellation already in flight follows its own late-ACK
-    /// ambiguity resolution and poisons under strict mode only if that deadline
-    /// remains unconfirmed. The classic case
+    /// is recorded. A cancellation already in flight follows its own live
+    /// pre-ACK or socket-resolution deadline and poisons under strict mode only
+    /// if that deadline remains unconfirmed. The classic case
     /// is a UDP `recv` returning ECONNREFUSED because an earlier datagram drew
     /// an ICMP port-unreachable.
     ///
@@ -2129,7 +2146,7 @@ impl ProtocolEngine {
         // payload, or fail/retry either on a socketless error.
         if self.policy.envelope == EnvelopeKind::Raw
             && frame.sequence.is_none()
-            && self.raw_terminal_response_quarantined(&frame)
+            && self.raw_held_response(&frame)
         {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
@@ -2209,13 +2226,9 @@ impl ProtocolEngine {
     /// authoritative for a concurrently executing command.  This matters for
     /// raw two-socket cameras, where an inquiry can legitimately finish while
     /// another command is executing on S1 or S2.
-    fn raw_terminal_response_quarantined(&self, frame: &DecodedFrame) -> bool {
+    fn raw_held_response(&self, frame: &DecodedFrame) -> bool {
         let target = frame.target;
-        let target_index = target.id() as usize;
-        let Some(tombstone) = self.raw_target_tombstones[target_index] else {
-            return false;
-        };
-        if tombstone.terminal_deadline.is_some() {
+        if self.raw_hold(target, RawHoldScope::AllResponses).is_some() {
             return matches!(
                 &frame.response,
                 DecodedResponse::Ack { .. }
@@ -2224,19 +2237,22 @@ impl ProtocolEngine {
                     | DecodedResponse::Error { .. }
             );
         }
-        if tombstone.inquiry_deadline.is_none() {
-            return false;
-        }
+        let inquiry_unkeyed = self
+            .raw_hold(target, RawHoldScope::InquiryUnkeyed)
+            .is_some();
+        let pre_ack = self.raw_hold(target, RawHoldScope::PreAck).is_some();
+        let any_socket = self.raw_socket_hold_count(target) != 0;
         match &frame.response {
             // A live unique pre-ACK request was admitted before this inquiry
             // hold. Its complete ACK is still attributable; the hold prevents
             // a successor from becoming a competing candidate.
-            DecodedResponse::Ack { .. } => self.unique_raw_command_candidate(target).is_none(),
+            DecodedResponse::Ack { .. } => {
+                pre_ack || (inquiry_unkeyed && self.unique_raw_command_candidate(target).is_none())
+            }
             // An inquiry reply is target/data-correlated and a socketless error
             // has no command/inquiry discriminator, so both remain inert.
-            DecodedResponse::InquiryReply { .. } | DecodedResponse::Error { socket: None, .. } => {
-                true
-            }
+            DecodedResponse::InquiryReply { .. } => inquiry_unkeyed,
+            DecodedResponse::Error { socket: None, .. } => inquiry_unkeyed || pre_ack || any_socket,
             // A named terminal is safe only when the exact socket is still
             // owned. An unowned named frame must not fall through to any
             // successor or inquiry FIFO while this hold is active.
@@ -2246,12 +2262,19 @@ impl ProtocolEngine {
             | DecodedResponse::Error {
                 socket: Some(socket),
                 ..
-            } => self.socket_owner(target, *socket).is_none(),
+            } => {
+                self.raw_hold(target, RawHoldScope::Socket(*socket))
+                    .is_some()
+                    || ((inquiry_unkeyed || pre_ack)
+                        && self.socket_owner(target, *socket).is_none())
+            }
             // Socketless completion is safe solely when an already-live socket
             // owner makes it uniquely attributable. It cannot be stale inquiry
             // data and no successor can dispatch under this hold.
             DecodedResponse::Completion { socket: None } => {
-                self.sole_socket_holder(target).is_none()
+                pre_ack
+                    || any_socket
+                    || (inquiry_unkeyed && self.sole_socket_holder(target).is_none())
             }
             DecodedResponse::SonyControl { .. }
             | DecodedResponse::NetworkChange
@@ -2396,11 +2419,10 @@ impl ProtocolEngine {
                 || entry.request.is_inquiry()
                 || entry.request.context().target != target
                 || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !(matches!(
+                || !matches!(
                     entry.phase,
                     Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
-                    && entry.late_ack_eligible)
+                )
             {
                 continue;
             }
@@ -2467,8 +2489,7 @@ impl ProtocolEngine {
             let ack_lifecycle = matches!(
                 entry.phase,
                 Phase::Sending { .. } | Phase::AwaitingAck { .. }
-            ) || matches!(entry.phase, Phase::AwaitingLateAck { .. })
-                && entry.late_ack_eligible;
+            );
             let is_candidate = entry.request.context().reply_shape != ReplyShape::NoReply
                 && (ack_lifecycle
                     || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
@@ -2501,8 +2522,11 @@ impl ProtocolEngine {
     }
 
     fn socket_available(&self, target: CameraId, socket: ViscaSocket, id: RequestId) -> bool {
-        self.socket_owner(target, socket)
-            .is_none_or(|owner| owner == id)
+        self.raw_hold(target, RawHoldScope::Socket(socket))
+            .is_none()
+            && self
+                .socket_owner(target, socket)
+                .is_none_or(|owner| owner == id)
     }
 
     /// Chooses an uncontested socket for an ACK.
@@ -2577,9 +2601,12 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Vec<Effect>,
     ) {
-        let Some(ambiguity) = self.entries.get(&stale).map(|entry| {
+        let Some((target, ambiguity)) = self.entries.get(&stale).map(|entry| {
             debug_assert_eq!(self.policy.envelope, EnvelopeKind::Raw);
-            entry.request.context().timeout.ambiguity
+            (
+                entry.request.context().target,
+                entry.request.context().timeout.ambiguity,
+            )
         }) else {
             return;
         };
@@ -2592,7 +2619,12 @@ impl ProtocolEngine {
             entry.deferred_ack = None;
             entry.deferred_completion = None;
         }
-        self.transition_to_late_ack(stale, deadline, CancelState::None, false, effects);
+        self.extend_raw_hold(target, RawHoldScope::PreAck, deadline, Some(stale));
+        self.finish(
+            stale,
+            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+            effects,
+        );
     }
 
     fn ack(
@@ -2614,7 +2646,6 @@ impl ProtocolEngine {
         }
         match entry.phase {
             Phase::AwaitingAck { .. } => {}
-            Phase::AwaitingLateAck { .. } if entry.late_ack_eligible => {}
             // Issue #297: the camera answered before this owner applied the
             // write result for the frame being answered. Latch the ACK on the
             // entry; `successful_transmission` applies it the instant the
@@ -2638,12 +2669,11 @@ impl ProtocolEngine {
             // camera nonetheless sends one it is spurious for this shape, so it
             // is ignored — it must never assign the command a socket.
             Phase::AwaitingCompletion { .. }
-            | Phase::AwaitingLateAck { .. }
             | Phase::Ready { .. }
             | Phase::Executing { .. }
+            | Phase::AwaitingCancellationResolution { .. }
             | Phase::AwaitingReply { .. }
-            | Phase::Backoff { .. }
-            | Phase::AwaitingCancellationResolution { .. } => {
+            | Phase::Backoff { .. } => {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
                 return;
             }
@@ -2706,9 +2736,7 @@ impl ProtocolEngine {
                 socket.is_none_or(|socket| socket == owned)
             }
             // A Sony exact completion can legitimately beat or replace an ACK.
-            Phase::AwaitingAck { .. } | Phase::AwaitingLateAck { .. } => {
-                self.policy.envelope == EnvelopeKind::Sony
-            }
+            Phase::AwaitingAck { .. } => self.policy.envelope == EnvelopeKind::Sony,
             // Issue #700: a completion-only command owns no socket. The resolver
             // established it as the sole completion-only candidate on the target,
             // so accept its completion regardless of any socket nibble the vendor
@@ -2759,9 +2787,12 @@ impl ProtocolEngine {
         }) else {
             return;
         };
-        let tombstone = RawTerminalTombstone::terminal(add_duration(now, ambiguity));
-        let target_index = target.id() as usize;
-        extend_tombstone(&mut self.raw_target_tombstones[target_index], tombstone);
+        self.extend_raw_hold(
+            target,
+            RawHoldScope::AllResponses,
+            add_duration(now, ambiguity),
+            Some(id),
+        );
     }
 
     /// Retains one bounded raw inquiry hold when timeout, error, or retry
@@ -2785,9 +2816,11 @@ impl ProtocolEngine {
         }) else {
             return;
         };
-        extend_tombstone(
-            &mut self.raw_target_tombstones[target.id() as usize],
-            RawTerminalTombstone::inquiry(add_duration(now, self.policy.raw_inquiry_release_hold)),
+        self.extend_raw_hold(
+            target,
+            RawHoldScope::InquiryUnkeyed,
+            add_duration(now, self.policy.raw_inquiry_release_hold),
+            Some(id),
         );
     }
 
@@ -2924,15 +2957,6 @@ impl ProtocolEngine {
             return;
         }
         let phase = entry.phase;
-        if matches!(
-            phase,
-            Phase::AwaitingCancellationResolution { deadline, .. }
-                | Phase::AwaitingLateAck { deadline }
-                if deadline < now
-        ) {
-            self.expire_quarantine(id, effects);
-            return;
-        }
         match phase {
             Phase::Ready { .. } | Phase::Backoff { .. } => {
                 if let Some(entry) = self.entries.get_mut(&id) {
@@ -2944,7 +2968,6 @@ impl ProtocolEngine {
             Phase::Sending { .. }
             | Phase::AwaitingAck { .. }
             | Phase::AwaitingCompletion { .. }
-            | Phase::AwaitingLateAck { .. }
             | Phase::Executing { .. }
             | Phase::AwaitingCancellationResolution { .. }
             | Phase::AwaitingReply { .. } => {
@@ -2960,28 +2983,6 @@ impl ProtocolEngine {
                 }
                 let ambiguity_deadline =
                     add_duration(now, entry.request.context().timeout.ambiguity);
-                // A raw ambiguity quarantine already owns either a socket or
-                // the sole unacknowledged-command slot. If cancellation is
-                // requested while that hold is active, keep the later of the
-                // two deadlines so the cancellation-driven path stays eligible
-                // until its own ambiguity window closes.
-                let phase = match phase {
-                    Phase::AwaitingCancellationResolution { socket, deadline } => {
-                        Phase::AwaitingCancellationResolution {
-                            socket,
-                            deadline: deadline.max(ambiguity_deadline),
-                        }
-                    }
-                    Phase::AwaitingLateAck { deadline } => Phase::AwaitingLateAck {
-                        deadline: deadline.max(ambiguity_deadline),
-                    },
-                    phase => phase,
-                };
-                let ambiguity_deadline = match phase {
-                    Phase::AwaitingCancellationResolution { deadline, .. }
-                    | Phase::AwaitingLateAck { deadline } => deadline,
-                    _ => ambiguity_deadline,
-                };
                 if let Some(entry) = self.entries.get_mut(&id) {
                     entry.cancellation_observation_open = true;
                 }
@@ -2996,9 +2997,7 @@ impl ProtocolEngine {
                     id,
                     observation: CancellationObservation::Recorded,
                 });
-                if let Phase::Executing { socket, .. }
-                | Phase::AwaitingCancellationResolution { socket, .. } = phase
-                {
+                if let Phase::Executing { socket, .. } = phase {
                     self.emit_cancel(id, socket, now, effects);
                 }
             }
@@ -3043,6 +3042,15 @@ impl ProtocolEngine {
         // deadline rather than allowing the older phase deadline to release
         // it while the write is still unresolved.
         let phase = match entry.phase {
+            Phase::Executing {
+                socket: phase_socket,
+                started_at,
+                deadline,
+            } => Phase::Executing {
+                socket: phase_socket,
+                started_at,
+                deadline: deadline.max(ambiguity_deadline),
+            },
             Phase::AwaitingCancellationResolution {
                 socket: phase_socket,
                 deadline,
@@ -3204,7 +3212,7 @@ impl ProtocolEngine {
         // the tombstone. Once the turn reaches due work, release every expired
         // fixed slot before dispatching a queued successor.
         self.raw_release_gate = None;
-        self.expire_raw_terminal_tombstones(now);
+        self.expire_raw_holds(now);
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
             let valid = self.entries.get(&due.request).is_some_and(|entry| {
                 entry.generation == due.generation
@@ -3232,13 +3240,14 @@ impl ProtocolEngine {
                     Phase::AwaitingAck { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::AwaitingCompletion { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::Executing { deadline, .. } => Some((deadline, 1, 0)),
+                    Phase::AwaitingCancellationResolution { deadline, .. } => {
+                        Some((deadline, 1, 0))
+                    }
                     Phase::AwaitingReply { deadline, .. } => Some((deadline, 1, 0)),
                     Phase::Backoff {
                         ready_at,
                         queue_generation,
                     } => Some((ready_at, 2, queue_generation)),
-                    Phase::AwaitingCancellationResolution { deadline, .. }
-                    | Phase::AwaitingLateAck { deadline } => Some((deadline, 0, 0)),
                     Phase::Ready { .. } | Phase::Sending { .. } => None,
                 };
                 let retry_budget_due = retry_budget_deadline(entry);
@@ -3320,14 +3329,10 @@ impl ProtocolEngine {
     /// [`Error::UnsequencedCommandUnconfirmed`] while holding whatever
     /// correlation it still owns — its command socket, or its place as the sole
     /// unacknowledged raw command on the target — quarantined until the
-    /// ambiguity deadline. The request remains open during that bounded window:
-    /// an attributable late ACK or exact socket completion can still apply,
-    /// while the retained slot prevents it from binding to a later command. The
-    /// session and every unrelated request keep running.
-    ///
-    /// The caller must have already established that this is a raw command with
-    /// no cancellation in flight; the quarantine phases are distinguished from
-    /// their cancellation-driven uses by their [`CancelState::None`].
+    /// ambiguity deadline. The terminal outcome is emitted immediately; the
+    /// inert keyed hold, rather than a hidden still-live request phase, prevents
+    /// late input from binding to a successor. The session and every unrelated
+    /// request keep running.
     fn terminate_unconfirmed_raw(
         &mut self,
         id: RequestId,
@@ -3342,68 +3347,38 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let ambiguity_deadline = add_duration(now, entry.request.context().timeout.ambiguity);
-        let cancellation = entry.cancellation;
+        debug_assert!(matches!(entry.cancellation, CancelState::None));
+        let target = entry.request.context().target;
         let reply_shape = entry.request.context().reply_shape;
-        match entry.phase {
-            Phase::Executing { socket, .. } => {
-                // Correlation is exact — this request owns `socket`. Hold it so
-                // a late completion can still resolve here and never bind to a
-                // later command that reuses the socket.
-                self.transition(
-                    id,
-                    Phase::AwaitingCancellationResolution {
-                        socket,
-                        deadline: ambiguity_deadline,
-                    },
-                    cancellation,
-                    effects,
-                );
+        let ambiguity_deadline = add_duration(now, entry.request.context().timeout.ambiguity);
+        let scope = match entry.phase {
+            // Exact socket identity remains unusable until its bounded stale
+            // completion window closes.
+            Phase::Executing { socket, .. }
+            | Phase::AwaitingCancellationResolution { socket, .. } => {
+                Some(RawHoldScope::Socket(socket))
             }
-            Phase::AwaitingAck { .. } => {
-                // No socket is owned yet; hold the sole-unacknowledged-command
-                // slot. The request remains open, so an attributable late ACK
-                // can still establish its socket before the window closes.
-                self.transition_to_late_ack(id, ambiguity_deadline, cancellation, true, effects);
-            }
-            Phase::AwaitingCompletion { .. } => {
-                // Issue #700: a completion-only command owns no socket, so — like
-                // AwaitingAck — it holds the sole-command slot rather than a
-                // socket. Reuse the same late-slot quarantine: it keeps the target
-                // reserved so no later command can be dispatched into the
-                // ambiguity window. A late completion stays inert because this
-                // phase no longer matches a completion-only candidate.
-                self.transition_to_late_ack(id, ambiguity_deadline, cancellation, false, effects);
-            }
-            Phase::Sending { transmission, .. } => {
-                // The write is still in flight. Drop its correlation so the
-                // returning transmission result is inert, abandon any ACK or
-                // completion that raced the write (issue #297/#700 latches — this
-                // attempt is over), and hold the unacknowledged slot the same way.
-                self.transmissions.remove(&transmission);
-                if let Some(entry) = self.entries.get_mut(&id) {
-                    entry.deferred_ack = None;
-                    entry.deferred_completion = None;
-                }
-                let eligible = reply_shape == ReplyShape::AckThenCompletion;
-                self.transition_to_late_ack(
-                    id,
-                    ambiguity_deadline,
-                    cancellation,
-                    eligible,
-                    effects,
-                );
-            }
-            _ => {
-                // Nothing correlated is at stake (Ready/Backoff/AwaitingReply/…):
-                // fail immediately.
-                self.finish(
-                    id,
-                    RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
-                    effects,
-                );
-            }
+            // A command which never earned a socket leaves positional ACK
+            // evidence behind.
+            Phase::AwaitingAck { .. } => Some(RawHoldScope::PreAck),
+            // Completion-only commands and physically uncertain writes have no
+            // narrower response identity, so their hold covers every response
+            // class on the target.
+            Phase::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
+            Phase::Sending { .. } => Some(match reply_shape {
+                ReplyShape::AckThenCompletion => RawHoldScope::PreAck,
+                ReplyShape::CompletionOnly | ReplyShape::NoReply => RawHoldScope::AllResponses,
+            }),
+            Phase::Ready { .. } | Phase::AwaitingReply { .. } | Phase::Backoff { .. } => None,
+        };
+        if let Some(scope) = scope {
+            self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
         }
+        self.finish(
+            id,
+            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+            effects,
+        );
     }
 
     fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Vec<Effect>) {
@@ -3475,20 +3450,22 @@ impl ProtocolEngine {
             return;
         }
         match phase {
-            Phase::AwaitingAck { deadline, .. } if deadline <= now => {
+            Phase::AwaitingAck { sent_at, deadline } if deadline <= now => {
                 let mark = effects.len();
                 if let CancelState::Requested { ambiguity_deadline } = entry.cancellation {
-                    self.transition_to_late_ack(
+                    self.transition(
                         due.request,
-                        ambiguity_deadline,
+                        Phase::AwaitingAck {
+                            sent_at,
+                            deadline: ambiguity_deadline,
+                        },
                         entry.cancellation,
-                        true,
                         effects,
                     );
                 } else if self.policy.envelope == EnvelopeKind::Raw {
-                    // Default: quarantine the sole unacknowledged raw command as
-                    // a late-ACK slot and fail it UnsequencedCommandUnconfirmed
-                    // at the ambiguity deadline; strict: poison. Issue #671.
+                    // Default: fail the sole unacknowledged raw command now and
+                    // leave its positional slot as an inert keyed hold through
+                    // the ambiguity interval; strict: poison. Issues #671/#723.
                     self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else if entry.request.context().retry.ack_timeout {
                     self.schedule_retry(
@@ -3503,26 +3480,27 @@ impl ProtocolEngine {
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
             }
-            Phase::AwaitingCompletion { deadline, .. } if deadline <= now => {
+            Phase::AwaitingCompletion { sent_at, deadline } if deadline <= now => {
                 let mark = effects.len();
                 if let CancelState::Requested { ambiguity_deadline } = entry.cancellation {
                     // Cancelled but never socketed (issue #700): hold the
                     // socketless sole-command slot until the ambiguity deadline,
                     // exactly as the AwaitingAck cancel path does.
-                    self.transition_to_late_ack(
+                    self.transition(
                         due.request,
-                        ambiguity_deadline,
+                        Phase::AwaitingCompletion {
+                            sent_at,
+                            deadline: ambiguity_deadline,
+                        },
                         entry.cancellation,
-                        false,
                         effects,
                     );
                 } else if self.policy.envelope == EnvelopeKind::Raw {
                     // Issue #700: the completion never arrived. This shape has no
-                    // ACK-timeout path; the completion deadline governs. Quarantine
-                    // the sole-command slot and fail this one request
-                    // UnsequencedCommandUnconfirmed at the ambiguity deadline
-                    // (default), or poison (strict) — the #671 per-request model,
-                    // never a session-wide poison by default.
+                    // ACK-timeout path; the completion deadline governs. Fail
+                    // this request now and leave the sole-command slot as an
+                    // inert keyed hold through the ambiguity interval (default),
+                    // or poison (strict) — the #671/#723 per-request model.
                     self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else if entry.request.context().retry.completion_timeout {
                     self.schedule_retry(
@@ -3585,6 +3563,18 @@ impl ProtocolEngine {
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
+            Phase::AwaitingCancellationResolution { deadline, .. } if deadline <= now => {
+                let error = if self.policy.envelope == EnvelopeKind::Raw {
+                    Error::UnsequencedCommandUnconfirmed
+                } else {
+                    Error::CancellationUnconfirmed
+                };
+                if self.raw_unconfirmed_poison() {
+                    self.poison_strict_unconfirmed(effects);
+                } else {
+                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+                }
+            }
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
                 let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout;
@@ -3608,28 +3598,7 @@ impl ProtocolEngine {
             } if ready_at <= now && queue_generation == due.queue_generation => {
                 self.promote_retry(due.request, effects);
             }
-            Phase::AwaitingCancellationResolution { deadline, .. }
-            | Phase::AwaitingLateAck { deadline }
-                if deadline <= now =>
-            {
-                self.expire_quarantine(due.request, effects);
-            }
             _ => effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket)),
-        }
-    }
-
-    /// Closes an ambiguity/quarantine hold without allowing a later cancel
-    /// request to extend an already-expired correlation window.
-    fn expire_quarantine(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
-        let error = if self.policy.envelope == EnvelopeKind::Raw {
-            Error::UnsequencedCommandUnconfirmed
-        } else {
-            Error::CancellationUnconfirmed
-        };
-        if self.raw_unconfirmed_poison() {
-            self.poison_strict_unconfirmed(effects);
-        } else {
-            self.finish(id, RuntimeOutcome::Failed(error), effects);
         }
     }
 
@@ -3673,52 +3642,25 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return releases;
         }
-        // Keep this explicit list aligned with the target-indexed tombstone
-        // table: the zero slot is inert and slots one through eight represent
-        // every valid `CameraId`, including broadcast.  Iterating the typed
-        // IDs avoids re-validating an internal table index with `expect`.
-        for (target, tombstone) in [
-            CameraId::CAMERA_1,
-            CameraId::CAMERA_2,
-            CameraId::CAMERA_3,
-            CameraId::CAMERA_4,
-            CameraId::CAMERA_5,
-            CameraId::CAMERA_6,
-            CameraId::CAMERA_7,
-            CameraId::BROADCAST,
-        ]
-        .into_iter()
-        .zip(self.raw_target_tombstones.iter().skip(1))
-        {
-            let Some(tombstone) = tombstone else {
+        for (key, hold) in &self.holds {
+            if hold.until > now {
                 continue;
-            };
-            let release = releases.for_target_mut(target);
-            if tombstone
-                .terminal_deadline
-                .is_some_and(|deadline| deadline <= now)
-            {
-                release.release_terminal_all();
             }
-            if tombstone
-                .inquiry_deadline
-                .is_some_and(|deadline| deadline <= now)
-            {
-                release.release_inquiry_unkeyed();
+            let release = releases.for_target_mut(key.target);
+            match key.scope {
+                RawHoldScope::Socket(socket) => release.release_exact_socket(socket),
+                RawHoldScope::PreAck => release.release_pre_ack_unkeyed(),
+                RawHoldScope::InquiryUnkeyed => release.release_inquiry_unkeyed(),
+                RawHoldScope::AllResponses => release.release_terminal_all(),
             }
         }
         for entry in self.entries.values() {
-            // Ordinary response deadlines may *install* a new tombstone in the
-            // due pass. They do not release existing correlation before that
-            // input-first turn, so a split valid frame must remain intact here.
-            let due = cancellation_ambiguity(entry.cancellation)
-                .is_some_and(|deadline| deadline <= now)
-                || matches!(
-                    entry.phase,
-                    Phase::AwaitingCancellationResolution { deadline, .. }
-                        | Phase::AwaitingLateAck { deadline }
-                        if deadline <= now
-                );
+            // Ordinary response deadlines can either extend a live cancellation
+            // phase or install a new keyed hold in the due pass. Neither case
+            // releases correlation before that input-first turn, so project
+            // only the deadline which can actually remove this live entry.
+            let due =
+                raw_cancellation_release_deadline(entry).is_some_and(|deadline| deadline <= now);
             if !due {
                 continue;
             }
@@ -3731,8 +3673,7 @@ impl ProtocolEngine {
                 Phase::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
                 Phase::Sending { .. }
                 | Phase::AwaitingAck { .. }
-                | Phase::AwaitingCompletion { .. }
-                | Phase::AwaitingLateAck { .. } => release.release_pre_ack_unkeyed(),
+                | Phase::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
                 Phase::Ready { .. } | Phase::Backoff { .. } => {}
             }
         }
@@ -3870,7 +3811,7 @@ impl ProtocolEngine {
             .next_due()
             .map(|due| due.at)
             .into_iter()
-            .chain(self.raw_terminal_tombstone_wake())
+            .chain(self.raw_hold_wake())
             .min();
         for entry in self.entries.values() {
             let candidate = if include_ready
@@ -3890,46 +3831,35 @@ impl ProtocolEngine {
         wake
     }
 
-    /// Earliest expiry across the fixed raw target tombstone slots.
-    fn raw_terminal_tombstone_wake(&self) -> Option<Instant> {
+    /// Earliest expiry across the keyed raw quarantine table.
+    fn raw_hold_wake(&self) -> Option<Instant> {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
         }
-        self.raw_target_tombstones
-            .iter()
-            .flatten()
-            .filter_map(|tombstone| tombstone.next_deadline())
-            .min()
+        self.holds.values().map(|hold| hold.until).min()
     }
 
-    /// Releases every terminal tombstone whose bounded ambiguity window has
-    /// elapsed.  This runs before ordinary dispatch, so a queued successor can
-    /// make progress in the same wake that restores the target lane.
-    fn expire_raw_terminal_tombstones(&mut self, now: Instant) {
+    /// Releases every raw hold whose bounded ambiguity window has elapsed.
+    /// This runs before ordinary dispatch, so a queued successor can make
+    /// progress in the same wake that restores the target lane.
+    fn expire_raw_holds(&mut self, now: Instant) {
         if self.policy.envelope != EnvelopeKind::Raw {
             return;
         }
-        for tombstone in &mut self.raw_target_tombstones {
-            if let Some(value) = tombstone {
-                value.expire_at(now);
-                if !value.is_active() {
-                    *tombstone = None;
-                }
-            }
-        }
+        self.holds.retain(|_, hold| hold.until > now);
     }
 
     fn capacity_available_for(&self, entry: &Entry) -> bool {
         if entry.request.is_inquiry() {
-            !self.raw_tombstone_blocks_dispatch(entry, entry.request.context().target)
+            !self.raw_hold_blocks_dispatch(entry, entry.request.context().target)
                 && self.inquiries_inflight() < self.policy.inquiry_capacity
                 && !self.uncorrelated_raw_shape_blocked(entry, entry.request.context().target)
         } else {
             let target = entry.request.context().target;
             self.targets[target.id() as usize].is_some_and(|policy| {
-                !self.raw_tombstone_blocks_dispatch(entry, target)
+                !self.raw_hold_blocks_dispatch(entry, target)
                     && !self.raw_command_gate_blocks(entry, target)
-                    && self.commands_inflight(target) < usize::from(policy.command_sockets)
+                    && self.command_capacity_used(target) < usize::from(policy.command_sockets)
                     && !self.uncorrelated_raw_shape_blocked(entry, target)
             })
         }
@@ -4013,6 +3943,7 @@ impl ProtocolEngine {
         for queue in &mut self.raw_inquiries {
             queue.clear();
         }
+        self.holds.clear();
         for queue in &mut self.command_queues {
             queue.clear();
         }
@@ -4139,12 +4070,17 @@ impl ProtocolEngine {
                 }
             }
         }
-        // Released raw-response tombstones are fixed by protocol topology: one
-        // slot per target. They must never exist for a sequenced envelope.
-        if self.policy.envelope != EnvelopeKind::Raw
-            && self.raw_target_tombstones.iter().any(Option::is_some)
-        {
-            return Err("raw terminal tombstone on a sequenced session".into());
+        // Raw holds are meaningless for a sequenced envelope, and every key
+        // must name a valid registered target.
+        if self.policy.envelope != EnvelopeKind::Raw && !self.holds.is_empty() {
+            return Err("raw correlation hold on a sequenced session".into());
+        }
+        if self.holds.keys().any(|key| {
+            !(1..=8).contains(&key.target.id())
+                || (key.target != CameraId::BROADCAST
+                    && self.targets[key.target.id() as usize].is_none())
+        }) {
+            return Err("raw correlation hold has an invalid target".into());
         }
         for (id, entry) in &self.entries {
             if entry.sequence_history.len() > MAX_SEQUENCE_HISTORY {
@@ -4170,12 +4106,6 @@ impl ProtocolEngine {
             if entry.deferred_ack.is_some() && !matches!(entry.phase, Phase::Sending { .. }) {
                 return Err("deferred ACK outlived the write it raced".into());
             }
-            if entry.late_ack_eligible
-                && (!matches!(entry.phase, Phase::AwaitingLateAck { .. })
-                    || entry.request.context().reply_shape != ReplyShape::AckThenCompletion)
-            {
-                return Err("late-ACK eligibility is phase- or shape-incompatible".into());
-            }
             if entry.request.context().reply_shape == ReplyShape::CompletionOnly
                 && (entry.deferred_ack.is_some()
                     || matches!(
@@ -4197,6 +4127,13 @@ impl ProtocolEngine {
             {
                 return Err(
                     "awaiting-completion phase belongs to a non-completion-only command".into(),
+                );
+            }
+            if matches!(entry.phase, Phase::AwaitingCancellationResolution { .. })
+                && matches!(entry.cancellation, CancelState::None)
+            {
+                return Err(
+                    "cancellation-resolution phase has no active cancellation state".into(),
                 );
             }
             if entry.deferred_completion.is_some() && !matches!(entry.phase, Phase::Sending { .. })
@@ -4279,9 +4216,9 @@ impl ProtocolEngine {
         // one intrinsically Urgent. The resolver then binds an ACK/error to
         // neither. Keep this audit on the same predicate as dispatch:
         // completion-only `AwaitingCompletion` is uncorrelated for its entire
-        // lifetime, while the socket quarantine
-        // (`AwaitingCancellationResolution` with `CancelState::None`) is excluded
-        // because its correlation stays exact. See issue_542_design_review.md,
+        // lifetime, while exact socket holds live in the keyed quarantine table
+        // rather than masquerading as active positional candidates. See
+        // issue_542_design_review.md,
         // “Decisions from this review”, item 7, and architecture_2_0.md,
         // “Correlation before ACK is envelope-specific” and “Operational
         // invariants”.
@@ -4314,15 +4251,6 @@ impl ProtocolEngine {
                 return Err(
                     "uncorrelatable raw command does not own its target exclusively".into(),
                 );
-            }
-        } else {
-            // The per-request unconfirmed quarantine is a raw-only construct: a
-            // non-raw session must never hold a `CancelState::None` entry in a
-            // late-ACK or socket-quarantine phase.
-            for entry in self.entries.values() {
-                if is_unconfirmed_quarantine(entry) {
-                    return Err("unconfirmed quarantine on a non-raw session".into());
-                }
             }
         }
         Ok(())
@@ -4361,47 +4289,20 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
     !entry.request.is_inquiry()
         && matches!(
             entry.phase,
-            Phase::Sending { .. }
-                | Phase::AwaitingAck { .. }
-                | Phase::AwaitingCompletion { .. }
-                | Phase::AwaitingLateAck { .. }
+            Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingCompletion { .. }
         )
 }
 
 /// The one admission-relative retry-budget deadline while it governs `entry`.
 ///
-/// Cancellation and ambiguity/quarantine phases have their own deadline and
-/// intentionally suppress this arm; expiry must never shorten those holds.
+/// Cancellation has its own ambiguity deadline and intentionally suppresses
+/// this arm; expiry must never shorten an active cancellation window. Inert raw
+/// quarantine holds live outside the request entry and are unaffected by its
+/// retry budget.
 fn retry_budget_deadline(entry: &Entry) -> Option<Instant> {
     let total_budget = entry.request.context().retry.total_budget;
-    (total_budget != Duration::ZERO
-        && matches!(entry.cancellation, CancelState::None)
-        && !is_quarantine_phase(entry.phase))
-    .then(|| add_duration(entry.submitted_at, total_budget))
-}
-
-/// Extends one bounded terminal tombstone scope without replacing a newer hold
-/// of the same provenance for the same fixed target slot.
-fn extend_tombstone(slot: &mut Option<RawTerminalTombstone>, tombstone: RawTerminalTombstone) {
-    let mut merged = slot.unwrap_or(RawTerminalTombstone {
-        terminal_deadline: None,
-        inquiry_deadline: None,
-    });
-    if let Some(deadline) = tombstone.terminal_deadline {
-        merged.terminal_deadline = Some(
-            merged
-                .terminal_deadline
-                .map_or(deadline, |existing| existing.max(deadline)),
-        );
-    }
-    if let Some(deadline) = tombstone.inquiry_deadline {
-        merged.inquiry_deadline = Some(
-            merged
-                .inquiry_deadline
-                .map_or(deadline, |existing| existing.max(deadline)),
-        );
-    }
-    *slot = Some(merged);
+    (total_budget != Duration::ZERO && matches!(entry.cancellation, CancelState::None))
+        .then(|| add_duration(entry.submitted_at, total_budget))
 }
 
 fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
@@ -4422,13 +4323,11 @@ fn cancellation_ambiguity(cancellation: CancelState) -> Option<Instant> {
 
 /// The cancellation ambiguity deadline while it can still bound correlation.
 ///
-/// Before ACK there is no independent response identity, and after the normal
-/// completion deadline the quarantine phase is itself governed by ambiguity.
-/// While a request owns an exact socket, however, its legitimate completion
-/// remains attributable through the completion deadline. A later
-/// `AwaitingCancellationResolution` phase already stores the greater of that
-/// deadline and cancellation ambiguity, so the substate must not shorten it
-/// either (#724).
+/// Before ACK there is no independent response identity, so ambiguity can end
+/// the socketless correlation window. While a request owns an exact socket,
+/// however, its legitimate completion remains attributable through the
+/// completion deadline; the cancellation-resolution phase stores the greater
+/// of that deadline and cancellation ambiguity (#724).
 fn active_cancellation_ambiguity(entry: &Entry) -> Option<Instant> {
     (!matches!(
         entry.phase,
@@ -4457,8 +4356,7 @@ fn correlated_response_deadline(entry: &Entry) -> Option<Instant> {
         | Phase::AwaitingCompletion { deadline, .. }
         | Phase::Executing { deadline, .. }
         | Phase::AwaitingReply { deadline, .. }
-        | Phase::AwaitingCancellationResolution { deadline, .. }
-        | Phase::AwaitingLateAck { deadline } => Some(deadline),
+        | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
         Phase::Sending { .. } => None,
         Phase::Ready { .. } | Phase::Backoff { .. } => return None,
     };
@@ -4470,6 +4368,24 @@ fn correlated_response_deadline(entry: &Entry) -> Option<Instant> {
     .into_iter()
     .flatten()
     .min()
+}
+
+/// The deadline at which advancing can remove a live raw cancellation owner.
+///
+/// A socketless phase ends at cancellation ambiguity even when its ordinary
+/// response deadline is earlier. An exact socket remains attributable through
+/// both its completion deadline and cancellation ambiguity; the explicit
+/// resolution phase already stores their maximum.
+fn raw_cancellation_release_deadline(entry: &Entry) -> Option<Instant> {
+    let ambiguity = cancellation_ambiguity(entry.cancellation)?;
+    match entry.phase {
+        Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingCompletion { .. } => {
+            Some(ambiguity)
+        }
+        Phase::Executing { deadline, .. } => Some(deadline.max(ambiguity)),
+        Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
+        Phase::Ready { .. } | Phase::AwaitingReply { .. } | Phase::Backoff { .. } => None,
+    }
 }
 
 fn pending_cancellation_socket(entry: &Entry) -> Option<ViscaSocket> {
@@ -4659,7 +4575,6 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
                 | Phase::Executing { .. }
                 | Phase::AwaitingReply { .. }
                 | Phase::AwaitingCancellationResolution { .. }
-                | Phase::AwaitingLateAck { .. }
                 | Phase::Backoff { .. }
                 | Phase::Ready { .. }
                 | Phase::Sending { .. }
@@ -4690,7 +4605,6 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
             matches!(
                 entry.phase,
                 Phase::AwaitingAck { .. }
-                    | Phase::AwaitingLateAck { .. }
                     | Phase::Executing { .. }
                     | Phase::AwaitingCancellationResolution { .. }
             ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
@@ -4724,8 +4638,7 @@ fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
         | Phase::AwaitingAck { .. }
         | Phase::AwaitingCompletion { .. }
         | Phase::AwaitingReply { .. }
-        | Phase::Backoff { .. }
-        | Phase::AwaitingLateAck { .. } => return false,
+        | Phase::Backoff { .. } => return false,
     };
     match entry.cancellation {
         CancelState::Sending { socket, .. } => socket == phase_socket,
@@ -4750,34 +4663,6 @@ fn phase_owns_socket(phase: Phase, socket: ViscaSocket) -> bool {
         Phase::Executing { socket: owned, .. }
             | Phase::AwaitingCancellationResolution { socket: owned, .. }
             if owned == socket
-    )
-}
-
-/// Whether an entry is a per-request unconfirmed-command quarantine (issue #671).
-///
-/// A raw command that will fail at its ambiguity deadline with
-/// [`Error::UnsequencedCommandUnconfirmed`] holds its correlation slot until
-/// then in [`Phase::AwaitingLateAck`] (its unacknowledged-command slot) or
-/// [`Phase::AwaitingCancellationResolution`] (its owned socket). These two
-/// phases are otherwise driven by the cancellation path, which always carries a
-/// non-[`CancelState::None`] state, so [`CancelState::None`] uniquely marks the
-/// unconfirmed hold. The request is still open: only response evidence valid for
-/// that hold may apply before expiry, and the retained slot prevents it from
-/// being misattributed to a successor.
-fn is_unconfirmed_quarantine(entry: &Entry) -> bool {
-    matches!(entry.cancellation, CancelState::None) && is_quarantine_phase(entry.phase)
-}
-
-/// Whether a phase is a quarantine hold — a late-ACK slot or an owned socket
-/// held until an ambiguity/quarantine deadline.
-///
-/// Both the cancellation path and the issue #671 per-request quarantine park an
-/// entry here. Such an entry is waiting for its own quarantine deadline, so the
-/// retry budget (which bounds an *active* attempt) must not re-drive it.
-const fn is_quarantine_phase(phase: Phase) -> bool {
-    matches!(
-        phase,
-        Phase::AwaitingLateAck { .. } | Phase::AwaitingCancellationResolution { .. }
     )
 }
 
@@ -4955,11 +4840,13 @@ mod cancellation_regression_tests {
         let now = Instant::now();
         let (mut engine, id) = start_executing(EnvelopeKind::Raw, Duration::ZERO, now);
         let completion_deadline = now + Duration::from_millis(5);
-        engine.advance(completion_deadline);
-        let deadline = match engine.entry(id).expect("quarantine entry").phase() {
-            Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
-            phase => panic!("expected quarantine, got {phase:?}"),
-        };
+        let expired = engine.advance(completion_deadline);
+        assert!(terminal_unconfirmed(&expired, id));
+        assert!(engine.entry(id).is_none());
+        let deadline = engine
+            .raw_hold(camera(), RawHoldScope::Socket(ViscaSocket::S1))
+            .expect("socket quarantine hold")
+            .until;
         (engine, id, deadline)
     }
 
@@ -4969,8 +4856,8 @@ mod cancellation_regression_tests {
         for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
             let (mut engine, id) = start_executing(envelope, Duration::from_millis(40), start);
             // Record cancellation while the command is still executing. The
-            // completion deadline then opens the quarantine before pacing
-            // permits the cancellation write for both envelope kinds.
+            // completion deadline then extends the executing response window
+            // before pacing permits the cancellation write for both envelopes.
             let cancel_at = start + Duration::from_millis(1);
             let recorded = engine.handle(Input::Cancel { id }, cancel_at);
             assert!(recorded.iter().any(
@@ -5011,32 +4898,26 @@ mod cancellation_regression_tests {
     }
 
     #[test]
-    fn overdue_quarantine_expires_before_cancel_but_equal_deadline_wins() {
+    fn quarantined_terminal_rejects_cancel_at_and_after_hold_boundary() {
         let (mut equal_engine, equal_id, equal_deadline) = quarantine();
         let equal = equal_engine.handle(Input::Cancel { id: equal_id }, equal_deadline);
-        assert!(equal.iter().any(
-            |effect| matches!(effect, Effect::CancellationRecorded { id } if *id == equal_id)
+        assert!(matches!(
+            equal.as_slice(),
+            [Effect::Ignored(IgnoreReason::UnknownRequest)]
         ));
-        assert!(!terminal_unconfirmed(&equal, equal_id));
-        assert!(equal_engine.entry(equal_id).is_some());
+        assert!(equal_engine.holds.is_empty());
 
         let (mut overdue_engine, overdue_id, overdue_deadline) = quarantine();
         let overdue = overdue_engine.handle(
             Input::Cancel { id: overdue_id },
             overdue_deadline + Duration::from_nanos(1),
         );
-        assert!(terminal_unconfirmed(&overdue, overdue_id));
-        assert!(!overdue.iter().any(|effect| {
-            matches!(
-                effect,
-                Effect::CancellationRecorded { id } | Effect::Transmit {
-                    request: id,
-                    kind: Transmission::Cancel { .. },
-                    ..
-                } if *id == overdue_id
-            )
-        }));
+        assert!(matches!(
+            overdue.as_slice(),
+            [Effect::Ignored(IgnoreReason::UnknownRequest)]
+        ));
         assert!(overdue_engine.entry(overdue_id).is_none());
+        assert!(overdue_engine.holds.is_empty());
         overdue_engine
             .assert_invariants()
             .expect("engine invariants");
