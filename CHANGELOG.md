@@ -676,8 +676,11 @@ entries below retain their original wording.
   instead of hot-spinning the caller thread. Every blocking-owner timestamp and
   pacing wait now passes through one private, std-only monotonic-clock seam;
   production keeps the system clock while deterministic tests advance virtual
-  time without sleeping. This is an internal architecture change with no public
-  API change.
+  time without sleeping. The async owner's 90 inline characterization tests are
+  now divided into release-boundary, fairness, fault, lifecycle, and receipt
+  modules, and its three duplicate raw-boundary fake-driver families share one
+  configurable scripted harness. This is an internal architecture change with
+  no public API change.
 
 - **BREAKING: unified raw uncertainty behind one keyed hold table**
   (2026-09-02; #723; supersedes the live late-ACK/quarantine wording under
