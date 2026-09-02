@@ -34,11 +34,11 @@ the required position inquiry and that distinction matters.
 | Legacy `Connect`/`CameraConfig` single-target shortcuts | Keep the convenience path, but use `SessionConfig` when configuration must be cloned, reused, or shared across targets. |
 | Direct `Camera::new_*`, `open_*` compatibility constructors | `Connect`/`CameraConfig` for standard transports; `Session::open` for a caller-owned transport. |
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
-| `CameraVariant` and root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. |
+| Root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. (`CameraVariant` had already been removed before the 1.x oracle used for this guide.) |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
 | `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
-| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; reach for `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config)` only when you drive the transport yourself. |
+| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are

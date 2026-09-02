@@ -1822,7 +1822,7 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry",
+                    "Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry",
                     $crate::capabilities::TypedSupportSurface::IrisControl,
                 );
                 assert_literal_row(
@@ -1832,7 +1832,7 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Shared VISCA exposure mode control and inquiry",
+                    "Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`)",
                     $crate::capabilities::TypedSupportSurface::ExposureMode,
                 );
                 assert_literal_row(
@@ -2879,6 +2879,7 @@ macro_rules! define_builtin_profiles {
                         ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
                         ("af_sensitivity", "The FR7 command list R7 documents Push AF/MF under `7E 04 58`, but not the shared `04 58` autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),
+                        ("variable_speed", "The FR7 command list R7 documents the `06 45` normal/extended pan/tilt speed-step range. Its separate `7E 04 1B` family selects preset-speed behavior and is not used by this typed surface."),
                         ("noise_reduction", "The FR7 command list R7 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family; keep the shared metadata and typed surfaces absent."),
                         ("picture_effect", "The FR7 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],

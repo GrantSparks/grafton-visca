@@ -96,8 +96,8 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Shared VISCA exposure mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
-| Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
@@ -489,10 +489,10 @@ or guarantee that camera firmware will retain an idle application session. When
 an operation fails, ask `Error::requires_new_session()`: it reports `true` for
 terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`; it
 reports `false` for a `RuntimeShutdown` this application requested and for the raw
-ambiguity error `UnsequencedCommandUnconfirmed`, which since #671 fails only that
-one command while the session keeps running (opt into
-`OperationalTuning::strict_unconfirmed_poison` for the old whole-session poison,
-surfaced as `StreamPoisoned`). On `true`, discard that session
+ambiguity error `UnsequencedCommandUnconfirmed`. The canonical raw-correlation
+and strict opt-in rules are in the
+[architecture guide](docs/architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
+On `true`, discard that session
 and establish a replacement from the retained configuration. Its state cache
 starts `Unknown`, so re-query and reconcile camera state before any deliberate
 resubmission. Never blindly replay an operation whose completion is uncertain.

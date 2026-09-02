@@ -1,8 +1,9 @@
 //! Sony encapsulated VISCA protocol example.
 //!
-//! Sony professional profiles use an 8-byte encapsulation header with sequence
-//! numbers. The profile selects that protocol automatically; application code
-//! uses the same accessors as raw VISCA profiles.
+//! Sony professional profiles select the encapsulation and sequence handling
+//! automatically. Application code neither constructs the eight-byte header
+//! nor manages sequence numbers; it uses the same accessors as raw VISCA
+//! profiles.
 //!
 //! Run with:
 //! ```sh

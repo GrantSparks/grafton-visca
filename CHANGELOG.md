@@ -26,6 +26,21 @@ entries below retain their original wording.
 
 ### Added
 
+- **Published and continuously exercised the remaining documentation/example
+  contract** (#730). The private engine transition table, Sony sequence-width
+  decision, raw-correlation rules, and owner invariants now render on docs.rs
+  through the public `architecture` documentation module. Public
+  `InquiryKind`/`InquiryData` variants carry generated rustdoc instead of a
+  blanket `allow(missing_docs)`. A hardware-free blocking cancellation example
+  proves the supported socket-cancel outcome, the Tokio example now defaults to
+  cancel-capable G3 hardware while retaining an explicit G2 rejection mode, and
+  recovery now re-queries before deliberately restoring desired state. CI runs
+  all six hardware-free examples, checks the truly empty feature surface, and
+  compiles the Tokio/dynamic/serial example union at Rust 1.88. The usage,
+  migration, memory-bound, and example guides now match the actual feature,
+  constructor, buffer, timeout, address, and failure behavior; repeated raw
+  recovery rules link to canonical architecture anchors.
+
 - **Added bounded Sony transport-control handling and protocol fuzz coverage**
   (#727). `SessionConfig` and `CameraConfig` now expose the disabled-by-default
   `with_sony_sequence_reset_on_connect` opt-in; compatible Sony-encapsulated
@@ -1259,6 +1274,14 @@ entries below retain their original wording.
   callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
+
+- **Corrected three Sony FR7 wire identities exposed by the #730 reference
+  audit.** Push AF/MF now uses R7's distinct `7E 04 58` press/release family
+  instead of colliding with `7E 01 0A` red tally; normal/extended 24/50-step
+  pan/tilt speed selection now uses `06 45 08/18` instead of the unrelated
+  `7E 04 1B` preset-speed selector; and ND-preset inquiry now uses
+  `09 7E 01 53` instead of legacy `09 04 66` picture-flip state. The exhaustive
+  wire fixture and consolidated reference pin all three corrections.
 
 - Built-in inquiries now treat camera syntax error `0x02` as a retryable
   rejection and consume their configured retry budget before failing (#731),

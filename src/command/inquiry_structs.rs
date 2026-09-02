@@ -561,7 +561,6 @@ macro_rules! define_inquiry_kind_enum {
         /// Used to indicate what kind of data parser should expect in the response
         /// payload.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[allow(missing_docs)]
         pub enum InquiryKind {
             $($variants)*
         }
@@ -578,6 +577,7 @@ macro_rules! define_inquiry_kind_enum {
         define_inquiry_kind_enum!(
             @decode [
                 $($variants)*
+                #[doc = concat!("Decode-only response kind for `", stringify!($decode_kind), "`.")]
                 $decode_kind,
             ]
             $($rest)*
@@ -643,7 +643,6 @@ macro_rules! define_inquiry_data_enum {
         /// associated data.  These are returned wrapped in
         /// [`Response::Inquiry(...)`](Response::Inquiry).
         #[derive(Debug, Copy, Clone)]
-        #[allow(missing_docs)]
         pub enum InquiryData {
             $($variants)*
         }
@@ -660,6 +659,7 @@ macro_rules! define_inquiry_data_enum {
         define_inquiry_data_enum!(
             @decode [
                 $($variants)*
+                #[doc = concat!("Decoded data for the decode-only `", stringify!($decode_kind), "` response.")]
                 $decode_kind $decode_body_shape,
             ]
             $($rest)*
@@ -2734,7 +2734,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the ND filter preset setting.
         NdFilterPresetInquiry => {
-            const ND_FILTER_PRESET = [0x81, 0x09, 0x04, 0x66];
+            const ND_FILTER_PRESET = [0x81, 0x09, 0x7E, 0x01, 0x53];
             kind: NdFilterPreset {
                 /// Current ND filter preset number.
                 preset: NdFilterPreset,
@@ -2752,8 +2752,8 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
+            vendor_specific: true;
+            rationale: Some("Sony FR7 NDPresetInq; the legacy 09 04 66 register is picture-flip state, not an FR7 ND-filter preset.");
             typed: (NdFilterPreset, { preset } => Ok(preset));
         }
 

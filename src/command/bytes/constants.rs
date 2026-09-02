@@ -114,7 +114,7 @@ pub mod focus {
     pub const NEAR_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x28];
 
     /// Push AF control prefix (Sony FR7).
-    pub const PUSH_AF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00];
+    pub const PUSH_AF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x58];
 }
 
 /// Exposure command constants.
@@ -390,12 +390,12 @@ pub mod motion_sync {
     pub const SPEED_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x11, 0x14];
 }
 
-/// Variable speed command constants.
+/// Sony FR7 pan/tilt speed-step command constants.
 pub mod variable_speed {
     use super::*;
 
-    /// Variable speed control prefix.
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x1B];
+    /// Normal/extended pan/tilt speed-step control prefix.
+    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x45];
 }
 
 /// System command-related constants.

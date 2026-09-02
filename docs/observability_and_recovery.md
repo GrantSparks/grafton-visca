@@ -159,27 +159,12 @@ it is the camera's verdict on the command.
 For Sony-encapsulated traffic, a lost ACK or post-ACK completion timeout may be
 retried with the same sequence number, preserving the logical request's
 identity. Raw VISCA has no such key. After a raw command was successfully sent,
-an ACK timeout, completion timeout, unresolved cancellation, or active
-retry-budget expiry while an attempt is in `Sending`, `AwaitingAck`,
-`AwaitingCompletion`, or `Executing` leaves both its physical outcome and any
-later reply ownership uncertain. The engine never replays it (that would risk a
-duplicate relative move or preset). By default (issue #671) it fails only that
-one command with `Error::UnsequencedCommandUnconfirmed` — a per-request outcome
-the session survives — and holds the correlation still at stake (its owned
-socket, or its place as the sole unacknowledged command) quarantined until the
-ambiguity deadline, so a late ACK or completion is ignored rather than bound to
-a later command. A transient raw receive fault while the command awaits its ACK
-does not itself produce that outcome: it leaves the command awaiting ACK, so a
-subsequent ACK may still establish ownership; only a later ACK deadline without
-an ACK enters this unconfirmed recovery. The session and every unrelated request
-keep running; the caller reconciles that one command's camera effect rather than
-replacing the session. Deployments that would rather hard-fail an entire session
-than risk a subtle correlation error can opt into
-`OperationalTuning::strict_unconfirmed_poison`, which restores the whole-session
-poison (surfaced as `Error::StreamPoisoned`, which requires a replacement
-session). This rule deliberately covers non-idempotent relative motion and
-presets rather than asking a retry class to guess whether a particular payload
-is harmless.
+an ACK/completion/cancellation result that cannot be correlated is never replayed
+blindly. By default only that request fails and the evidence still at stake is
+quarantined; callers reconcile its camera effect while the session continues.
+The exact phases, quarantine scopes, transient-fault behavior, and
+`strict_unconfirmed_poison` alternative are defined once in
+[Raw unconfirmed outcomes and strict recovery](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 
 Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
 inquiry per target, so a reply, terminal error/timeout, or retry release/requeue
@@ -260,17 +245,9 @@ Not every transport failure ends a session. A receive that fails without
 proving the connection is gone — the classic case is a UDP `recv` reporting
 ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retry
 a sequenced Sony command still waiting for its ACK under that command's bounded
-policy. A raw command waiting for its ACK has no sequence to replay, but a
-transient receive fault consumes nothing and cannot desynchronize raw framing,
-so by default (issue #671) the owner does not terminalize an *uncancelled*
-command on the fault at all: it is left to ride to its own ACK deadline, where
-— if no ACK arrives — it fails per-request and quarantines its slot rather than
-poisoning the session. The strict `strict_unconfirmed_poison` opt-in instead
-ends the whole session (surfaced as `StreamPoisoned`) on that fault only with no
-recorded cancel. If cancel intent was already recorded, the command stays on
-the cancellation-driven late-ACK path; its ACK may still assign a socket and
-issue the cancel, and strict mode poisons only if that resolution deadline
-remains unconfirmed. Neither path ever replays the command.
+policy. A raw command has no sequence to replay; its complete transient-fault
+decision is the architecture guide's
+[raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 When no such raw command is awaiting ACK, a read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
 `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
@@ -299,21 +276,11 @@ datagram cannot reset or extend that deadline. The async UDP adapter yields
 cooperatively after an empty datagram before polling again, so a stream of empty
 packets cannot starve owner controls.
 
-The async owner does not rely on the transport to have its own timer (#675). It
-bounds every read with the session's `read_timeout` and every write with
-`write_timeout`: a read that outlasts its budget is treated as the same idle
-no-data receive described above (nothing consumed, no request penalized), and a
-write that outlasts its budget is abandoned as a send failure under the
-transport's semantics — a stream write poisons, a datagram write fails only its
-own request — so a stalled peer can never park the actor and block `close()`.
-A run of immediately-returning no-data reads is paced by the same escalating,
-next-wake-clamped pause the transient-fault path uses (recording no fault and
-spending no retry budget), so a transport that reports "no data" without blocking
-cannot hot-spin the actor. Symmetrically, a *babbling* peer — one that returns a
-valid frame on every poll — cannot starve owner controls either: a fairness
-ceiling forces the boundary sources (shutdown, cancellation, admission, control,
-timer) to be polled after a bounded run of consecutive receive-first wins, so
-valid input is never processed at the cost of an unkillable, unusable session.
+The async owner enforces `read_timeout` and `write_timeout` even when a custom
+transport has no timer, and both owners pace immediately idle reads. The exact
+stream/datagram failure split, pacing, and source-fairness rules live in
+[Transport I/O deadlines and idle pacing](architecture_2_0.md#transport-io-deadlines-and-idle-pacing)
+and the preceding arbitration section.
 
 A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
@@ -491,7 +458,7 @@ values from the poisoned owner.
 ## Memory bounds
 
 The current owner policy is intentionally explicit. The first nine rows are
-fixed; the remaining three are caller-tunable bounds:
+fixed; the remaining four are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
 | --- | ---: | --- |
@@ -505,8 +472,9 @@ fixed; the remaining three are caller-tunable bounds:
 | Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
 | Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) | yes — `SessionConfig::with_admission_capacity()` |
-| Received payload bytes | see below | yes — `BufferConfig::recv_buffer_size` |
-| Reusable framing bytes | 8192 | yes — `BufferConfig::max_buffer_size` |
+| Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
+| Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
+| Retained incomplete framing bytes | 8192 by default | yes — `BufferConfig::max_buffer_size` |
 
 Admission capacity is fixed when the session opens and bounds each admitted
 boundary plus its pending/active owner lifecycle entry until safe terminal
@@ -514,8 +482,11 @@ removal, including ambiguity quarantine. It defaults to 64; callers may choose
 any non-zero value below `usize::MAX` with
 `SessionConfig::with_admission_capacity()`.
 
-The two transport-buffer rows are set from `TransportConfig::buffer_config`
-every time a session is built, so the receive row has no single number. Reach them with
+The three transport-buffer rows are set from `TransportConfig::buffer_config`
+every time a production session is built, so the first two have no single
+number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
+the production adapter replaces both values before allocating owner buffers.
+Reach the public configuration with
 `CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
 for a standard transport, with the blocking `NetTransportBuilder`'s
 `recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
@@ -530,11 +501,12 @@ defaults are:
 | `BufferConfig::for_raw_ip()` | 256 | the built-in TCP transports |
 | `BufferConfig::for_serial()` | 256 | the built-in serial transports |
 
-Every one of these keeps `max_buffer_size` at 8192, which is where the framing
-row's number comes from. A caller that raises `recv_buffer_size` raises the
-owner's per-session receive allocation by exactly that amount; raising
-`max_buffer_size` raises the ceiling on retained incomplete framing bytes.
-`recv_buffer_size` is also the framer's maximum accepted frame size, so
+Every one of these keeps `max_buffer_size` at 8192, which is where the retained
+incomplete-byte row's default comes from. A caller that raises
+`recv_buffer_size` raises the owner's per-session transport-read scratch
+allocation by exactly that amount; raising `max_buffer_size` raises the ceiling
+on retained incomplete framing bytes. `recv_buffer_size` is independently the
+framer's maximum accepted single-frame size, so
 lowering it below a profile's largest reply turns that reply into
 `Error::ResponseTooLarge`. For UDP it is also the maximum accepted datagram
 size: an over-size datagram is rejected before framing rather than silently

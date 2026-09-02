@@ -776,6 +776,28 @@ The fixed typed serializers are model-specific and use this narrow matrix:
 For PTZOptics Gen-2, the checked sources do not establish the same
 automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
 
+### 9.4 Sony FR7 typed extension rows
+
+The following R7 rows are the narrow source basis for FR7-only or
+Sony-professional typed surfaces. `8x` is the VISCA camera address before Sony
+IP framing normalizes it to camera 1; application code does not build the
+eight-byte envelope itself.
+
+| Typed surface | Command or inquiry packet | R7 value domain |
+| --- | --- | --- |
+| Automatic ND | `8x 01 7E 04 53 0p FF` | `p = 2` on; `p = 3` off. |
+| ND preset inquiry | `8x 09 7E 01 53 FF` | Reply `y0 50 0p FF`; `p = 0` clear, `1..=3` preset 1–3. The legacy `09 04 66` register in §7.10 is picture-flip state, not this inquiry. |
+| Red tally | `8x 01 7E 01 0A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 01 0A FF`. |
+| Green tally | `8x 01 7E 04 1A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 04 1A FF`. |
+| Push AF / Push MF | `8x 01 7E 04 58 0p FF` | `p = 0` release; `p = 1` press. This is distinct from the red-tally `7E 01 0A` family. |
+| Pan/tilt speed-step range | `8x 01 06 45 pp FF` | `pp = 08` normal (24 steps); `pp = 18` extended (50 steps). `7E 04 1B` is FR7 preset-speed selection, not this control. |
+| Auto-tracking white balance | `8x 01 04 35 04 FF` | `04` selects ATW; inquiry `8x 09 04 35 FF` reports `04`. The `09 04 A9` AWB-sensitivity row in §7.10 is a separate PTZOptics register. |
+| Direct menu | `8x 01 7E 04 72 pp 0q FF` | `pp` selects the direct-menu control and `q = 0/1` is release/press. The typed raw-selector constructor also enforces the safe-frame delimiter boundary described in §5.2. |
+
+These rows do not grant FR7 the shared `04 39` exposure-mode or standard
+`04 4B` iris families; the profile boundary in §2.3 and Appendix A.9 still
+applies.
+
 ## 10. Resolved inconsistencies and final treatments
 
 | # | Issue | Final treatment | Confidence |
@@ -860,21 +882,16 @@ every later noncancelled attempt phase: backoff, ready, send, ACK, execution,
 and reply.
 When that budget expires, the terminal result preserves the cause that
 authorized the prior retry rather than replacing it with an incidental timeout
-from a later phase. If an active raw retry reaches budget expiry while in
-`Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`, the default is a per-request
-`UnsequencedCommandUnconfirmed` result with its correlation quarantined; a
-ready/backoff raw retry may finish with its retained last error. The session is
-poisoned only when `strict_unconfirmed_poison` is enabled, which reports
-`StreamPoisoned`. Cancellation quarantine is separate and is never shortened
-by budget expiry.
+from a later phase. The architecture guide owns the detailed
+[raw unconfirmed-outcome rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 Empty UDP datagrams are discarded while receiving and do not reset or extend
 the one overall receive deadline; the async adapter yields cooperatively before
 polling again.
 
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. An intrinsic `Urgent` stop may cross one open candidate; ACK/error evidence observed with both open binds to neither (#714). A receive fault while awaiting ACK likewise never authorizes a replay, but by default leaves an *uncancelled* command in `AwaitingAck`; only a later ACK deadline without an ACK yields the per-request `UnsequencedCommandUnconfirmed` outcome and correlation quarantine. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
-| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the ordinary one-command pre-ACK window per target and retain socket concurrency after ACK; an intrinsic `Urgent` stop may cross one candidate, making ACK/error evidence ambiguous and attributable to neither (#714). Treat an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. A receive fault while awaiting ACK also forbids replay but leaves an *uncancelled* command in `AwaitingAck` by default; only its later ACK deadline without an ACK produces that outcome. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. |
+| Raw UDP PTZOptics | Never replay a successfully sent command whose result is ambiguous. Follow the architecture guide's per-request quarantine rule; a conclusive camera rejection may still be retried. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP preserves byte delivery/order but does not prove camera execution. Use the same canonical raw quarantine rule; retain socket concurrency after an ACK and never infer an ambiguous outcome from FIFO order. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 

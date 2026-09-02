@@ -176,6 +176,8 @@ The construction and request path has a fixed order:
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
 
+### Raw response shapes and correlation ownership
+
 Correlation before ACK is envelope-specific. A raw-VISCA target normally has
 one unacknowledged command candidate across `Sending`, `AwaitingAck`,
 `AwaitingCompletion`, and `AwaitingLateAck`. One intrinsically `Urgent` command
@@ -233,6 +235,8 @@ command exists. A command-plus-inquiry collision is ignored. An explicit
 socket routes only the exact owner of that target/socket, and a socketless
 error never falls back to an `Executing` command.
 
+### Raw unconfirmed outcomes and strict recovery
+
 Retry follows the same evidence boundary. Sony timeout recovery resends the
 same logical request with the same sequence. A conclusive camera rejection
 such as buffer-full or no-socket proves that the command did not start and may
@@ -269,6 +273,28 @@ which restores the pre-fix behavior and surfaces it as `Error::StreamPoisoned`
 so those callers still establish a fresh session. The budget applies to every
 later noncancelled retry phase; a cancellation or per-request quarantine is
 separate and is never shortened by budget expiry.
+
+### Sony full-width and lower-16 sequence identity
+
+Outgoing Sony frames always carry a complete 32-bit sequence, and a retry
+reuses that exact logical sequence instead of allocating another one. On
+receive, a nonzero upper half is unambiguously `FrameSequence::Full32` and must
+match one live, target-compatible full-width owner exactly.
+
+Some cameras return only the low 16 bits and zero the upper half. Because a
+genuine small 32-bit sequence has the same wire spelling, the decoder calls
+that case `FrameSequence::MaybeTruncated`; it does not guess which provenance
+the camera intended. The engine searches the target-compatible live owners
+whose low 16 bits match and accepts the response only when that set identifies
+one request. No candidate is unmatched; two or more candidates are
+`AmbiguousLower16Sequence` and the frame is inert. A later exact full-width
+reply can retire one colliding owner, after which the same lower-16 value may
+again be unique. Registering a retry of one request under the same sequence
+does not manufacture a collision.
+
+This full-width-first, unique-lower-16-only rule is the complete correlation
+decision from review item 16. Socket, FIFO, admission order, and temporal
+recency never break a sequence collision.
 
 Fixed-format ACK, completion, error, and network-change frames are classified
 only at their exact lengths. A known fixed prefix with trailing bytes is
@@ -318,6 +344,8 @@ ms (#713). A tail arriving inside that interval is decoded before release. If
 the deadline expires first, the orphan prefix is discarded, one malformed-frame
 diagnostic is recorded, and the session remains `Running`; only framer overflow
 or a decoder that cannot perform the requested discard poisons the stream.
+
+### Blocking raw dispatch and the urgent safety lane
 
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
@@ -550,6 +578,8 @@ choice depends on the result of the current receive; the only count involved is
 the bounded fairness ceiling of (4), never an open-ended receive history.
 Transmission effects produced by either phase are driven immediately before the
 next selection.
+
+### Transport I/O deadlines and idle pacing
 
 The actor also bounds each transport operation itself, because the
 runtime-agnostic async transports hold no timer of their own. Every read is

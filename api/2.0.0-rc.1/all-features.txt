@@ -2,6 +2,7 @@ pub mod grafton_visca
 pub use grafton_visca::ViscaEnum
 pub use grafton_visca::ViscaInquiry
 pub use grafton_visca::ViscaValue
+pub mod grafton_visca::architecture
 pub mod grafton_visca::blocking
 pub struct grafton_visca::blocking::AdvancedAccessor<'view, 'session, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, 'session, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::AdvancedAccessor<'view, 'session, P>

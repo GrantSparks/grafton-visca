@@ -138,8 +138,8 @@ AFSensitivity[Normal]	81 01 04 58 02 FF
 AFSensitivity[Low]	81 01 04 58 03 FF
 FocusLock::On	81 0A 04 68 02 FF
 FocusLock::Off	81 0A 04 68 03 FF
-PushAF::Press	81 01 7E 01 0A 00 01 FF
-PushAF::Release	81 01 7E 01 0A 00 00 FF
+PushAF::Press	81 01 7E 04 58 01 FF
+PushAF::Release	81 01 7E 04 58 00 FF
 Preset[Reset,0]	81 01 04 3F 00 00 FF
 Preset[Reset,1]	81 01 04 3F 00 01 FF
 Preset[Reset,89]	81 01 04 3F 00 59 FF
@@ -417,8 +417,8 @@ MotionSyncPreset[2]	81 0A 11 14 02 FF
 MotionSyncPreset[3]	81 0A 11 14 03 FF
 MotionSyncPreset[24]	81 0A 11 14 18 FF
 MotionSyncPreset[255]	CTOR_ERR(ParameterOutOfRange { parameter: "motion sync speed", value: 255, min: 1, max: 24 })
-VariableSpeed[Standard24]	81 01 7E 04 1B 01 FF
-VariableSpeed[Fine50]	81 01 7E 04 1B 02 FF
+VariableSpeed[Standard24]	81 01 06 45 08 FF
+VariableSpeed[Fine50]	81 01 06 45 18 FF
 AutoFocusSensitivityInquiry	81 09 04 58 FF
 AutoTraceInquiry	81 09 50 09 FF
 AutoWhiteBalanceSensitivityInquiry	81 09 04 A9 FF
@@ -458,7 +458,7 @@ MenuOpenCloseInquiry	81 09 06 06 FF
 MotionSyncModeInquiry	81 09 04 56 FF
 MotionSyncPresetInquiry	81 09 04 57 FF
 NdFilterInquiry	81 09 04 64 FF
-NdFilterPresetInquiry	81 09 04 66 FF
+NdFilterPresetInquiry	81 09 7E 01 53 FF
 NightDayModeInquiry	81 09 04 60 FF
 NoiseReduction2DInquiry	81 09 04 53 FF
 NoiseReduction3DInquiry	81 09 04 54 FF

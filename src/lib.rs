@@ -1177,6 +1177,14 @@ pub mod profiles {
     pub use crate::capabilities::InquirySupport;
 }
 
+/// Detailed owner, protocol-engine, scheduling, and lifecycle architecture.
+///
+/// This renders the repository's current-state architecture guide on docs.rs,
+/// including the engine transition table and operational invariants that are
+/// otherwise implemented by private owner types.
+#[doc = include_str!("../docs/architecture_2_0.md")]
+pub mod architecture {}
+
 /// Compile gate for the Rust snippets in `README.md`.
 ///
 /// `cfg(doctest)` is set only while rustdoc is collecting doctests, so this

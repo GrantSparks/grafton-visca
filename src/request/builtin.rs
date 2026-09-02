@@ -1423,7 +1423,7 @@ impl_plain_request!(
 );
 impl_plain_request!(
     crate::command::variable_speed::SetVariableSpeedMode,
-    7,
+    6,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
@@ -3949,7 +3949,7 @@ impl PushAfPress {
 impl_request!(
     PushAfPress,
     request::Operation<completion::AppliedOnly>,
-    8,
+    7,
     TimeoutClass::Quick,
     RetryClass::Movement,
     ControlClass::User,
@@ -3977,7 +3977,7 @@ impl PushAfRelease {
 impl_request!(
     PushAfRelease,
     request::Operation<completion::AppliedOnly>,
-    8,
+    7,
     TimeoutClass::Quick,
     RetryClass::Movement,
     ControlClass::User,
@@ -5597,7 +5597,7 @@ mod tests {
             ControlClass::Normal,
         );
         assert_policy::<crate::command::SetVariableSpeedMode>(
-            7,
+            6,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
@@ -5855,13 +5855,13 @@ mod tests {
             ControlClass::User,
         );
         assert_policy::<PushAfPress>(
-            8,
+            7,
             TimeoutClass::Quick,
             RetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<PushAfRelease>(
-            8,
+            7,
             TimeoutClass::Quick,
             RetryClass::Movement,
             ControlClass::User,

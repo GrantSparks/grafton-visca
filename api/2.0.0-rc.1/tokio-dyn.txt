@@ -2,6 +2,7 @@ pub mod grafton_visca
 pub use grafton_visca::ViscaEnum
 pub use grafton_visca::ViscaInquiry
 pub use grafton_visca::ViscaValue
+pub mod grafton_visca::architecture
 pub mod grafton_visca::camera
 pub mod grafton_visca::camera::profiles
 pub enum grafton_visca::camera::profiles::G2Gain

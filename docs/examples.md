@@ -12,15 +12,15 @@ The maintained examples in `examples/` fall into these categories:
 | --- | --- | --- |
 | Quickstart | `quickstart`, `quickstart_async` | Connect through `Connect`, query read-only state by default, and require `--move` for movement. `quickstart_async` is the Tokio example. |
 | Inquiry and typed data | `inquiry_quickstart`, `typed_inquiry_demo`, `type_safe_commands` | Demonstrate accessors, profile metadata, conversion helpers, and capability bounds. |
-| Transport setup | `transport_builder_demo`, `transports`, `builder_api`, `serial_async_demo` | Demonstrate current `CameraConfig`, `Connect`, or caller-owned `Session::open` paths. |
+| Transport setup | `transport_builder_demo`, `transports`, `builder_api`, `serial_async_demo` | Demonstrate current `CameraConfig`, `Connect`, or caller-owned `Session::open` paths; `transports` exits unsuccessfully if any selected connectivity check fails. |
 | Operational patterns | `concurrent_control`, `error_handling`, `runtime_demo`, `runtime_agnostic` | Demonstrate runtime and application patterns without relying on private runtime internals. |
 | Presets | `preset_demo` | One owner-backed blocking preset operation selected on the command line: `set`, `recall` (targeted, so it waits for settled), or `clear`. Closes the session on every path. |
 | Operation handles | `operation_handles`, `operation_handles_async` | Demonstrate blocking and Tokio submission, exact applied waits, profile-selected protocol-settlement waits, explicit detach paired with a bounded stop, a session that is closed on every path, and the caller-written stop-on-exit guard that bounds movement to a scope. |
-| Cancellation and safety | `cancellation`, `motion_safety` | Tokio `.cancel()` — both the supported `Cancellation`/`outcome` path and the PTZOptics G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery — and the blocking `motion()` safety view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite. |
+| Cancellation and safety | `cancellation`, `cancellation_blocking`, `motion_safety` | Tokio `.cancel()` on cancel-capable G3 hardware (with an optional PTZOptics G2 unsupported-post-send mode), a hardware-free blocking confirmed-cancellation path on `SonyFR7`, and the blocking `motion()` safety view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite. |
 | Custom requests and profiles | `custom_request` | A downstream custom `PlainCommand` and `OperationCommand`, encoded with `write_into` and submitted through blocking `camera_dyn` against a custom runtime `ProfileSpec`. Runs its encoding and profile parts without a camera; requires `dyn-api`. |
 | Dynamic API | `dyn_quickstart` | The profile-erased `DynSessionCamera`: a `DynTargetedOperation` (has `settled`) and a `DynAppliedOperation` (no `settled`), with `supports_typed` capability discovery. Requires `dyn-api`. |
-| Multi-camera and recovery | `multi_camera`, `recovery` | A multi-target session addressed by `camera_for` with explicit `applied_with_timeout`/`settled_with_timeout` waits, and fresh-session recovery after transport death or an application-owned silent-peer threshold using `received_frames`, a re-callable transport factory, a reused `SessionConfig`, and end-to-end state re-query. |
-| Protocol and lab validation | `sony_encapsulation`, `validate_inquiries`, `validate_ae_commands` | Advanced or lab-oriented material that should stay consistent with `docs/visca_reference.md`; not the recommended first path. |
+| Multi-camera and recovery | `multi_camera`, `recovery` | A multi-target session addressed by `camera_for` with explicit `applied_with_timeout` waits, and fresh-session recovery after transport death or an application-owned silent-peer threshold using `received_frames`, a re-callable transport factory, a reused `SessionConfig`, end-to-end state re-query, and deliberate desired-state restoration. |
+| Protocol and lab validation | `sony_encapsulation`, `validate_inquiries`, `validate_ae_commands` | Profile-selected Sony encapsulation (the application never constructs the eight-byte header) and advanced lab material that should stay consistent with `docs/visca_reference.md`; not the recommended first path. |
 
 ## Rules
 
@@ -73,6 +73,12 @@ cargo check --examples --no-default-features --features async
 cargo check --examples --no-default-features --features runtime-tokio
 cargo check --examples --no-default-features --features runtime-smol
 cargo check --example serial_async_demo --no-default-features --features runtime-tokio,transport-serial-tokio
+cargo run --example type_safe_commands --no-default-features
+cargo run --example runtime_agnostic --no-default-features --features async
+cargo run --example custom_request --no-default-features --features blocking,dyn-api
+cargo run --example multi_camera --no-default-features --features blocking
+cargo run --example recovery --no-default-features --features blocking
+cargo run --example cancellation_blocking --no-default-features --features blocking
 cargo clippy --examples --no-default-features --features runtime-tokio -- -D warnings
 cargo clippy --examples --no-default-features --features runtime-tokio,dyn-api -- -D warnings
 cargo clippy --examples --no-default-features --features blocking -- -D warnings

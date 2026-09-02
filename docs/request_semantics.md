@@ -132,14 +132,10 @@ not assume every command follows the ACK-then-completion shape. The axis is
 
 The shape is a command axis only. An inquiry always awaits its reply, so
 `raw::Inquiry` and shared inquiry preparation reject any non-default shape rather
-than silently ignoring it. When a command's completion cannot be confirmed (no completion within
-the deadline), the default per-request recovery applies (issue #671): that one
-request fails `UnsequencedCommandUnconfirmed` while its slot is quarantined
-against a late reply, and the session keeps running; the strict
-`strict_unconfirmed_poison` opt-in poisons the session instead. A receive fault
-has that immediate strict effect only before cancel intent is recorded; a
-recorded cancel uses cancellation-driven late-ACK resolution and poisons only
-if its deadline is unconfirmed.
+than silently ignoring it. Unconfirmed completion, quarantine, and the strict
+opt-in follow the canonical
+[raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery);
+this page does not define a second recovery policy.
 
 Reply shape is for *legitimate* custom completion-only or fire-and-forget vendor
 frames. It never re-admits the owner-only wire primitives above: a socket cancel

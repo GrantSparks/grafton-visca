@@ -3,7 +3,7 @@
 //! Both paths use the profile's default port when the address has no explicit
 //! port. Set `VISCA_CAMERA_ADDR` or pass an address on the command line.
 
-use std::{env, net::SocketAddr};
+use std::env;
 
 use grafton_visca::{
     blocking::Connect, camera::profiles::PtzOpticsG2, capabilities::Capabilities, Error,
@@ -23,11 +23,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Capabilities::from_profile::<PtzOpticsG2>().model_name
     );
 
+    let mut first_error = None;
     if matches!(selection, Selection::Tcp | Selection::Both) {
-        report("TCP", check_tcp(&address));
+        report("TCP", check_tcp(&address), &mut first_error);
     }
     if matches!(selection, Selection::Udp | Selection::Both) {
-        report("UDP", check_udp(&address));
+        report("UDP", check_udp(&address), &mut first_error);
+    }
+    if let Some(error) = first_error {
+        return Err(error.into());
     }
     Ok(())
 }
@@ -72,17 +76,11 @@ fn check_udp(address: &str) -> Result<(), Error> {
     Ok(())
 }
 
-fn report(label: &str, result: Result<(), Error>) {
+fn report(label: &str, result: Result<(), Error>, first_error: &mut Option<Error>) {
     if let Err(error) = result {
         eprintln!("{label}: {error}");
+        if first_error.is_none() {
+            *first_error = Some(error);
+        }
     }
-}
-
-#[allow(dead_code)]
-fn has_explicit_port(address: &str) -> bool {
-    address.parse::<SocketAddr>().is_ok()
-        || (address.matches(':').count() == 1
-            && address
-                .rsplit_once(':')
-                .is_some_and(|(_, port)| port.parse::<u16>().is_ok()))
 }

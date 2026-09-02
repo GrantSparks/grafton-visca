@@ -3,8 +3,9 @@
 //! A poisoned or dropped session is terminal: the owner never reconnects or
 //! resubmits on its own. Recovery keeps the reusable `SessionConfig`, builds a
 //! *fresh* session from a re-callable transport factory, and re-queries camera
-//! state before doing anything else — the new session's state cache starts
-//! `Unknown`. `Error::requires_new_session()` is the reconnect decision.
+//! state before deliberately restoring the desired power-on state — the new
+//! session's state cache starts `Unknown`. `Error::requires_new_session()` is
+//! the reconnect decision.
 //!
 //! This is exactly the path a long-running supervisor takes when a TCP camera
 //! closes or stops answering. A peer close is positive session-death evidence;
@@ -71,7 +72,7 @@ impl BlockingTransport for FakeCamera {
             return Ok(()); // accepted locally; the peer never answers
         }
         let reply = match (bytes.get(1), bytes.get(2), bytes.get(3)) {
-            (Some(0x09), Some(0x04), Some(0x00)) => vec![0x90, 0x50, 0x02, 0xff], // power ON
+            (Some(0x09), Some(0x04), Some(0x00)) => vec![0x90, 0x50, 0x03, 0xff], // power OFF
             (Some(0x09), Some(0x04), Some(0x47)) => {
                 vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff] // zoom = 0x1234
             }
@@ -167,22 +168,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Builds a fresh session from the reusable config and re-queries state before
-/// restoring anything. The factory is borrowed `&mut` so a supervisor loop can
-/// keep calling it.
+/// Builds a fresh session from the reusable config, re-queries state, and then
+/// restores the application's desired power-on state. The factory is borrowed
+/// `&mut` so a supervisor loop can keep calling it.
 fn recover(
     config: &SessionConfig,
     new_transport: &mut impl FnMut() -> Result<FakeCamera, Error>,
 ) -> Result<(), Error> {
     let session = Session::open(new_transport()?, config.clone())?;
-    let result = requery(&session);
+    let result = requery_and_restore(&session);
     match (result, session.close()) {
         (Ok(()), Ok(())) => Ok(()),
         (Err(error), _) | (Ok(()), Err(error)) => Err(error),
     }
 }
 
-fn requery(session: &Session) -> Result<(), Error> {
+fn requery_and_restore(session: &Session) -> Result<(), Error> {
     // The fresh cache is Unknown: read the live values before restoring desired
     // state. The owner never resubmits the old session's commands.
     let camera = session.camera::<PtzOpticsG2>()?;
@@ -201,6 +202,9 @@ fn requery(session: &Session) -> Result<(), Error> {
         zoom.value(),
         frames_after - frames_before
     );
-    // A real supervisor would now re-apply its intended state deliberately.
+    if !power {
+        camera.power().on()?;
+        println!("restored desired power-on state after the fresh re-query");
+    }
     Ok(())
 }

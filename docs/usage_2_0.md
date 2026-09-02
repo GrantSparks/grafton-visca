@@ -19,7 +19,7 @@ Cargo feature a snippet needs.
 | Blocking serial | `transport-serial` |
 | Tokio serial | `runtime-tokio,transport-serial-tokio` |
 | Blocking runtime-profile views | `blocking,dyn-api` |
-| Dynamic async views | `dyn-api` plus `runtime-tokio` or `runtime-smol` |
+| Dynamic async views | `async,dyn-api` with a caller-owned `Executor`, or `runtime-tokio,dyn-api` / `runtime-smol,dyn-api` |
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
 | Testkit steps and helpers | `test-utils` |
 | Scripted blocking transport | `test-utils,blocking` |

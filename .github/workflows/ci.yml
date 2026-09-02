@@ -206,11 +206,21 @@ jobs:
       - name: Build supported example surfaces
         run: |
           set -euo pipefail
+          cargo check --examples --no-default-features
           cargo check --examples --no-default-features --features blocking
           cargo check --examples --no-default-features --features blocking,dyn-api
           cargo check --examples --no-default-features --features runtime-tokio
           cargo check --examples --no-default-features --features runtime-smol
           cargo check --examples --all-features
+      - name: Run hardware-free examples
+        run: |
+          set -euo pipefail
+          cargo run --example type_safe_commands --no-default-features
+          cargo run --example runtime_agnostic --no-default-features --features async
+          cargo run --example custom_request --no-default-features --features blocking,dyn-api
+          cargo run --example multi_camera --no-default-features --features blocking
+          cargo run --example recovery --no-default-features --features blocking
+          cargo run --example cancellation_blocking --no-default-features --features blocking
       - name: Build strict documentation and run doctests
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -256,6 +266,10 @@ jobs:
       RUSTUP_TOOLCHAIN: "1.88.0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
       - name: Prove MSRV selection ignores directory overrides
         shell: bash
@@ -282,6 +296,8 @@ jobs:
       - run: cargo +1.88.0 check --workspace --all-targets --no-default-features
       - run: cargo +1.88.0 check --lib --no-default-features --features async
       - run: cargo +1.88.0 check --lib --no-default-features --features runtime-tokio,dyn-api
+      - name: Check Tokio, dynamic, and serial examples at MSRV
+        run: cargo +1.88.0 check --examples --no-default-features --features blocking,runtime-tokio,dyn-api,transport-serial-tokio
       - name: Check re-exported range macro at MSRV with helpers off and on
         run: |
           set -euo pipefail

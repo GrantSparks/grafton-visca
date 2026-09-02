@@ -225,6 +225,10 @@ name = "cancellation"
 required-features = ["runtime-tokio"]
 
 [[example]]
+name = "cancellation_blocking"
+required-features = ["blocking"]
+
+[[example]]
 name = "motion_safety"
 required-features = ["blocking"]
 
