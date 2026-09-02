@@ -129,6 +129,9 @@ program uses the built-in TCP transport but never implements a compile-time
 profile marker:
 
 ```rust,no_run
+#[cfg(not(all(feature = "blocking", feature = "dyn-api")))]
+fn main() {}
+
 #[cfg(all(feature = "blocking", feature = "dyn-api"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
