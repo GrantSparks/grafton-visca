@@ -351,7 +351,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Change-record validation compares the PR head with its merge base
+          # and audits individual commit bodies.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - name: Check changelog and commit-history integrity
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ -n "${PR_BASE_SHA}" && -n "${PR_HEAD_SHA}" ]]; then
+            base="${PR_BASE_SHA}"
+            head="${PR_HEAD_SHA}"
+          else
+            base="$(git rev-parse HEAD^)"
+            head="HEAD"
+          fi
+          python3 .github/scripts/validate-change-record.py "${base}" "${head}"
+          bash .github/scripts/test-validate-change-record.sh
       - name: Check clean-checkout, hardware, and registry-payload gates
         run: |
           bash .github/scripts/test-validate-release.sh
