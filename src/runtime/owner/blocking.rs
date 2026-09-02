@@ -2308,17 +2308,13 @@ impl BlockingOwner {
             }
             let now = Instant::now();
             if observer_deadline.is_some_and(|deadline| now >= deadline) {
-                if matches!(submit_policy, SubmitPolicy::RequireFirstWrite) {
-                    // A public operation handle cannot be lost behind an
-                    // expired caller bound. Unlike QueueAllowed settlement
-                    // inquiries, it has no receipt to keep observing, so
-                    // terminalize its still-unwritten entry and release the
-                    // admission permit through the engine's one authority.
-                    let rejection = self.state.reject_unwritten(id, Error::Timeout);
-                    let _ = self.drive_without_due(driver, rejection);
-                    return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
-                }
-                return Err(Error::Timeout);
+                // No submission class returns a receipt after its caller
+                // deadline. Terminalize the still-unwritten entry before
+                // returning so QueueAllowed work cannot survive as an orphan
+                // and write in a later owner turn (#723).
+                let rejection = self.state.reject_unwritten(id, Error::Timeout);
+                let _ = self.drive_without_due(driver, rejection);
+                return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
             }
             // `first_dispatch` deliberately does not advance a
             // tombstone.  It can nevertheless dispatch an *unrelated* ready

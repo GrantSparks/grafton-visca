@@ -429,8 +429,11 @@ entries below retain their original wording.
   still links no async runtime or executor. Blocking transport closes and
   framing failures now enter the engine through the same typed
   `ShutdownReason::TransportClosed` / `FramingFailure` inputs as async; the
-  duplicate `Input::Close` / `Poison` vocabulary is removed. This is an
-  internal architecture change with no public API or wire-behavior change.
+  duplicate `Input::Close` / `Poison` vocabulary is removed. A deadline-bound
+  blocking submission that expires before its first write is now terminalized
+  even when ordinary queueing was allowed, so it cannot return `Timeout` and
+  then write as an unobserved orphan in a later owner turn. This is an internal
+  architecture change with no public API change.
 
 - **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
   (audit #685; design decision D16). `transport::FrameMeta::sequence` is now

@@ -1649,7 +1649,7 @@ mod blocking {
     }
 
     #[test]
-    fn settlement_query_pacing_timeout_detaches_without_write_or_lifecycle_mutation() {
+    fn settlement_query_pacing_timeout_terminalizes_without_a_late_orphan_write() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
         let tuning = crate::OperationalTuning::new().inquiry_spacing(Duration::from_millis(8));
@@ -1694,13 +1694,13 @@ mod blocking {
         assert_eq!(driver.writes.len(), 1, "expired pacing writes no query");
         assert_eq!(
             owner.state().active_len(),
-            1,
-            "request remains engine-owned"
+            0,
+            "a submission that returned no receipt cannot remain engine-owned"
         );
         assert_eq!(
             owner.state().permits().available(),
-            0,
-            "permit remains held"
+            1,
+            "terminal rejection releases the admission permit"
         );
         assert!(owner.state().diagnostics().all(|event| !matches!(
             event,
@@ -1714,22 +1714,9 @@ mod blocking {
             .unwrap();
         assert_eq!(
             driver.writes.len(),
-            2,
-            "ordinary engine later dispatches it"
+            1,
+            "ordinary engine work cannot dispatch the timed-out orphan"
         );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_2,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x03],
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
         assert_eq!(owner.state().active_len(), 0);
         assert_eq!(owner.state().permits().available(), 1);
     }

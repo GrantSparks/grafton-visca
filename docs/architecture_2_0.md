@@ -333,6 +333,12 @@ bytes already sent to the camera. A `CompletionOnly` successor still requires
 target idleness and does not meet either exception. Genuine socket-capacity
 contention (every command socket already occupied), re-entrancy, and losing the
 global dispatch race remain fail-fast `Error::TransportBusy` boundaries.
+
+A deadline-bound blocking submission that has not written by its caller
+deadline returns no receipt, regardless of whether its class ordinarily allows
+queueing. The owner terminalizes that exact ready entry before returning
+`Timeout`, releasing its admission permit and preventing a later scheduler turn
+from writing work the caller can no longer observe (#723).
 Ordinary blocking commands, inquiries, and owner-internal requests retain
 bounded queueing.
 
