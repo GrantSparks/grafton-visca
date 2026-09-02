@@ -124,8 +124,9 @@ and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
 on the profile-bound `Camera` view (async `Camera<P>` or blocking
 `Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
-`submit` for typed operations, each with a `_with_submission_class` twin that
-names its ordinary-work `SubmissionClass`. A `CameraSession<P>` is the
+`submit` for typed operations. `with_submission_class` derives one camera view
+whose complete request/noun surface uses the selected ordinary-work
+`SubmissionClass`. A `CameraSession<P>` is the
 single-camera owner wrapper; its `camera()` method hands out that actual
 profile-bound `Camera` surface, while its submission-class helpers forward the
 default to that camera rather than defining a separate request API. Callers

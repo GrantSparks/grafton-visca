@@ -9,8 +9,8 @@
 //! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`]
 //! from the ordinary lanes (`Background`, `Normal`, `User`); the urgent safety
 //! lane is reserved for the owner's stops and protocol cancellation and is not
-//! selectable here. The camera handle's `*_with_submission_class` methods and
-//! `set_submission_class` default apply to it on the same terms.
+//! selectable here. A camera handle's `with_submission_class` derived view or
+//! `set_submission_class` default applies to it on the same terms.
 //!
 //! Raw constructors validate and own the complete VISCA frame. The first byte
 //! must be a valid VISCA camera address and the final byte must be `0xff`.
@@ -135,8 +135,8 @@ pub enum RawReplyShape {
 /// `Background`, `Normal`, or `User` lane; it may not name
 /// [`ControlClass::Urgent`], which [`Policy::new`] rejects, because the urgent
 /// lane is the owner's stop and protocol-cancel reserve. A camera handle's
-/// default class and a per-submission class replace ordinary classifications,
-/// but neither can replace or demote an urgent request.
+/// default class or a class-selected derived view replaces ordinary
+/// classifications, but neither can replace or demote an urgent request.
 ///
 /// The [`RawReplyShape`] here is the command's declared reply protocol. It
 /// defaults to [`RawReplyShape::AckThenCompletion`], so a policy built by

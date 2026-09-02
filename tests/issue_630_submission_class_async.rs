@@ -182,14 +182,13 @@ async fn background_yields_to_a_later_user_submission<E: Executor>(executor: E) 
     wait_for_writes(&executor, &probe, 2).await;
 
     let background = camera
-        .submit_with_submission_class::<AppliedOnly, _>(
-            &ZoomDrive::Wide,
-            SubmissionClass::Background,
-        )
+        .with_submission_class(SubmissionClass::Background)
+        .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
         .await
         .expect("background submission is admitted and queued");
     let user = camera
-        .submit_with_submission_class::<AppliedOnly, _>(&FocusDrive::Near, SubmissionClass::User)
+        .with_submission_class(SubmissionClass::User)
+        .submit::<AppliedOnly, _>(&FocusDrive::Near)
         .await
         .expect("user submission is admitted and queued");
     assert_stable_write_count(&executor, &probe, 2).await;
@@ -222,8 +221,8 @@ async fn background_yields_to_a_later_user_submission<E: Executor>(executor: E) 
 }
 
 /// The handle default demotes one handle's traffic; a sibling clone keeps the
-/// built-in classification, and a per-submission class outranks the default.
-async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
+/// built-in classification, and a derived view can outrank the default.
+async fn handle_default_and_derived_view_override<E: Executor>(executor: E) {
     let (transport, probe) = LaneTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
@@ -277,7 +276,8 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
 
     // Now the override: the demoted handle submits first and still wins.
     let raised = poller
-        .submit_with_submission_class::<AppliedOnly, _>(&ZoomDrive::Tele, SubmissionClass::User)
+        .with_submission_class(SubmissionClass::User)
+        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .await
         .expect("raised submission");
     let later = camera
@@ -288,7 +288,7 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
     assert_eq!(
         poller.submission_class(),
         Some(SubmissionClass::Background),
-        "a per-submission class does not change the handle default",
+        "a derived view does not change the source handle default",
     );
 
     probe.complete_socket(2);
@@ -296,7 +296,7 @@ async fn handle_default_and_per_submission_override<E: Executor>(executor: E) {
     assert_eq!(
         probe.writes()[4],
         ZOOM_TELE.to_vec(),
-        "issue #630: the per-submission class wins over the handle default",
+        "issue #630: the derived view's class wins over the handle default",
     );
 
     first.detach();
@@ -351,10 +351,11 @@ async fn urgent_cannot_be_demoted_by_any_submission_override<E: Executor>(execut
     wait_for_writes(&executor, &probe, 4).await;
     assert_eq!(probe.writes()[3], FOCUS_NEAR.to_vec());
 
-    // A per-submission QoS value is also unable to weaken the stop's intrinsic
+    // A derived view's QoS value is also unable to weaken the stop's intrinsic
     // urgent safety floor.
     let protected_stop = camera
-        .submit_with_submission_class::<AppliedOnly, _>(&ZoomStop, SubmissionClass::Background)
+        .with_submission_class(SubmissionClass::Background)
+        .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("stop with background ordinary-traffic QoS");
     let later = camera
@@ -368,7 +369,7 @@ async fn urgent_cannot_be_demoted_by_any_submission_override<E: Executor>(execut
     assert_eq!(
         probe.writes()[4],
         ZOOM_STOP.to_vec(),
-        "issue #630: per-submission QoS cannot demote an urgent stop",
+        "issue #630: a derived view cannot demote an urgent stop",
     );
 
     first.detach();
@@ -388,8 +389,8 @@ async fn classified_execute_reaches_the_wire<E: Executor>(executor: E) {
         .expect("owner session");
     let mut camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let execute = camera
-        .execute_with_submission_class(&FocusModeCommand::Manual, SubmissionClass::Background);
+    let background = camera.with_submission_class(SubmissionClass::Background);
+    let execute = background.execute(&FocusModeCommand::Manual);
     let completion = async {
         wait_for_writes(&executor, &probe, 1).await;
         probe.complete_socket(2);
@@ -443,7 +444,8 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
         .await
         .expect("demoted submission");
     let ordinary = dynamic
-        .submit_applied_with_submission_class(&FocusDrive::Near, SubmissionClass::User)
+        .with_submission_class(SubmissionClass::User)
+        .submit_applied(&FocusDrive::Near)
         .await
         .expect("ordinary submission");
     assert_stable_write_count(&executor, &probe, 2).await;
@@ -476,7 +478,7 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
 async fn tokio_submission_class_matrix() {
     let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
     background_yields_to_a_later_user_submission(executor.clone()).await;
-    handle_default_and_per_submission_override(executor.clone()).await;
+    handle_default_and_derived_view_override(executor.clone()).await;
     urgent_cannot_be_demoted_by_any_submission_override(executor.clone()).await;
     classified_execute_reaches_the_wire(executor.clone()).await;
     #[cfg(feature = "dyn-api")]
@@ -489,7 +491,7 @@ fn smol_submission_class_matrix() {
     smol::block_on(async {
         let executor = grafton_visca::SmolRuntime::new();
         background_yields_to_a_later_user_submission(executor).await;
-        handle_default_and_per_submission_override(executor).await;
+        handle_default_and_derived_view_override(executor).await;
         urgent_cannot_be_demoted_by_any_submission_override(executor).await;
         classified_execute_reaches_the_wire(executor).await;
         #[cfg(feature = "dyn-api")]

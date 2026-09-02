@@ -244,16 +244,16 @@
 //! typed stops and cancels are [`ControlClass::Urgent`] so an emergency stop
 //! preempts queued work with no extra ceremony. `SubmissionClass` deliberately
 //! has no urgent variant: caller QoS cannot create or demote the safety lane.
-//! Two routes select ordinary submission QoS:
+//! Two camera-view routes select ordinary submission QoS:
 //!
 //! - Per handle: `set_submission_class(Some(class))` on a camera view, its
 //!   single-camera session, or the dynamic projection. Every later submission
 //!   from *that handle* uses `class`, including the ones its noun accessors
 //!   make. An urgent request ignores it.
-//! - Per submission: `execute_with_submission_class`, `inquire_with_submission_class`, and
-//!   `submit_with_submission_class` (`submit_targeted_with_submission_class` /
-//!   `submit_applied_with_submission_class` on the dynamic projection). These replace both
-//!   the handle default for one submission. An urgent request still ignores it.
+//! - Derived view: `with_submission_class(class)` returns another camera view
+//!   whose commands, inquiries, operations, and noun methods all use `class`.
+//!   The source view is unchanged, and an urgent request still ignores the
+//!   selected ordinary class.
 //!
 //! ```ignore
 //! use grafton_visca::SubmissionClass;
@@ -265,8 +265,11 @@
 //! poller.pan_tilt().stop().await?;              // still urgent
 //!
 //! // Raise one ordinary command for direct user interaction without changing
-//! // the handle. `Urgent` is intentionally not caller-selectable.
-//! camera.execute_with_submission_class(&command, SubmissionClass::User).await?;
+//! // the source handle. `Urgent` is intentionally not caller-selectable.
+//! camera
+//!     .with_submission_class(SubmissionClass::User)
+//!     .execute(&command)
+//!     .await?;
 //! ```
 //!
 //! [Submission priority]: #submission-priority

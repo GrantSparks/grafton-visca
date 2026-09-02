@@ -151,7 +151,7 @@ encoding.
 ## Decisions from this review
 
 1. `ControlClass::Urgent` remains request-owned safety metadata. Public
-   per-handle and per-call QoS uses `SubmissionClass::{Background, Normal,
+   per-handle and derived-view QoS uses `SubmissionClass::{Background, Normal,
    User}`, and the raw escape hatch's `raw::Policy` rejects
    `ControlClass::Urgent` at construction (#679). No public route — QoS override
    or raw policy — can create or demote urgent work. The raw hatch likewise

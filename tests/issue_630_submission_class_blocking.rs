@@ -2,7 +2,7 @@
 //!
 //! The owner has four control-class lanes, but the blocking operation API now
 //! requires each returned handle's first write to succeed. These tests keep
-//! the handle/default and per-submission class surface covered at the
+//! the handle/default and derived-view class surface covered at the
 //! admission boundary while asserting that no class can make a blocked public
 //! operation queue behind occupied sockets. Actual queued class ordering
 //! remains covered by the async counterpart (and the engine tests).
@@ -184,14 +184,13 @@ fn a_background_operation_cannot_queue_behind_busy_sockets() {
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
     let background = camera
-        .submit_with_submission_class::<AppliedOnly, _>(
-            &ZoomDrive::Wide,
-            SubmissionClass::Background,
-        )
+        .with_submission_class(SubmissionClass::Background)
+        .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
         .expect_err("a blocking operation cannot queue behind busy sockets");
     assert!(matches!(background, Error::TransportBusy));
     let user = camera
-        .submit_with_submission_class::<AppliedOnly, _>(&FocusDrive::Near, SubmissionClass::User)
+        .with_submission_class(SubmissionClass::User)
+        .submit::<AppliedOnly, _>(&FocusDrive::Near)
         .expect_err("a blocking operation cannot queue behind busy sockets");
     assert!(matches!(user, Error::TransportBusy));
     assert_eq!(
@@ -244,10 +243,10 @@ fn a_handle_default_does_not_bypass_blocking_first_write() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// An explicit per-submission class does not alter the handle default and
+/// A class-selected derived view does not alter the source handle default and
 /// cannot bypass the first-write boundary.
 #[test]
-fn a_per_submission_class_does_not_bypass_blocking_first_write() {
+fn a_derived_view_class_does_not_bypass_blocking_first_write() {
     let (transport, writes) = TwoSocketTransport::new();
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
@@ -257,17 +256,18 @@ fn a_per_submission_class_does_not_bypass_blocking_first_write() {
     let mut poller = session.camera::<SonyFR7>().expect("second camera view");
     poller.set_submission_class(Some(SubmissionClass::Background));
 
-    // Submitted first from the demoted handle: the explicit class is accepted
-    // as request configuration, but cannot bypass first-write rejection.
+    // Submitted first from a derived view: the class is accepted as view
+    // configuration, but cannot bypass first-write rejection.
     let raised = poller
-        .submit_with_submission_class::<AppliedOnly, _>(&ZoomDrive::Wide, SubmissionClass::User)
+        .with_submission_class(SubmissionClass::User)
+        .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
         .expect_err("a raised blocking operation cannot queue");
     assert!(matches!(raised, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
     assert_eq!(
         poller.submission_class(),
         Some(SubmissionClass::Background),
-        "a per-submission class does not change the handle default",
+        "a derived view does not change the source handle default",
     );
 
     first.applied().expect("first socket freed");
@@ -300,10 +300,10 @@ fn a_handle_default_never_changes_the_first_write_boundary_for_an_urgent_stop() 
     session.shutdown().expect("owner shutdown");
 }
 
-/// An explicit per-submission class cannot bypass the blocking first-write
+/// A class-selected derived view cannot bypass the blocking first-write
 /// invariant when both sockets are occupied.
 #[test]
-fn an_explicit_per_submission_class_cannot_bypass_the_first_write_boundary() {
+fn a_derived_view_class_cannot_bypass_the_first_write_boundary() {
     let (transport, writes) = TwoSocketTransport::new();
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
@@ -311,7 +311,8 @@ fn an_explicit_per_submission_class_cannot_bypass_the_first_write_boundary() {
     let [first, second] = occupy_both_sockets(&camera, &writes);
 
     let stop = camera
-        .submit_with_submission_class::<AppliedOnly, _>(&ZoomStop, SubmissionClass::Background)
+        .with_submission_class(SubmissionClass::Background)
+        .submit::<AppliedOnly, _>(&ZoomStop)
         .expect_err("an urgent blocking stop cannot queue behind occupied sockets");
     assert!(matches!(stop, Error::TransportBusy));
     assert_eq!(written(&writes).len(), 2);
@@ -352,8 +353,8 @@ fn a_camera_session_default_reaches_the_views_it_hands_out() {
     session.close().expect("owner shutdown");
 }
 
-/// `execute_with_submission_class` and `inquire_with_submission_class` reach the wire on the same
-/// path as their unclassified twins.
+/// A class-selected view's `execute` and `inquire` reach the same owner path
+/// as their source-view twins.
 #[test]
 fn classified_execute_reaches_the_wire() {
     let (transport, writes) = TwoSocketTransport::new();
@@ -363,7 +364,8 @@ fn classified_execute_reaches_the_wire() {
         .expect("camera view");
 
     camera
-        .execute_with_submission_class(&FocusModeCommand::Manual, SubmissionClass::Background)
+        .with_submission_class(SubmissionClass::Background)
+        .execute(&FocusModeCommand::Manual)
         .expect("background plain command still executes");
     camera.set_submission_class(Some(SubmissionClass::User));
     camera

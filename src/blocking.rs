@@ -1017,18 +1017,6 @@ impl<'session> BlockingCameraCore<'session> {
         self.execute_with_selection(command, self.class)
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    pub fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.execute_with_selection(command, ClassSelection::Explicit(class))
-    }
-
     fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
@@ -1051,18 +1039,6 @@ impl<'session> BlockingCameraCore<'session> {
         Q: Inquiry + ?Sized,
     {
         self.inquire_with_selection(inquiry, self.class)
-    }
-
-    /// Submits a typed inquiry in an explicitly named scheduling lane.
-    pub fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.inquire_with_selection(inquiry, ClassSelection::Explicit(class))
     }
 
     fn inquire_with_selection<Q>(
@@ -1095,19 +1071,6 @@ impl<'session> BlockingCameraCore<'session> {
         O: OperationCommand<K> + ?Sized,
     {
         self.submit_with_selection::<K, O>(operation, self.class)
-    }
-
-    /// Admits a typed operation in an explicitly named scheduling lane.
-    pub fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.submit_with_selection::<K, O>(operation, ClassSelection::Explicit(class))
     }
 
     fn submit_with_selection<K, O>(
@@ -1311,6 +1274,17 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.submission_class()
     }
 
+    /// Derives a camera view whose ordinary work uses `class`.
+    ///
+    /// The original view is unchanged. Commands, inquiries, operations, and
+    /// noun methods submitted through the returned view all inherit this
+    /// class; intrinsically urgent stops remain urgent.
+    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
+        let mut core = self.core;
+        core.set_submission_class(Some(class));
+        Self::from_core(core)
+    }
+
     /// Sets the ordinary-work [`SubmissionClass`] every later submission from
     /// *this handle* uses, or clears it with `None`.
     ///
@@ -1369,23 +1343,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.execute(command)
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It applies to ordinary work; an intrinsically
-    /// [`crate::ControlClass::Urgent`] command remains urgent.
-    pub fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core.execute_with_submission_class(command, class)
-    }
-
     /// Sends an inquiry and decodes its response through the shared owner.
     ///
     /// This intentionally has no request-specific `P: Has*` bound. Noun and
@@ -1406,22 +1363,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.inquire(inquiry)
     }
 
-    /// Sends an inquiry in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It cannot weaken an intrinsic urgent safety class.
-    pub fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core.inquire_with_submission_class(inquiry, class)
-    }
-
     /// Submits a typed operation and returns its borrowed owner-backed handle.
     pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
     where
@@ -1429,26 +1370,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation)
-    }
-
-    /// Submits a typed operation in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. As with
-    /// [`execute_with_submission_class`](Self::execute_with_submission_class),
-    /// an intrinsically urgent stop remains urgent.
-    pub fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<K, O>(operation, class)
     }
 }
 

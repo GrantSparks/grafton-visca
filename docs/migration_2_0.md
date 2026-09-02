@@ -288,7 +288,7 @@ ND-filter position inquiries.
 | Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::Plain` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
 | Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
-| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `*_with_submission_class` / `set_submission_class` surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
+| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `with_submission_class` / `set_submission_class` camera-view surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
 
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
@@ -332,17 +332,17 @@ distinct in-flight command — still fails a blocking operation submit fast with
 | --- | --- |
 | `camera.set_command_priority(Priority::Low)` | `camera.set_submission_class(Some(SubmissionClass::Background))` |
 | `camera.command_priority()` | `camera.submission_class()` — returns `Option<SubmissionClass>`, where `None` means "use each request's intrinsic class" |
-| `camera.execute_with_priority(cmd, Priority::High)` | `camera.execute_with_submission_class(&cmd, SubmissionClass::User)` |
+| `camera.execute_with_priority(cmd, Priority::High)` | `camera.with_submission_class(SubmissionClass::User).execute(&cmd)` |
 | `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
-| — (no 1.x equivalent) | `camera.inquire_with_submission_class(&inquiry, class)` and `camera.submit_with_submission_class::<K, _>(&operation, class)` |
+| — (no 1.x equivalent) | `camera.with_submission_class(class)` derives a view whose `execute`, `inquire`, `submit`, and noun methods all use that ordinary-work class. |
 | `BlockingClient` priority methods | The same names on `blocking::Camera`; `blocking::CameraSession` exposes forwarding default helpers and returns that `Camera` from `camera()` |
-| — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class`; `BlockingDynSessionCamera` has the native blocking `execute_with_submission_class`, `inquire_with_submission_class`, `submit_with_submission_class`, and `set_submission_class` counterparts |
+| — (no 1.x equivalent) | `with_submission_class` and `set_submission_class` are identical on typed, dynamic async, and native blocking dynamic camera views. |
 
 Three behavioural differences are worth reading before porting:
 
 - **No public QoS override can weaken an urgent request.** A handle set to
-  `Background`, and even a per-submission
-  `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
+  `Background`, and a view derived with
+  `with_submission_class(SubmissionClass::Background)`, still submits `PanTiltStop`, `ZoomStop`,
   `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
   `Urgent` variant, and the raw escape hatch's `raw::Policy` rejects

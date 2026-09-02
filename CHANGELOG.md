@@ -374,7 +374,9 @@ entries below retain their original wording.
 
 - **BREAKING** (#729): Collapsed the content-identical `raw::Spec` into the
   canonical `raw::Policy` and made the two hidden settlement-plan structs
-  owner-private. Runtime profiles now expose `ProfileSpec::name()`, raw target
+  owner-private. The per-operation `*_with_submission_class` family is replaced
+  by one `with_submission_class` camera-view adapter shared by typed and dynamic
+  facades. Runtime profiles now expose `ProfileSpec::name()`, raw target
   mismatches name the selected camera instead of the internal `write_into`
   hook, and receive-side normalization no longer produces a doubled
   `Connection closed:` prefix. Blocking `Session` and borrowed `Camera` views

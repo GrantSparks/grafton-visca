@@ -30,8 +30,8 @@ use crate::runtime::engine::{
 /// How one submission's scheduling lane is chosen.
 ///
 /// Every request already classifies itself through [`Request::control_class`].
-/// A camera handle may carry ordinary submission QoS, and a single submission
-/// may name its own QoS. Neither form can represent or demote the safety lane.
+/// A camera view may carry ordinary submission QoS. It cannot represent or
+/// demote the safety lane.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum ClassSelection {
     /// Use the request's own classification.
@@ -39,8 +39,6 @@ pub(crate) enum ClassSelection {
     Request,
     /// A camera handle's ordinary-traffic default.
     Handle(SubmissionClass),
-    /// One submission's explicit ordinary-traffic class.
-    Explicit(SubmissionClass),
 }
 
 impl ClassSelection {
@@ -53,7 +51,7 @@ impl ClassSelection {
     pub(crate) const fn resolve(self, request: ControlClass) -> ControlClass {
         match self {
             Self::Request => request,
-            Self::Handle(class) | Self::Explicit(class) => match request {
+            Self::Handle(class) => match request {
                 ControlClass::Urgent => ControlClass::Urgent,
                 _ => class.control_class(),
             },
@@ -64,7 +62,7 @@ impl ClassSelection {
     pub(crate) const fn handle_default(self) -> Option<SubmissionClass> {
         match self {
             Self::Handle(class) => Some(class),
-            Self::Request | Self::Explicit(_) => None,
+            Self::Request => None,
         }
     }
 
@@ -3051,9 +3049,9 @@ mod tests {
                     ControlClass::Background
                 };
                 assert_eq!(
-                    ClassSelection::Explicit(SubmissionClass::Background).resolve(request),
+                    ClassSelection::Handle(SubmissionClass::Background).resolve(request),
                     expected,
-                    "an explicit per-submission class preserves the safety floor",
+                    "a class-selected view preserves the safety floor",
                 );
                 assert_eq!(
                     ClassSelection::Handle(SubmissionClass::Background).resolve(request),
@@ -3063,7 +3061,7 @@ mod tests {
             }
         }
 
-        /// A handle default and a per-submission override both reach the
+        /// A handle default and a class-selected derived view both reach the
         /// lowered `ControlPolicy` of a plain command.
         #[test]
         fn plain_command_lowers_the_selected_class() {
@@ -3076,7 +3074,7 @@ mod tests {
                 EngineControlClass::User,
             );
             assert_eq!(
-                submission_class(ClassSelection::Explicit(SubmissionClass::Normal)),
+                submission_class(ClassSelection::Handle(SubmissionClass::Normal)),
                 EngineControlClass::Normal,
             );
         }
@@ -3094,7 +3092,7 @@ mod tests {
                 EngineControlClass::Background,
             );
             assert_eq!(
-                inquiry_class(ClassSelection::Explicit(SubmissionClass::User)),
+                inquiry_class(ClassSelection::Handle(SubmissionClass::User)),
                 EngineControlClass::User,
             );
         }
@@ -3106,7 +3104,7 @@ mod tests {
             for class in [
                 ClassSelection::Request,
                 ClassSelection::Handle(SubmissionClass::Background),
-                ClassSelection::Explicit(SubmissionClass::Background),
+                ClassSelection::Handle(SubmissionClass::Background),
             ] {
                 assert!(matches!(
                     downstream_urgent_result(class),
@@ -3130,9 +3128,9 @@ mod tests {
                 "issue #630: a handle default must never demote an urgent stop",
             );
             assert_eq!(
-                builtin_stop_class(ClassSelection::Explicit(SubmissionClass::Background)),
+                builtin_stop_class(ClassSelection::Handle(SubmissionClass::Background)),
                 EngineControlClass::Urgent,
-                "issue #542: per-submission QoS must never demote an urgent stop",
+                "issue #542: view QoS must never demote an urgent stop",
             );
         }
     }

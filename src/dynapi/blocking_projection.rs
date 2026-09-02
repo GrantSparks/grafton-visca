@@ -94,6 +94,16 @@ impl<'session> BlockingDynSessionCamera<'session> {
         self.core.submission_class()
     }
 
+    /// Derives a runtime-profile view whose ordinary work uses `class`.
+    ///
+    /// The original view is unchanged, and intrinsically urgent stops remain
+    /// urgent through the returned view.
+    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
+        let mut selected = *self;
+        selected.set_submission_class(Some(class));
+        selected
+    }
+
     /// Sets this view's ordinary-work submission-class default.
     ///
     /// Intrinsically urgent requests are never demoted.
@@ -109,36 +119,12 @@ impl<'session> BlockingDynSessionCamera<'session> {
         self.core.execute(command)
     }
 
-    /// Executes a plain command in an explicitly selected scheduling lane.
-    pub fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core.execute_with_submission_class(command, class)
-    }
-
     /// Sends a typed inquiry through the shared blocking owner.
     pub fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,
     {
         self.core.inquire(inquiry)
-    }
-
-    /// Sends a typed inquiry in an explicitly selected scheduling lane.
-    pub fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core.inquire_with_submission_class(inquiry, class)
     }
 
     /// Admits a typed operation and returns its native blocking handle.
@@ -148,20 +134,6 @@ impl<'session> BlockingDynSessionCamera<'session> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation)
-    }
-
-    /// Admits a typed operation in an explicitly selected scheduling lane.
-    pub fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<K, O>(operation, class)
     }
 
     /// Stops every profile-supported motion axis through the shared owner.
