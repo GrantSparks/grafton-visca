@@ -10294,6 +10294,11 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         phase_of(&engine, command_id),
         Some(Phase::AwaitingAck { .. })
     ));
+    #[cfg(feature = "blocking")]
+    assert!(
+        engine.raw_preack_gate_frees_socket_on_ack(camera(1)),
+        "an inquiry-only hold cannot disable the ordinary command ACK drain"
+    );
     assert_eq!(
         engine.raw_target_tombstones[1],
         Some(RawTerminalTombstone::inquiry(
@@ -10882,6 +10887,151 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
 
     let released = engine.advance(release_at);
     assert_eq!(request_transmit(&released).1, successor_id);
+    engine.assert_invariants().unwrap();
+}
+
+/// #714: once a raw predecessor's ACK deadline has passed, its remaining
+/// ambiguity quarantine is a known time-bound correlation hold. A blocking
+/// first-write caller must be told when that hold releases rather than seeing
+/// generic capacity contention and translating it to `TransportBusy`.
+#[test]
+fn lost_raw_ack_makes_ordinary_first_dispatch_a_timed_wait() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let (predecessor_effects, predecessor_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &predecessor_effects, None, start);
+
+    let ack_deadline = start + Duration::from_millis(20);
+    engine.advance(ack_deadline);
+    let quarantine_deadline = match phase_of(&engine, predecessor_id) {
+        Some(Phase::AwaitingLateAck { deadline }) => deadline,
+        phase => panic!("expected lost-ACK quarantine, got {phase:?}"),
+    };
+    assert_eq!(
+        quarantine_deadline,
+        ack_deadline + Duration::from_millis(50)
+    );
+
+    let (successor_effects, successor_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        ack_deadline,
+    );
+    assert!(request_transmit_optional(&successor_effects).is_none());
+    assert!(matches!(
+        engine.first_dispatch_without_due(successor_id, ack_deadline),
+        FirstDispatch::WaitUntil {
+            deadline,
+            reason: FirstDispatchWait::RawCorrelationTombstone,
+        } if deadline == quarantine_deadline
+    ));
+
+    let released = engine.advance(quarantine_deadline);
+    assert!(matches!(
+        terminal_failure(&released, predecessor_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let (_, dispatched, _) = request_transmit(&released);
+    assert_eq!(dispatched, successor_id);
+    engine.assert_invariants().unwrap();
+}
+
+/// #714: an Urgent raw command crosses one open positional candidate after
+/// physical command pacing. With two candidates, an ACK is intentionally
+/// attributable to neither; both requests retain their own bounded unconfirmed
+/// outcome instead of the engine guessing by recency.
+#[test]
+fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
+    let start = Instant::now();
+    let spacing = Duration::from_millis(10);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    engine.policy.command_spacing = spacing;
+
+    let (predecessor_effects, predecessor_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &predecessor_effects, None, start);
+    assert!(matches!(
+        phase_of(&engine, predecessor_id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+
+    let (urgent_admission, urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&urgent_admission).is_none());
+    assert!(matches!(
+        engine.first_dispatch_without_due(urgent_id, start),
+        FirstDispatch::WaitUntil {
+            deadline,
+            reason: FirstDispatchWait::Pacing,
+        } if deadline == start + spacing
+    ));
+
+    let urgent_effects = match engine.first_dispatch_without_due(urgent_id, start + spacing) {
+        FirstDispatch::Effects(effects) => effects,
+        dispatch => panic!("urgent safety-lane dispatch was blocked: {dispatch:?}"),
+    };
+    send_ok(&mut engine, &urgent_effects, None, start + spacing);
+    assert!(matches!(
+        phase_of(&engine, urgent_id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+    engine
+        .assert_invariants()
+        .expect("one urgent candidate may cross one raw predecessor");
+
+    let ack = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + spacing + Duration::from_millis(1),
+    );
+    assert!(ack
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))));
+    assert!(matches!(
+        phase_of(&engine, predecessor_id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+    assert!(matches!(
+        phase_of(&engine, urgent_id),
+        Some(Phase::AwaitingAck { .. })
+    ));
+
+    engine.advance(start + Duration::from_millis(20));
+    engine.advance(start + spacing + Duration::from_millis(20));
+    let predecessor_done = engine.advance(start + Duration::from_millis(70));
+    assert!(matches!(
+        terminal_failure(&predecessor_done, predecessor_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert!(matches!(
+        phase_of(&engine, urgent_id),
+        Some(Phase::AwaitingLateAck { .. })
+    ));
+    let urgent_done = engine.advance(start + Duration::from_millis(80));
+    assert!(matches!(
+        terminal_failure(&urgent_done, urgent_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
     engine.assert_invariants().unwrap();
 }
 

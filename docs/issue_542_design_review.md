@@ -198,9 +198,12 @@ encoding.
 5. Recoverable cancellation refusal is approved and retained.
 6. Hardware verification remains a stable-release gate, not a prerequisite to
    calling the software work release-candidate complete.
-7. Raw VISCA does not use universal FIFO pre-ACK attribution. It keeps one
-   unacknowledged command candidate per target across `Sending`, `AwaitingAck`,
-   `AwaitingCompletion`, and `AwaitingLateAck`. `AwaitingCompletion` is the
+7. Raw VISCA does not use universal FIFO pre-ACK attribution. It normally keeps
+   one unacknowledged command candidate per target across `Sending`,
+   `AwaitingAck`, `AwaitingCompletion`, and `AwaitingLateAck`. One intrinsic
+   `Urgent` command may cross one existing candidate as the #714 safety-lane
+   exception; while both are open, unsequenced ACK/error evidence binds to
+   neither. `AwaitingCompletion` is the
    completion-only shape: it holds the target channel exclusively and never
    earns a socket. For an ACK-bearing command, socket-level concurrency reopens
    as soon as ACK establishes ownership. Raw ACK and error routing never uses
@@ -264,14 +267,18 @@ encoding.
    operation handle.
 10. Intrinsically urgent cancellation bypasses queued ordinary work but never
     bypasses physical command pacing.
-   **Ratified clarification for #673:** issue #542 §4's older blanket sentence
-   that blocking submission “never waits for ACK” is superseded in this local
-   review by one bounded exception: a blocking operation submission may drain
-   the sole raw ACK-capable predecessor so an urgent stop can perform its first
-   write. `CompletionOnly`, `NoReply`, and an #671 `AwaitingLateAck` quarantine
-   with `CancelState::None` are not ACK-capable; a cancellation-driven late-ACK
-   state remains eligible only when its ACK is still accepted. This documents a
-   local ratification, not a change to the GitHub issue body.
+   **Ratified clarification for #673/#714:** issue #542 §4's older blanket
+   sentence that blocking submission “never waits for ACK” is superseded by two
+   bounded decisions. An ordinary ACK-bearing operation may drain the sole live
+   raw ACK-capable predecessor under its own ACK budget (#673). A lost-ACK
+   `AwaitingLateAck` predecessor instead gives ordinary first dispatch a timed
+   wait to its ambiguity deadline, never generic contention. An intrinsically
+   `Urgent` stop bypasses that drain and the one-candidate gate, subject to
+   command pacing and socket capacity; if two candidates are open, ACK/error
+   evidence binds to neither (#714). `CompletionOnly` and `NoReply` are never
+   draining successors, while a cancellation-driven late-ACK state remains
+   eligible only when its ACK is still accepted. This documents a local
+   ratification, not a change to the GitHub issue bodies.
 11. Fixed-format ACK, completion, error, and network-change frames require
     their exact protocol lengths; a known prefix with trailing bytes is
     malformed, not a valid response or an unknown extension. Fixed ACK,

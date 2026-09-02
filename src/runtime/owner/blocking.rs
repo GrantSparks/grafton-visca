@@ -443,17 +443,14 @@ impl BlockingSessionHost {
             // and the subsequent admission cannot race another submission.
             let target = prepared.target();
             owner.ensure_admission_capacity(target)?;
-            // Issue #673: before the first-write submit, drain the raw
-            // single-candidate pre-ACK gate if that alone is what blocks this
-            // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
-            // or another ACK-then-completion operation — submitted while a
-            // caller still holds an un-awaited raw operation handle would lose
-            // the first-dispatch race and be rejected `TransportBusy` with zero
-            // bytes on the wire while the camera keeps moving. CompletionOnly
-            // still needs target idleness after that ACK, so it never meets the
-            // architecture's sole-obstacle rule and is not pumped. The drain
-            // pumps the peer's ACK (bounded by this request's own ACK budget) so
-            // a command socket frees and the subsequent first write wins.
+            // Issue #673: before an ordinary first-write submit, drain the raw
+            // single-candidate pre-ACK gate if that alone blocks this target.
+            // The peer's ACK is pumped under this request's own ACK budget so a
+            // command socket frees and the subsequent first write wins.
+            // CompletionOnly still needs target idleness and never meets that
+            // sole-obstacle rule. Intrinsic Urgent operations also skip the
+            // drain: #714 lets their safety lane cross one positional candidate
+            // and makes any resulting two-candidate ACK bind to neither.
             if let Some(ack_budget) = prepared.preack_drain_hint() {
                 owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
             }
@@ -1523,18 +1520,15 @@ impl BlockingOwner {
     /// ACK-then-completion operation's first-write submit, when that gate alone
     /// blocks a new command on `target` (issue #673).
     ///
-    /// On a raw-VISCA target the engine keeps at most one *unacknowledged*
-    /// command in flight so a socketless ACK can never be misattributed to the
-    /// wrong request. While a caller holds an un-awaited operation handle whose
-    /// command is still awaiting its ACK, a second operation — including an
-    /// emergency `stop_all_motion`/`Urgent` stop — loses the first-dispatch
-    /// race and, under the `RequireFirstWrite` policy, would be rejected
-    /// [`Error::TransportBusy`] with no write even though a command socket is
-    /// free the instant that ACK lands. This pumps the owner (reading the
-    /// peer's ACK off the socket) until the gate clears, bounded by the
-    /// submitting request's own ACK budget, so the subsequent first write wins
-    /// and the returned handle still names a request whose first write
-    /// succeeded.
+    /// On a raw-VISCA target the engine normally keeps one *unacknowledged*
+    /// command in flight so a socketless ACK cannot be misattributed. While a
+    /// caller holds an un-awaited operation whose command is still awaiting its
+    /// ACK, a second ordinary operation would lose the first-dispatch race even
+    /// though a command socket is free the instant that ACK lands. This pumps
+    /// the owner until the gate clears, bounded by the submitting request's own
+    /// ACK budget, so the subsequent first write wins. An intrinsic `Urgent`
+    /// operation never enters this drain: #714 gives it an explicit
+    /// two-candidate safety lane whose ACK evidence fails closed.
     ///
     /// It is deliberately narrow. A completion-only successor still needs the
     /// target to be entirely idle after a predecessor ACK, so that ACK is not

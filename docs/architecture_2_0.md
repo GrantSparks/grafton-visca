@@ -164,11 +164,14 @@ The construction and request path has a fixed order:
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
 
-Correlation before ACK is envelope-specific. A raw-VISCA target has at most
+Correlation before ACK is envelope-specific. A raw-VISCA target normally has
 one unacknowledged command candidate across `Sending`, `AwaitingAck`,
-`AwaitingCompletion`, and `AwaitingLateAck`. Once its ACK assigns a socket, the
-next command may be written while the first executes, so a two-socket camera retains its useful
-concurrency without asking FIFO order to identify an ACK. A completion-only
+`AwaitingCompletion`, and `AwaitingLateAck`. One intrinsically `Urgent` command
+may cross one existing positional candidate as the #714 safety-lane exception.
+While both are open, unsequenced ACK/error evidence binds to neither; the engine
+never guesses by recency. Once an unambiguous ACK assigns a socket, the next
+command may be written while the first executes, so a two-socket camera retains
+its useful concurrency without asking FIFO order to identify an ACK. A completion-only
 command (`RawReplyShape::CompletionOnly`, issue #700) never earns a socket, so
 it can never be socket-correlated; it therefore holds the target's command
 channel exclusively for its whole lifetime — `AwaitingCompletion` counts as an
@@ -305,35 +308,31 @@ or a decoder that cannot perform the requested discard poisons the stream.
 
 Blocking operation submission has one additional ownership boundary: a
 returned operation handle always names a request whose initial transport write
-already succeeded. One obstacle is drained rather than rejected. On a raw
-profile the engine keeps at most one command in its unacknowledged window (the
-single-candidate gate), so a first write submitted while a caller still holds an
-un-awaited raw operation handle would otherwise lose the dispatch race even
-though a command socket is free the instant the prior command's ACK lands. When
-that pre-ACK gate is the *sole* obstacle and socket capacity would be available
-once it clears, the blocking owner pumps the peer's ACK — bounded by the
-submitting request's own ACK budget — so the first write wins and an emergency
-`stop_all_motion`/`Urgent` stop still reaches a moving camera (#673). A
-`CompletionOnly` successor still requires target idleness after that ACK, so it
-does not meet the sole-obstacle rule and is rejected without a drain. Genuine
-socket-capacity contention (every command socket already occupied) and losing
-the global dispatch race are *not* drained: the newly admitted request is
-terminalized as `Error::TransportBusy` immediately and no handle escapes, since
-pumping an ACK there would not free a socket. Ordinary blocking commands,
-inquiries, and owner-internal requests retain bounded queueing, as does the
-async operation API — whose always-running actor already pumps the ACK, so it
-never exhibited the raw first-write stall.
+already succeeded. An ordinary `AckThenCompletion` submission may drain the
+sole live ACK-capable raw predecessor, bounded by its own ACK budget, when that
+pre-ACK gate is the only obstacle (#673). If the predecessor's ACK deadline has
+already passed, its `AwaitingLateAck` quarantine is instead a known time-bound
+correlation hold: the first-dispatch decision is `WaitUntil` at that ambiguity
+deadline, and the blocking owner receives through the boundary before writing.
+It is never reported as generic contention; the async owner queues to the same
+deadline (#714).
 
-This is the ratified #673 exception to issue #542 §4's older blanket sentence
-that blocking submission “never waits for ACK.” The local post-review rule is
-narrow: only a sole raw ACK-capable predecessor may be drained for an
-`AckThenCompletion` successor, and the drain is bounded by the submitting
-request's ACK budget. `CompletionOnly` and `NoReply` are never draining
-successors; the #671 `AwaitingLateAck` quarantine with `CancelState::None` also
-never arms it, while a cancellation-driven late-ACK state remains eligible when
-its ACK is still accepted. This repository records the superseding design
-decision; the GitHub issue body remains historical and is not claimed to have
-changed.
+An intrinsically `Urgent` stop skips the #673 drain and may cross one raw
+positional candidate after command pacing. The resulting explicit
+two-candidate state makes every unsequenced ACK/error ambiguous, so it binds to
+neither request and either handle may later report
+`UnsequencedCommandUnconfirmed`; that uncertainty does not retract the stop
+bytes already sent to the camera. A `CompletionOnly` successor still requires
+target idleness and does not meet either exception. Genuine socket-capacity
+contention (every command socket already occupied), re-entrancy, and losing the
+global dispatch race remain fail-fast `Error::TransportBusy` boundaries.
+Ordinary blocking commands, inquiries, and owner-internal requests retain
+bounded queueing.
+
+These are the ratified #673/#714 exceptions to issue #542 §4's older blanket
+sentence that blocking submission “never waits for ACK.” This repository
+records the superseding design decision; the GitHub issue bodies remain
+historical and are not claimed to have changed.
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
@@ -374,7 +373,7 @@ Other targets and all command work remain independently eligible (#712).
 | `AwaitingReply` | An inquiry was written and awaits its reply (deadline = sent + inquiry). |
 | `Backoff` | A retryable rejection or timeout scheduled a retry; re-enters `Ready` at `ready_at`. |
 | `AwaitingCancellationResolution` | A socket cancellation was sent, or a lost completion is quarantined while the socket is still owned; awaits the original completion or the protocol-cancel terminal. |
-| `AwaitingLateAck` | A sent raw command has an unconfirmed, still-quarantined correlation and is held until the ambiguity deadline so a late reply cannot misbind (issue #671). This includes an ACK-bearing command whose ACK correlation was lost and a completion-only command whose completion timed out; it is distinct from the cancellation-driven late-ACK state, which may still accept the ACK described below. |
+| `AwaitingLateAck` | A sent raw command has an unconfirmed, still-quarantined correlation and is held until the ambiguity deadline so a late reply cannot misbind (issue #671). This includes an ACK-bearing command whose ACK correlation was lost and a completion-only command whose completion timed out; ordinary successors receive a bounded wait to that release, while one `Urgent` positional candidate may cross it (#714). It is distinct from the cancellation-driven late-ACK state, which may still accept the ACK described below. |
 
 ### Cancellation substates
 
@@ -395,6 +394,8 @@ Other targets and all command work remain independently eligible (#712).
 | Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
+| Ordinary blocking first dispatch behind a raw `AwaitingLateAck` quarantine | Return a bounded correlation `WaitUntil` at that entry's ambiguity deadline, receive through the boundary, then write; never classify the known release as `TransportBusy` (#714). The async scheduler queues to the same deadline. |
+| `Urgent` raw command behind one positional candidate | Skip the blocking pre-ACK drain and cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad target-response tombstone before same-target raw response-bearing command or inquiry work may start. Another `NoReply` may write and extend that fixed hold. |
@@ -402,6 +403,7 @@ Other targets and all command work remain independently eligible (#712).
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | ACK in `AwaitingAck`, or cancellation-driven `AwaitingLateAck`, with a free socket | Assign the socket and transition to `Executing`; if cancel intent is already recorded on a supported target, emit one socket cancellation. A default raw unconfirmed-quarantine `AwaitingLateAck` instead ignores late frames. |
+| Unsequenced ACK/error while two raw positional candidates are open | Ignore it as ambiguous and bind it to neither candidate; never use admission order or recency (#714). |
 | ACK naming a busy socket | Fall back to the target's other free socket when it has more than one (issues #620/#682); when none is free the ACK stays inert as `Ignored(SocketConflict)`. |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |

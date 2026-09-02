@@ -21,6 +21,18 @@ entries below retain their original wording.
 
 ### Fixed
 
+- **BREAKING**: A raw command left in lost-ACK quarantine now gives an
+  ordinary blocking submission a bounded correlation wait through that
+  predecessor's ambiguity deadline instead of `TransportBusy`; the async owner
+  retains the same queued release (#714). Intrinsically `Urgent` stops bypass
+  the pre-ACK single-candidate gate and the blocking ACK drain, while still
+  honoring command pacing and real socket capacity. If that creates two open
+  raw candidates, an ACK/error binds to neither rather than being guessed by
+  recency, and either command may report `UnsequencedCommandUnconfirmed` even
+  though the stop reached the wire. Two-socket contention and blocking
+  re-entrancy remain `TransportBusy`; blocking/async differential transcripts
+  and lost-ACK public-facade regressions cover the boundary.
+
 - **BREAKING**: Matched raw inquiry replies now release their single-flight
   lane immediately instead of installing every profile's one-second pre-ACK
   ambiguity hold (#712). Only timeout, terminal error, or retry release retains

@@ -500,7 +500,7 @@ impl ProtocolEngine {
             let target = entry.request.context().target;
             let policy = self.targets[target.id() as usize]?;
             if self.raw_tombstone_blocks_dispatch(entry, target)
-                || self.raw_command_unacknowledged(target)
+                || self.raw_command_gate_blocks(entry, target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
@@ -785,6 +785,12 @@ impl ProtocolEngine {
             return FirstDispatch::Blocked;
         }
         if let Some(deadline) = self.raw_tombstone_dispatch_deadline(entry) {
+            return FirstDispatch::WaitUntil {
+                deadline,
+                reason: FirstDispatchWait::RawCorrelationTombstone,
+            };
+        }
+        if let Some(deadline) = self.raw_unconfirmed_preack_dispatch_deadline(entry) {
             return FirstDispatch::WaitUntil {
                 deadline,
                 reason: FirstDispatchWait::RawCorrelationTombstone,
@@ -1198,7 +1204,7 @@ impl ProtocolEngine {
                 return false;
             };
             if self.raw_tombstone_blocks_dispatch(entry, target)
-                || self.raw_command_unacknowledged(target)
+                || self.raw_command_gate_blocks(entry, target)
                 || self.commands_inflight(target) >= usize::from(policy.command_sockets)
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
@@ -1278,18 +1284,17 @@ impl ProtocolEngine {
             .count()
     }
 
-    /// Whether any released raw response correlation remains on `target`.
+    /// Whether a released uncorrelatable command retains a broad raw-response
+    /// hold on `target`.
     ///
-    /// `NoReply` and `CompletionOnly` never establish a socket identity, and
-    /// raw inquiry replies carry no request identity. A delayed raw frame is
-    /// therefore indistinguishable from the same frame for new work. The only
-    /// evidence-safe action is to hold that target's correlation lane for the
-    /// bounded tombstone interval.
+    /// The narrow #712 inquiry hold is deliberately excluded: it cannot make a
+    /// command ACK ambiguous and therefore must not disable the blocking
+    /// pre-ACK drain for ordinary ACK-bearing work.
     #[cfg(feature = "blocking")]
-    fn raw_target_correlation_quarantined(&self, target: CameraId) -> bool {
+    fn raw_target_command_correlation_quarantined(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.raw_target_tombstones[target.id() as usize]
-                .is_some_and(RawTerminalTombstone::is_active)
+                .is_some_and(|tombstone| tombstone.terminal_deadline.is_some())
     }
 
     /// Whether a target terminal tombstone prevents this ready request from
@@ -1358,6 +1363,65 @@ impl ProtocolEngine {
                 entry.request.context().target == target
                     && raw_unacknowledged_command_candidate(entry)
             })
+    }
+
+    fn raw_unacknowledged_command_count(&self, target: CameraId) -> usize {
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return 0;
+        }
+        self.entries
+            .values()
+            .filter(|entry| {
+                entry.request.context().target == target
+                    && raw_unacknowledged_command_candidate(entry)
+            })
+            .count()
+    }
+
+    /// Whether this request may create the one audited two-candidate raw state.
+    ///
+    /// An urgent safety command may cross one existing positional command
+    /// candidate (#714). While both are open, the exact raw ACK/error resolvers
+    /// see multiple candidates and bind to neither; no temporal guess is made.
+    /// A third candidate is never admitted through this exception.
+    fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: CameraId) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && !entry.request.is_inquiry()
+            && entry.request.context().control.class == ControlClass::Urgent
+            && self.raw_unacknowledged_command_count(target) == 1
+    }
+
+    fn raw_command_gate_blocks(&self, entry: &Entry, target: CameraId) -> bool {
+        self.raw_command_unacknowledged(target)
+            && !self.raw_urgent_gate_bypass_available(entry, target)
+    }
+
+    /// Known release of a lost-ACK positional candidate that currently keeps
+    /// this request behind the raw command gate.
+    ///
+    /// Blocking first-write submission must wait this bounded correlation
+    /// deadline instead of reporting generic contention (#714). The async
+    /// scheduler already leaves the request queued until the same due work.
+    fn raw_unconfirmed_preack_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
+        if entry.request.is_inquiry() {
+            return None;
+        }
+        let target = entry.request.context().target;
+        if !self.raw_command_gate_blocks(entry, target) {
+            return None;
+        }
+        self.entries
+            .values()
+            .filter_map(|candidate| {
+                (candidate.request.context().target == target
+                    && matches!(candidate.cancellation, CancelState::None))
+                .then_some(candidate.phase)
+            })
+            .filter_map(|phase| match phase {
+                Phase::AwaitingLateAck { deadline } => Some(deadline),
+                _ => None,
+            })
+            .min()
     }
 
     /// Whether an uncorrelatable raw command is still occupying `target`.
@@ -1438,7 +1502,7 @@ impl ProtocolEngine {
     /// the blocking operation-submit path (issue #673).
     #[cfg(feature = "blocking")]
     pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
-        !self.raw_target_correlation_quarantined(target)
+        !self.raw_target_command_correlation_quarantined(target)
             && self.raw_ack_capable_candidate(target).is_some()
             && self.targets[target.id() as usize].is_some_and(|policy| {
                 self.commands_inflight(target) < usize::from(policy.command_sockets)
@@ -2343,14 +2407,11 @@ impl ProtocolEngine {
     /// The unique raw command on `target` whose ACK-bearing reply has not been
     /// established.
     ///
-    /// Raw dispatch admits only one unacknowledged command per target (decision
-    /// D7), so a raw target can never hold two entries at once in
-    /// `Sending`, `AwaitingAck`, or `AwaitingLateAck`. A multi-`AwaitingAck` raw
-    /// state is therefore unreachable, which is what makes the ambiguous
-    /// multi-candidate raw correlation raised in #669 impossible to reach in the
-    /// first place. Keep this resolver exact regardless: if an invariant
-    /// regression ever produced a second candidate it returns `None` (fails
-    /// closed) rather than turning admission order into an ACK/error guess. The
+    /// Raw dispatch normally admits one unacknowledged command per target.
+    /// Issue #714 permits one intrinsically Urgent command to cross one open
+    /// positional candidate. This resolver is the safety boundary for that
+    /// explicit two-candidate state: it returns `None` and never turns
+    /// admission order or recency into an ACK/error guess. The
     /// `Sending` phase is included for the deferred-ACK latch. Only an
     /// `AckThenCompletion` command is eligible: `NoReply` has no response
     /// lifecycle, and `CompletionOnly` deliberately has no ACK/socket
@@ -3860,7 +3921,7 @@ impl ProtocolEngine {
             let target = entry.request.context().target;
             self.targets[target.id() as usize].is_some_and(|policy| {
                 !self.raw_tombstone_blocks_dispatch(entry, target)
-                    && !self.raw_command_unacknowledged(target)
+                    && !self.raw_command_gate_blocks(entry, target)
                     && self.commands_inflight(target) < usize::from(policy.command_sockets)
                     && !self.uncorrelated_raw_shape_blocked(entry, target)
             })
@@ -4190,10 +4251,13 @@ impl ProtocolEngine {
                 }
             }
         }
-        // Issue #671 / D8: audit the raw single-candidate rule that correlation
-        // safety depends on. Raw dispatch keeps at most one command per target in
-        // the window where a reply is attributed positionally rather than by an
-        // owned socket. Keep this audit on the same predicate as dispatch:
+        // Issue #671 / D8: audit the raw positional-candidate rule that
+        // correlation safety depends on. Raw dispatch normally keeps one
+        // command per target in the window where a reply is attributed
+        // positionally rather than by an owned socket. Issue #714 admits one
+        // explicit safety-lane exception: at most two candidates, with at least
+        // one intrinsically Urgent. The resolver then binds an ACK/error to
+        // neither. Keep this audit on the same predicate as dispatch:
         // completion-only `AwaitingCompletion` is uncorrelated for its entire
         // lifetime, while the socket quarantine
         // (`AwaitingCancellationResolution` with `CancelState::None`) is excluded
@@ -4203,13 +4267,18 @@ impl ProtocolEngine {
         // invariants”.
         if self.policy.envelope == EnvelopeKind::Raw {
             let mut unacknowledged = [0_u8; 9];
+            let mut urgent = [0_u8; 9];
             for entry in self.entries.values() {
                 if !raw_unacknowledged_command_candidate(entry) {
                     continue;
                 }
                 let target = usize::from(entry.request.context().target.id());
                 unacknowledged[target] = unacknowledged[target].saturating_add(1);
-                if unacknowledged[target] > 1 {
+                if entry.request.context().control.class == ControlClass::Urgent {
+                    urgent[target] = urgent[target].saturating_add(1);
+                }
+                if unacknowledged[target] > 2 || (unacknowledged[target] > 1 && urgent[target] == 0)
+                {
                     return Err("more than one raw command is unacknowledged on a target".into());
                 }
             }
@@ -4250,7 +4319,7 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
 }
 
 /// A raw command which has no socket identity and therefore occupies the
-/// target's single positional-correlation slot.
+/// target's positional-correlation gate.
 ///
 /// The raw dispatch gate and its invariant audit intentionally share this
 /// predicate, so extending one cannot leave the other with a divergent phase

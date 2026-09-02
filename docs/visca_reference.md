@@ -821,11 +821,12 @@ the owner alone knows which live operation owns a camera-assigned socket.
 ### 11.4 Command scheduling, sockets, and cancel
 
 VISCA cameras generally expose two command sockets. Maintain an owner-only
-per-camera scheduler. For raw VISCA it gates only the target's one
-unacknowledged command, then tracks the ACK-assigned sockets and frees each
-socket on Completion or an error. It must not use FIFO order to guess which
-raw command an ACK belongs to. Sony sequence numbers permit pre-ACK pipeline
-and exact reply correlation.
+per-camera scheduler. Raw VISCA normally gates the target's one unacknowledged
+command, then tracks the ACK-assigned sockets and frees each socket on
+Completion or an error. One intrinsically `Urgent` command may cross one open
+candidate for safety (#714); while both are open, ACK/error evidence binds to
+neither rather than using FIFO order or recency. Sony sequence numbers permit
+pre-ACK pipeline and exact reply correlation.
 
 | Action | Packet / behavior |
 |---|---|
@@ -856,8 +857,8 @@ polling again.
 
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. A receive fault while awaiting ACK likewise never authorizes a replay, but by default leaves an *uncancelled* command in `AwaitingAck`; only a later ACK deadline without an ACK yields the per-request `UnsequencedCommandUnconfirmed` outcome and correlation quarantine. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
-| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target and retain socket concurrency after ACK. Treat an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. A receive fault while awaiting ACK also forbids replay but leaves an *uncancelled* command in `AwaitingAck` by default; only its later ACK deadline without an ACK produces that outcome. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. |
+| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. An intrinsic `Urgent` stop may cross one open candidate; ACK/error evidence observed with both open binds to neither (#714). A receive fault while awaiting ACK likewise never authorizes a replay, but by default leaves an *uncancelled* command in `AwaitingAck`; only a later ACK deadline without an ACK yields the per-request `UnsequencedCommandUnconfirmed` outcome and correlation quarantine. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the ordinary one-command pre-ACK window per target and retain socket concurrency after ACK; an intrinsic `Urgent` stop may cross one candidate, making ACK/error evidence ambiguous and attributable to neither (#714). Treat an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. A receive fault while awaiting ACK also forbids replay but leaves an *uncancelled* command in `AwaitingAck` by default; only its later ACK deadline without an ACK produces that outcome. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 

@@ -1035,17 +1035,20 @@ where
     /// raw single-candidate pre-ACK gate before this operation's first-write
     /// submit (issue #673), without consuming the prepared operation.
     ///
-    /// Only an ACK-then-completion successor can become dispatch-eligible when
-    /// the predecessor's ACK arrives. A completion-only successor still
-    /// requires target idleness after that ACK, so the pre-ACK gate is not its
-    /// sole obstacle and blocking submission must fail fast rather than pump a
-    /// peer frame. `NoReply` operations are rejected before preparation. The
-    /// returned budget is this request's own ACK deadline, so the drain waits
-    /// no longer for a prior command's ACK than the request itself would wait
-    /// for its own.
+    /// Only an ordinary ACK-then-completion successor can become
+    /// dispatch-eligible when the predecessor's ACK arrives. An intrinsically
+    /// Urgent operation bypasses this drain and the raw single-candidate gate
+    /// through the engine's audited safety lane (#714). A completion-only
+    /// successor still requires target idleness after that ACK, so the pre-ACK
+    /// gate is not its sole obstacle and blocking submission must fail fast
+    /// rather than pump a peer frame. `NoReply` operations are rejected before
+    /// preparation. The returned budget is this request's own ACK deadline, so
+    /// the drain waits no longer for a prior command's ACK than the request
+    /// itself would wait for its own.
     #[cfg(feature = "blocking")]
     pub(crate) fn preack_drain_hint(&self) -> Option<Duration> {
-        (self.context.reply_shape == ReplyShape::AckThenCompletion)
+        (self.context.reply_shape == ReplyShape::AckThenCompletion
+            && self.context.control.class != crate::runtime::engine::ControlClass::Urgent)
             .then_some(self.context.timeout.ack)
     }
 

@@ -214,10 +214,14 @@ can move ordinary traffic among the lower three lanes but cannot cross that
 safety boundary. On the blocking facade this holds even on a raw profile while a
 caller still holds an un-awaited operation handle: the emergency stop's first
 write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
-gate, because the owner pumps the pending ACK to free a command socket first
-(#673). Only genuine socket-capacity contention — every command socket occupied
-by a distinct in-flight command — still fails a blocking operation submit fast
-with `TransportBusy`.
+gate. Ordinary ACK-bearing work still uses the bounded #673 ACK drain, but an
+intrinsically `Urgent` stop bypasses that drain and may create one explicit
+two-candidate safety-lane state (#714). An ACK observed while both raw
+candidates are open binds to neither; either operation may therefore report
+`UnsequencedCommandUnconfirmed` even though the stop bytes reached the camera.
+Only genuine socket-capacity contention — every command socket occupied by a
+distinct in-flight command — still fails a blocking operation submit fast with
+`TransportBusy`.
 
 | 1.x call | 2.0 call |
 | --- | --- |
@@ -596,6 +600,17 @@ minimum inquiry spacing) and blocks only another inquiry for the same target.
 ACK-bearing commands remain eligible. An inquiry also no longer starts the
 urgent command-spacing clock, while consecutive commands and cancellations
 still honor physical command pacing.
+
+**Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
+quarantined only to its known ambiguity deadline. Ordinary blocking operation
+submission now waits through that bounded correlation release and writes at the
+deadline instead of returning `TransportBusy`; async submission remains queued
+to the same release. An intrinsically `Urgent` stop takes the safety-lane
+exception immediately (subject to command pacing and actual socket capacity)
+and skips the blocking pre-ACK drain. While the predecessor and stop are both
+open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
+later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
+the reply, not evidence that the urgent stop failed to reach the camera.
 
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
