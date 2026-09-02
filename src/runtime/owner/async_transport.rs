@@ -312,6 +312,13 @@ where
         )
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(
+            (self.policy.protocol.transport == crate::runtime::engine::TransportKind::Stream)
+                .then(|| self.state.framer.buffered_len()),
+        )
+    }
+
     fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
             return Ok(None);

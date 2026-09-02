@@ -7,6 +7,8 @@
 
 use std::time::{Duration, Instant};
 
+use crate::runtime::engine::RawCorrelationReleaseSet;
+
 /// Pause applied after the first transient receive fault or immediately-idle
 /// read so a transport cannot hot-spin an owner.
 pub(super) const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
@@ -41,6 +43,88 @@ pub(super) fn clamp_receive_pause(
     deadline.map_or(pause, |deadline| {
         pause.min(deadline.saturating_duration_since(now))
     })
+}
+
+/// One owner-side, receive-first raw-correlation release turn.
+///
+/// The engine owns the typed release facts and their deadlines. This small
+/// executor-free coordinator owns only the shell state needed to prove that a
+/// due release received one ordered input turn before either owner lets due
+/// work dispatch a successor. Both owner shells use this same latch, no-input
+/// fence, and retained-prefix wait representation (#723).
+#[derive(Debug, Default)]
+pub(super) struct RawReleaseTurn {
+    latched: Option<RawCorrelationReleaseSet>,
+    no_input_fence: Option<RawCorrelationReleaseSet>,
+    await_until: Option<Instant>,
+}
+
+impl RawReleaseTurn {
+    /// Latch the first non-empty release set until a receive turn completes it.
+    /// A later control mutation cannot replace the old correlation proof.
+    pub(super) fn observe(
+        &mut self,
+        releases: RawCorrelationReleaseSet,
+    ) -> Option<RawCorrelationReleaseSet> {
+        if self.latched.is_none() && !releases.is_empty() {
+            self.replace(releases);
+        }
+        if self.latched.is_none() {
+            self.clear_fence();
+            self.await_until = None;
+        }
+        self.latched
+    }
+
+    pub(super) const fn latched(&self) -> Option<RawCorrelationReleaseSet> {
+        self.latched
+    }
+
+    pub(super) const fn is_pending(&self) -> bool {
+        self.latched.is_some()
+    }
+
+    /// Replace a completed proof with a newly exposed, distinct release set.
+    /// The replacement requires its own receive-first turn.
+    pub(super) fn replace(&mut self, releases: RawCorrelationReleaseSet) {
+        debug_assert!(!releases.is_empty());
+        self.latched = Some(releases);
+        self.clear_fence();
+        self.await_until = None;
+    }
+
+    /// Record that a no-data receive was sampled for this exact release set.
+    #[cfg_attr(not(feature = "async"), allow(dead_code))]
+    pub(super) fn fence_no_input(&mut self, releases: RawCorrelationReleaseSet) {
+        debug_assert!(!releases.is_empty());
+        self.no_input_fence = Some(releases);
+    }
+
+    #[cfg_attr(not(feature = "async"), allow(dead_code))]
+    pub(super) fn is_fenced(&self, releases: RawCorrelationReleaseSet) -> bool {
+        self.no_input_fence.is_some_and(|fenced| fenced == releases)
+    }
+
+    pub(super) fn clear_fence(&mut self) {
+        self.no_input_fence = None;
+    }
+
+    pub(super) const fn await_until(&self) -> Option<Instant> {
+        self.await_until
+    }
+
+    pub(super) fn wait_for_input_until(&mut self, deadline: Instant) {
+        self.await_until = Some(deadline);
+    }
+
+    /// Complete the current input proof. The engine due pass is performed by
+    /// the shell immediately before or after this call at the same sampled
+    /// instant.
+    pub(super) fn complete(&mut self) {
+        self.latched = None;
+        self.clear_fence();
+        self.await_until = None;
+    }
 }
 
 /// One run of receives that returned immediately without bytes.

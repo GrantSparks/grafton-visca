@@ -666,6 +666,11 @@ entries below retain their original wording.
   blocking submission that expires before its first write is now terminalized
   even when ordinary queueing was allowed, so it cannot return `Timeout` and
   then write as an unobserved orphan in a later owner turn. Both shells now use
+  one executor-free `RawReleaseTurn` for release-set latching and retained-prefix
+  waits; its async no-input fence is keyed to that same typed set. Async raw
+  stream release no longer poisons after an arbitrary 64 retained-input turns:
+  every discard must instead make measurable decoder progress, matching the
+  blocking owner's progress-based release contract. Both shells also use
   one shared idle-receive run: an immediately returning no-data blocking driver
   receives the same escalating 10–250 ms, next-deadline-clamped pacing as async
   instead of hot-spinning the caller thread. This is an internal architecture

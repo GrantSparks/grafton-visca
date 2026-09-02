@@ -35,7 +35,9 @@ pub(crate) use adapter::{
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
+use turn::{
+    clamp_receive_pause, transient_receive_pause, IdleReceiveRun, RawReleaseTurn, TransientFaultRun,
+};
 
 #[cfg(any(
     all(test, feature = "blocking", not(feature = "async")),

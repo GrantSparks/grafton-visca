@@ -28,9 +28,10 @@ use super::{
     normalize_cancellation_observation, normalize_command_outcome, normalize_inquiry_outcome,
     observation_outcome, prepend_effects, transient_receive_pause, AdmissionPermit, AppliedEffect,
     CancellationCore, CompletionObserver, DecodedFrame, DiagnosticSubscription, IdleReceiveRun,
-    Input, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, RejectedCancellation, RequestId,
-    RequestLane, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetStateCache,
-    TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
+    Input, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseTurn, ReceiptCore,
+    RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, SessionState,
+    ShutdownReason, TargetStateCache, TransientFaultRun, TransmissionMeta, WaitSelection,
+    WireWrite,
 };
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -42,11 +43,6 @@ use crate::runtime::engine::{
     Effect, EngineTurn, IgnoreReason, RawCorrelationReleaseSet, RawPrefixEvidence,
     RawReleaseGateAction, TransportKind,
 };
-
-/// Independent cap for work deferred/discarded while one due raw correlation
-/// release waits behind retained stream framing. This is intentionally not the
-/// per-receive frame batch limit: several legal batches may already be buffered.
-const RAW_CORRELATION_RELEASE_WORK_LIMIT: usize = 64;
 
 /// Whether one actor turn keeps the session alive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +232,13 @@ pub(crate) trait AsyncOwnerDriver: Send {
     /// nothing by default.
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(false)
+    }
+
+    /// A monotonic measure of the first retained stream input. Production
+    /// adapters return the exact framer byte count; the default supports the
+    /// single-fragment test seam. A discard must reduce this measure.
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.has_buffered_stream_input()?.then_some(1))
     }
 
     /// Classify the first retained raw stream input. Complete frames defer to
@@ -1730,9 +1733,9 @@ where
     /// pause so an immediately-returning idle read cannot hot-spin the actor,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receives: IdleReceiveRun,
-    /// Engine-owned deadline currently keeping an ambiguous retained prefix
-    /// under the old raw correlation scope (#713).
-    raw_release_wait_until: Option<Instant>,
+    /// Executor-free receive-first raw-release state shared with the blocking
+    /// owner (#723).
+    raw_release: RawReleaseTurn,
     runtime: Arc<R>,
 }
 
@@ -1793,7 +1796,7 @@ where
                 terminal_error,
                 faults: TransientFaultRun::default(),
                 idle_receives: IdleReceiveRun::default(),
-                raw_release_wait_until: None,
+                raw_release: RawReleaseTurn::default(),
                 runtime,
             },
         ))
@@ -1856,13 +1859,6 @@ where
         let read_timeout = self.state.policy().read_timeout;
         let mut source_phase = SourcePhase::ReceiveFirst;
         let mut receive_first_streak: usize = 0;
-        let mut buffered_receive_streak: usize = 0;
-        let mut raw_buffered_cap_latched = false;
-        // A ready `NoData`/non-consuming fault at an exact raw release is a
-        // linearized proof that the one mandatory input probe found no frame.
-        // It is deliberately scoped to the typed release set, not merely a
-        // boolean: a new due raw scope must receive its own probe.
-        let mut raw_release_no_input_fence: Option<RawCorrelationReleaseSet> = None;
         // Admission and cancellation are normally engine input turns.  Keep a
         // selected boundary here while the raw-release coordinator drains its
         // one mandatory input probe; otherwise `state.input` would run due
@@ -1886,15 +1882,10 @@ where
             // boundary the receive still wins this turn, so a busy transport is
             // never stalled — only guaranteed to yield the front periodically.
             let yielded_boundary_turn = source_phase == SourcePhase::BoundariesFirst;
-            let buffered_cap_reached =
-                buffered_receive_streak >= RAW_CORRELATION_RELEASE_WORK_LIMIT;
             let forced_boundary_turn = source_phase == SourcePhase::ReceiveFirst
-                && (receive_first_streak >= fairness_ceiling
-                    || buffered_cap_reached
-                    || raw_buffered_cap_latched);
+                && receive_first_streak >= fairness_ceiling;
             if forced_boundary_turn {
                 receive_first_streak = 0;
-                buffered_receive_streak = 0;
             }
             if forced_boundary_turn || yielded_boundary_turn {
                 // Polling boundaries first alone is not a cooperative handoff:
@@ -1922,23 +1913,12 @@ where
                     (duration, duration.is_zero())
                 },
             );
-            let raw_releases_due = self.state.raw_correlation_releases_due(now);
-            let has_raw_release_due = !raw_releases_due.is_empty();
-            if !has_raw_release_due {
-                self.raw_release_wait_until = None;
-            }
-            if !has_raw_release_due
-                || raw_release_no_input_fence.is_some_and(|fenced| fenced != raw_releases_due)
-            {
-                raw_release_no_input_fence = None;
-            }
-            let raw_release_is_fenced =
-                raw_release_no_input_fence.is_some_and(|fenced| fenced == raw_releases_due);
-            if wake_is_due && has_raw_release_due && buffered_cap_reached {
-                raw_buffered_cap_latched = true;
-            } else if !wake_is_due || !has_raw_release_due {
-                raw_buffered_cap_latched = false;
-            }
+            let _ = self
+                .raw_release
+                .observe(self.state.raw_correlation_releases_due(now));
+            let raw_releases_due = self.raw_release.latched().unwrap_or_default();
+            let has_raw_release_due = self.raw_release.is_pending();
+            let raw_release_is_fenced = self.raw_release.is_fenced(raw_releases_due);
             // A retune or another higher-priority boundary can make the prior
             // wake irrelevant. Do not carry a consumed allowance over to an
             // absent, future, or replaced timer — including a replacement that
@@ -1996,34 +1976,15 @@ where
                     if !wake_is_due {
                         Executor::sleep(runtime.as_ref(), wake_duration).await;
                     }
-                    ActorEvent::Wake {
-                        raw_buffered_cap_exhausted: raw_buffered_cap_latched,
-                    }
+                    ActorEvent::Wake
                 };
                 let control_or_wake = select_control_or_wake(wake_precedes_control, control, wake);
                 let boundaries = future::or(
                     shutdown,
                     future::or(cancellation, future::or(admission, control_or_wake)),
                 );
-                if raw_buffered_cap_latched {
-                    // Shutdown is still the outer lifecycle priority.  Every
-                    // other boundary, including cancellation/admission, must
-                    // stay out of the engine once the retained-input cap has
-                    // latched: fail closed before any successor can write.
-                    future::or(
-                        async {
-                            match self.shutdown.recv_async().await {
-                                Ok(()) => ActorEvent::Shutdown,
-                                Err(_) => future::pending().await,
-                            }
-                        },
-                        std::future::ready(ActorEvent::Wake {
-                            raw_buffered_cap_exhausted: true,
-                        }),
-                    )
-                    .await
-                } else if has_raw_release_due {
-                    if let Some(await_until) = self.raw_release_wait_until {
+                if has_raw_release_due {
+                    if let Some(await_until) = self.raw_release.await_until() {
                         // An ambiguous retained prefix owns a real time budget,
                         // not a number of zero-time Wake polls (#713). Keep
                         // receive left-biased so a tail arriving inside the
@@ -2033,9 +1994,7 @@ where
                             if !remaining.is_zero() {
                                 Executor::sleep(runtime.as_ref(), remaining).await;
                             }
-                            ActorEvent::Wake {
-                                raw_buffered_cap_exhausted: false,
-                            }
+                            ActorEvent::Wake
                         };
                         future::or(
                             async {
@@ -2058,9 +2017,7 @@ where
                                     Err(_) => future::pending().await,
                                 }
                             },
-                            std::future::ready(ActorEvent::Wake {
-                                raw_buffered_cap_exhausted: false,
-                            }),
+                            std::future::ready(ActorEvent::Wake),
                         )
                         .await
                     } else {
@@ -2077,12 +2034,7 @@ where
                                     Err(_) => future::pending().await,
                                 }
                             },
-                            future::or(
-                                receive,
-                                std::future::ready(ActorEvent::Wake {
-                                    raw_buffered_cap_exhausted: false,
-                                }),
-                            ),
+                            future::or(receive, std::future::ready(ActorEvent::Wake)),
                         )
                         .await
                     }
@@ -2130,7 +2082,7 @@ where
                 self.state.raw_correlation_releases_due(selected_at);
             let event = if !raw_releases_due_after_selection.is_empty() {
                 match event {
-                    ActorEvent::Wake { .. } if !has_raw_release_due => {
+                    ActorEvent::Wake if !has_raw_release_due => {
                         // The raw deadline matured while an ordinary
                         // boundary-first selection was parked.  This Wake was
                         // selected from the pre-expiry view, so it has not yet
@@ -2195,8 +2147,7 @@ where
             let receive_crossed_into_raw_release =
                 !has_raw_release_due && !raw_releases_due_at_receive.is_empty();
             let raw_release_probe =
-                (has_raw_release_due && !raw_release_is_fenced && !raw_buffered_cap_latched)
-                    || receive_crossed_into_raw_release;
+                (has_raw_release_due && !raw_release_is_fenced) || receive_crossed_into_raw_release;
             let raw_release_probe_set = if receive_crossed_into_raw_release {
                 raw_releases_due_at_receive
             } else {
@@ -2228,14 +2179,14 @@ where
                     } if !super::receive_reported_no_data(error)
                 );
             if raw_probe_no_input {
-                raw_release_no_input_fence = Some(raw_release_probe_set);
+                self.raw_release.fence_no_input(raw_release_probe_set);
             }
-            if matches!(&event, ActorEvent::Wake { .. }) {
+            if matches!(&event, ActorEvent::Wake) {
                 // A wake either advances the release or deliberately defers it
                 // behind retained framing.  In both cases the following turn
                 // needs a fresh receive probe rather than reusing a prior
                 // no-input observation.
-                raw_release_no_input_fence = None;
+                self.raw_release.clear_fence();
             }
 
             // A receive that keeps the session running and makes protocol
@@ -2257,7 +2208,7 @@ where
                         .filter(|wake| *wake <= observed_at)
                 })
                 .flatten();
-            let wake_won = matches!(&event, ActorEvent::Wake { .. });
+            let wake_won = matches!(&event, ActorEvent::Wake);
             let outcome = self
                 .handle_event(
                     event,
@@ -2276,21 +2227,16 @@ where
                 match outcome {
                     TurnOutcome::Continue => {
                         receive_first_streak = receive_first_streak.saturating_add(1);
-                        buffered_receive_streak = 0;
-                        raw_buffered_cap_latched = false;
                     }
                     TurnOutcome::ContinueBuffered => {
                         receive_first_streak = 0;
-                        buffered_receive_streak = buffered_receive_streak.saturating_add(1);
                     }
                     TurnOutcome::YieldBoundaries | TurnOutcome::Stop => {
                         receive_first_streak = 0;
-                        buffered_receive_streak = 0;
                     }
                 }
             } else {
                 receive_first_streak = 0;
-                buffered_receive_streak = 0;
             }
             match outcome.next_source_phase() {
                 Some(next) => source_phase = next,
@@ -2355,25 +2301,8 @@ where
                     .await;
                 TurnOutcome::Stop
             }
-            ActorEvent::Wake {
-                raw_buffered_cap_exhausted,
-            } => {
+            ActorEvent::Wake => {
                 let now = selected_at;
-                if raw_buffered_cap_exhausted {
-                    let error = Error::InvalidState(
-                        "async raw correlation release retained-input work cap exhausted".into(),
-                    );
-                    self.terminate_at(
-                        driver,
-                        runtime,
-                        ShutdownReason::FramingFailure {
-                            reason: error.to_string().into_boxed_str(),
-                        },
-                        now,
-                    )
-                    .await;
-                    return TurnOutcome::Stop;
-                }
                 // A due raw-correlation release is the last point at which
                 // input retained by a byte-stream framer can still belong to
                 // the old request. Receive-first selection above gives a
@@ -2381,11 +2310,12 @@ where
                 // tail is not ready, remove the orphaned prefix before the due
                 // pass can dispatch a successor; otherwise that successor
                 // could consume the old frame after its tail arrives.
-                let releases = self.state.raw_correlation_releases_due(now);
+                let releases = self
+                    .raw_release
+                    .observe(self.state.raw_correlation_releases_due(now))
+                    .unwrap_or_default();
                 if !releases.is_empty() {
-                    let work_limit = RAW_CORRELATION_RELEASE_WORK_LIMIT;
                     let framing = (|| -> Result<Option<Instant>, Error> {
-                        let mut discarded = 0_usize;
                         loop {
                             let buffered = driver.has_buffered_stream_input()?;
                             let input = driver.buffered_stream_input()?;
@@ -2419,22 +2349,30 @@ where
                                     return Ok(Some(deadline));
                                 }
                                 RawReleaseGateAction::DiscardFirst => {
-                                    if discarded >= work_limit {
-                                        return Err(Error::InvalidState(
-                                            "async raw correlation release framing work cap exhausted"
-                                                .into(),
-                                        ));
-                                    }
+                                    let before = driver
+                                        .buffered_stream_input_len()?
+                                        .ok_or_else(|| {
+                                            Error::InvalidState(
+                                                "async stream decoder reported buffered input without a progress measure"
+                                                    .into(),
+                                            )
+                                        })?;
                                     // Drop exactly the first framed fragment,
                                     // then ask the shared engine again. This
                                     // preserves later serial input and prevents
                                     // a stale fragment from crossing into a
                                     // successor's correlation interval.
                                     driver.discard_buffered_stream_input()?;
+                                    let after = driver.buffered_stream_input_len()?;
+                                    if after.is_some_and(|after| after >= before) {
+                                        return Err(Error::InvalidState(
+                                            "async raw stream decoder did not consume the discarded prefix"
+                                                .into(),
+                                        ));
+                                    }
                                     let _ = self.state.apply_effect(Effect::Ignored(
                                         IgnoreReason::MalformedFrame,
                                     ));
-                                    discarded = discarded.saturating_add(1);
                                 }
                             }
                         }
@@ -2455,11 +2393,11 @@ where
                         }
                     };
                     if let Some(deadline) = await_input_until {
-                        self.raw_release_wait_until = Some(deadline);
+                        self.raw_release.wait_for_input_until(deadline);
                         return TurnOutcome::ContinueBuffered;
                     }
                 }
-                self.raw_release_wait_until = None;
+                self.raw_release.complete();
                 let effects = self.state.advance(now);
                 self.drive(driver, effects, runtime).await;
                 TurnOutcome::Continue
@@ -2568,7 +2506,7 @@ where
                     // independent hold must start with a fresh grace budget.
                     // Do not reset for an empty/partial receive: its unresolved
                     // prefix still owns the current deadline.
-                    self.raw_release_wait_until = None;
+                    self.raw_release.complete();
                     TurnOutcome::Continue
                 }
             }
@@ -3225,9 +3163,7 @@ enum ActorEvent {
         result: Result<AsyncReceive, Error>,
         received_at: Instant,
     },
-    Wake {
-        raw_buffered_cap_exhausted: bool,
-    },
+    Wake,
 }
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -6158,113 +6094,59 @@ mod tests {
         assert_raw_release_fault_then_stale_frame_stays_input_first(stream_policy(1)).await;
     }
 
-    /// The retained-stream cap must be terminal before an admission channel is
-    /// allowed to end an ordinary engine input turn.  This reaches the actual
-    /// `raw_buffered_cap_latched` path: 63 retained empty reads occur before
-    /// H, the 64th crosses H, and C is already queued when the forced boundary
-    /// turn runs.
+    /// Retained stream input is bounded by verified decoder progress, not an
+    /// arbitrary number of actor turns. More than 64 notifications may extend
+    /// one incomplete prefix before H; the release must discard that prefix
+    /// exactly once and leave the successor usable.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn raw_stream_buffered_cap_preempts_queued_admission_before_any_write() {
+    async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
         let initial = Instant::now();
         let runtime = ManualRuntime::with_polling_sleeps(initial);
-        let mut policy = stream_policy(3);
-        // Raw inquiry tombstones are intentionally a single-flight production
-        // rule, independent of the broader admission capacity used here to
-        // queue C behind B.
-        policy.protocol.inquiry_capacity = 1;
-        policy.limits.frames_per_receive = RAW_CORRELATION_RELEASE_WORK_LIMIT + 1;
+        let mut policy = stream_policy(1);
+        // Keep the receive-first run longer than this regression so its old
+        // count-based cap would have been the only forced boundary.
+        const RETAINED_TURNS: usize = 65;
+        policy.limits.frames_per_receive = RETAINED_TURNS + 1;
         let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
         let mut harness = boundary_stream_harness(false);
         let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
         let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
         while harness.reads_observed.try_recv().is_ok() {}
 
-        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+        for _ in 0..RETAINED_TURNS {
             harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
         }
-        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
+        for _ in 0..RETAINED_TURNS {
             harness.reads_observed.recv_async().await.unwrap();
         }
 
-        // Do not wake the old timer yet.  The already-pending receive observes
-        // both this final retained fragment and C, at H, in one deterministic
-        // source race; receive-first consumes the fragment and arms the cap.
-        runtime.advance_silently(Duration::from_secs(1));
-        let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
-        harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
-        harness.reads_observed.recv_async().await.unwrap();
-
-        assert!(matches!(
-            tokio::time::timeout(Duration::from_secs(1), successor.terminal())
+        runtime.advance(Duration::from_secs(1));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), harness.writes.recv_async())
                 .await
-                .expect("the latched retained-input cap must terminate"),
-            Ok(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert!(matches!(
-            tokio::time::timeout(Duration::from_secs(1), c_admitted.recv_async())
-                .await
-                .expect("the queued admission must be answered by terminal drain"),
-            Ok(Err(Error::StreamPoisoned { .. }))
-        ));
-        assert!(
-            harness.writes.try_recv().is_err(),
-            "neither B nor queued C may write after the retained-input cap latches"
+                .expect("verified progress releases the retained raw prefix")
+                .unwrap(),
+            successor.id
         );
-        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
-    }
+        assert_eq!(
+            harness.discards.load(Ordering::Relaxed),
+            1,
+            "the accumulated prefix is discarded once, independent of turn count"
+        );
 
-    /// The same cap must preempt a valid cancellation boundary.  A cancellation
-    /// is normally an engine input turn too; if it ran first it could release
-    /// B/emit a cancellation write before the stream is poisoned.
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn raw_stream_buffered_cap_preempts_valid_cancellation_before_any_write() {
-        let initial = Instant::now();
-        let runtime = ManualRuntime::with_polling_sleeps(initial);
-        let mut policy = stream_policy(2);
-        policy.protocol.inquiry_capacity = 1;
-        policy.limits.frames_per_receive = RAW_CORRELATION_RELEASE_WORK_LIMIT + 1;
-        let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
-        let mut harness = boundary_stream_harness(false);
-        let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-        let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
-        while harness.reads_observed.try_recv().is_ok() {}
-
-        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
-            harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
-        }
-        for _ in 0..RAW_CORRELATION_RELEASE_WORK_LIMIT - 1 {
-            harness.reads_observed.recv_async().await.unwrap();
-        }
-
-        runtime.advance_silently(Duration::from_secs(1));
-        let (cancellation_reply, cancellation_result) = flume::bounded(1);
-        handle
-            .cancellations
-            .try_send(CancellationBoundary {
-                receipt: successor,
-                reply: cancellation_reply,
-            })
+        harness
+            .reads
+            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xb2)))
+            .await
             .unwrap();
-        harness.reads.try_send(BoundaryStreamRead::Prefix).unwrap();
-        harness.reads_observed.recv_async().await.unwrap();
-
-        let cancellation =
-            tokio::time::timeout(Duration::from_secs(1), cancellation_result.recv_async())
-                .await
-                .expect("the queued cancellation must be answered by terminal drain")
-                .unwrap()
-                .expect("a terminal request observation remains a valid cancellation receipt");
         assert!(matches!(
-            cancellation.recv_async().await.unwrap(),
-            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
+            successor.terminal().await.unwrap(),
+            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
-        assert!(
-            harness.writes.try_recv().is_err(),
-            "the retained-input cap must poison before B or a cancellation can write"
-        );
-        assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
+
+        handle.shutdown().await.unwrap();
+        assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -6563,8 +6445,8 @@ mod tests {
         ));
         assert_eq!(
             harness.discards.load(Ordering::Relaxed),
-            64,
-            "a non-clearing decoder is retried only to the bounded framing work cap"
+            1,
+            "a non-clearing decoder fails on the first unverifiable discard"
         );
         assert_eq!(actor_task.await.unwrap().state, SessionState::Poisoned);
     }
@@ -6668,9 +6550,7 @@ mod tests {
         assert_eq!(
             actor
                 .handle_event(
-                    ActorEvent::Wake {
-                        raw_buffered_cap_exhausted: false,
-                    },
+                    ActorEvent::Wake,
                     &mut driver,
                     &runtime,
                     Executor::now(&runtime),
@@ -6679,7 +6559,7 @@ mod tests {
                 .await,
             TurnOutcome::ContinueBuffered
         );
-        assert!(actor.raw_release_wait_until.is_some());
+        assert!(actor.raw_release.await_until().is_some());
 
         // The completing tail is real decoded input. Because no fragment is
         // retained, this turn runs the due release and dispatches B directly.
@@ -6700,7 +6580,7 @@ mod tests {
                 .await,
             TurnOutcome::Continue
         );
-        assert!(actor.raw_release_wait_until.is_none());
+        assert!(actor.raw_release.await_until().is_none());
         assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
 
         // B's zero-length response deadline creates its own timeout hold as
@@ -6724,9 +6604,7 @@ mod tests {
         assert_eq!(
             actor
                 .handle_event(
-                    ActorEvent::Wake {
-                        raw_buffered_cap_exhausted: false,
-                    },
+                    ActorEvent::Wake,
                     &mut driver,
                     &runtime,
                     Executor::now(&runtime),
@@ -6754,7 +6632,7 @@ mod tests {
                 .await,
             TurnOutcome::Continue
         );
-        assert!(actor.raw_release_wait_until.is_none());
+        assert!(actor.raw_release.await_until().is_none());
         assert_eq!(harness.writes.recv_async().await.unwrap(), c);
     }
 

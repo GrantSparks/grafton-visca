@@ -20,9 +20,9 @@ use super::{
     cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
     normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
     AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
-    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, ReceiptCore, ReceiptObservation,
-    RejectedCancellation, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest, ShutdownReason,
-    TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
+    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseTurn, ReceiptCore,
+    ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
+    RuntimeRequest, ShutdownReason, TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
 };
 
 #[cfg(all(test, not(feature = "async")))]
@@ -1231,12 +1231,6 @@ struct PumpProgress {
 /// the deadline before its next explicit pump.  Keeping this exact projection
 /// latched makes every non-receive path suppress due work until a later pump
 /// has either consumed input or observed genuine post-boundary no-input.
-#[derive(Debug, Clone, Copy)]
-struct RawReleaseInputGate {
-    releases: RawCorrelationReleaseSet,
-    await_until: Option<Instant>,
-}
-
 /// A past raw-release wake cannot be handed straight back to a blocking
 /// adapter: many correctly return `TimedOut` without touching the wire. Give
 /// the mandatory post-H probe a small positive ceiling so it performs one real
@@ -1352,7 +1346,7 @@ pub(crate) struct BlockingOwner {
     /// A due raw release may not advance through a synchronous write, control,
     /// or scheduler turn before the next receive has established the exact
     /// input-first boundary.
-    raw_release_input_gate: Option<RawReleaseInputGate>,
+    raw_release: RawReleaseTurn,
     /// One consecutive run of transient receive faults. A persistent run is
     /// eventually a dead transport, not a condition a caller-thread pump can
     /// recover by retrying forever.
@@ -1367,7 +1361,7 @@ impl BlockingOwner {
         Ok(Self {
             state: OwnerState::new(policy)?,
             pumping: false,
-            raw_release_input_gate: None,
+            raw_release: RawReleaseTurn::default(),
             faults: TransientFaultRun::default(),
             idle_receives: IdleReceiveRun::default(),
         })
@@ -1409,29 +1403,18 @@ impl BlockingOwner {
     /// successor dispatch.
     fn raw_release_gate_at(&mut self, now: Instant) -> Option<RawCorrelationReleaseSet> {
         let releases = self.state.raw_correlation_releases_due(now);
-        if let Some(gate) = self.raw_release_input_gate {
-            // A control turn may change the current engine projection while
-            // this exact older release still lacks a wire observation. Never
-            // replace it here: the pump will classify it first, then start a
-            // separate fresh probe for any newly visible distinct set.
-            return Some(gate.releases);
-        }
-        if releases.is_empty() {
-            return None;
-        }
-        self.raw_release_input_gate = Some(RawReleaseInputGate {
-            releases,
-            await_until: None,
-        });
-        Some(releases)
+        // A control turn may change the current engine projection while this
+        // exact older release still lacks a wire observation. The shared turn
+        // coordinator retains the first set until the pump classifies it.
+        self.raw_release.observe(releases)
     }
 
     fn raw_release_gate_pending(&self) -> bool {
-        self.raw_release_input_gate.is_some()
+        self.raw_release.is_pending()
     }
 
     fn clear_raw_release_gate(&mut self) {
-        self.raw_release_input_gate = None;
+        self.raw_release.complete();
     }
 
     // Builds the borrowed control used only by owner unit tests.
@@ -2046,8 +2029,8 @@ impl BlockingOwner {
             // caller-side sleep reached H.
             if self.raw_release_gate_pending() || self.raw_release_gate_at(now).is_some() {
                 if let Some(await_until) = self
-                    .raw_release_input_gate
-                    .and_then(|gate| gate.await_until)
+                    .raw_release
+                    .await_until()
                     .filter(|await_until| *await_until > now)
                 {
                     sleep_until(
@@ -2526,9 +2509,7 @@ impl BlockingOwner {
         let receive_started_at = Instant::now();
         let raw_gate_before_receive = self.raw_release_gate_at(receive_started_at).is_some();
         let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
-        let raw_release_wait = self
-            .raw_release_input_gate
-            .and_then(|gate| gate.await_until);
+        let raw_release_wait = self.raw_release.await_until();
         if raw_gate_before_receive && raw_release_wait.is_some_and(|wait| wait > receive_started_at)
         {
             // The engine has retained an ambiguous prefix under the old scope.
@@ -2791,7 +2772,7 @@ impl BlockingOwner {
             // has no retained bytes.  Complete frames were applied above in
             // source order; a partial prefix is delegated to the engine's
             // exact raw scope classifier before the release tail runs.
-            let Some(gate_releases) = self.raw_release_input_gate.map(|gate| gate.releases) else {
+            let Some(gate_releases) = self.raw_release.latched() else {
                 return Err(self.poison_raw_release_gate(
                     driver,
                     Error::InvalidState(
@@ -2819,9 +2800,7 @@ impl BlockingOwner {
                     ));
                 }
                 RawReleaseGateAction::AwaitInputUntil(deadline) => {
-                    if let Some(gate) = &mut self.raw_release_input_gate {
-                        gate.await_until = Some(deadline);
-                    }
+                    self.raw_release.wait_for_input_until(deadline);
                     self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                     return Ok(PumpProgress {
                         decoded_frames: driven,
@@ -2836,10 +2815,7 @@ impl BlockingOwner {
             // for the replacement before releasing either through due work.
             let current_releases = self.state.raw_correlation_releases_due(received_at);
             if !current_releases.is_empty() && current_releases != gate_releases {
-                self.raw_release_input_gate = Some(RawReleaseInputGate {
-                    releases: current_releases,
-                    await_until: None,
-                });
+                self.raw_release.replace(current_releases);
                 self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                 return Ok(PumpProgress {
                     decoded_frames: driven,
@@ -4064,7 +4040,7 @@ mod tests {
             .pump_once(&mut driver, &mut reader, &mut decoder)
             .expect("first scope probe remains nonterminal");
         assert_eq!(
-            owner.raw_release_input_gate.map(|gate| gate.releases),
+            owner.raw_release.latched(),
             Some(both_scopes),
             "the replacement scope is latched for its own fresh input turn"
         );

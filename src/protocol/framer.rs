@@ -267,7 +267,7 @@ impl ProtocolFramer {
     }
 
     /// Returns the number of bytes currently buffered but not yet parsed into complete frames.
-    #[cfg(any(feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn buffered_len(&self) -> usize {
         self.buf.len()
     }
