@@ -13,7 +13,8 @@ not another connection.
 | `blocking::Session` | Caller-driven owner for a blocking transport. |
 | `Session` | Owner handle for an async transport and selected executor/runtime. |
 | `Camera<P>` | A statically checked view for one registered target and compile-time profile `P`. |
-| `DynSessionCamera` | A runtime-profile view for one registered target. It exposes `DynSessionCameraControl`, the 14 dynamic noun traits, and `DynMotion`. |
+| `BlockingDynSessionCamera` | A native blocking runtime-profile view. Its typed request methods return synchronous results and blocking lifecycle handles. |
+| `DynSessionCamera` | An async runtime-profile view. It exposes `DynSessionCameraControl`, the 14 object-safe dynamic noun traits, and `DynMotion`. |
 | `StateCache` | A read-only, target-local projection of exact applied write-only state. |
 | `MetricsSnapshot` and `DiagnosticEvent` | Bounded scalar metrics and sanitized owner observations. |
 
@@ -153,8 +154,8 @@ The construction and request path has a fixed order:
 2. Create the one owner and its fixed target-local state registry. No socket,
    serial device, or protocol frame is opened before step 1 succeeds.
 3. Start the owner (async) or retain the caller-driven owner (blocking).
-4. Project `Camera<P>` or `DynSessionCamera` views without creating a second
-   owner, runtime, transport, or cache.
+4. Project `Camera<P>`, `BlockingDynSessionCamera`, or `DynSessionCamera` views
+   without creating a second owner, runtime, transport, or cache.
 5. Prepare each request against the selected target/profile and admit it to the
    owner. Preparation invokes `Request::validate_for_profile` before encoding;
    crate-provided direct requests therefore return `FeatureNotSupported` for

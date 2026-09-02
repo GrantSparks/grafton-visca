@@ -600,6 +600,111 @@ impl Session {
         }))
     }
 
+    /// Returns the runtime-profile camera view for the sole registered target.
+    ///
+    /// Unlike [`Self::camera`], this selector does not require a
+    /// [`CompileTimeProfile`] marker. Every request is still validated against
+    /// the registered [`ProfileSpec`] before encoding or transport I/O.
+    ///
+    /// # Example: a blocking runtime-only profile
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use grafton_visca::{
+    ///     blocking::Session,
+    ///     capabilities::Capabilities,
+    ///     command::PowerOn,
+    ///     profile::{
+    ///         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
+    ///         TransportCompatibility,
+    ///     },
+    ///     transport::Transport,
+    ///     CommandTimeouts, SessionConfig,
+    /// };
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
+    /// capabilities.has_power = true;
+    /// capabilities.power_on_time = Duration::from_secs(1);
+    ///
+    /// let timing = ProfileTiming::builder()
+    ///     .ack_timeout(Duration::from_millis(100))
+    ///     .command_timeouts(CommandTimeouts::default())
+    ///     .inquiry_timeout(Duration::from_secs(1))
+    ///     .cancellation_timeout(Duration::from_secs(1))
+    ///     .ambiguity_timeout(Duration::from_secs(1))
+    ///     .busy_timeout(Duration::ZERO)
+    ///     .raw_inquiry_reply_skew(Duration::ZERO)
+    ///     .minimum_inquiry_spacing(Duration::ZERO)
+    ///     .minimum_command_spacing(Duration::ZERO)
+    ///     .build()?;
+    /// let profile = ProfileSpec::builder(capabilities)
+    ///     .transports(TransportCompatibility::new(Some(5678), None, false))
+    ///     .envelope(ProfileEnvelope::RawVisca)
+    ///     .timing(timing)
+    ///     .maximum_command_sockets(1)
+    ///     .supports_operation_complete(true)
+    ///     .supports_command_cancel(false)
+    ///     .preset_recall_axes(None)
+    ///     .position_inquiries(PositionInquirySupport::new(false, false, false))
+    ///     .build()?;
+    ///
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .build_blocking()?;
+    /// let session = Session::open(transport, SessionConfig::new(profile))?;
+    /// session.camera_dyn()?.execute(&PowerOn::new())?;
+    /// session.close()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
+        Ok(crate::dynapi::BlockingDynSessionCamera::new(
+            self.camera_core()?,
+        ))
+    }
+
+    /// Returns a target-specific runtime-profile camera view.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn_for(
+        &self,
+        target: CameraId,
+    ) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
+        Ok(crate::dynapi::BlockingDynSessionCamera::new(
+            self.camera_core_for(target)?,
+        ))
+    }
+
+    #[cfg(feature = "dyn-api")]
+    fn camera_core(&self) -> Result<BlockingCameraCore<'_>, Error> {
+        let target = self.config.sole_target().ok_or_else(|| {
+            if self.config.target_count() == 0 {
+                Error::InvalidState("session has no registered target".into())
+            } else {
+                Error::InvalidState(
+                    "session has multiple registered targets; select one with camera_dyn_for"
+                        .into(),
+                )
+            }
+        })?;
+        self.camera_core_for(target)
+    }
+
+    #[cfg(feature = "dyn-api")]
+    fn camera_core_for(&self, target: CameraId) -> Result<BlockingCameraCore<'_>, Error> {
+        let profile = self
+            .config
+            .profile(target)
+            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
+        Ok(BlockingCameraCore {
+            host: &self.host,
+            target,
+            profile,
+            class: ClassSelection::Request,
+        })
+    }
+
     /// Returns the operational tuning this session is currently preparing
     /// requests under.
     ///
@@ -846,6 +951,15 @@ impl fmt::Debug for BlockingCameraCore<'_> {
 }
 
 impl<'session> BlockingCameraCore<'session> {
+    #[cfg(feature = "dyn-api")]
+    pub(crate) fn into_typed<P>(self) -> Result<Camera<'session, P>, Error>
+    where
+        P: CompileTimeProfile,
+    {
+        self.profile.ensure_compile_time::<P>()?;
+        Ok(Camera::from_core(self))
+    }
+
     /// Returns this view's fixed camera target.
     #[must_use]
     pub const fn target(&self) -> CameraId {

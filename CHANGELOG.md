@@ -21,6 +21,15 @@ entries below retain their original wording.
 
 ### Fixed
 
+- `dyn-api` no longer implies `async`: blocking sessions now expose
+  `camera_dyn()` / `camera_dyn_for(target)` and the native
+  `BlockingDynSessionCamera`, so a custom runtime `ProfileSpec` can execute
+  commands, inquiries, and operations without a compile-time profile marker,
+  futures, or an executor (#720). The async session has matching selectors for
+  `DynSessionCamera`. `ProfileSpecBuilder` and `ProfileTimingBuilder` failures
+  now name the exact field or coupled fields behind every rejected invariant;
+  the custom-request example drives its runtime-built profile end to end.
+
 - **BREAKING**: A raw command left in lost-ACK quarantine now gives an
   ordinary blocking submission a bounded correlation wait through that
   predecessor's ambiguity deadline instead of `TransportBusy`; the async owner

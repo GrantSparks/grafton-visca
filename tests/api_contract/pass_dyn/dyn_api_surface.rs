@@ -25,7 +25,7 @@ use grafton_visca::{
         ZoomSpeed,
     },
     units::{Degrees, UnitInterval},
-    AffectedAxes, Error, ZoomDomain,
+    AffectedAxes, CameraId, Error, Session, ZoomDomain,
 };
 
 fn camera_surface(camera: &dyn DynSessionCameraControl) {
@@ -340,6 +340,11 @@ fn assert_custom_requests(
     let _ = (targeted, applied);
 }
 
+fn assert_session_selectors(session: &Session) {
+    let _: Result<DynSessionCamera, Error> = session.camera_dyn();
+    let _: Result<DynSessionCamera, Error> = session.camera_dyn_for(CameraId::CAMERA_1);
+}
+
 fn assert_targeted_settled(targeted: DynTargetedOperation) {
     let _ = targeted.settled();
 }
@@ -371,5 +376,6 @@ fn main() {
     let _ = noun_surfaces;
     let _ = motion_surface;
     let _ = assert_custom_requests;
+    let _ = assert_session_selectors;
     let _ = assert_handle_shapes;
 }

@@ -14342,6 +14342,8 @@ impl<T> core::panic::unwind_safe::UnwindSafe for grafton_visca::units::Raw<T> wh
 pub struct grafton_visca::prelude::async::Session
 impl grafton_visca::Session
 pub fn grafton_visca::Session::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
+pub fn grafton_visca::Session::camera_dyn(&self) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
+pub fn grafton_visca::Session::camera_dyn_for(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
 pub fn grafton_visca::Session::camera_for<P>(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::Session::close(self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::Session::metrics(&self) -> grafton_visca::Result<grafton_visca::observability::MetricsSnapshot>
@@ -20669,6 +20671,8 @@ impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::PresetsAcce
 pub struct grafton_visca::session::Session
 impl grafton_visca::Session
 pub fn grafton_visca::Session::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
+pub fn grafton_visca::Session::camera_dyn(&self) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
+pub fn grafton_visca::Session::camera_dyn_for(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
 pub fn grafton_visca::Session::camera_for<P>(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::Session::close(self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::Session::metrics(&self) -> grafton_visca::Result<grafton_visca::observability::MetricsSnapshot>
@@ -25255,6 +25259,8 @@ impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ResponseDecoder
 pub struct grafton_visca::Session
 impl grafton_visca::Session
 pub fn grafton_visca::Session::camera<P>(&self) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
+pub fn grafton_visca::Session::camera_dyn(&self) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
+pub fn grafton_visca::Session::camera_dyn_for(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::DynSessionCamera>
 pub fn grafton_visca::Session::camera_for<P>(&self, grafton_visca::CameraId) -> grafton_visca::Result<grafton_visca::Camera<P>> where P: grafton_visca::profile::CompileTimeProfile
 pub async fn grafton_visca::Session::close(self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::Session::metrics(&self) -> grafton_visca::Result<grafton_visca::observability::MetricsSnapshot>

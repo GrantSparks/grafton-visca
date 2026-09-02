@@ -35,7 +35,7 @@ transports.
 | Tokio async | `runtime-tokio`, `TokioRuntime`, and Tokio TCP/UDP adapters | Tokio construction and noun suites |
 | smol async | `runtime-smol`, `SmolRuntime`, and smol TCP/UDP adapters | smol construction and noun suites |
 | Runtime coexistence | Tokio and smol may be enabled together; each session receives one explicit runtime | Coexistence API contract |
-| Dynamic API | `dyn-api` owner-backed `DynSessionCamera` with runtime profile checks and the same operation lifecycle | Dynamic Tokio/smol suites |
+| Runtime-profile API | `dyn-api` adds native `BlockingDynSessionCamera` with `blocking`, and object-safe `DynSessionCamera` with `async`; both share their facade's owner | Blocking-only plus dynamic Tokio/smol suites |
 | Request extension | Typed `Request`, `PlainCommand`, `Inquiry`, and `OperationCommand` contracts; `ResponseParser` handles custom inquiry decoding | Request/API contract tests |
 
 ### Transports
@@ -179,7 +179,7 @@ matrix fit together.
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Owner-backed object-safe async views with applied/settled operation lifecycle, cancellation, and detach |
+| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async` |
 | `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
@@ -189,6 +189,7 @@ matrix of `.github/workflows/ci.yml`.
 
 | Feature union | Scope | Automated validation |
 | ------------- | ----- | -------------------- |
+| `blocking,dyn-api` | Native runtime-profile camera view without futures, an executor, or an async-runtime dependency. | `blocking + dyn-api` matrix leg |
 | `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | `Tokio + blocking serial` matrix leg |
 | `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | `smol + dyn-api` matrix leg |
 | `test-utils,blocking,runtime-tokio` | The shipped test toolkit driven through a real facade. `test-utils` alone enables neither `blocking` nor a runtime, so the scripted transports, deterministic executor, and camera simulator only *execute* under a union like this one. | `test-utils + blocking + Tokio` matrix leg |
@@ -504,7 +505,7 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 | `serde`                | Serialize/deserialize public value and configuration types |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
-| `dyn-api`              | Object-safe async camera traits            |
+| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits) |
 
 ---
 

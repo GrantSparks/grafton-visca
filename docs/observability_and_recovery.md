@@ -117,8 +117,9 @@ terminal error rather than silently succeeding (#690).
 
 ## StateCache
 
-Each `Camera<P>` and `DynSessionCamera` returns a cheap read-only `StateCache`
-view for exactly one target. `StateEntry` is `#[non_exhaustive]`, so a match
+Each `Camera<P>`, `BlockingDynSessionCamera`, and `DynSessionCamera` returns a
+cheap read-only `StateCache` view for exactly one target. `StateEntry` is
+`#[non_exhaustive]`, so a match
 over it needs a wildcard arm:
 
 ```rust,ignore

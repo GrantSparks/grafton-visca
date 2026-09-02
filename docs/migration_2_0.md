@@ -101,7 +101,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `DynSessionCameraControl` plus `DynSessionCameraNouns`. |
 | `DynPanTiltControl`, `DynZoomControl`, `DynFocusControl`, `DynPresetsControl`, and `DynMotionControl` | `DynPanTilt`, `DynZoom`, `DynFocus`, `DynPresets`, and `DynMotion`. The final dynamic surface also has `DynPower`, `DynSystem`, `DynExposure`, `DynWhiteBalance`, `DynImage`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`, and `DynAdvanced`. |
-| `IntoDynCamera` and wrapper-specific dynamic constructors | `DynSessionCamera::from_session` or `from_session_target`. |
+| `IntoDynCamera` and wrapper-specific dynamic constructors | Async: `Session::camera_dyn` / `camera_dyn_for`, or `DynSessionCamera::from_session` / `from_session_target`. Blocking runtime profiles: the same session selectors, returning `BlockingDynSessionCamera`. |
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
@@ -231,7 +231,7 @@ distinct in-flight command — still fails a blocking operation submit fast with
 | `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
 | — (no 1.x equivalent) | `camera.inquire_with_submission_class(&inquiry, class)` and `camera.submit_with_submission_class::<K, _>(&operation, class)` |
 | `BlockingClient` priority methods | The same names on `blocking::Camera`; `blocking::CameraSession` exposes forwarding default helpers and returns that `Camera` from `camera()` |
-| — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class` |
+| — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class`; `BlockingDynSessionCamera` has the native blocking `execute_with_submission_class`, `inquire_with_submission_class`, `submit_with_submission_class`, and `set_submission_class` counterparts |
 
 Three behavioural differences are worth reading before porting:
 

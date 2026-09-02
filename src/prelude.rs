@@ -60,11 +60,12 @@
 //! [`command`](crate::command) explicitly for custom VISCA commands that are
 //! not represented by a typed accessor.
 
-/// Dynamic noun and custom-operation prelude.
+/// Runtime-profile projection prelude.
 ///
-/// This surface is a projection of an owner-backed [`crate::Session`]. It
-/// keeps the canonical operation lifecycle while allowing runtime profile
-/// and request-type erasure.
+/// With `blocking`, this includes `BlockingDynSessionCamera`.
+/// With `async`, it additionally includes the object-safe dynamic noun and
+/// custom-operation surface. Every projection keeps its facade's canonical
+/// owner and operation lifecycle.
 #[cfg(feature = "dyn-api")]
 pub mod dyn_api {
     pub use crate::dynapi::*;
@@ -109,7 +110,15 @@ pub mod r#async {
 
     // Owner-backed dynamic noun and custom-operation projections.
     #[cfg(feature = "dyn-api")]
-    pub use crate::dynapi::*;
+    pub use crate::dynapi::{
+        submit_applied, submit_targeted, DynAdvanced, DynAppliedOperation, DynAppliedRequest,
+        DynCancellation, DynCustomOperations, DynExposure, DynFocus, DynFuture, DynImage, DynMenu,
+        DynMotion, DynMotionSync, DynNdFilter, DynPanTilt, DynPower, DynPresets, DynSessionCamera,
+        DynSessionCameraControl, DynSessionCameraNouns, DynSystem, DynTally, DynTargetedOperation,
+        DynTargetedRequest, DynWhiteBalance, DynZoom, DYN_NOUN_CONVENIENCE_METHODS,
+        DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT,
+        DYN_NOUN_TARGET_METHOD_COUNT,
+    };
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-smol")]
@@ -146,6 +155,8 @@ pub mod blocking {
         PanTiltAccessor, PowerAccessor, PresetsAccessor, Session, SessionConfig, SystemAccessor,
         TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
     };
+    #[cfg(feature = "dyn-api")]
+    pub use crate::dynapi::BlockingDynSessionCamera;
     // Final owner-backed construction in the blocking-only feature build.
     #[cfg(feature = "transport-serial")]
     pub use crate::blocking::SerialConnectBuilder;

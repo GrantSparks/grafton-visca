@@ -123,6 +123,18 @@ impl Session {
         }))
     }
 
+    /// Returns the runtime-profile camera view for the sole registered target.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn(&self) -> Result<crate::dynapi::DynSessionCamera> {
+        crate::dynapi::DynSessionCamera::from_session(self)
+    }
+
+    /// Returns a target-specific runtime-profile camera view.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
+        crate::dynapi::DynSessionCamera::from_session_target(self, target)
+    }
+
     /// Builds an erased owner view for the dynamic API. This deliberately does
     /// not perform compile-time profile matching: dynamic callers use the
     /// stored validated [`ProfileSpec`] at each operation boundary.
@@ -133,7 +145,8 @@ impl Session {
                 Error::InvalidState("session has no registered target".into())
             } else {
                 Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_for".into(),
+                    "session has multiple registered targets; select one with camera_dyn_for"
+                        .into(),
                 )
             }
         })?;

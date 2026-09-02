@@ -72,6 +72,8 @@ jobs:
             command: --workspace --all-targets
           - name: blocking-only
             command: --no-default-features --features blocking --all-targets
+          - name: blocking + dyn-api
+            command: --no-default-features --features blocking,dyn-api --all-targets
           - name: runtime-neutral async
             command: --no-default-features --features async --all-targets
           - name: Tokio
@@ -205,6 +207,7 @@ jobs:
         run: |
           set -euo pipefail
           cargo check --examples --no-default-features --features blocking
+          cargo check --examples --no-default-features --features blocking,dyn-api
           cargo check --examples --no-default-features --features runtime-tokio
           cargo check --examples --no-default-features --features runtime-smol
           cargo check --examples --all-features
@@ -222,6 +225,7 @@ jobs:
           # Default features compile the README quick start through the
           # cfg(doctest) README gate in src/lib.rs.
           cargo test --doc
+          cargo test --doc --no-default-features --features blocking,dyn-api
           cargo test --doc --all-features
 
   lint:

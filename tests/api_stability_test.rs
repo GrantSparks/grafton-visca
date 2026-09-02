@@ -222,7 +222,7 @@ fn blocking_and_async_facades_coexist() {
     let _: PhantomData<Operation<Targeted>> = PhantomData;
 }
 
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 #[test]
 fn dyn_root_is_object_safe() {
     use grafton_visca::dynapi::{
@@ -244,6 +244,14 @@ fn dyn_root_is_object_safe() {
     let _ = owner;
 }
 
+#[cfg(all(feature = "dyn-api", feature = "blocking"))]
+#[test]
+fn blocking_dyn_root_is_runtime_profile_view() {
+    use grafton_visca::dynapi::BlockingDynSessionCamera;
+
+    let _: PhantomData<BlockingDynSessionCamera<'static>> = PhantomData;
+}
+
 #[test]
 fn canonical_compile_contracts() {
     // The base-only feature leg has no conditional directory to append.
@@ -255,8 +263,10 @@ fn canonical_compile_contracts() {
     pass_dirs.push("tests/api_contract/pass_blocking");
     #[cfg(all(feature = "blocking", feature = "async"))]
     pass_dirs.push("tests/api_contract/pass_coexistence");
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     pass_dirs.push("tests/api_contract/pass_dyn");
+    #[cfg(all(feature = "dyn-api", feature = "blocking"))]
+    pass_dirs.push("tests/api_contract/pass_dyn_blocking");
     #[cfg(feature = "test-utils")]
     pass_dirs.push("tests/api_contract/pass_test_utils");
     #[cfg(all(feature = "blocking", feature = "transport-serial"))]
@@ -276,7 +286,7 @@ fn canonical_compile_contracts() {
     fail_dirs.push("tests/api_contract/fail_async_only");
     #[cfg(all(feature = "blocking", feature = "async"))]
     fail_dirs.push("tests/api_contract/fail_blocking_mode");
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     {
         fail_dirs.push("tests/api_contract/fail_dyn_async");
         fail_dirs.push("tests/api_contract/fail_must_use_dyn");

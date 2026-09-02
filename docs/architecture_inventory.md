@@ -67,7 +67,14 @@ In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 
 ## Dynamic controls
 
-The dynamic surface is `DynSessionCamera` plus the object-safe
+The native blocking runtime-profile surface is `BlockingDynSessionCamera`.
+It erases the compile-time profile marker while retaining typed request values,
+synchronous results, blocking lifecycle handles, motion observation, state
+cache, and submission-class controls. The `dyn-api` feature does not imply
+`async`, so this projection adds no futures, executor, or async-runtime
+dependency.
+
+The async dynamic surface is `DynSessionCamera` plus the object-safe
 `DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
 and `DynMotion`. It also exposes `DynTargetedOperation`,
 `DynAppliedOperation`, and `DynCancellation`. Its checked inventory covers

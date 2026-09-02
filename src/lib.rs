@@ -1152,11 +1152,13 @@ pub mod units;
 
 mod visca_socket;
 
-/// Owner-backed dynamic noun and custom-operation projections.
+/// Owner-backed runtime-profile camera projections.
 ///
-/// Enable this module with the `dyn-api` feature. Dynamic views erase the
-/// closed static request/profile types while retaining the canonical session
-/// owner and operation lifecycle.
+/// Enable this module with the `dyn-api` feature. With `blocking`, it provides
+/// a native runtime-profile camera without futures or an executor. With
+/// `async`, it additionally provides object-safe noun/custom-operation views
+/// and erased operation handles. Every projection retains the canonical
+/// session owner and operation lifecycle.
 #[cfg(feature = "dyn-api")]
 pub mod dynapi;
 

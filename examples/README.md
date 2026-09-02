@@ -70,7 +70,7 @@ If you're new to the library, start with these examples in order:
 - **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async inquiries, safely ordered movement, and producer-consumer commands
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
 - **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()`: the supported `Cancellation`/`outcome` path and the G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery
-- **[custom_request.rs](custom_request.rs)** - A downstream custom `PlainCommand` and `OperationCommand` submitted via `execute`/`submit`, plus a runtime `ProfileSpec`
+- **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
 - **[multi_camera.rs](multi_camera.rs)** - One session with two registered targets selected by `camera_for`, using explicit-timeout waits
 - **[recovery.rs](recovery.rs)** - Fresh-session recovery after `requires_new_session()`: re-callable transport factory, reused config, and re-query
@@ -102,8 +102,8 @@ cargo run --example quickstart -- 192.168.0.110 --move
 cargo run --example inquiry_quickstart -- 192.168.0.110
 cargo run --example operation_handles -- 192.168.0.110
 cargo run --example motion_safety -- 192.168.0.110
-cargo run --example custom_request                 # encoding + ProfileSpec only; no camera needed
-cargo run --example custom_request -- 192.168.0.110 # also submits the custom requests
+cargo run --example custom_request --features dyn-api                       # encoding + ProfileSpec only; no camera needed
+cargo run --example custom_request --features dyn-api -- 192.168.0.110:5678 # also submits through the runtime profile
 cargo run --example preset_demo -- 192.168.0.110 recall 1
 cargo run --example transports -- 192.168.0.110
 cargo run --example builder_api -- 192.168.0.110:1259

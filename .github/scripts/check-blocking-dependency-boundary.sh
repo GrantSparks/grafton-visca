@@ -69,10 +69,12 @@ check_graph() {
 }
 
 check_graph blocking
+check_graph blocking,dyn-api
 check_graph transport-serial
 check_graph blocking,test-utils
 
 cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" check --lib --no-default-features --features blocking
+cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" check --lib --no-default-features --features blocking,dyn-api
 cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" check --lib --no-default-features --features blocking,test-utils
 
-printf 'Blocking dependency boundary passed: native blocking (with and without test-utils) has no async runtime/executor dependencies.\n'
+printf 'Blocking dependency boundary passed: native blocking (with dyn-api or test-utils) has no async runtime/executor dependencies.\n'

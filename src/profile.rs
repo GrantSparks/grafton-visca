@@ -1,8 +1,24 @@
 //! Validated runtime camera-profile specifications.
 
-use std::time::{Duration, Instant};
+use std::{
+    fmt,
+    time::{Duration, Instant},
+};
 
 use crate::{capabilities, timeout::CommandTimeouts, AffectedAxes, Error, Result};
+
+/// Builds one actionable profile-construction error. Validation can involve
+/// several coupled facts, so plural field names are retained instead of
+/// collapsing the failure into an anonymous prose invariant.
+fn invalid_profile_fields(fields: &[&str], reason: impl fmt::Display) -> Error {
+    let names = fields
+        .iter()
+        .map(|field| format!("`{field}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let label = if fields.len() == 1 { "field" } else { "fields" };
+    Error::InvalidRequest(format!("profile {label} {names}: {reason}").into())
+}
 
 /// Largest retry backoff ceiling or total retry budget an override may set.
 ///
@@ -352,11 +368,19 @@ impl ProfileTiming {
             || self.cancellation_timeout.is_zero()
             || self.ambiguity_timeout.is_zero()
         {
-            return Err(Error::InvalidRequest(
-                "all profile protocol timeouts must be non-zero".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "timing.ack_timeout",
+                    "timing.inquiry_timeout",
+                    "timing.cancellation_timeout",
+                    "timing.ambiguity_timeout",
+                ],
+                "protocol timeouts must be non-zero",
             ));
         }
-        self.command_timeouts.validate()?;
+        self.command_timeouts
+            .validate()
+            .map_err(|error| invalid_profile_fields(&["timing.command_timeouts"], error))?;
 
         let now = Instant::now();
         let command_timeouts = self.command_timeouts;
@@ -379,13 +403,18 @@ impl ProfileTiming {
             .into_iter()
             .any(|duration| !monotonic_duration_is_representable(now, duration))
         {
-            return Err(Error::InvalidRequest(
-                "profile timing values must be representable by the monotonic clock".into(),
+            return Err(invalid_profile_fields(
+                &["timing"],
+                "values must be representable by the monotonic clock",
             ));
         }
         if self.raw_inquiry_reply_skew > self.minimum_inquiry_spacing {
-            return Err(Error::InvalidRequest(
-                "raw inquiry reply skew cannot exceed minimum inquiry spacing".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "timing.raw_inquiry_reply_skew",
+                    "timing.minimum_inquiry_spacing",
+                ],
+                "raw inquiry reply skew cannot exceed minimum inquiry spacing",
             ));
         }
 
@@ -403,8 +432,9 @@ impl ProfileTiming {
         .into_iter()
         .any(|deadline| !retry_budget_is_representable(now, deadline))
         {
-            return Err(Error::InvalidRequest(
-                "profile retry deadlines must be representable by the monotonic clock".into(),
+            return Err(invalid_profile_fields(
+                &["timing.command_timeouts", "timing.inquiry_timeout"],
+                "derived retry deadlines must be representable by the monotonic clock",
             ));
         }
         Ok(self)
@@ -495,40 +525,31 @@ impl ProfileTimingBuilder {
 
     /// Validates and returns immutable profile timing facts.
     pub fn build(self) -> Result<ProfileTiming> {
-        fn required<T>(value: Option<T>, name: &'static str) -> Result<T> {
-            value.ok_or_else(|| Error::InvalidRequest(name.into()))
+        fn required<T>(value: Option<T>, field: &'static str) -> Result<T> {
+            value.ok_or_else(|| invalid_profile_fields(&[field], "is required"))
         }
 
         ProfileTiming {
-            ack_timeout: required(
-                self.ack_timeout,
-                "profile acknowledgement timeout is required",
-            )?,
-            command_timeouts: required(
-                self.command_timeouts,
-                "profile command timeout table is required",
-            )?,
-            inquiry_timeout: required(self.inquiry_timeout, "profile inquiry timeout is required")?,
+            ack_timeout: required(self.ack_timeout, "timing.ack_timeout")?,
+            command_timeouts: required(self.command_timeouts, "timing.command_timeouts")?,
+            inquiry_timeout: required(self.inquiry_timeout, "timing.inquiry_timeout")?,
             cancellation_timeout: required(
                 self.cancellation_timeout,
-                "profile cancellation timeout is required",
+                "timing.cancellation_timeout",
             )?,
-            ambiguity_timeout: required(
-                self.ambiguity_timeout,
-                "profile ambiguity timeout is required",
-            )?,
-            busy_timeout: required(self.busy_timeout, "profile busy timeout is required")?,
+            ambiguity_timeout: required(self.ambiguity_timeout, "timing.ambiguity_timeout")?,
+            busy_timeout: required(self.busy_timeout, "timing.busy_timeout")?,
             raw_inquiry_reply_skew: required(
                 self.raw_inquiry_reply_skew,
-                "profile raw inquiry reply skew is required",
+                "timing.raw_inquiry_reply_skew",
             )?,
             minimum_inquiry_spacing: required(
                 self.minimum_inquiry_spacing,
-                "profile minimum inquiry spacing is required",
+                "timing.minimum_inquiry_spacing",
             )?,
             minimum_command_spacing: required(
                 self.minimum_command_spacing,
-                "profile minimum command spacing is required",
+                "timing.minimum_command_spacing",
             )?,
         }
         .validate()
@@ -1208,43 +1229,49 @@ impl ProfileSpec {
         }
 
         if self.transports.tcp_port == Some(0) || self.transports.udp_port == Some(0) {
-            return Err(Error::InvalidRequest(
-                "profile default transport ports must be non-zero".into(),
+            return Err(invalid_profile_fields(
+                &["transports.tcp_port", "transports.udp_port"],
+                "default ports must be non-zero",
             ));
         }
         if self.transports.tcp_port.is_none()
             && self.transports.udp_port.is_none()
             && !self.transports.serial
         {
-            return Err(Error::InvalidRequest(
-                "profile must support at least one standard transport".into(),
+            return Err(invalid_profile_fields(
+                &["transports"],
+                "must enable at least one standard transport",
             ));
         }
         if self.envelope == ProfileEnvelope::SonyEncapsulated
             && (self.transports.serial
                 || (self.transports.tcp_port.is_none() && self.transports.udp_port.is_none()))
         {
-            return Err(Error::InvalidRequest(
-                "Sony encapsulation requires an IP transport and is incompatible with serial"
-                    .into(),
+            return Err(invalid_profile_fields(
+                &["envelope", "transports"],
+                "Sony encapsulation requires an IP transport and is incompatible with serial",
             ));
         }
         self.timing = self.timing.validate()?;
         if !(1..=2).contains(&self.maximum_command_sockets) {
-            return Err(Error::InvalidRequest(
-                "profile command socket limit must be one or two".into(),
+            return Err(invalid_profile_fields(
+                &["maximum_command_sockets"],
+                "must be one or two",
             ));
         }
-        crate::CameraId::new(self.capabilities.default_camera_id)?;
+        crate::CameraId::new(self.capabilities.default_camera_id)
+            .map_err(|error| invalid_profile_fields(&["capabilities.default_camera_id"], error))?;
         if self.capabilities.model_name.trim().is_empty() {
-            return Err(Error::InvalidRequest(
-                "profile model name must not be empty".into(),
+            return Err(invalid_profile_fields(
+                &["capabilities.model_name"],
+                "must not be empty",
             ));
         }
         if let Some(profile_id) = self.capabilities.profile_id {
             if !profile_id.matches_profile_spec(&self) {
-                return Err(Error::InvalidRequest(
-                    "built-in profile identity does not match runtime profile facts".into(),
+                return Err(invalid_profile_fields(
+                    &["capabilities.profile_id", "capabilities"],
+                    "built-in identity does not match the runtime profile facts",
                 ));
             }
         }
@@ -1273,21 +1300,35 @@ impl ProfileSpec {
                         || conversion.tilt_degrees_to_units == 0.0
                 }))
         {
-            return Err(Error::InvalidRequest(
-                "profile pan/tilt ranges, converters, and speeds are invalid".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.pan_range",
+                    "capabilities.tilt_range",
+                    "capabilities.pan_range_degrees",
+                    "capabilities.tilt_range_degrees",
+                    "capabilities.pan_speed",
+                    "capabilities.tilt_speed",
+                    "pan_tilt_coordinates",
+                ],
+                "pan/tilt ranges, converters, and speeds are invalid",
             ));
         }
         if self.capabilities.has_pan_tilt {
             let Some(conversion) = self.pan_tilt_coordinates else {
-                return Err(Error::InvalidRequest(
-                    "pan/tilt coordinate conversion is required".into(),
+                return Err(invalid_profile_fields(
+                    &["pan_tilt_coordinates"],
+                    "is required when `capabilities.has_pan_tilt` is true",
                 ));
             };
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
                 && conversion.coordinate_system != capabilities::CoordinateSystem::SignedCentered
             {
-                return Err(Error::InvalidRequest(
-                    "Sony BRC-300 pan/tilt framing requires signed-centered coordinates".into(),
+                return Err(invalid_profile_fields(
+                    &[
+                        "pan_tilt_coordinates.wire_codec",
+                        "pan_tilt_coordinates.coordinate_system",
+                    ],
+                    "Sony BRC-300 framing requires signed-centered coordinates",
                 ));
             }
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
@@ -1296,8 +1337,9 @@ impl ProfileSpec {
                     || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.start())
                     || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.end()))
             {
-                return Err(Error::InvalidRequest(
-                    "Sony BRC-300 pan/tilt ranges must fit signed 20-bit pan and signed 16-bit tilt framing".into(),
+                return Err(invalid_profile_fields(
+                    &["capabilities.pan_range", "capabilities.tilt_range"],
+                    "Sony BRC-300 values must fit signed 20-bit pan and signed 16-bit tilt framing",
                 ));
             }
             if conversion.wire_codec == capabilities::PanTiltWireCodec::StandardVisca
@@ -1306,8 +1348,9 @@ impl ProfileSpec {
                     || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.start())
                     || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.end()))
             {
-                return Err(Error::InvalidRequest(
-                    "standard VISCA pan/tilt ranges must fit signed 16-bit framing".into(),
+                return Err(invalid_profile_fields(
+                    &["capabilities.pan_range", "capabilities.tilt_range"],
+                    "standard VISCA values must fit signed 16-bit framing",
                 ));
             }
             let coherent = |degrees: f32, factor: f32, units: i32| {
@@ -1334,8 +1377,15 @@ impl ProfileSpec {
                 conversion.tilt_degrees_to_units,
                 &self.capabilities.tilt_range,
             ) {
-                return Err(Error::InvalidRequest(
-                    "pan/tilt degree ranges must match their profile-specified unit scales".into(),
+                return Err(invalid_profile_fields(
+                    &[
+                        "capabilities.pan_range_degrees",
+                        "capabilities.tilt_range_degrees",
+                        "capabilities.pan_range",
+                        "capabilities.tilt_range",
+                        "pan_tilt_coordinates",
+                    ],
+                    "degree ranges must match their profile-specified unit scales",
                 ));
             }
         }
@@ -1350,8 +1400,13 @@ impl ProfileSpec {
                 || self.capabilities.pan_tilt_simultaneous
                 || !self.capabilities.preset_recovery_time.is_zero())
         {
-            return Err(Error::InvalidRequest(
-                "a profile without pan/tilt must retain the conservative pan/tilt facts".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.has_pan_tilt",
+                    "capabilities",
+                    "pan_tilt_coordinates",
+                ],
+                "a profile without pan/tilt must retain conservative pan/tilt facts",
             ));
         }
         if self.capabilities.has_zoom
@@ -1370,8 +1425,14 @@ impl ProfileSpec {
                             || range.start() > range.end()
                     }))
         {
-            return Err(Error::InvalidRequest(
-                "profile zoom ranges, converter, and speeds are invalid".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.zoom_range_optical",
+                    "capabilities.zoom_range_digital",
+                    "capabilities.zoom_speed",
+                    "capabilities.zoom_magnification_to_units",
+                ],
+                "zoom ranges, converter, and speeds are invalid",
             ));
         }
         if !self.capabilities.has_zoom
@@ -1383,16 +1444,18 @@ impl ProfileSpec {
                 || self.capabilities.supports_variable_zoom
                 || self.capabilities.zoom_magnification_to_units != 1.0)
         {
-            return Err(Error::InvalidRequest(
-                "a profile without zoom must retain the conservative zoom facts".into(),
+            return Err(invalid_profile_fields(
+                &["capabilities.has_zoom", "capabilities"],
+                "a profile without zoom must retain conservative zoom facts",
             ));
         }
         if self.capabilities.has_focus
             && (self.capabilities.focus_range.start() > self.capabilities.focus_range.end()
                 || self.capabilities.focus_speed.start() > self.capabilities.focus_speed.end())
         {
-            return Err(Error::InvalidRequest(
-                "profile focus ranges and speeds are invalid".into(),
+            return Err(invalid_profile_fields(
+                &["capabilities.focus_range", "capabilities.focus_speed"],
+                "ranges must be ordered",
             ));
         }
         let capabilities = &self.capabilities;
@@ -1414,8 +1477,27 @@ impl ProfileSpec {
             || !optional_ordered(capabilities.gamma_range.as_ref())
             || !range_ordered(&capabilities.preset_speed_range)
         {
-            return Err(Error::InvalidRequest(
-                "profile contains an inverted optional capability range".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.exposure_comp_range",
+                    "capabilities.exposure_comp_profile_range",
+                    "capabilities.iris_range",
+                    "capabilities.gain_range",
+                    "capabilities.exposure_brightness_range",
+                    "capabilities.color_temp_range",
+                    "capabilities.rg_tuning_range",
+                    "capabilities.bg_tuning_range",
+                    "capabilities.red_gain_range",
+                    "capabilities.blue_gain_range",
+                    "capabilities.contrast_range",
+                    "capabilities.sharpness_range",
+                    "capabilities.saturation_range",
+                    "capabilities.hue_range",
+                    "capabilities.luminance_range",
+                    "capabilities.gamma_range",
+                    "capabilities.preset_speed_range",
+                ],
+                "capability ranges must be ordered",
             ));
         }
         if capabilities.has_digital_zoom != capabilities.zoom_range_digital.is_some()
@@ -1431,8 +1513,9 @@ impl ProfileSpec {
             || capabilities.has_gamma != capabilities.gamma_range.is_some()
             || capabilities.has_luminance != capabilities.luminance_range.is_some()
         {
-            return Err(Error::InvalidRequest(
-                "profile capability flags and their ranges disagree".into(),
+            return Err(invalid_profile_fields(
+                &["capabilities"],
+                "capability flags and their corresponding ranges disagree",
             ));
         }
         if (!capabilities.has_zoom
@@ -1473,8 +1556,15 @@ impl ProfileSpec {
                     || capabilities.has_gamma
                     || capabilities.has_luminance))
         {
-            return Err(Error::InvalidRequest(
-                "profile leaf capabilities require their parent domain".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.has_zoom",
+                    "capabilities.has_exposure",
+                    "capabilities.has_white_balance",
+                    "capabilities.has_image_processing",
+                    "capabilities",
+                ],
+                "enabled leaf capabilities require their parent domain",
             ));
         }
         let nd_facts_valid = match capabilities.nd_filter_mode {
@@ -1501,8 +1591,18 @@ impl ProfileSpec {
             || ((capabilities.has_motion_sync || capabilities.has_variable_speed)
                 && !capabilities.has_pan_tilt)
         {
-            return Err(Error::InvalidRequest(
-                "profile ND filter, motion-sync, or variable-speed facts disagree".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.has_nd_filter",
+                    "capabilities.nd_filter_mode",
+                    "capabilities.nd_filter_steps",
+                    "capabilities.has_motion_sync",
+                    "capabilities.max_motion_sync_speed",
+                    "capabilities.max_motion_sync_speed_profile",
+                    "capabilities.has_variable_speed",
+                    "capabilities.has_pan_tilt",
+                ],
+                "ND-filter, motion-sync, or variable-speed facts disagree",
             ));
         }
         if (!capabilities.has_focus
@@ -1555,8 +1655,9 @@ impl ProfileSpec {
             || ((capabilities.has_2d_nr || capabilities.has_3d_nr)
                 && !capabilities.has_noise_reduction)
         {
-            return Err(Error::InvalidRequest(
-                "profile aggregate capability facts disagree with their parent domains".into(),
+            return Err(invalid_profile_fields(
+                &["capabilities"],
+                "aggregate capability facts disagree with their parent domains",
             ));
         }
         if capabilities
@@ -1583,8 +1684,13 @@ impl ProfileSpec {
                 .enumerate()
                 .any(|(index, mode)| capabilities.white_balance_modes[..index].contains(mode))
         {
-            return Err(Error::InvalidRequest(
-                "profile shutter inventory must be non-empty and profile inventories must be duplicate-free".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.shutter_speeds",
+                    "capabilities.exposure_modes",
+                    "capabilities.white_balance_modes",
+                ],
+                "shutter labels must be non-empty and inventories must be duplicate-free",
             ));
         }
         for surface in capabilities.typed_support.iter() {
@@ -1744,17 +1850,21 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
             };
             if !physically_supported {
-                return Err(Error::InvalidRequest(
-                    format!(
+                return Err(invalid_profile_fields(
+                    &["capabilities.typed_support", "capabilities"],
+                    format_args!(
                         "typed support {surface:?} cannot enable an absent physical capability"
-                    )
-                    .into(),
+                    ),
                 ));
             }
         }
         if self.capabilities.supports_operation_complete != self.supports_operation_complete {
-            return Err(Error::InvalidRequest(
-                "profile completion capability facts disagree".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.supports_operation_complete",
+                    "supports_operation_complete",
+                ],
+                "completion facts disagree",
             ));
         }
         if matches!(
@@ -1766,8 +1876,9 @@ impl ProfileSpec {
             || self.position_inquiries.iris
             || self.position_inquiries.nd_filter)
         {
-            return Err(Error::InvalidRequest(
-                "position inquiries require profile inquiry support".into(),
+            return Err(invalid_profile_fields(
+                &["position_inquiries", "capabilities.inquiry_support"],
+                "position inquiries require profile inquiry support",
             ));
         }
         if (self.position_inquiries.pan_tilt && !self.capabilities.has_pan_tilt)
@@ -1776,8 +1887,9 @@ impl ProfileSpec {
             || (self.position_inquiries.iris && !self.capabilities.has_iris_control)
             || (self.position_inquiries.nd_filter && !self.capabilities.has_nd_filter)
         {
-            return Err(Error::InvalidRequest(
-                "position inquiry support names an unsupported axis".into(),
+            return Err(invalid_profile_fields(
+                &["position_inquiries", "capabilities"],
+                "position inquiry support names an unsupported axis",
             ));
         }
         // Metadata such as `has_iris_control` and `has_nd_filter` describes
@@ -1803,13 +1915,19 @@ impl ProfileSpec {
                 || (typed_iris_requires_inquiry && !self.position_inquiries.iris)
                 || (typed_nd_requires_inquiry && !self.position_inquiries.nd_filter))
         {
-            return Err(Error::InvalidRequest(
-                "profile without exact completion needs inquiries for every targeted axis".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "supports_operation_complete",
+                    "position_inquiries",
+                    "capabilities",
+                ],
+                "a profile without exact completion needs inquiries for every targeted axis",
             ));
         }
         if self.capabilities.has_presets != self.preset_recall_axes.is_some() {
-            return Err(Error::InvalidRequest(
-                "preset recall axes must be present exactly when presets are supported".into(),
+            return Err(invalid_profile_fields(
+                &["preset_recall_axes", "capabilities.has_presets"],
+                "preset recall axes must be present exactly when presets are supported",
             ));
         }
         if let Some(preset_axes) = self.preset_recall_axes {
@@ -1819,16 +1937,22 @@ impl ProfileSpec {
                 self.capabilities.has_focus,
                 self.capabilities.has_iris_control,
                 self.capabilities.has_nd_filter,
-            )?;
+            )
+            .map_err(|error| invalid_profile_fields(&["capabilities"], error))?;
             if !available_axes.contains(preset_axes) {
-                return Err(Error::InvalidRequest(
-                    "preset recall axes include an unsupported camera axis".into(),
+                return Err(invalid_profile_fields(
+                    &["preset_recall_axes", "capabilities"],
+                    "preset recall axes include an unsupported camera axis",
                 ));
             }
             if !self.supports_operation_complete && !self.position_inquiries.supports(preset_axes) {
-                return Err(Error::InvalidRequest(
-                    "profile without exact completion needs every preset-recall position inquiry"
-                        .into(),
+                return Err(invalid_profile_fields(
+                    &[
+                        "supports_operation_complete",
+                        "position_inquiries",
+                        "preset_recall_axes",
+                    ],
+                    "a profile without exact completion needs every preset-recall position inquiry",
                 ));
             }
         }
@@ -2143,46 +2267,45 @@ impl ProfileSpecBuilder {
 
     /// Validates and returns an immutable profile.
     pub fn build(self) -> Result<ProfileSpec> {
-        fn required<T>(value: Option<T>, name: &'static str) -> Result<T> {
-            value.ok_or_else(|| Error::InvalidRequest(name.into()))
+        fn required<T>(value: Option<T>, field: &'static str) -> Result<T> {
+            value.ok_or_else(|| invalid_profile_fields(&[field], "is required"))
         }
 
-        let transports = required(self.transports, "profile transport facts are required")?;
+        let transports = required(self.transports, "transports")?;
         let capabilities = self.capabilities;
         if capabilities.default_tcp_port != transports.tcp_port
             || capabilities.default_udp_port != transports.udp_port
         {
-            return Err(Error::InvalidRequest(
-                "capability default ports must exactly match profile transports".into(),
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.default_tcp_port",
+                    "capabilities.default_udp_port",
+                    "transports",
+                ],
+                "capability default ports must exactly match profile transports",
             ));
         }
-        let timing = required(self.timing, "profile timing facts are required")?;
+        let timing = required(self.timing, "timing")?;
         ProfileSpec {
             capabilities,
             pan_tilt_coordinates: self.pan_tilt_coordinates,
             transports,
-            envelope: required(self.envelope, "profile envelope is required")?,
+            envelope: required(self.envelope, "envelope")?,
             timing,
             maximum_command_sockets: required(
                 self.maximum_command_sockets,
-                "profile command socket limit is required",
+                "maximum_command_sockets",
             )?,
             supports_operation_complete: required(
                 self.supports_operation_complete,
-                "profile operation-complete support is required",
+                "supports_operation_complete",
             )?,
             supports_command_cancel: required(
                 self.supports_command_cancel,
-                "profile cancellation support is required",
+                "supports_command_cancel",
             )?,
-            preset_recall_axes: required(
-                self.preset_recall_axes,
-                "profile preset recall axes are required",
-            )?,
-            position_inquiries: required(
-                self.position_inquiries,
-                "profile position inquiry support is required",
-            )?,
+            preset_recall_axes: required(self.preset_recall_axes, "preset_recall_axes")?,
+            position_inquiries: required(self.position_inquiries, "position_inquiries")?,
         }
         .validate()
     }
@@ -2255,6 +2378,13 @@ mod tests {
             .position_inquiries(PositionInquirySupport::new(true, true, true))
     }
 
+    fn invalid_request_message<T>(result: Result<T>) -> Option<String> {
+        match result {
+            Err(Error::InvalidRequest(message)) => Some(message.into_owned()),
+            _ => None,
+        }
+    }
+
     #[test]
     fn runtime_brc300_codec_requires_ranges_encodable_by_its_position_fields() {
         let mut endpoints = valid_runtime_capabilities();
@@ -2318,7 +2448,9 @@ mod tests {
             assert!(matches!(
                 result,
                 Err(Error::InvalidRequest(message))
-                    if message == "standard VISCA pan/tilt ranges must fit signed 16-bit framing"
+                    if message.contains("`capabilities.pan_range`")
+                        && message.contains("`capabilities.tilt_range`")
+                        && message.contains("standard VISCA values must fit signed 16-bit framing")
             ));
         }
     }
@@ -2539,9 +2671,93 @@ mod tests {
 
     #[test]
     fn runtime_builder_requires_every_protocol_safety_fact() {
-        assert!(ProfileSpec::builder(valid_runtime_capabilities())
-            .build()
-            .is_err());
+        let complete = runtime_builder(valid_runtime_capabilities());
+
+        macro_rules! missing_field {
+            ($member:ident, $field:literal) => {{
+                let mut builder = complete.clone();
+                builder.$member = None;
+                let error = invalid_request_message(builder.build())
+                    .expect("missing field must return InvalidRequest");
+                assert!(
+                    error.contains(concat!("`", $field, "`")),
+                    "missing {} was not named by: {error}",
+                    $field
+                );
+            }};
+        }
+
+        missing_field!(transports, "transports");
+        missing_field!(envelope, "envelope");
+        missing_field!(timing, "timing");
+        missing_field!(maximum_command_sockets, "maximum_command_sockets");
+        missing_field!(supports_operation_complete, "supports_operation_complete");
+        missing_field!(supports_command_cancel, "supports_command_cancel");
+        missing_field!(preset_recall_axes, "preset_recall_axes");
+        missing_field!(position_inquiries, "position_inquiries");
+    }
+
+    #[test]
+    fn profile_builder_cross_field_errors_name_the_reported_fields() {
+        let mut no_inquiry_support = valid_runtime_capabilities();
+        no_inquiry_support.inquiry_support = capabilities::InquirySupport::None;
+        let error = invalid_request_message(runtime_builder(no_inquiry_support).build())
+            .expect("inquiry-support mismatch must return InvalidRequest");
+        assert!(error.contains("`position_inquiries`"), "{error}");
+        assert!(error.contains("`capabilities.inquiry_support`"), "{error}");
+
+        let mut unsupported_focus_inquiry = valid_runtime_capabilities();
+        unsupported_focus_inquiry.has_focus = false;
+        unsupported_focus_inquiry.focus_range = 0..=0;
+        unsupported_focus_inquiry.focus_speed = 0..=0;
+        let error = invalid_request_message(runtime_builder(unsupported_focus_inquiry).build())
+            .expect("unsupported focus inquiry must return InvalidRequest");
+        assert!(error.contains("`position_inquiries`"), "{error}");
+        assert!(error.contains("`capabilities`"), "{error}");
+
+        let mut invalid_pan_range = valid_runtime_capabilities();
+        invalid_pan_range.pan_range = std::ops::RangeInclusive::new(100, -100);
+        let error = invalid_request_message(runtime_builder(invalid_pan_range).build())
+            .expect("inverted pan range must return InvalidRequest");
+        assert!(error.contains("`capabilities.pan_range`"), "{error}");
+        assert!(error.contains("`pan_tilt_coordinates`"), "{error}");
+
+        let mut no_presets = valid_runtime_capabilities();
+        no_presets.has_presets = false;
+        no_presets.max_presets = 0;
+        no_presets.preset_speed_range = 0..=0;
+        let error = invalid_request_message(runtime_builder(no_presets).build())
+            .expect("preset mismatch must return InvalidRequest");
+        assert!(error.contains("`preset_recall_axes`"), "{error}");
+        assert!(error.contains("`capabilities.has_presets`"), "{error}");
+    }
+
+    #[test]
+    fn profile_spec_validation_constructs_only_field_aware_errors() {
+        let source = include_str!("profile.rs");
+        let validation = source
+            .split_once("    fn validate(mut self) -> Result<Self> {")
+            .expect("ProfileSpec::validate start")
+            .1
+            .split_once("/// Compile-time camera profile")
+            .expect("ProfileSpec::validate end")
+            .0;
+        assert!(
+            !validation.contains("Error::InvalidRequest"),
+            "ProfileSpec validation must route errors through invalid_profile_fields"
+        );
+
+        let builder_build = source
+            .split_once("impl ProfileSpecBuilder {")
+            .expect("ProfileSpecBuilder implementation")
+            .1
+            .split_once("#[cfg(test)]")
+            .expect("ProfileSpecBuilder implementation end")
+            .0;
+        assert!(
+            !builder_build.contains("Error::InvalidRequest"),
+            "ProfileSpecBuilder must route errors through invalid_profile_fields"
+        );
     }
 
     #[test]
@@ -2572,9 +2788,7 @@ mod tests {
 
     #[test]
     fn profile_timing_builder_requires_all_facts_and_preserves_values() {
-        assert!(ProfileTiming::builder().build().is_err());
-
-        let timing = ProfileTiming::builder()
+        let complete = ProfileTiming::builder()
             .ack_timeout(Duration::from_millis(100))
             .command_timeouts(CommandTimeouts::default())
             .inquiry_timeout(Duration::from_secs(1))
@@ -2583,9 +2797,33 @@ mod tests {
             .busy_timeout(Duration::from_secs(4))
             .raw_inquiry_reply_skew(Duration::from_millis(25))
             .minimum_inquiry_spacing(Duration::from_millis(25))
-            .minimum_command_spacing(Duration::from_millis(50))
-            .build()
-            .expect("complete timing facts");
+            .minimum_command_spacing(Duration::from_millis(50));
+
+        macro_rules! missing_timing_field {
+            ($member:ident, $field:literal) => {{
+                let mut builder = complete;
+                builder.$member = None;
+                let error = invalid_request_message(builder.build())
+                    .expect("missing timing field must return InvalidRequest");
+                assert!(
+                    error.contains(concat!("`timing.", $field, "`")),
+                    "missing timing.{} was not named by: {error}",
+                    $field
+                );
+            }};
+        }
+
+        missing_timing_field!(ack_timeout, "ack_timeout");
+        missing_timing_field!(command_timeouts, "command_timeouts");
+        missing_timing_field!(inquiry_timeout, "inquiry_timeout");
+        missing_timing_field!(cancellation_timeout, "cancellation_timeout");
+        missing_timing_field!(ambiguity_timeout, "ambiguity_timeout");
+        missing_timing_field!(busy_timeout, "busy_timeout");
+        missing_timing_field!(raw_inquiry_reply_skew, "raw_inquiry_reply_skew");
+        missing_timing_field!(minimum_inquiry_spacing, "minimum_inquiry_spacing");
+        missing_timing_field!(minimum_command_spacing, "minimum_command_spacing");
+
+        let timing = complete.build().expect("complete timing facts");
 
         assert_eq!(timing.ack_timeout(), Duration::from_millis(100));
         assert_eq!(timing.command_timeouts(), CommandTimeouts::default());

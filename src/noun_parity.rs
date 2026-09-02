@@ -457,7 +457,7 @@ pub(crate) const fn noun_table_key(noun: StaticNoun) -> &'static str {
 
 /// Maps a dynamic noun trait to its registry arm name.
 #[must_use]
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 pub(crate) fn dyn_trait_noun_key(dyn_trait: &str) -> &'static str {
     NOUN_FACADES
         .iter()
@@ -1262,7 +1262,7 @@ fn compiled_registry_inventory_counts_remain_readable() {
     assert_eq!(helper_rows, 9); // 9 empty-ID helper rows
     assert_eq!(command_rows + inquiry_rows + helper_rows, 218); // 218 total rows
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     {
         use crate::dynapi::DYN_NOUN_CONVENIENCE_METHODS;
 

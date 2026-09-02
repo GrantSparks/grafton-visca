@@ -228,7 +228,7 @@ fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
 async fn tokio_dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles() {
     let (transport, writes) = ProbeTransport::new(true);
     let session = open_session(transport, SessionConfig::new(profile())).await;
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
     let root: &dyn DynSessionCameraControl = &camera;
     let nouns: &dyn DynSessionCameraNouns = &camera;
 
@@ -305,7 +305,8 @@ async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
         .register_target(CameraId::CAMERA_2, profile())
         .expect("camera 2 registration");
     let session = open_session(transport, config).await;
-    let first = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
+    let first = session
+        .camera_dyn_for(CameraId::CAMERA_1)
         .expect("camera 1 dynamic view");
     let first_view = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
         .expect("same-target dynamic view");
@@ -354,7 +355,8 @@ async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
         DynSessionCamera::from_session(&session),
         Err(Error::InvalidState(_))
     ));
-    let selected = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
+    let selected = session
+        .camera_dyn_for(CameraId::CAMERA_2)
         .expect("explicit dynamic target");
     assert_eq!(selected.target(), CameraId::CAMERA_2);
     let _ = selected
