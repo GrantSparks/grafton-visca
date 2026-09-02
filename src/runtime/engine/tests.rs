@@ -3496,9 +3496,9 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     assert_eq!(terminal_id(&isolated), Some(first_id));
     assert!(datagram_engine.entry(second_id).is_some());
     let closed = datagram_engine.handle(
-        Input::Close {
+        Input::Shutdown(ShutdownReason::TransportClosed {
             reason: Some("peer closed".into()),
-        },
+        }),
         start,
     );
     assert_eq!(datagram_engine.state(), SessionState::Closed);
@@ -5718,7 +5718,10 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
 fn receive_fault_after_termination_is_inert() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    engine.handle(Input::Close { reason: None }, start);
+    engine.handle(
+        Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
+        start,
+    );
     let fault = engine.handle(
         Input::ReceiveFault {
             error: Error::Timeout,

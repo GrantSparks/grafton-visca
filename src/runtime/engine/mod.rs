@@ -607,20 +607,6 @@ impl ProtocolEngine {
             Input::Frame(frame) => self.frame(frame, now, effects),
             Input::Cancel { id } => self.cancel(id, now, effects),
             Input::ReceiveFault { error } => self.receive_fault(&error, now, effects),
-            Input::Close { reason } => self.terminate_session(
-                SessionState::Closed,
-                Error::ConnectionClosed {
-                    reason: reason.map(|value| Cow::Owned(value.into())),
-                },
-                effects,
-            ),
-            Input::Poison { reason } => self.terminate_session(
-                SessionState::Poisoned,
-                Error::StreamPoisoned {
-                    reason: Cow::Owned(reason.into()),
-                },
-                effects,
-            ),
             Input::Shutdown(reason) => match reason {
                 ShutdownReason::Explicit => {
                     self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)

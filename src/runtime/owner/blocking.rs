@@ -2176,9 +2176,9 @@ impl BlockingOwner {
         error: Error,
     ) -> Error {
         let effects = self.input_for_mode(
-            Input::Poison {
+            Input::Shutdown(ShutdownReason::FramingFailure {
                 reason: error.to_string().into_boxed_str(),
-            },
+            }),
             Instant::now(),
             PumpMode::FirstDispatchWait,
         );
@@ -2617,12 +2617,12 @@ impl BlockingOwner {
                     // receives the session boundary error, retaining both the
                     // run count and the underlying transport cause.
                     let effects = self.input_for_mode(
-                        Input::Close {
+                        Input::Shutdown(ShutdownReason::TransportClosed {
                             reason: Some(
                                 format!("{length} consecutive receive faults: {error}")
                                     .into_boxed_str(),
                             ),
-                        },
+                        }),
                         received_at,
                         mode,
                     );
@@ -2665,9 +2665,9 @@ impl BlockingOwner {
                 // poison means. Framing failures below still poison a
                 // stream, exactly as the async owner does.
                 let effects = self.input_for_mode(
-                    Input::Close {
+                    Input::Shutdown(ShutdownReason::TransportClosed {
                         reason: Some(error.to_string().into_boxed_str()),
-                    },
+                    }),
                     Instant::now(),
                     mode,
                 );
@@ -2708,9 +2708,9 @@ impl BlockingOwner {
                     Err(error) => {
                         if is_stream {
                             let effects = self.input_for_mode(
-                                Input::Poison {
+                                Input::Shutdown(ShutdownReason::FramingFailure {
                                     reason: error.to_string().into_boxed_str(),
-                                },
+                                }),
                                 Instant::now(),
                                 mode,
                             );
@@ -2747,9 +2747,9 @@ impl BlockingOwner {
                 if let Err(error) = self.state.validate_frame_batch(&frames) {
                     if is_stream {
                         let effects = self.input_for_mode(
-                            Input::Poison {
+                            Input::Shutdown(ShutdownReason::FramingFailure {
                                 reason: error.to_string().into_boxed_str(),
-                            },
+                            }),
                             Instant::now(),
                             mode,
                         );

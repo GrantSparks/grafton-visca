@@ -2314,12 +2314,6 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
 
 fn boundary_error_for_input(input: &Input) -> Option<Error> {
     match input {
-        Input::Close { reason } => Some(Error::ConnectionClosed {
-            reason: reason.as_ref().map(|value| value.to_string().into()),
-        }),
-        Input::Poison { reason } => Some(Error::StreamPoisoned {
-            reason: reason.to_string().into(),
-        }),
         Input::Shutdown(reason) => Some(match reason {
             ShutdownReason::Explicit => Error::RuntimeShutdown,
             ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {

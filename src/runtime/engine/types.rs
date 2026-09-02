@@ -760,15 +760,8 @@ pub(crate) enum CancellationObservation {
 #[derive(Debug, Clone)]
 pub(crate) enum ShutdownReason {
     Explicit,
-    TransportClosed {
-        reason: Option<Box<str>>,
-    },
-    // Constructed by the async actor's framing seam; the blocking-only legs do not
-    // compile that seam (#636).
-    #[allow(dead_code)]
-    FramingFailure {
-        reason: Box<str>,
-    },
+    TransportClosed { reason: Option<Box<str>> },
+    FramingFailure { reason: Box<str> },
 }
 
 /// Session state is terminal except for `Running`.
@@ -805,21 +798,9 @@ pub(crate) enum Input {
     /// poisons the session on such a fault.
     ///
     /// A receive that proves the session is finished never reaches the engine
-    /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or
-    /// [`Input::Shutdown`] instead.
+    /// this way; it arrives as [`Input::Shutdown`] instead.
     ReceiveFault {
         error: Error,
-    },
-    // The owner routes an orderly close and a stream poisoning through
-    // `Input::Shutdown` today; these two stay as the engine's explicit
-    // vocabulary and are driven directly by `runtime::engine::tests` (#636).
-    #[allow(dead_code)]
-    Close {
-        reason: Option<Box<str>>,
-    },
-    #[allow(dead_code)]
-    Poison {
-        reason: Box<str>,
     },
     Shutdown(ShutdownReason),
     // A pure "re-evaluate deadlines now" input. The owners call `advance`
