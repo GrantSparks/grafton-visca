@@ -62,15 +62,15 @@ than treating a neighboring model or firmware as equivalent.
 
 | ID | Profile family / firmware revision | Required checks | Owner | Status | Firmware / bench | Evidence artifact / notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| FW-01 | `GenericVisca` / exact revision | Profile facts, read-only inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-02 | `PtzOpticsG2` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-03 | `PtzOpticsG3` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-04 | `PtzOptics30X` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-05 | `SonyEVIH100` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-06 | `SonyBRC300` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-07 | `NearusBRC300` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-08 | `SonyFR7` / exact revision | Sony envelope, sequence correlation, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-09 | `SonyBRCH900` / exact revision | Sony envelope, sequence correlation, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-01 | `GenericVisca` / exact revision | Profile facts, shared `04 39` exposure and `04 4B` iris control/inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-02 | `PtzOpticsG2` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-03 | `PtzOpticsG3` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-04 | `PtzOptics30X` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-05 | `SonyEVIH100` / exact revision | Raw framing, shared exposure/iris (including the pending R8 line-item audit), profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-06 | `SonyBRC300` / exact revision | Raw framing, shared exposure/iris, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-07 | `NearusBRC300` / exact revision | Raw framing, BRC-300-compatible shared exposure/iris, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-08 | `SonyFR7` / exact revision | Sony envelope, sequence correlation, reject shared exposure/iris before write, validate vendor-relative iris via raw escape hatch, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-09 | `SonyBRCH900` / exact revision | Sony envelope, sequence correlation, shared exposure/iris, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
 
 ## Cancellation, retry, and recovery
 

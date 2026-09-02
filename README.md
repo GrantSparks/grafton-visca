@@ -96,8 +96,8 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Shared VISCA exposure mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Shared VISCA exposure mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Standard iris reset/up/down/direct control, iris-priority mode, and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
@@ -105,7 +105,7 @@ operations.
 | Push auto focus | `SonyFR7` |
 | Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
-| Auto focus sensitivity | `SonyFR7` |
+| Auto focus sensitivity | No built-in profile currently marks this typed capability |
 | Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
@@ -132,24 +132,29 @@ operations.
 
 `HasExposure` remains the broad exposure-domain marker. The shared `04 39`
 exposure-mode command and inquiry are separately guarded by `HasExposureMode`;
-only the three PTZOptics profiles have the source-backed shared mode inventory
-that grants this typed surface. A nonempty discovery inventory alone does not
-grant the static operation.
+every built-in profile except `SonyFR7` has a nonempty shared-mode inventory and
+grants this typed surface. The PTZOptics profiles use R1/R10/R14 evidence;
+`SonyBRCH900` and `SonyBRC300` use R11/R12; `NearusBRC300` follows its BRC-300
+compatibility contract; `GenericVisca` deliberately assumes the standard Sony
+family; and `SonyEVIH100` retains its 1.2 compatibility breadth pending the R8
+line-item audit. A discovery inventory and the marker agree for every built-in;
+custom runtime profiles must still supply both before encoding.
 
 `HasIrisControl` covers standard iris reset/up/down/direct control and the
 distinct `09 04 4B` position inquiry exposed as `iris()`. R10 sources that
 surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
 Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
-for `PtzOpticsG2` and `PtzOpticsG3`; and raw `PtzOptics30X` uses separate
-PTZOptics Gen-2/R1 evidence. `iris_control()` instead sends the separate
-`09 04 2B` auto/manual-status inquiry and requires `HasIrisControlInquiry` /
-`TypedSupportSurface::IrisControlInquiry`; all of those sources omit it, so no
-built-in profile enables it. The Sony FR7 command list instead documents a
-vendor-relative `7E 04 4B` iris Up/Down family and `05 34` Auto Iris inquiry,
-not the shared `04 39` AE-mode command/inquiry family, standard absolute Iris
-Direct command, or `09 04 4B` position inquiry. Those FR7 protocol families
-remain available through the raw command escape hatch until they receive their
-own typed APIs.
+for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
+PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
+R11/R12/R8 and compatibility evidence described above. `iris_control()` instead
+sends the separate `09 04 2B` auto/manual-status inquiry and requires
+`HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
+checked sources establishes that distinct row, so no built-in profile enables
+it. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
+iris Up/Down family and `05 34` Auto Iris inquiry, not the shared `04 39`
+AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
+04 4B` position inquiry. Those FR7 protocol families remain available through
+the raw command escape hatch until they receive their own typed APIs.
 
 Noise-reduction inquiries remain independently gated by
 `HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate

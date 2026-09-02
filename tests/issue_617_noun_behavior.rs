@@ -377,7 +377,7 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "selected exposure mode"
+                feature: "shared exposure-mode control"
             }
         ));
         assert!(
@@ -786,7 +786,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "selected exposure mode"
+                feature: "shared exposure-mode control"
             }
         ));
         assert!(

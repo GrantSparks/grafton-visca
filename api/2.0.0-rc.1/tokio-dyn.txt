@@ -154,7 +154,9 @@ pub fn grafton_visca::camera::profiles::GenericVisca::default() -> grafton_visca
 impl core::fmt::Debug for grafton_visca::camera::profiles::GenericVisca
 pub fn grafton_visca::camera::profiles::GenericVisca::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
@@ -298,8 +300,10 @@ pub fn grafton_visca::camera::profiles::NearusBRC300::fmt(&self, &mut core::fmt:
 impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -969,7 +973,9 @@ pub fn grafton_visca::camera::profiles::SonyBRC300::fmt(&self, &mut core::fmt::F
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -1117,11 +1123,13 @@ impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -1269,11 +1277,13 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -1417,7 +1427,6 @@ pub fn grafton_visca::camera::profiles::SonyFR7::default() -> grafton_visca::cam
 impl core::fmt::Debug for grafton_visca::camera::profiles::SonyFR7
 pub fn grafton_visca::camera::profiles::SonyFR7::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
@@ -3682,7 +3691,6 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_FOCUS_ZONE_INQUIRY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_ONE_PUSH_FOCUS: bool
 pub trait grafton_visca::capabilities::HasAutoFocusSensitivity
-impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasAutoTrackingWhiteBalance
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasAutoWhiteBalanceSensitivity
@@ -3743,9 +3751,14 @@ impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::cam
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasExposureCompensation for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasExposureMode
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyEVIH100
 pub trait grafton_visca::capabilities::HasFocus
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::focus::Focus> grafton_visca::capabilities::HasFocus for T
 pub trait grafton_visca::capabilities::HasFocusLock
@@ -3801,9 +3814,14 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasIrisControl
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyEVIH100
 pub trait grafton_visca::capabilities::HasIrisControlInquiry
 pub trait grafton_visca::capabilities::HasLuminanceControl
 impl grafton_visca::capabilities::HasLuminanceControl for grafton_visca::camera::profiles::PtzOptics30X
@@ -13033,7 +13051,9 @@ pub fn grafton_visca::camera::profiles::GenericVisca::default() -> grafton_visca
 impl core::fmt::Debug for grafton_visca::camera::profiles::GenericVisca
 pub fn grafton_visca::camera::profiles::GenericVisca::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
@@ -13394,8 +13414,10 @@ pub fn grafton_visca::camera::profiles::NearusBRC300::fmt(&self, &mut core::fmt:
 impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -14434,7 +14456,9 @@ pub fn grafton_visca::camera::profiles::SonyBRC300::fmt(&self, &mut core::fmt::F
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -14582,11 +14606,13 @@ impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -14734,11 +14760,13 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -14882,7 +14910,6 @@ pub fn grafton_visca::camera::profiles::SonyFR7::default() -> grafton_visca::cam
 impl core::fmt::Debug for grafton_visca::camera::profiles::SonyFR7
 pub fn grafton_visca::camera::profiles::SonyFR7::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
@@ -17170,7 +17197,9 @@ pub fn grafton_visca::camera::profiles::GenericVisca::default() -> grafton_visca
 impl core::fmt::Debug for grafton_visca::camera::profiles::GenericVisca
 pub fn grafton_visca::camera::profiles::GenericVisca::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
@@ -17314,8 +17343,10 @@ pub fn grafton_visca::camera::profiles::NearusBRC300::fmt(&self, &mut core::fmt:
 impl core::marker::Copy for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -17985,7 +18016,9 @@ pub fn grafton_visca::camera::profiles::SonyBRC300::fmt(&self, &mut core::fmt::F
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
@@ -18133,11 +18166,13 @@ impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomToggle for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
@@ -18285,11 +18320,13 @@ impl core::marker::Copy for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasColorTemperature for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasGammaControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
@@ -18433,7 +18470,6 @@ pub fn grafton_visca::camera::profiles::SonyFR7::default() -> grafton_visca::cam
 impl core::fmt::Debug for grafton_visca::camera::profiles::SonyFR7
 pub fn grafton_visca::camera::profiles::SonyFR7::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::camera::profiles::SonyFR7
-impl grafton_visca::capabilities::HasAutoFocusSensitivity for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasAutoTrackingWhiteBalance for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7

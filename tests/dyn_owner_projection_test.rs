@@ -238,7 +238,7 @@ where
     assert!(!static_profile.supports_operation_complete());
     assert_eq!(
         static_profile.position_inquiries(),
-        PositionInquirySupport::new(true, true, true)
+        PositionInquirySupport::new_with_iris_nd(true, true, true, true, false)
     );
     let runtime_profile = runtime_equivalent(&static_profile);
     assert_eq!(static_profile, runtime_profile);
@@ -428,7 +428,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "selected exposure mode"
+            feature: "shared exposure-mode control"
         }
     ));
     let error = fr7_nouns

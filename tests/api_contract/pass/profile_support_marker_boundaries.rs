@@ -6,7 +6,8 @@ use grafton_visca::{
         HasUsbAudio,
     },
     profiles::{
-        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
     },
 };
 
@@ -32,10 +33,20 @@ fn main() {
     requires_exposure_mode::<PtzOpticsG2>();
     requires_exposure_mode::<PtzOpticsG3>();
     requires_exposure_mode::<PtzOptics30X>();
+    requires_exposure_mode::<SonyBRCH900>();
+    requires_exposure_mode::<SonyEVIH100>();
+    requires_exposure_mode::<SonyBRC300>();
+    requires_exposure_mode::<NearusBRC300>();
+    requires_exposure_mode::<GenericVisca>();
 
     requires_iris::<PtzOpticsG2>();
     requires_iris::<PtzOpticsG3>();
     requires_iris::<PtzOptics30X>();
+    requires_iris::<SonyBRCH900>();
+    requires_iris::<SonyEVIH100>();
+    requires_iris::<SonyBRC300>();
+    requires_iris::<NearusBRC300>();
+    requires_iris::<GenericVisca>();
 
     requires_nr_2d::<PtzOpticsG2>();
     requires_nr_3d::<PtzOpticsG2>();

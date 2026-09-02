@@ -1265,11 +1265,12 @@ macro_rules! __define_builtin_profiles {
                     facts.typed_support,
                     <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
                 );
-                assert!(
-                    !facts.has_typed_support(
+                assert_eq!(
+                    facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::ExposureMode
-                    ) || !P::EXPOSURE_MODES.is_empty(),
-                    "{id:?} shared exposure-mode typed support requires a non-empty source-backed mode inventory"
+                    ),
+                    !P::EXPOSURE_MODES.is_empty(),
+                    "{id:?} shared exposure-mode typed support and its source-backed mode inventory must agree"
                 );
                 assert_eq!(
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
@@ -1635,11 +1636,11 @@ macro_rules! __define_builtin_profiles {
                     (ProfileId::PtzOpticsG3, true, false),
                     (ProfileId::PtzOptics30X, true, false),
                     (ProfileId::SonyFr7, false, true),
-                    (ProfileId::SonyBrcH900, false, false),
-                    (ProfileId::SonyEviH100, false, false),
-                    (ProfileId::SonyBrc300, false, false),
-                    (ProfileId::NearusBrc300, false, false),
-                    (ProfileId::GenericVisca, false, false),
+                    (ProfileId::SonyBrcH900, true, false),
+                    (ProfileId::SonyEviH100, true, false),
+                    (ProfileId::SonyBrc300, true, false),
+                    (ProfileId::NearusBrc300, true, false),
+                    (ProfileId::GenericVisca, true, false),
                 ];
                 for (id, iris, nd_filter) in expected {
                     let facts = id.registry_facts();
@@ -1694,20 +1695,20 @@ macro_rules! __define_builtin_profiles {
                 assert_shared_ae_mode_profile::<PtzOpticsG2>();
                 assert_shared_ae_mode_profile::<PtzOpticsG3>();
                 assert_shared_ae_mode_profile::<PtzOptics30X>();
+                assert_shared_ae_mode_profile::<SonyBRCH900>();
+                assert_shared_ae_mode_profile::<SonyEVIH100>();
+                assert_shared_ae_mode_profile::<SonyBRC300>();
+                assert_shared_ae_mode_profile::<NearusBRC300>();
+                assert_shared_ae_mode_profile::<GenericVisca>();
 
                 for facts in BUILTIN_PROFILE_FACTS {
-                    let expected = matches!(
-                        facts.id,
-                        ProfileId::PtzOpticsG2
-                            | ProfileId::PtzOpticsG3
-                            | ProfileId::PtzOptics30X
-                    );
+                    let expected = facts.id != ProfileId::SonyFr7;
                     assert_eq!(
                         facts.has_typed_support(
                             $crate::capabilities::TypedSupportSurface::ExposureMode
                         ),
                         expected,
-                        "{:?} shared exposure-mode support must remain limited to the source-backed PTZOptics profiles",
+                        "{:?} shared exposure-mode support must exactly follow the source-backed mode inventory",
                         facts.id
                     );
                 }
@@ -1919,6 +1920,7 @@ macro_rules! __define_builtin_profiles {
                             | $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
                             | $crate::capabilities::TypedSupportSurface::MotionSync
                             | $crate::capabilities::TypedSupportSurface::IrisControlInquiry
+                            | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -2076,10 +2078,10 @@ macro_rules! __define_builtin_profiles {
                     "Focus zone inquiry",
                     $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
                 );
-                assert_row(
+                assert_literal_row(
                     readme,
                     "Auto focus sensitivity",
-                    $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
+                    "No built-in profile currently marks this typed capability",
                 );
                 assert_row(
                     readme,
@@ -2880,7 +2882,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [],
                     group: SonyProfessional,
                     vendor: "Sony",
-                    description: "Professional cinema camera with variable ND filter and full feature set",
+                    description: "Professional cinema camera with variable ND filter and model-specific exposure controls",
                     envelope: $crate::transport::SonyEncapsulated,
                     envelope_kind: SonyEncapsulated,
                     transport: {
@@ -2952,7 +2954,7 @@ macro_rules! define_builtin_profiles {
                         focus_zone: false,
                         focus_zone_inquiry: false,
                         max_speed: 7,
-                        af_sensitivity: true,
+                        af_sensitivity: false,
                         near_limit_inquiry: true,
                     },
                     exposure: {
@@ -2986,9 +2988,9 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        noise_reduction: true,
-                        nr_2d: true,
-                        nr_3d: true,
+                        noise_reduction: false,
+                        nr_2d: false,
+                        nr_3d: false,
                         luminance: false,
                         picture_effect: false,
                         luminance_range: None,
@@ -3026,7 +3028,6 @@ macro_rules! define_builtin_profiles {
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
-                        AutoFocusSensitivity,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -3054,6 +3055,8 @@ macro_rules! define_builtin_profiles {
                         ("nd_filter", "The FR7 registry is the only built-in entry with variable-ND metadata, typed ND controls, and the exact 0x64 position inquiry documented in the Sony command table."),
                         ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
+                        ("af_sensitivity", "The FR7 command list R7 documents Push AF/MF under `7E 04 58`, but not the shared `04 58` autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),
+                        ("noise_reduction", "The FR7 command list R7 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family; keep the shared metadata and typed surfaces absent."),
                         ("picture_effect", "The FR7 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
@@ -3100,7 +3103,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: false,
+                            iris: true,
                             nd_filter: false,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -3141,7 +3144,7 @@ macro_rules! define_builtin_profiles {
                         near_limit_inquiry: true,
                     },
                     exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
+                        modes: profile_constants::BRC_H900_EXPOSURE_MODES,
                         iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
@@ -3206,9 +3209,11 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         SonySpotlight,
+                        ExposureMode,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
+                        IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         WideDynamicRange,
@@ -3226,7 +3231,8 @@ macro_rules! define_builtin_profiles {
                     evidence: [
                         ("sony_spotlight", "The BRC-H900 command list (R11 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for BRC-H900."),
-                        ("iris", "BRC-H900 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
+                        ("exposure_mode", "The BRC-H900 command list R11 lines 706-717 and 1003 documents the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri commands and `09 04 39` inquiry. Bright mode is not listed and is therefore absent from this profile's inventory."),
+                        ("iris", "The BRC-H900 command list R11 lines 706-717 and 1012 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
                         ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("picture_effect", "The BRC-H900 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
@@ -3270,7 +3276,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: false,
+                            iris: true,
                             nd_filter: false,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -3376,7 +3382,9 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         SonyAutoSlowShutter,
+                        ExposureMode,
                         DirectZoom,
+                        IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         ColorTemperature,
@@ -3388,7 +3396,8 @@ macro_rules! define_builtin_profiles {
                     ],
                     evidence: [
                         ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
-                        ("iris", "EVI-H100 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
+                        ("exposure_mode", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for the standard `04 39` family pending a direct line-item audit of the model authority R8; do not remove it without a contradictory model-specific citation."),
+                        ("iris", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for standard iris reset/up/down, direct `04 4B`, and the position inquiry pending a direct R8 line-item audit. The distinct `09 04 2B` status inquiry remains unavailable."),
                     ],
                 }
 
@@ -3430,7 +3439,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: false,
+                            iris: true,
                             nd_filter: false,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -3552,13 +3561,16 @@ macro_rules! define_builtin_profiles {
                     variable_speed: { supported: false },
                     typed_support: [
                         SonyAutoSlowShutter,
+                        ExposureMode,
                         DirectZoom,
+                        IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                     ],
                     evidence: [
                         ("sony_auto_slow_shutter", "The BRC-300 technical manual (R12 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
-                        ("iris", "BRC-300 retains general iris metadata for discovery, but the registry has no model-specific evidence for enabling the typed iris control or targeted inquiry."),
+                        ("exposure_mode", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri/Bright commands and `09 04 39` inquiry."),
+                        ("iris", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
                     ],
                 }
 
@@ -3600,7 +3612,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: false,
+                            iris: true,
                             nd_filter: false,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -3705,7 +3717,9 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        ExposureMode,
                         DirectZoom,
+                        IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         SaturationControl,
@@ -3713,7 +3727,8 @@ macro_rules! define_builtin_profiles {
                     evidence: [
                         ("pan_tilt_wire", "No independent Nearus model source establishes Sony BRC-300's one-speed, five-pan-nibble position frame. The profile therefore exposes conservative standard 4+4 VISCA pan/tilt framing pending model-specific validation."),
                         ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
-                        ("iris", "Nearus BRC-300 inherits general iris metadata only; the registry has no independent model-specific evidence for enabling the typed iris control or targeted inquiry."),
+                        ("exposure_mode", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard shared `04 39` family documented by Sony R12 while model-specific vendor exposure extensions remain withheld."),
+                        ("iris", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard iris `04 0B`/`04 4B` controls and `09 04 4B` position inquiry documented by Sony R12. The distinct status inquiry remains unavailable."),
                     ],
                 }
 
@@ -3755,7 +3770,7 @@ macro_rules! define_builtin_profiles {
                             pan_tilt: true,
                             zoom: true,
                             focus: true,
-                            iris: false,
+                            iris: true,
                             nd_filter: false,
                         },
                         preset_recall_axes: $crate::AffectedAxes::PAN_TILT
@@ -3860,12 +3875,15 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        ExposureMode,
+                        IrisControl,
                         FocusNearLimitInquiry,
                         OnePushWhiteBalance,
                     ],
                     evidence: [
                         ("direct_zoom", "Generic profile keeps absolute zoom positioning unavailable despite baseline zoom movement."),
-                        ("iris", "Generic VISCA retains general iris metadata for discovery, but unknown firmware is not sufficient evidence for a typed iris control or targeted inquiry."),
+                        ("exposure_mode", "Generic VISCA deliberately assumes the standard Sony `04 39` exposure-mode family documented by R11/R12, matching its 1.2 compatibility contract."),
+                        ("iris", "Generic VISCA deliberately assumes the standard Sony `04 0B`/`04 4B` iris controls and `09 04 4B` position inquiry documented by R11/R12, matching its 1.2 compatibility contract."),
                     ],
                 }
             }

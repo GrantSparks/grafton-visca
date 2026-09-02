@@ -89,12 +89,14 @@ entries below retain their original wording.
   the bounded #620/#682 other-socket fallback.
 
 - **BREAKING**: Static `camera.exposure().mode()` and `.set_mode(...)` now
-  require `HasExposureMode`. The built-in marker is emitted only for
-  `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`; Sony FR7 and every other
-  built-in profile no longer expose the shared `04 39` AE-mode APIs. Dynamic
-  exposure methods remain available on the erased facade, but reject before
-  encoding unless both typed support and a nonempty documented mode inventory
-  are present.
+  require `HasExposureMode`. Every built-in profile except `SonyFR7` emits the
+  marker and a matching nonempty shared-mode inventory. Dynamic exposure
+  methods remain available on the erased facade, but reject before encoding
+  unless both typed support and a nonempty documented mode inventory are
+  present. R11 and R12 restore the BRC-H900/BRC-300 operations that were
+  accidentally narrowed during review; Nearus follows BRC-300, Generic VISCA
+  keeps its Sony-standard compatibility contract, and EVI-H100 retains its 1.2
+  breadth pending the direct R8 line-item audit (#716).
 
 - **BREAKING**: Removed Sony FR7 from the shared typed `HasIrisControl` surface
   after revalidating its primary command list. FR7 documents a distinct
@@ -109,11 +111,27 @@ entries below retain their original wording.
 - **BREAKING**: Split the standard `09 04 2B` iris auto/manual-status inquiry
   from `HasIrisControl`. `iris_control()` now requires
   `HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; no
-  built-in profile grants that new surface. `PtzOpticsG2`, `PtzOpticsG3`, and
-  `PtzOptics30X` retain `HasIrisControl` for standard iris
-  reset/up/down/direct control and the distinct `09 04 4B` position inquiry.
-  Downstream profiles may opt into the status inquiry only with exact
-  model-specific source evidence.
+  built-in profile grants that new surface. Every built-in except `SonyFR7`
+  retains `HasIrisControl` for standard iris reset/up/down/direct control and
+  the distinct `09 04 4B` position inquiry. Downstream profiles may opt into
+  the status inquiry only with exact model-specific source evidence.
+
+The profile capability delta below is relative to the 1.2.0 release branch
+after #733. “Split” means 2.0 replaced one broad marker with narrower markers;
+it is not counted as a hardware capability removal when the same operations
+remain reachable.
+
+| Profile | 2.0 capability delta from 1.2.0 | Source / decision |
+| --- | --- | --- |
+| `PtzOpticsG2` | No supported operation removed. Shared AE/iris are retained under explicit `HasExposureMode`/`HasIrisControl`; broad NR permission is split into 2D/3D inquiry and control markers, and the vendor command families gain explicit markers. | R1 and R14. |
+| `PtzOpticsG3` | No supported operation removed. Shared AE/iris are retained; NR permission is split; vendor command families gain explicit markers. | R10 and R14. |
+| `PtzOptics30X` | No supported operation removed. Shared AE/iris are retained; NR permission is split; legacy focus-zone inquiry and USB-audio permission are explicit. | R1, with R14 scoped to the legacy G2/Gen-2 model family by R15. |
+| `SonyFR7` | Carries forward the #733 release correction: no shared `HasExposureMode`/`HasIrisControl`, brightness, focus-zone, shared autofocus-sensitivity, shared noise-reduction, or picture-effect surface. Model-specific spotlight, push-AF/MF, variable-ND, and variable-speed support remain separately typed. | R7; its iris family is vendor-relative `7E 04 4B` with `05 34` Auto Iris, not the shared family. |
+| `SonyBRCH900` | Shared AE and `HasIrisControl` are retained/restored. `HasBrightnessControl`, aggregate/shared `HasNoiseReduction` plus its 2D/3D inquiry markers, and `HasPictureEffect` are removed; their shared command rows are not established for this model. | R11 lines 706–717, 1003, and 1012 establish AE/iris; the audited R11 list does not establish the removed shared families. |
+| `SonyEVIH100` | Shared AE and iris remain available (AE now has an explicit marker). The 1.x aggregate noise-reduction inquiry marker has no 2.0 profile-specific replacement. | R8 is the model authority; D4 in #716 preserves the 1.2 AE/iris breadth pending a direct line-item audit. |
+| `SonyBRC300` | Shared AE and iris are retained/restored. The blanket 1.x `HasImageProcessing` grant is removed because no BRC-300 image subcontrol is established. | R12 lines 440–454 and 609–617 establish AE/iris; the audited R12 list does not establish the broad image noun. |
+| `NearusBRC300` | Shared AE and iris are retained under its BRC-300 compatibility contract; its sourced saturation/image surface remains. | R12 plus the profile's explicit BRC-300 compatibility assumption; vendor-only exposure extensions remain withheld. |
+| `GenericVisca` | Shared AE and iris are retained under the profile's “assume the Sony standard set” contract. The blanket 1.x `HasImageProcessing` grant is removed because an unknown camera supplies no image-subcontrol evidence. | Standard Sony rows in R11/R12 plus the documented Generic VISCA compatibility policy. |
 
 - **BREAKING**: With `serde`, `CapabilityRange` now rejects unordered
   endpoints (`min > max`) during deserialization. Validated public scalar

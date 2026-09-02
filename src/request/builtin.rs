@@ -460,7 +460,7 @@ fn validate_exposure_mode(
     require(capabilities.has_exposure, "exposure control")?;
     require(
         capabilities.supports_exposure_mode(mode),
-        "selected exposure mode",
+        "shared exposure-mode control",
     )?;
     validate_static_typed_command(
         profile,
@@ -5971,7 +5971,8 @@ mod tests {
 
     #[test]
     fn profile_validation_rejects_unsupported_physical_requests_before_encoding() {
-        let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
         let nd = NdFilterDirect::new(NdFilterValue::new(4).unwrap());
 
         reset_request_write_count();
@@ -5979,19 +5980,19 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisReset,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisUp,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisDown,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6001,7 +6002,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris_direct,
             CameraId::CAMERA_1,
-            &profile,
+            &fr7,
             OperationalTuning::new(),
         )
         .is_err());
@@ -6009,19 +6010,19 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &nd,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepUp,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepDown,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6031,13 +6032,13 @@ mod tests {
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfPress,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfRelease,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6225,7 +6226,7 @@ mod tests {
             assert!(matches!(
                 error,
                 Error::FeatureNotSupported {
-                    feature: "selected exposure mode"
+                    feature: "shared exposure-mode control"
                 }
             ));
         }
@@ -6234,7 +6235,33 @@ mod tests {
 
     #[test]
     fn shared_ae_modes_require_typed_support_beyond_nonempty_inventory() {
-        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let source = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let coordinates = source
+            .pan_tilt_coordinates()
+            .expect("generic pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "Exposure inventory without typed permission".into();
+        capabilities.typed_support = capabilities
+            .typed_support
+            .without(TypedSupportSurface::ExposureMode);
+        let generic = ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .preset_recall_axes(source.preset_recall_axes())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect("runtime profile without exposure-mode permission");
         assert!(!generic.capabilities().exposure_modes.is_empty());
         assert!(!generic
             .capabilities()

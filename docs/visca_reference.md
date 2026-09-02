@@ -575,8 +575,10 @@ command list instead documents a vendor-relative `7E 04 4B` Iris Up/Down family
 and `05 34` Auto Iris inquiry; it does not establish the shared `04 39`
 AE-mode command/inquiry family, standard Iris Direct command, or `09 04 4B`
 position inquiry. A generic VISCA opcode or encoder range alone does not
-establish those typed or targeted-inquiry guarantees for FR7 or the other Sony,
-EVI, or Nearus profiles.
+establish those typed or targeted-inquiry guarantees for FR7. BRC-H900 and
+BRC-300 use their own R11/R12 rows; Nearus follows the BRC-300 compatibility
+contract, Generic VISCA explicitly assumes the Sony-standard set, and EVI-H100
+retains its 1.2 compatibility breadth pending the direct R8 row audit.
 
 ### 7.11 PTZOptics block inquiries
 
@@ -1011,7 +1013,7 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 
 - PTZOptics SuperJoy G1 User Manual, port assignments: https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf
 - PTZOptics firmware changelog, SOC `6.3.12`: https://ptzoptics.com/firmware-changelog/
-- Sony ILME-FR7 VISCA Command List, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME-FR7 VISCA Command List, Version 4.00, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 
 ## A.8 Current PTZOptics NDI page field-of-view inconsistencies
 
@@ -1041,6 +1043,15 @@ narrow exception does not generalize typed ND support to the other Sony, EVI,
 Nearus, or generic profiles, and it does not make the broader FR7 profile fully
 validated here.
 
+**Narrow shared exposure/iris exceptions:** R11 lines 706–717, 1003, and 1012
+establish BRC-H900 `04 39` exposure modes, standard iris controls, and matching
+inquiries. R12 lines 440–454 and 609–617 establish the same families for
+BRC-300; the Nearus compatibility profile follows that standard subset.
+Generic VISCA deliberately assumes this Sony-standard subset. EVI-H100 retains
+the same 1.2 compatibility breadth under #716 while a direct R8 line-item audit
+remains outstanding. These narrow grants do not validate unrelated model
+features or the distinct `09 04 2B` iris-status inquiry.
+
 **Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
 positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
 (`493D`); the negative endpoints (`F75A8` and `E796`) are right and down. The
@@ -1060,7 +1071,7 @@ profile-specific polarity must not be generalized to other VISCA profiles.
 
 **Helpful sources:**
 
-- Sony ILME‑FR7 VISCA Command List: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME‑FR7 VISCA Command List, Version 4.00: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 - Sony EVI-H100S/H100V Technical Manual: https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf
 - Axis VISCA Interface API Description: https://www.axis.com/dam/public/70/3d/31/visca-interface-api-description-en-US-266656.pdf
 - Uploaded Unified VISCA Protocol Implementation Guide: `visca_unified_reference(2).md`
@@ -1180,11 +1191,11 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, or a `09 04 4B` position inquiry. |
-| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, 240 ms post-preset caveat. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, shared `04 58` autofocus sensitivity, shared `04 50`/`04 53`/`04 54` noise reduction, or a `09 04 4B` position inquiry. |
+| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, and the 240 ms post-preset caveat. It remains the model authority for the EVI-H100 shared exposure/iris breadth restored by #716; the direct line-item audit is still pending because the linked technical-manual download was unavailable during that review. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
-| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 fixed `04 3A` spotlight commands; it does not establish the fixed `04 5A` automatic-slow-shutter family. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 fixed `04 5A` automatic-slow-shutter commands; its five-nibble signed pan/four-nibble signed tilt position commands, limits, inquiries, and endpoints; it does not establish the fixed `04 3A` spotlight family. |
+| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), fixed `04 5A` automatic-slow-shutter commands, and its five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints. It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
 
 ## C.4 Supplemental explanatory source
 

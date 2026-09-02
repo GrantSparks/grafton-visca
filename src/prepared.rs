@@ -1554,14 +1554,6 @@ mod tests {
         assert_rejected_before_encoding(&PictureEffectInquiry, &sony_fr7, "PictureEffectInquiry");
         assert_rejected_before_encoding(&IrisInquiry, &sony_fr7, "IrisInquiry");
         assert_rejected_before_encoding(&ExposureModeInquiry, &sony_fr7, "ExposureModeInquiry");
-
-        let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("generic profile");
-        assert_rejected_before_encoding(
-            &ExposureModeInquiry,
-            &generic,
-            "ExposureModeInquiry without typed shared-AE support",
-        );
     }
 
     #[test]
@@ -1718,7 +1710,7 @@ mod tests {
         let profile = runtime_profile(
             capabilities,
             false,
-            PositionInquirySupport::new(true, true, true),
+            PositionInquirySupport::new_with_iris_nd(true, true, true, true, false),
             AffectedAxes::PAN_TILT,
         );
         let tuning = OperationalTuning::new()
