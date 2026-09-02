@@ -170,11 +170,11 @@ R14 documents the current G2/G3 noise-reduction command inputs and inquiry
 outputs separately. Its `04 50` input selects Auto (`02`) or Manual (`03`),
 `04 53` accepts off (`00`) or levels `1–5`, and `04 54` accepts off (`00`) or
 levels `1–8`; its `09 04 50`/`53`/`54` inquiry rows report the current mode and
-levels `0–5`. A narrower inquiry-output range does not retract a separately
-documented command-input domain, and the API does not promise set-to-query
-round-trip identity. Archived R1 is inquiry evidence only: it includes all
-three inquiries and records a legacy 3D result of `0–8`; it contains no setter
-rows.
+levels `0–5`. Archived R1 is inquiry evidence only: it includes all three
+inquiries and records a 3D result of `0–8`; it contains no setter rows. Because
+the typed setter admits the full `0–8` public domain and both ranges are
+source-backed, the decoder accepts every `NoiseReduction3DLevel` instead of
+classifying levels `6–8` as malformed (#717).
 
 Accordingly, `HasNoiseReduction2D` and `HasNoiseReduction3D` remain inquiry
 markers, while `HasNoiseReduction2DControl` and
@@ -192,16 +192,12 @@ tag, `noise_reduction_level`, `noise_reduction_mode`, and aggregate
 modes/speeds/strength mappings); raw/custom requests remain the extension path
 for unsupported profiles and aggregate vendor dialects.
 
-The typed camera/session decoder also preserves the documented reply-domain
-split: current `PtzOpticsG2` and `PtzOpticsG3` reject `09 04 54` values `6–8`,
-while the exact registry-generated legacy `PtzOptics30X` profile accepts `0–8`
-from R1. The wider bound requires full `ProfileSpec` equality with that built-in
-row; a mutable `profile_id` claim or a derived/custom PTZOptics profile cannot
-grant it. The public `NoiseReduction3DInquiry::from_response` conversion is
-necessarily profile-neutral and validates the value type's `0–8` domain; the
-session-selected decoder applies the narrower profile fact before returning a
-typed result. This does not change the independently documented `04 54`
-command-input domain of `0–8` [R1, R14, R15].
+The typed camera/session decoder and the public
+`NoiseReduction3DInquiry::from_response` conversion therefore share one
+profile-neutral `0–8` domain. G2, G3, and 30X all decode a well-formed level
+`6`, `7`, or `8`; no mutable profile identity or whole-`ProfileSpec` comparison
+changes the numeric response domain. Profile markers still decide whether the
+inquiry itself is available [R1, R14, R15].
 
 The vendor state commands use their own support markers instead of inferring
 permission from broad exposure, preset, or streaming metadata. PTZOptics G2,

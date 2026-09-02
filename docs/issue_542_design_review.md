@@ -130,9 +130,10 @@ The high-quality boundary is:
   both modes, the engine owns lifecycle transitions for both modes, and the
   noun table generates all public facade variants. Profile-dependent response
   facts follow the same seam: preparation selects an immutable owned decoder,
-  so blocking, async, and dynamic facades cannot disagree. The legacy PTZOptics
-  3D noise-reduction inquiry bound is granted only after exact registry-profile
-  equality, never from the mutable `ProfileId` inventory claim alone.
+  so blocking, async, and dynamic facades cannot disagree. Numeric response
+  domains that already have a validated public value type remain
+  profile-neutral; in particular, every supporting PTZOptics profile decodes
+  the full `NoiseReduction3DLevel` domain (#717).
 - **Rewrite only where ownership semantics changed.** The sole-owner engine,
   bounded admission, typed settlement, multi-target registry, and recoverable
   cancellation could not be obtained safely by merely renaming the 1.x client

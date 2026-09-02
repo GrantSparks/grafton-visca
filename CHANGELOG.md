@@ -54,6 +54,13 @@ entries below retain their original wording.
   replaces the async 64 zero-time-poll `StreamPoisoned` failure and the
   blocking-only ~64 ms poll-count behavior.
 
+- PTZOptics G2 and G3 3D noise-reduction inquiries now decode every value in
+  the public `NoiseReduction3DLevel` domain (`0..=8`), matching the values their
+  typed `04 54` setter admits (#717). The archived inquiry table also records
+  `0..=8`; a well-formed level `6`, `7`, or `8` is no longer rejected as an
+  invalid response merely because the current portal's inquiry row lists
+  `0..=5`. Blocking and async round-trip regressions cover G2, G3, and 30X.
+
 - **BREAKING**: Static `camera.exposure().mode()` and `.set_mode(...)` now
   require `HasExposureMode`. The built-in marker is emitted only for
   `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`; Sony FR7 and every other
@@ -293,11 +300,12 @@ entries below retain their original wording.
   profile `PtzOptics30X`; this is not inferred for Move, Link, or newer 30X
   models. R14 separately documents command inputs (`04 50` Auto/Manual,
   `04 53` off/`1–5`, `04 54` off/`1–8`) and current G2/G3 inquiry outputs
-  (`09 04 50`, `09 04 53 = 0–5`, `09 04 54 = 0–5`). The narrower inquiry
-  output domain does not retract a separately documented command-input domain,
-  and the API makes no set-to-query round-trip identity promise. R1 is an
-  archived inquiry source (including legacy `09 04 54 = 0–8`), not a setter
-  source.
+  (`09 04 50`, `09 04 53 = 0–5`, `09 04 54 = 0–5`). The `09 04 54` decoder
+  nevertheless accepts the public `0–8` value domain for every supporting
+  profile (#717): the setter admits those values, R1 records them as inquiry
+  results, and a source-table disagreement must not turn an otherwise
+  well-formed in-domain frame into `InvalidResponse`. R1 remains an archived
+  inquiry source, not a setter source.
 
   Aggregate NR aliases remain removed: there is no `HasNoiseReduction`,
   aggregate `TypedSupportSurface::NoiseReduction` or `"noise-reduction"` serde

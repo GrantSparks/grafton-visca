@@ -433,15 +433,15 @@ fn test_parse_noise_reduction_3d_inquiry() {
 }
 
 #[test]
-fn test_parse_noise_reduction_3d_inquiry_current_reply_domain() {
-    for (wire, expected_level) in [(0x00, 0x00), (0x05, 0x05)] {
+fn test_parse_noise_reduction_3d_inquiry_full_public_domain() {
+    for wire in 0x00..=0x08 {
         let response =
             Response::parse_with_type(&[0x90, 0x50, wire, 0xFF], &InquiryKind::NoiseReduction3D)
-                .expect("current 3D NR inquiry reply must parse");
+                .expect("every public 3D NR level must parse");
 
         assert!(matches!(
             response,
-            Response::Inquiry(InquiryData::NoiseReduction3D { level }) if level == expected_level
+            Response::Inquiry(InquiryData::NoiseReduction3D { level }) if level == wire
         ));
     }
 }

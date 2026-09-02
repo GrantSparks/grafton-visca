@@ -307,43 +307,6 @@ fn direct_noise_reduction_requests_reject_an_inquiry_only_runtime_profile() {
 }
 
 #[test]
-fn a_mutable_profile_id_cannot_launder_the_legacy_nr3d_reply_domain() {
-    let source = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("legacy 30X profile");
-    let coordinates = source
-        .pan_tilt_coordinates()
-        .expect("legacy 30X pan/tilt conversion");
-    let mut capabilities = source.capabilities().clone();
-    assert_eq!(
-        capabilities.profile_id,
-        Some(grafton_visca::profiles::ProfileId::PtzOptics30X)
-    );
-    capabilities.model_name = "forged legacy NR domain".into();
-
-    let error = ProfileSpec::builder(capabilities)
-        .pan_tilt_coordinates(
-            coordinates.coordinate_system(),
-            coordinates.pan_degrees_to_units(),
-            coordinates.tilt_degrees_to_units(),
-        )
-        .pan_tilt_wire_codec(coordinates.wire_codec())
-        .transports(source.transports())
-        .envelope(source.envelope())
-        .timing(source.timing())
-        .maximum_command_sockets(source.maximum_command_sockets())
-        .supports_operation_complete(source.supports_operation_complete())
-        .supports_command_cancel(source.supports_command_cancel())
-        .preset_recall_axes(source.preset_recall_axes())
-        .position_inquiries(source.position_inquiries())
-        .build()
-        .expect_err("a built-in identity claim must require every registry profile fact");
-    assert!(matches!(
-        error,
-        Error::InvalidRequest(message)
-            if message == "built-in profile identity does not match runtime profile facts"
-    ));
-}
-
-#[test]
 fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates() {
     let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
     FocusZoneInquiry

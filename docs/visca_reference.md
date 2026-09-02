@@ -484,19 +484,15 @@ Final path-specific preset treatment:
 For the current G2/G3 scope, R14 separately documents these command-input
 domains and the inquiry-output domains in section 7.10. The current `09 04 53`
 and `09 04 54` query rows return `0–5`; that narrower output range does not
-retract the separately documented `04 54` input range through `8`, and no
-set-to-query round-trip identity is promised. R1 is an archived inquiry source,
-not a setter source: it contains the `09 04 50`/`53`/`54` inquiries and records
-a legacy `09 04 54` result range of `0–8`.
+retract the separately documented `04 54` input range through `8`. R1 is an
+archived inquiry source, not a setter source: it contains the `09 04 50`/`53`/`54`
+inquiries and records a `09 04 54` result range of `0–8`.
 
-Typed session decoding makes that distinction profile-aware. Current
-`PtzOpticsG2`/`PtzOpticsG3` sessions reject `09 04 54` results `6–8`; only the
-exact registry-generated legacy `PtzOptics30X` profile accepts those inquiry
-values. Full profile equality is required, so a mutable `profile_id` cannot
-launder the legacy bound into a custom inventory. Direct structural response
-parsing remains domain-neutral, and the public typed `from_response` conversion
-accepts the value type's `0–8` domain because it has no selected profile; camera
-and session execution applies the source-backed profile limit [R1, R14, R15].
+Typed session and direct structural decoding accept that full public `0–8`
+domain on every supporting profile (#717). The profile marker still controls
+whether the inquiry is available, but whole-profile identity no longer changes
+the numeric range or rejects an otherwise well-formed setter readback [R1,
+R14, R15].
 
 ### 7.9 Flip, OSD, NDI, multicast, and UAC
 
