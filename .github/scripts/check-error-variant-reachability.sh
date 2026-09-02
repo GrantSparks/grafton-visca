@@ -16,19 +16,35 @@ fi
 
 declare -A reachable=()
 
+production_error_references() {
+  if command -v rg >/dev/null 2>&1; then
+    rg --no-filename --only-matching 'Error::[A-Z][A-Za-z0-9_]*' src \
+      --glob '!src/error.rs' \
+      --glob '!src/lib.rs' \
+      --glob '!src/testing/**' \
+      --glob '!**/tests.rs' \
+      --glob '!**/tests/**'
+    return
+  fi
+
+  # GitHub's runner images do not guarantee ripgrep. Keep the reachability
+  # gate usable there with the same production-tree exclusions.
+  find src -type f -name '*.rs' \
+    ! -path 'src/error.rs' \
+    ! -path 'src/lib.rs' \
+    ! -path 'src/testing/*' \
+    ! -name 'tests.rs' \
+    ! -path '*/tests/*' \
+    -exec grep -hoE 'Error::[A-Z][A-Za-z0-9_]*' {} + || true
+}
+
 # Count only the production tree. The enum implementation, crate-level docs,
 # shipped test toolkit, and unit-test modules can all mention or manufacture a
 # variant without proving that library behavior can return it (#722).
 while IFS= read -r reference; do
   reachable["${reference#Error::}"]="production source"
 done < <(
-  rg --no-filename --only-matching 'Error::[A-Z][A-Za-z0-9_]*' src \
-    --glob '!src/error.rs' \
-    --glob '!src/lib.rs' \
-    --glob '!src/testing/**' \
-    --glob '!**/tests.rs' \
-    --glob '!**/tests/**' |
-    sort -u
+  production_error_references | sort -u
 )
 
 # These factories live beside the enum, so the broad search above excludes

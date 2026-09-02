@@ -2,6 +2,10 @@
 
 #![allow(clippy::expect_used)]
 
+#[cfg(any(
+    feature = "blocking",
+    all(feature = "async", feature = "runtime-tokio")
+))]
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
