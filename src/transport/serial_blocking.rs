@@ -6,7 +6,7 @@
 
 use tracing::trace;
 
-use std::{io::Read, time::Duration};
+use std::time::{Duration, Instant};
 
 use crate::{
     command::CommandKind,
@@ -88,7 +88,7 @@ impl SerialTransport {
             addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
             ..Default::default()
         };
-        transport_config.validate_buffer_bounds()?;
+        transport_config.validate()?;
 
         // Open serial port
         let mut port = serialport::new(&config.port, config.baud_rate)
@@ -138,34 +138,71 @@ impl HasTransportConfig for SerialTransport {
 }
 
 impl BlockingTransport for SerialTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<()> {
         // Apply write timeout using RAII guard for guaranteed restoration
-        let write_timeout = self.config.write_timeout;
-        let guard = TimeoutGuard::new(&mut *self.port, write_timeout)?;
+        let guard = TimeoutGuard::new(&mut *self.port, timeout)?;
+        let started = Instant::now();
+        let mut written = 0;
 
-        // Send the data directly - no nested locking, no separate send_raw
-        guard
-            .port
-            .write_all(bytes)
-            .map_err(|e| Error::TransportError(format!("Serial write error: {e}").into()))?;
-        guard
-            .port
-            .flush()
-            .map_err(|e| Error::TransportError(format!("Serial flush error: {e}").into()))?;
+        while written < bytes.len() {
+            // Keep one deadline across partial writes. `write_all` would give
+            // each low-level write the complete timeout again.
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                return Err(Error::Timeout);
+            }
+            guard.port.set_timeout(remaining).map_err(|error| {
+                Error::TransportError(format!("Failed to set write timeout: {error}").into())
+            })?;
 
-        trace!("Sent {} bytes: {:02X?}", bytes.len(), bytes);
+            match guard.port.write(&bytes[written..]) {
+                Ok(0) => {
+                    return Err(Error::TransportError(
+                        "Serial write made no progress".into(),
+                    ));
+                }
+                Ok(count) if count <= bytes.len() - written => written += count,
+                Ok(count) => {
+                    return Err(Error::TransportError(
+                        format!(
+                            "Serial write reported {count} bytes for a {}-byte buffer",
+                            bytes.len() - written
+                        )
+                        .into(),
+                    ));
+                }
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) =>
+                {
+                    return Err(Error::Timeout);
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(Error::TransportError(
+                        format!("Serial write error: {error}").into(),
+                    ));
+                }
+            }
+        }
+
+        if timeout.saturating_sub(started.elapsed()).is_zero() {
+            return Err(Error::Timeout);
+        }
+
+        // Do not call `SerialPort::flush`: on POSIX it is `tcdrain`, which can
+        // remain blocked after the write timeout. The subsequent VISCA reply
+        // wait is the protocol-level confirmation that the queued bytes left.
+        trace!("Queued {} serial bytes: {:02X?}", bytes.len(), bytes);
         // TimeoutGuard restores original timeout on drop
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
-        match self.port.read(dst) {
-            Ok(n) => {
-                trace!("Read {} bytes from serial port", n);
-                Ok(n)
-            }
-            Err(e) => Err(e.into()),
-        }
     }
 
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
@@ -203,8 +240,11 @@ mod tests {
         address_set_blocking, if_clear_blocking,
     };
     use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits};
-    use std::io::{self, ErrorKind};
-    use std::sync::mpsc;
+    use std::io::{self, ErrorKind, Read};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
     use std::thread;
     use std::{cell::RefCell, collections::VecDeque};
 
@@ -240,6 +280,29 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn zero_io_timeouts_fail_before_serial_device_open() {
+        for (config, message) in [
+            (
+                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
+                    .if_clear_on_connect(false)
+                    .read_timeout(Duration::ZERO),
+                "transport read timeout must be non-zero",
+            ),
+            (
+                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
+                    .if_clear_on_connect(false)
+                    .write_timeout(Duration::ZERO),
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            assert!(matches!(
+                SerialTransport::new(config),
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
+        }
+    }
+
     /// One deterministic fake serial read outcome.
     enum ReadStep {
         Error(ErrorKind),
@@ -268,11 +331,11 @@ mod tests {
         /// Timeout visible to the fake at each read.
         read_timeouts: RefCell<Vec<Duration>>,
         /// Number of low-level writes issued to the fake.
-        write_calls: RefCell<usize>,
+        write_calls: Arc<AtomicUsize>,
         /// Complete byte sequences submitted to the fake, in transmission order.
         writes: RefCell<Vec<Vec<u8>>>,
         /// Number of flush calls issued to the fake.
-        flush_calls: RefCell<usize>,
+        flush_calls: Arc<AtomicUsize>,
         /// Scripted write outcomes, used by partial-write deadline tests.
         write_steps: RefCell<VecDeque<WriteStep>>,
         /// Fail once when this timeout is requested, then let Drop retry it.
@@ -289,9 +352,9 @@ mod tests {
                 read_data: RefCell::new(Vec::new()),
                 read_steps: RefCell::new(VecDeque::new()),
                 read_timeouts: RefCell::new(Vec::new()),
-                write_calls: RefCell::new(0),
+                write_calls: Arc::new(AtomicUsize::new(0)),
                 writes: RefCell::new(Vec::new()),
-                flush_calls: RefCell::new(0),
+                flush_calls: Arc::new(AtomicUsize::new(0)),
                 write_steps: RefCell::new(VecDeque::new()),
                 fail_next_timeout_set_to: RefCell::new(None),
             }
@@ -368,7 +431,7 @@ mod tests {
             if let Some(kind) = *self.write_error.borrow() {
                 return Err(io::Error::new(kind, "simulated write error"));
             }
-            *self.write_calls.borrow_mut() += 1;
+            self.write_calls.fetch_add(1, Ordering::SeqCst);
             self.writes.borrow_mut().push(buf.to_vec());
 
             let step = { self.write_steps.borrow_mut().pop_front() };
@@ -381,7 +444,7 @@ mod tests {
         }
 
         fn flush(&mut self) -> io::Result<()> {
-            *self.flush_calls.borrow_mut() += 1;
+            self.flush_calls.fetch_add(1, Ordering::SeqCst);
             if let Some(kind) = *self.flush_error.borrow() {
                 return Err(io::Error::new(kind, "simulated flush error"));
             }
@@ -544,7 +607,7 @@ mod tests {
 
         assert!(matches!(result, Ok(1)));
         assert_eq!(
-            *port.write_calls.borrow(),
+            port.write_calls.load(Ordering::SeqCst),
             1,
             "an early idle timeout must not spend an Address Set retry"
         );
@@ -602,7 +665,7 @@ mod tests {
 
         assert!(matches!(result, Err(Error::Timeout)));
         assert_eq!(
-            *port.write_calls.borrow(),
+            port.write_calls.load(Ordering::SeqCst),
             1,
             "the expired budget must prevent the follow-up low-level write"
         );
@@ -618,7 +681,7 @@ mod tests {
         let result = address_set_blocking(&mut port, Duration::ZERO, Duration::from_millis(7));
 
         assert!(matches!(result, Err(Error::Timeout)));
-        assert_eq!(*port.write_calls.borrow(), 0);
+        assert_eq!(port.write_calls.load(Ordering::SeqCst), 0);
         assert!(port.read_timeouts.borrow().is_empty());
         assert!(port.timeout_history.borrow().is_empty());
         assert_eq!(port.timeout(), configured_read_timeout);
@@ -640,12 +703,12 @@ mod tests {
             ),
             Ok(1)
         ));
-        assert_eq!(*address_port.flush_calls.borrow(), 0);
+        assert_eq!(address_port.flush_calls.load(Ordering::SeqCst), 0);
 
         let mut clear_port =
             TestSerialPort::new(configured_timeout).with_flush_error(ErrorKind::TimedOut);
         assert!(if_clear_blocking(&mut clear_port, configured_write_timeout).is_ok());
-        assert_eq!(*clear_port.flush_calls.borrow(), 0);
+        assert_eq!(clear_port.flush_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -685,7 +748,7 @@ mod tests {
                     .as_ref()
                     .contains("Failed to restore serial handshake timeout")
         ));
-        assert_eq!(*port.write_calls.borrow(), 1);
+        assert_eq!(port.write_calls.load(Ordering::SeqCst), 1);
         assert!(port.read_timeouts.borrow().is_empty());
         assert_eq!(
             port.timeout(),
@@ -698,26 +761,27 @@ mod tests {
     // Deadlock regression test
     // =========================================================================
 
-    /// This test verifies that send_with_kind does NOT deadlock.
+    /// This test verifies that send_with_timeout does NOT deadlock.
     ///
     /// The old implementation would self-deadlock because:
-    /// 1. send_with_kind locked the mutex
+    /// 1. send_with_timeout locked the mutex
     /// 2. Then called send_raw which tried to lock the same mutex
     ///
-    /// This test spawns a thread to call send_with_kind and waits with a timeout.
+    /// This test spawns a thread to call send_with_timeout and waits with a timeout.
     /// If the implementation deadlocks, the test will fail on timeout.
     #[test]
-    fn test_send_with_kind_does_not_deadlock() {
+    fn test_send_with_timeout_does_not_deadlock() {
         let port = TestSerialPort::new(Duration::from_secs(5));
         let mut transport = create_test_transport(port);
 
         let (tx, rx) = mpsc::channel();
 
-        // Spawn a thread to call send_with_kind
+        // Spawn a thread to call send_with_timeout
         let handle = thread::spawn(move || {
-            let result = transport.send_with_kind(
+            let result = transport.send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
                 CommandKind::Command,
+                Duration::from_millis(100),
             );
             tx.send(result).ok();
             transport // Return transport so we can inspect it
@@ -729,12 +793,12 @@ mod tests {
             Ok(result) => {
                 assert!(
                     result.is_ok(),
-                    "send_with_kind should succeed: {:?}",
+                    "send_with_timeout should succeed: {:?}",
                     result
                 );
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                panic!("DEADLOCK DETECTED: send_with_kind did not complete within 500ms");
+                panic!("DEADLOCK DETECTED: send_with_timeout did not complete within 500ms");
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 panic!("Thread disconnected unexpectedly");
@@ -750,7 +814,7 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_send_with_kind_restores_timeout_on_success() {
+    fn test_send_with_timeout_restores_timeout_on_success() {
         let original_timeout = Duration::from_secs(5);
         let write_timeout = Duration::from_millis(100);
 
@@ -761,8 +825,11 @@ mod tests {
         transport.config.write_timeout = write_timeout;
 
         // Send should succeed
-        let result =
-            transport.send_with_kind(&[0x81, 0x01, VISCA_TERMINATOR], CommandKind::Command);
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            write_timeout,
+        );
         assert!(result.is_ok());
 
         // Verify the timeout was changed and then restored
@@ -775,7 +842,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_with_kind_restores_timeout_on_write_error() {
+    fn test_send_with_timeout_restores_timeout_on_write_error() {
         let original_timeout = Duration::from_secs(5);
         let write_timeout = Duration::from_millis(100);
 
@@ -784,8 +851,11 @@ mod tests {
         transport.config.write_timeout = write_timeout;
 
         // Send should fail
-        let result =
-            transport.send_with_kind(&[0x81, 0x01, VISCA_TERMINATOR], CommandKind::Command);
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            write_timeout,
+        );
         assert!(result.is_err());
 
         // Timeout should still be restored via RAII guard
@@ -797,25 +867,57 @@ mod tests {
     }
 
     #[test]
-    fn test_send_with_kind_restores_timeout_on_flush_error() {
+    fn send_with_timeout_does_not_call_unbounded_serial_flush() {
         let original_timeout = Duration::from_secs(5);
         let write_timeout = Duration::from_millis(100);
 
         let port = TestSerialPort::new(original_timeout).with_flush_error(ErrorKind::BrokenPipe);
+        let flush_calls = Arc::clone(&port.flush_calls);
         let mut transport = create_test_transport(port);
         transport.config.write_timeout = write_timeout;
 
-        // Send should fail during flush
-        let result =
-            transport.send_with_kind(&[0x81, 0x01, VISCA_TERMINATOR], CommandKind::Command);
-        assert!(result.is_err());
+        // The configured flush failure is never observed because command
+        // submission must not enter an unbounded device-drain syscall.
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            write_timeout,
+        );
+        assert!(result.is_ok());
+        assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
 
-        // Timeout should still be restored via RAII guard
         assert_eq!(
             transport.port.timeout(),
             original_timeout,
-            "Timeout should be restored even after flush error"
+            "Timeout should be restored after the bounded write"
         );
+    }
+
+    #[test]
+    fn send_with_timeout_does_not_start_another_partial_write_after_deadline() {
+        let original_timeout = Duration::from_secs(5);
+        let port = TestSerialPort::new(original_timeout).with_write_steps([WriteStep::Partial {
+            bytes: 1,
+            delay: Duration::from_millis(40),
+        }]);
+        let write_calls = Arc::clone(&port.write_calls);
+        let flush_calls = Arc::clone(&port.flush_calls);
+        let mut transport = create_test_transport(port);
+
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            Duration::from_millis(20),
+        );
+
+        assert!(matches!(result, Err(Error::Timeout)));
+        assert_eq!(
+            write_calls.load(Ordering::SeqCst),
+            1,
+            "an expired whole-write budget must prevent a follow-up syscall"
+        );
+        assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(transport.port.timeout(), original_timeout);
     }
 
     #[test]
@@ -850,7 +952,11 @@ mod tests {
         transport.config.write_timeout = write_timeout;
 
         // Send some data
-        let _ = transport.send_with_kind(&[0x81, 0x01, VISCA_TERMINATOR], CommandKind::Command);
+        let _ = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            write_timeout,
+        );
 
         // We can't directly access timeout_history through the boxed trait object,
         // but we can verify the current timeout is correct
@@ -862,12 +968,13 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_send_with_kind_writes_correct_data() {
+    fn test_send_with_timeout_writes_correct_data() {
         let port = TestSerialPort::new(Duration::from_secs(5));
         let mut transport = create_test_transport(port);
 
         let data = vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR];
-        let result = transport.send_with_kind(&data, CommandKind::Command);
+        let result =
+            transport.send_with_timeout(&data, CommandKind::Command, Duration::from_millis(100));
         assert!(result.is_ok());
 
         // Note: We can't directly access written_data through trait object,
@@ -875,14 +982,14 @@ mod tests {
     }
 
     #[test]
-    fn test_recv_into_reads_data() {
+    fn test_recv_into_with_timeout_reads_data() {
         let mut port = TestSerialPort::new(Duration::from_secs(5));
         port.read_data = RefCell::new(vec![0x90, 0x50, VISCA_TERMINATOR]);
 
         let mut transport = create_test_transport(port);
 
         let mut buf = [0u8; 16];
-        let result = transport.recv_into(&mut buf);
+        let result = transport.recv_into_with_timeout(&mut buf, Duration::from_millis(100));
         assert!(result.is_ok());
         let n = result.unwrap();
         assert_eq!(n, 3);

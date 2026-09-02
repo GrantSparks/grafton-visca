@@ -185,13 +185,18 @@ where
         let mut state = lock_state(&self.state)?;
         let mut frame = bytes::BytesMut::new();
         state.envelope.frame_sony_sequence_reset(&mut frame)?;
+        let write_timeout = state.config.write_timeout;
         let datagram = matches!(
             state.transport.send_semantics(),
             crate::transport::SendSemantics::Datagram
         );
         state
             .transport
-            .send_with_kind(frame.as_ref(), crate::command::CommandKind::Command)
+            .send_with_timeout(
+                frame.as_ref(),
+                crate::command::CommandKind::Command,
+                write_timeout,
+            )
             .map_err(|error| {
                 if datagram {
                     super::normalize_datagram_send_error(error)
@@ -276,6 +281,10 @@ where
         has_buffered_stream_input_state(&self.state)
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        buffered_stream_input_len_state(&self.state)
+    }
+
     fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         buffered_raw_prefix_evidence_state(&self.state)
     }
@@ -324,6 +333,10 @@ where
         has_buffered_stream_input_state(&self.state)
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        buffered_stream_input_len_state(&self.state)
+    }
+
     fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         buffered_raw_prefix_evidence_state(&self.state)
     }
@@ -369,9 +382,10 @@ where
         write.requested_sequence,
         write.frame_buffer,
     )?;
+    let write_timeout = state.config.write_timeout;
     state
         .transport
-        .send_with_kind(write.frame_buffer.as_ref(), kind)
+        .send_with_timeout(write.frame_buffer.as_ref(), kind, write_timeout)
         .map_err(|error| {
             if datagram {
                 super::normalize_datagram_send_error(error)
@@ -466,6 +480,20 @@ where
     ) && state.framer.has_buffered_data())
 }
 
+fn buffered_stream_input_len_state<T>(
+    state: &Arc<Mutex<BlockingAdapterState<T>>>,
+) -> Result<Option<usize>, Error>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
+    let state = lock_state(state)?;
+    Ok(matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Stream
+    )
+    .then(|| state.framer.buffered_len()))
+}
+
 fn buffered_raw_prefix_evidence_state<T>(
     state: &Arc<Mutex<BlockingAdapterState<T>>>,
 ) -> Result<Option<RawPrefixEvidence>, Error>
@@ -537,6 +565,7 @@ mod tests {
     struct ScriptedTransport {
         config: TransportConfig,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
+        write_timeouts: Arc<Mutex<Vec<Duration>>>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
     }
@@ -549,6 +578,7 @@ mod tests {
             Self {
                 config,
                 sent: Arc::new(Mutex::new(Vec::new())),
+                write_timeouts: Arc::new(Mutex::new(Vec::new())),
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             }
@@ -562,13 +592,15 @@ mod tests {
     }
 
     impl BlockingTransport for ScriptedTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            timeout: Duration,
+        ) -> Result<(), Error> {
             self.sent.lock().unwrap().push(bytes.to_vec());
+            self.write_timeouts.lock().unwrap().push(timeout);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -649,13 +681,14 @@ mod tests {
     }
 
     impl BlockingTransport for TombstoneIntegrationTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.io.lock().unwrap().sent.push(bytes.to_vec());
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -747,13 +780,14 @@ mod tests {
     }
 
     impl BlockingTransport for ScriptedSerialTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.io.lock().unwrap().sent.push(bytes.to_vec());
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -928,7 +962,10 @@ mod tests {
 
     #[test]
     fn policy_and_raw_write_use_profile_and_transport_facts() {
-        let transport = ScriptedTransport::new(config(), std::iter::empty());
+        let mut transport_config = config();
+        transport_config.write_timeout = Duration::from_millis(37);
+        let transport = ScriptedTransport::new(transport_config, std::iter::empty());
+        let write_timeouts = Arc::clone(&transport.write_timeouts);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
         assert_eq!(
@@ -953,6 +990,11 @@ mod tests {
         )
         .unwrap();
         owner.submit_command(&mut writer, prepared).unwrap();
+        assert_eq!(
+            *write_timeouts.lock().unwrap(),
+            [Duration::from_millis(37)],
+            "the owner forwards the configured bound to every blocking write"
+        );
     }
 
     #[test]
@@ -1283,22 +1325,20 @@ mod tests {
         );
     }
 
-    /// A stream peer can have more stale complete replies ready than one
-    /// caller-thread tombstone turn is allowed to consume. The production
-    /// adapter must fail closed at that bound: releasing B behind the
-    /// remaining literal A replies would re-open correlation ambiguity.
+    /// A stream peer can have more than 64 stale complete replies ready. The
+    /// production adapter drains them under A's old scope until the fixed
+    /// wall-clock hold, then uses a genuine idle read as the release fence.
     #[test]
-    fn production_raw_tombstone_work_cap_poisons_before_successor_write() {
-        // Keep this coupled to `RAW_TOMBSTONE_PUMP_WORK_LIMIT` in the owner:
-        // these 65 real raw frames all belong to A's timed-out correlation
-        // interval, and the bounded owner turn may consume only 64.
-        const STALE_TOMBSTONE_TURNS: usize = 64;
+    fn production_raw_tombstone_is_wall_clock_bounded_not_frame_counted() {
+        const STALE_REPLIES: usize = 65;
         let ambiguity = Duration::from_secs(1);
         let stale_reply = vec![0x90, 0x50, 0xa1, 0xff];
-        let reads = std::iter::once(TombstoneIntegrationRead::Bytes(stale_reply.clone())).chain(
-            (0..STALE_TOMBSTONE_TURNS)
-                .map(|_| TombstoneIntegrationRead::Bytes(stale_reply.clone())),
-        );
+        let reads = (0..STALE_REPLIES)
+            .map(|_| TombstoneIntegrationRead::Bytes(stale_reply.clone()))
+            .chain([
+                TombstoneIntegrationRead::TimedOut,
+                TombstoneIntegrationRead::TimedOut,
+            ]);
         let (transport, io) = TombstoneIntegrationTransport::new(reads);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -1319,7 +1359,7 @@ mod tests {
             Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
-        let error = owner
+        let successor = owner
             .submit_request_until_with_pump(
                 &mut writer,
                 &mut reader,
@@ -1328,32 +1368,22 @@ mod tests {
                 Duration::from_secs(2),
                 Instant::now() + Duration::from_secs(2),
             )
-            .expect_err("the production tombstone cap must fail closed");
-        assert!(
-            matches!(error, Error::StreamPoisoned { .. }),
-            "got {error:?}"
-        );
-        assert!(matches!(
-            owner.state().boundary_error(),
-            Some(Error::StreamPoisoned { .. })
-        ));
+            .expect("a legitimate stale burst cannot poison by frame count");
+        assert!(owner.state().boundary_error().is_none());
+        assert!(try_terminal(&successor).is_none());
 
         let io = io.lock().unwrap();
         assert_eq!(
             io.sent.len(),
-            1,
-            "B must not write while stale literal replies remain beyond the cap"
+            2,
+            "B writes after every stale reply is inert"
         );
         assert_eq!(
             io.send_counts_at_read,
-            vec![1; STALE_TOMBSTONE_TURNS],
-            "every bounded tombstone read occurred before any possible B write"
+            vec![1; STALE_REPLIES + 2],
+            "every stale and idle boundary read occurred before B's write"
         );
-        assert_eq!(
-            io.reads.len(),
-            1,
-            "the adversarial frame beyond the cap remains transport-queued"
-        );
+        assert!(io.reads.is_empty());
     }
 
     /// An inquiry's long unkeyed hold overlaps Y's later exact-S2 quarantine.

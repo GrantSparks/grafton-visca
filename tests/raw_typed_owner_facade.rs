@@ -120,10 +120,11 @@ mod blocking_tests {
     }
 
     impl BlockingTransport for Transport {
-        fn send_with_kind(
+        fn send_with_timeout(
             &mut self,
             bytes: &[u8],
             _kind: CommandKind,
+            _timeout: std::time::Duration,
         ) -> grafton_visca::Result<()> {
             self.writes
                 .lock()
@@ -139,7 +140,11 @@ mod blocking_tests {
             Ok(())
         }
 
-        fn recv_into(&mut self, dst: &mut [u8]) -> grafton_visca::Result<usize> {
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            _timeout: std::time::Duration,
+        ) -> grafton_visca::Result<usize> {
             let bytes = self
                 .responses
                 .lock()
@@ -148,14 +153,6 @@ mod blocking_tests {
                 .ok_or(Error::Timeout)?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: std::time::Duration,
-        ) -> grafton_visca::Result<usize> {
-            self.recv_into(dst)
         }
 
         fn send_semantics(&self) -> SendSemantics {

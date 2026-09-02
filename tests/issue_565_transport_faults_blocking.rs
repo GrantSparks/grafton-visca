@@ -141,7 +141,12 @@ impl HasTransportConfig for FaultTransport {
 }
 
 impl BlockingTransport for FaultTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sends = self.sends.saturating_add(1);
         let step = self
             .script
@@ -190,10 +195,6 @@ impl BlockingTransport for FaultTransport {
             OnSend::Fail(_) => unreachable!("failed sends return before replies are queued"),
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(

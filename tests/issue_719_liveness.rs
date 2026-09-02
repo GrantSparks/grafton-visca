@@ -49,13 +49,14 @@ impl HasTransportConfig for LivenessTransport {
 }
 
 impl BlockingTransport for LivenessTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.reply_pending = true;
         Ok(())
-    }
-
-    fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(destination, self.config.read_timeout)
     }
 
     fn recv_into_with_timeout(

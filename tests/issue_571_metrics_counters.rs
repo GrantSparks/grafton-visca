@@ -41,12 +41,13 @@ impl HasTransportConfig for SilentCamera {
 }
 
 impl BlockingTransport for SilentCamera {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(

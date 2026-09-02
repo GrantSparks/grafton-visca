@@ -90,7 +90,12 @@ mod blocking_surface {
     }
 
     impl BlockingTransport for RecordingTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -106,10 +111,6 @@ mod blocking_surface {
                 self.responses.push_back(vec![0x90, 0x51, 0xFF]);
             }
             Ok(())
-        }
-
-        fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(destination, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(

@@ -87,7 +87,12 @@ mod blocking_single_camera {
     }
 
     impl BlockingTransport for EchoTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -98,10 +103,6 @@ mod blocking_single_camera {
                 .expect("responses lock")
                 .push_back(vec![reply, 0x41, 0xff, reply, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(

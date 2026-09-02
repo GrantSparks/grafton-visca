@@ -108,7 +108,12 @@ impl HasTransportConfig for RecordingTransport {
 }
 
 impl BlockingTransport for RecordingTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         // Only the VISCA payload is recorded: a Sony sequence number differs
         // between two otherwise identical frames.
         let (sequence, payload) = Self::split(bytes);
@@ -119,10 +124,6 @@ impl BlockingTransport for RecordingTransport {
         let responses = Self::response_for(sequence, payload);
         self.responses.extend(responses);
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(

@@ -338,21 +338,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         });
     }
 
-    if config.buffer_config.recv_buffer_size == 0 {
-        return Err(Error::InvalidRequest(
-            "transport receive buffer must be non-zero".into(),
-        ));
-    }
-    if config.buffer_config.max_buffer_size == 0 {
-        return Err(Error::InvalidRequest(
-            "transport maximum buffer must be non-zero".into(),
-        ));
-    }
-    if config.buffer_config.recv_buffer_size > config.buffer_config.max_buffer_size {
-        return Err(Error::InvalidRequest(
-            "transport receive buffer cannot exceed maximum buffer".into(),
-        ));
-    }
+    config.validate()?;
 
     let transport = match semantics {
         SendSemantics::Datagram => TransportKind::Datagram,

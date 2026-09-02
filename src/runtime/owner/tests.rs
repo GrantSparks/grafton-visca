@@ -752,8 +752,8 @@ mod blocking {
         }
     }
 
-    /// Models 65 already-queued complete stale replies. The owner can consume
-    /// only its bounded 64 turns; the final reply must remain visibly queued.
+    /// Models an arbitrary burst of already-queued complete stale replies,
+    /// followed by early and post-deadline idle observations.
     #[derive(Debug)]
     struct QueuedCompleteFramesReader {
         calls: usize,
@@ -1511,14 +1511,11 @@ mod blocking {
         .expect_err("a decoder that refuses to clear must fail the session closed");
 
         assert_eq!(reader.calls, 2, "the boundary follows one prefix read");
-        assert_eq!(
-            decoder.discard_calls, 64,
-            "a non-clearing decoder is bounded by the framing work cap"
-        );
+        assert_eq!(decoder.discard_calls, 1, "discard progress is checked once");
         let Error::StreamPoisoned { reason } = &error else {
             panic!("retained framing must poison the stream, got {error:?}");
         };
-        assert!(reason.contains("correlation release framing work cap exhausted"));
+        assert!(reason.contains("did not consume the discarded prefix"));
         assert_eq!(
             driver.writes.len(),
             1,
@@ -1527,13 +1524,13 @@ mod blocking {
         assert!(matches!(
             owner.state().boundary_error(),
             Some(Error::StreamPoisoned { reason })
-                if reason.contains("correlation release framing work cap exhausted")
+                if reason.contains("did not consume the discarded prefix")
         ));
         assert_eq!(owner.state().active_len(), 0, "poison terminalizes B");
     }
 
     #[test]
-    fn tombstone_work_cap_poisons_with_complete_stale_frame_still_queued() {
+    fn tombstone_drains_more_than_64_complete_stale_frames_before_release() {
         let first_route = InquiryRoute(0x5f);
         let successor_route = InquiryRoute(0x60);
         let (mut owner, mut driver, _) =
@@ -1541,7 +1538,7 @@ mod blocking {
         let mut reader = QueuedCompleteFramesReader::new(65);
         let mut decoder = CompleteStaleFrameDecoder { route: first_route };
 
-        let error = {
+        let successor = {
             let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
             BlockingControlHost::submit_inquiry_until(
                 &host,
@@ -1550,28 +1547,22 @@ mod blocking {
                 Instant::now() + Duration::from_secs(2),
             )
         }
-        .expect_err("cap exhaustion with queued input must fail the session closed");
+        .expect("a frame count cannot poison a wall-clock-bounded tombstone");
 
-        assert_eq!(reader.calls, 64, "the receive loop stops at its work cap");
-        assert_eq!(
-            reader.remaining, 1,
-            "the adversarial 65th complete stale reply remains transport-queued"
+        assert!(
+            reader.calls > 65,
+            "all 65 frames are followed by the required idle boundary probes"
         );
-        let Error::StreamPoisoned { reason } = &error else {
-            panic!("ambiguous cap exhaustion must poison the stream, got {error:?}");
-        };
-        assert!(reason.contains("complete input remained pending"));
         assert_eq!(
-            driver.writes.len(),
-            1,
-            "B cannot write while an undrained stale reply remains"
+            reader.remaining, 0,
+            "every complete stale reply was consumed under the old scope"
         );
-        assert!(matches!(
-            owner.state().boundary_error(),
-            Some(Error::StreamPoisoned { reason })
-                if reason.contains("complete input remained pending")
-        ));
-        assert_eq!(owner.state().active_len(), 0, "poison terminalizes B");
+        assert_eq!(driver.writes.len(), 2, "B writes after the real idle fence");
+        assert!(owner.state().boundary_error().is_none());
+        assert!(
+            successor.terminal().is_none(),
+            "B still awaits its own reply"
+        );
     }
 
     #[test]
@@ -3974,12 +3965,12 @@ mod blocking {
         drop(b);
     }
 
-    /// Issue #673: the blocking pre-ACK drain must not wait on a predecessor
-    /// that cannot accept an ACK. Completion-only commands and the default
-    /// #671 late-ACK quarantine retain raw exclusivity, but a receive pump in
-    /// either state would be useless (and could block a safety submission).
+    /// Issue #673/#724: the blocking pre-ACK drain skips a predecessor that
+    /// cannot accept an ACK. Completion-only commands retain raw exclusivity
+    /// without an ACK path, while an ACK-capable late-ACK window is deliberately
+    /// drainable so attributable evidence can release it early.
     #[test]
-    fn blocking_preack_drain_skips_completion_only_and_late_ack_quarantine() {
+    fn blocking_preack_drain_skips_completion_only_and_accepts_late_ack() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
 
@@ -4035,17 +4026,22 @@ mod blocking {
             owner.state().request_state(quarantine.id()),
             Some((Phase::AwaitingLateAck { .. }, CancelState::None))
         ));
-        assert!(!owner
+        assert!(owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
 
         let mut reader = DeadlineReader {
             deadline: None,
-            result: Some(Err(Error::ConnectionClosed {
-                reason: Some("unexpected quarantine ACK pump".into()),
-            })),
+            result: Some(Ok(BlockingReceive::Bytes(1))),
         };
-        let mut decoder = EmptyDecoder;
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![frame(
+                CameraId::CAMERA_1,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            )]]),
+        };
         owner
             .drain_raw_preack_gate_for_test(
                 &mut driver,
@@ -4054,7 +4050,20 @@ mod blocking {
                 CameraId::CAMERA_1,
                 Duration::from_millis(1),
             )
-            .expect("#671 quarantine must not pump for a late ACK");
+            .expect("the attributable late ACK releases the #671 window");
+        assert!(matches!(
+            owner.state().request_state(quarantine.id()),
+            Some((
+                Phase::Executing {
+                    socket: ViscaSocket::S1,
+                    ..
+                },
+                CancelState::None
+            ))
+        ));
+        assert!(!owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
         drop(quarantine);
     }
 
@@ -5972,6 +5981,12 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
     assert!(
         !receive_fault_is_transient(&keepalive_timeout),
         "an OS TCP timeout is terminal instead of an endless idle read"
+    );
+
+    let invalid_input = Error::Io(Arc::new(std::io::Error::from(ErrorKind::InvalidInput)));
+    assert!(
+        !receive_fault_is_transient(&invalid_input),
+        "a transport contract/configuration error closes immediately"
     );
 }
 

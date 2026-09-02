@@ -68,7 +68,12 @@ impl HasTransportConfig for ScriptedTransport {
 }
 
 impl BlockingTransport for ScriptedTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sends = self.sends.saturating_add(1);
         if self.fault_after_send == Some(self.sends) {
             self.reads
@@ -81,10 +86,6 @@ impl BlockingTransport for ScriptedTransport {
             }
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(

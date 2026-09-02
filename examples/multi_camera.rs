@@ -48,7 +48,12 @@ impl HasTransportConfig for SerialBus {
 }
 
 impl BlockingTransport for SerialBus {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         // A daisy-chained camera replies from source 0x80 | ((addr + 8) << 4):
         // camera 1 -> 0x90, camera 2 -> 0xA0, so the owner attributes each reply
         // to the right target.
@@ -59,18 +64,14 @@ impl BlockingTransport for SerialBus {
         Ok(())
     }
 
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
-    }
-
     fn recv_into_with_timeout(
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
-        self.recv_into(dst)
+        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
+        dst[..reply.len()].copy_from_slice(&reply);
+        Ok(reply.len())
     }
 
     // Required for multi-target: the topology check rejects a `None` hint.

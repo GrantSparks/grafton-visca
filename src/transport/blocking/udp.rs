@@ -97,7 +97,7 @@ impl Udp {
         config: TransportConfig,
         setup: impl FnOnce(&str, TransportConfig) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        config.validate_buffer_bounds()?;
+        config.validate()?;
         let canonical_addr = canonicalize_endpoint(address, None)?;
         setup(&canonical_addr, config)
     }
@@ -166,32 +166,26 @@ impl HasTransportConfig for Udp {
 }
 
 impl BlockingTransport for Udp {
-    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
-        // Send directly - retry logic is handled at the runtime/scheduler level for async
-        // For blocking mode, the blocking runner will handle retries
-        self.socket.send(data)?;
-        Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        loop {
-            match self.recv_datagram(dst) {
-                Ok(DatagramReceive::Complete(0)) => continue,
-                Ok(DatagramReceive::Complete(received)) => return Ok(received),
-                Ok(DatagramReceive::Truncated) => {
-                    return Err(Error::ResponseTooLarge {
-                        max_size: dst.len(),
-                    });
-                }
-                Err(error)
-                    if error.kind() == io::ErrorKind::TimedOut
-                        || error.kind() == io::ErrorKind::WouldBlock =>
-                {
-                    return Err(Error::Timeout);
-                }
-                Err(error) => return Err(error.into()),
+    fn send_with_timeout(
+        &mut self,
+        data: &[u8],
+        _kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let original_timeout = self.socket.write_timeout()?;
+        self.socket.set_write_timeout(Some(timeout))?;
+        let result = self.socket.send(data).map(|_| ()).map_err(|error| {
+            if matches!(
+                error.kind(),
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+            ) {
+                Error::Timeout
+            } else {
+                error.into()
             }
-        }
+        });
+        self.socket.set_write_timeout(original_timeout)?;
+        result
     }
 
     fn recv_into_with_timeout(
@@ -340,7 +334,9 @@ mod tests {
         };
         let mut dst = [0; 16];
 
-        let received = transport.recv_into(&mut dst).expect("valid datagram");
+        let received = transport
+            .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
+            .expect("valid datagram");
 
         assert_eq!(received, 5);
         assert_eq!(&dst[..received], b"valid");
@@ -362,7 +358,7 @@ mod tests {
         };
         let mut dst = [0; 3];
         let error = transport
-            .recv_into(&mut dst)
+            .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
             .expect_err("an oversized datagram must not return its valid prefix");
         assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
 
@@ -372,7 +368,7 @@ mod tests {
             .send(&[0x90, 0x41, 0xff])
             .expect("send exact-fit datagram");
         let received = transport
-            .recv_into(&mut dst)
+            .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
             .expect("next exact-fit datagram remains readable");
         assert_eq!(received, 3);
         assert_eq!(&dst[..received], &[0x90, 0x41, 0xff]);

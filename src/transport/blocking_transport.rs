@@ -43,21 +43,23 @@ pub enum BlockingTransportHandle {
 
 #[cfg(feature = "blocking")]
 impl BlockingTransport for BlockingTransportHandle {
-    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<(), Error> {
         match self {
-            BlockingTransportHandle::Tcp(transport) => transport.send_with_kind(bytes, kind),
-            BlockingTransportHandle::Udp(transport) => transport.send_with_kind(bytes, kind),
+            BlockingTransportHandle::Tcp(transport) => {
+                transport.send_with_timeout(bytes, kind, timeout)
+            }
+            BlockingTransportHandle::Udp(transport) => {
+                transport.send_with_timeout(bytes, kind, timeout)
+            }
             #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.send_with_kind(bytes, kind),
-        }
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        match self {
-            BlockingTransportHandle::Tcp(transport) => transport.recv_into(dst),
-            BlockingTransportHandle::Udp(transport) => transport.recv_into(dst),
-            #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.recv_into(dst),
+            BlockingTransportHandle::Serial(transport) => {
+                transport.send_with_timeout(bytes, kind, timeout)
+            }
         }
     }
 
@@ -138,33 +140,37 @@ impl HasTransportConfig for BlockingTransportHandle {
 /// struct MyBlockingTransport { /* ... */ }
 ///
 /// impl BlockingTransport for MyBlockingTransport {
-///     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
-///         // Send implementation with command kind for proper framing
+///     fn send_with_timeout(
+///         &mut self,
+///         bytes: &[u8],
+///         kind: CommandKind,
+///         timeout: Duration,
+///     ) -> Result<(), Error> {
+///         // Send implementation bounded by `timeout`.
 ///         Ok(())
 ///     }
 ///
-///     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-///         // Receive implementation without timeout
-///         Ok(0)
-///     }
-///
 ///     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize, Error> {
-///         // Receive implementation with timeout
-///         Ok(0)
+///         // Receive implementation bounded by `timeout`.
+///         Err(Error::Timeout)
 ///     }
 /// }
 /// ```
 pub trait BlockingTransport: Send {
-    /// Send raw bytes to the device with command kind (blocking).
+    /// Send raw bytes to the device with command kind and a deadline (blocking).
     ///
-    /// This method blocks until the bytes have been written to the
-    /// underlying transport. The CommandKind is used for proper protocol
-    /// framing (e.g., Sony encapsulation).
+    /// This method must block until all bytes have been written, an error is
+    /// known, or `timeout` expires. Implementations must arrange an OS/device
+    /// write timeout or an equivalent bounded operation; the blocking owner
+    /// cannot safely preempt an arbitrary synchronous implementation. Report
+    /// expiry as [`Error::Timeout`]. The [`CommandKind`] is used for proper
+    /// protocol framing (for example, Sony encapsulation).
     ///
     /// # Arguments
     ///
     /// * `bytes` - The raw VISCA command bytes to send
     /// * `kind` - Whether this is a command or inquiry for proper framing
+    /// * `timeout` - Maximum time to complete the whole write
     ///
     /// # Error contract
     ///
@@ -183,31 +189,19 @@ pub trait BlockingTransport: Send {
     ///   session by an error raised on one that is still running. Report a
     ///   genuinely dead socket from the receive side, which is the side the
     ///   runtime treats as authoritative about session death.
-    fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error>;
-
-    /// Read raw bytes into caller-provided buffer.
-    ///
-    /// This method blocks until some data is available and reads it into
-    /// the provided buffer. It returns the number of bytes read.
-    /// Returns 0 to indicate EOF (peer closed connection).
-    ///
-    /// # Arguments
-    ///
-    /// * `dst` - The buffer to read data into
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(n)` - Number of bytes read (0 = EOF)
-    /// * `Err(_)` - For transport errors
-    ///
-    /// The error contract is the same as
-    /// [`BlockingTransport::recv_into_with_timeout`].
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error>;
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<(), Error>;
 
     /// Read raw bytes with a timeout (blocking).
     ///
-    /// This method blocks until some data is available or the timeout expires.
-    /// Implementations should use OS-level socket timeouts where possible for efficiency.
+    /// This method must block until some data is available, an error is known,
+    /// or `timeout` expires. Implementations must use an OS/device timeout or
+    /// an equivalent bounded operation; they must not synthesize an immediate
+    /// idle result for a positive timeout. Report expiry as [`Error::Timeout`].
     ///
     /// # Arguments
     ///
@@ -244,7 +238,10 @@ pub trait BlockingTransport: Send {
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
-    ///   `UnexpectedEof` or `NotConnected`. The runtime ends the session as
+    ///   `UnexpectedEof`, `NotConnected` or `InvalidInput`. Configuration
+    ///   exposed through [`HasTransportConfig`] is validated before owner
+    ///   construction; a later `InvalidInput` therefore means the transport
+    ///   cannot satisfy its live I/O contract. The runtime ends the session as
     ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
     ///   its reason. A failed read consumed nothing, so it is not a stream
     ///   framing poison; [`Error::StreamPoisoned`] is reserved for an
@@ -304,7 +301,8 @@ pub trait BlockingTransport: Send {
     )]
     /// **must** forward this
     /// method to the inner transport, exactly as it forwards
-    /// [`BlockingTransport::send_with_kind`] and [`BlockingTransport::recv_into`].
+    /// [`BlockingTransport::send_with_timeout`] and
+    /// [`BlockingTransport::recv_into_with_timeout`].
     /// Unlike a missing `match` arm, an unforwarded `send_semantics` does not fail
     /// to compile — it silently falls back to this `Stream` default, which is
     /// wrong for any datagram inner transport. The inner transport is the

@@ -79,10 +79,11 @@ impl HasTransportConfig for CancellationTransport {
 }
 
 impl BlockingTransport for CancellationTransport {
-    fn send_with_kind(
+    fn send_with_timeout(
         &mut self,
         bytes: &[u8],
         _kind: grafton_visca::command::CommandKind,
+        _timeout: Duration,
     ) -> Result<(), Error> {
         self.send_count = self.send_count.saturating_add(1);
         self.writes
@@ -96,10 +97,6 @@ impl BlockingTransport for CancellationTransport {
                 .push_back(ACK_AND_COMPLETE_SOCKET_ONE.to_vec());
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(

@@ -372,6 +372,23 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING: bounded blocking transport I/O and owner contract cleanup**
+  (#725). `BlockingTransport` now exposes only deadline-bearing
+  `send_with_timeout` and `recv_into_with_timeout` operations; the unused
+  unbounded receive method is removed, and custom implementations must return
+  from both operations within the supplied bound. Built-in TCP, UDP, and serial
+  writes install and restore that per-call timeout, keep one deadline across
+  partial writes, and serial submission no longer enters an unbounded device
+  drain. Zero read/write timeouts are rejected before socket/device I/O,
+  including for caller-owned transports;
+  a later `Io(InvalidInput)` closes immediately instead of entering the
+  transient-fault run, and zero-byte custom receives retain an explicit EOF
+  cause. Blocking raw-correlation release is wall-clock bounded instead of
+  poisoning after 64 receive turns, verifies actual decoder discard progress,
+  and treats one consumed malformed datagram as its input-first fence. The
+  pre-ACK drain now has direct transient-fault/no-ordinary-dispatch coverage,
+  and the 1.x parity guide records 2.0's sustained-fault close boundary.
+
 - **Hardened the final engine correlation boundaries** (#724). An ACK-bearing
   raw request remains open during its bounded late-ACK window, so an
   attributable ACK is accepted consistently with or without later cancel

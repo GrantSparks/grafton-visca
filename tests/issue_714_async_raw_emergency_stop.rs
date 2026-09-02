@@ -254,16 +254,17 @@ mod parity {
     }
 
     impl BlockingTransport for SilentBlockingTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
                 .push(bytes.to_vec());
             Ok(())
-        }
-
-        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
-            Err(Error::Timeout)
         }
 
         fn recv_into_with_timeout(

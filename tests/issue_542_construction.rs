@@ -492,16 +492,15 @@ mod blocking_standard {
     }
 
     impl BlockingTransport for ProbeTransport {
-        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.responses.push_back(vec![0x90, 0x41, 0xff]);
             self.responses.push_back(vec![0x90, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
         }
 
         fn recv_into_with_timeout(
@@ -509,7 +508,9 @@ mod blocking_standard {
             dst: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            self.recv_into(dst)
+            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            dst[..response.len()].copy_from_slice(&response);
+            Ok(response.len())
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -537,6 +538,44 @@ mod blocking_standard {
         .expect("target config");
         let session = Session::open(transport, config).expect("custom blocking owner session");
         session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn custom_blocking_session_rejects_zero_io_timeouts_at_construction() {
+        for (transport_config, message) in [
+            (
+                TransportConfig {
+                    addressing: AddressingMode::Serial,
+                    read_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport read timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    addressing: AddressingMode::Serial,
+                    write_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            let transport = ProbeTransport {
+                config: transport_config,
+                responses: VecDeque::new(),
+            };
+            let config = SessionConfig::for_target(
+                CameraId::CAMERA_1,
+                grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
+            )
+            .expect("target config");
+            let error = Session::open(transport, config)
+                .expect_err("invalid custom transport config must fail at construction");
+            assert!(matches!(
+                error,
+                Error::InvalidRequest(actual) if actual.as_ref() == message
+            ));
+        }
     }
 
     #[test]

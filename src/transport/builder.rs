@@ -148,12 +148,22 @@ impl Default for TransportConfig {
 }
 
 impl TransportConfig {
-    /// Validate buffer bounds that must hold before a transport is opened.
+    /// Validate I/O bounds that must hold before a transport is opened.
     ///
     /// The owner validates the same invariant when admitting a caller-owned
     /// transport. Standard construction also needs it here, before a network
     /// connector or serial-device initializer can perform I/O.
-    pub(crate) fn validate_buffer_bounds(&self) -> crate::Result<()> {
+    pub(crate) fn validate(&self) -> crate::Result<()> {
+        if self.read_timeout.is_zero() {
+            return Err(Error::InvalidRequest(
+                "transport read timeout must be non-zero".into(),
+            ));
+        }
+        if self.write_timeout.is_zero() {
+            return Err(Error::InvalidRequest(
+                "transport write timeout must be non-zero".into(),
+            ));
+        }
         if self.buffer_config.recv_buffer_size == 0 {
             return Err(Error::InvalidRequest(
                 "transport receive buffer must be non-zero".into(),
@@ -413,8 +423,8 @@ impl NetTransportBuilder {
 
         // Direct connectors repeat this check for callers that do not use the
         // builder. Do it here as well so every builder path rejects invalid
-        // buffer bounds before handing control to a connector.
-        self.config.validate_buffer_bounds()?;
+        // I/O bounds before handing control to a connector.
+        self.config.validate()?;
 
         match self.protocol {
             Protocol::Tcp => {
@@ -499,6 +509,31 @@ mod tests {
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.read_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn transport_config_rejects_zero_io_timeouts() {
+        for (config, message) in [
+            (
+                TransportConfig {
+                    read_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport read timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    write_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            assert!(matches!(
+                config.validate(),
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
+        }
     }
 
     #[test]

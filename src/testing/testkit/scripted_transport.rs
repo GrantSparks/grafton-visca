@@ -429,7 +429,12 @@ impl ScriptedBlockingTransport {
 
 #[cfg(feature = "blocking")]
 impl BlockingTransport for ScriptedBlockingTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<()> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<()> {
         self.sent
             .lock()
             .expect("ScriptedBlockingTransport mutex poisoned")
@@ -541,41 +546,12 @@ impl BlockingTransport for ScriptedBlockingTransport {
                     unreachable!("After steps are handled before main match block");
                 }
                 Step::InjectError(_) => {
-                    unreachable!("InjectError is never popped in send_with_kind()");
+                    unreachable!("InjectError is never popped in send_with_timeout()");
                 }
             }
         }
 
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
-        {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            if let Some(Step::InjectError(_)) = steps.front() {
-                let error = match steps
-                    .pop_front()
-                    .expect("No error step available in scripted transport")
-                {
-                    Step::InjectError(e) => e,
-                    _ => unreachable!(),
-                };
-                return Err(error);
-            }
-        }
-
-        match self.response_rx.recv_timeout(Duration::from_secs(10)) {
-            Ok(Ok(response)) => {
-                let len = response.len().min(dst.len());
-                dst[..len].copy_from_slice(&response[..len]);
-                Ok(len)
-            }
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(Error::Timeout),
-        }
     }
 
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
@@ -950,13 +926,16 @@ mod tests {
         }]);
 
         transport
-            .send_with_kind(
+            .send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
                 CommandKind::Command,
+                Duration::from_secs(1),
             )
             .unwrap();
         let mut buffer = vec![0u8; 256];
-        let n = transport.recv_into(&mut buffer).unwrap();
+        let n = transport
+            .recv_into_with_timeout(&mut buffer, Duration::from_secs(1))
+            .unwrap();
         assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         let sent = transport.sent();
@@ -971,13 +950,14 @@ mod tests {
         let mut transport = ScriptedBlockingTransport::new(vec![]);
 
         transport
-            .send_with_kind(
+            .send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
                 CommandKind::Command,
+                Duration::from_secs(1),
             )
             .unwrap();
         let mut buffer = vec![0u8; 256];
-        let result = transport.recv_into(&mut buffer);
+        let result = transport.recv_into_with_timeout(&mut buffer, Duration::from_millis(1));
         assert!(matches!(result, Err(Error::Timeout)));
     }
 

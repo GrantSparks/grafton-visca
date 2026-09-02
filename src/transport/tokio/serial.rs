@@ -83,7 +83,7 @@ impl Serial {
             ttl: None,
             tcp_keepalive: None,
         };
-        transport_config.validate_buffer_bounds()?;
+        transport_config.validate()?;
 
         // Open serial port
         #[cfg(unix)]
@@ -227,6 +227,29 @@ mod tests {
             Err(Error::InvalidRequest(actual))
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
+    }
+
+    #[tokio::test]
+    async fn zero_io_timeouts_fail_before_serial_device_open() {
+        for (config, message) in [
+            (
+                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
+                    .if_clear_on_connect(false)
+                    .read_timeout(Duration::ZERO),
+                "transport read timeout must be non-zero",
+            ),
+            (
+                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
+                    .if_clear_on_connect(false)
+                    .write_timeout(Duration::ZERO),
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            assert!(matches!(
+                Serial::connect(config).await,
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
+        }
     }
 
     #[tokio::test]

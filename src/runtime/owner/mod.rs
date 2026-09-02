@@ -2429,6 +2429,7 @@ pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
                 | std::io::ErrorKind::BrokenPipe
                 | std::io::ErrorKind::UnexpectedEof
                 | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::InvalidInput
         ),
         Error::WithContext { source, .. } => receive_fault_is_transient(source),
         _ => true,

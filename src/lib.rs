@@ -595,16 +595,16 @@
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
-//!     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
-//!         // Write the framed bytes; `kind` selects command vs inquiry framing.
-//!         let _ = (bytes, kind);
+//!     fn send_with_timeout(
+//!         &mut self,
+//!         bytes: &[u8],
+//!         kind: CommandKind,
+//!         timeout: Duration,
+//!     ) -> Result<(), Error> {
+//!         // Complete the framed write within `timeout`; `kind` selects
+//!         // command vs inquiry framing.
+//!         let _ = (bytes, kind, timeout);
 //!         Ok(())
-//!     }
-//!
-//!     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-//!         // Read into the caller's buffer. `Ok(0)` reports EOF.
-//!         let _ = dst;
-//!         Ok(0)
 //!     }
 //!
 //!     fn recv_into_with_timeout(

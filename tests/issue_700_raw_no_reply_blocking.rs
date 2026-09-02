@@ -41,14 +41,14 @@ impl HasTransportConfig for NoReplyTransport {
 }
 
 impl BlockingTransport for NoReplyTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.writes.lock().expect("write lock").push(bytes.to_vec());
         Ok(())
-    }
-
-    fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
-        *self.receives.lock().expect("receive lock") += 1;
-        Err(Error::Timeout)
     }
 
     fn recv_into_with_timeout(

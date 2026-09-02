@@ -74,6 +74,15 @@ pub(crate) trait BlockingFrameDecoder {
         Ok(false)
     }
 
+    /// A monotonic measure of the first retained stream input. The default
+    /// supports the single-fragment test seam; production adapters return the
+    /// framer's exact buffered byte count. A successful discard must make this
+    /// measure smaller (or remove it), which lets the owner prove progress
+    /// without an arbitrary turn cap.
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.has_buffered_stream_input()?.then_some(1))
+    }
+
     /// Evidence visible in the first retained raw stream input. Complete
     /// frames stay on the normal decode path; incomplete prefixes are
     /// classified just far enough for the shared correlation engine to decide
@@ -1225,14 +1234,8 @@ struct PumpProgress {
 #[derive(Debug, Clone, Copy)]
 struct RawReleaseInputGate {
     releases: RawCorrelationReleaseSet,
-    deferrals: usize,
     await_until: Option<Instant>,
 }
-
-/// A pathological nonblocking test adapter or an always-ready peer must not
-/// turn one raw tombstone boundary into unbounded caller-thread work. Normal
-/// blocking reads remain deadline-bounded; this cap is the second bound.
-const RAW_TOMBSTONE_PUMP_WORK_LIMIT: usize = 64;
 
 /// A past raw-release wake cannot be handed straight back to a blocking
 /// adapter: many correctly return `TimedOut` without touching the wire. Give
@@ -1418,7 +1421,6 @@ impl BlockingOwner {
         }
         self.raw_release_input_gate = Some(RawReleaseInputGate {
             releases,
-            deferrals: 0,
             await_until: None,
         });
         Some(releases)
@@ -1426,26 +1428,6 @@ impl BlockingOwner {
 
     fn raw_release_gate_pending(&self) -> bool {
         self.raw_release_input_gate.is_some()
-    }
-
-    /// Counts bounded receive-first attempts only while one exact release set
-    /// remains unresolved.  A malformed datagram or a transient read fault is
-    /// not an empty-input proof, so it leaves this gate armed; after the fixed
-    /// bound the session fails closed rather than letting a successor bind
-    /// stale evidence.
-    fn defer_raw_release_gate<D: BlockingWireDriver + ?Sized>(
-        &mut self,
-        driver: &mut D,
-        reason: &'static str,
-    ) -> Result<(), Error> {
-        let Some(gate) = &mut self.raw_release_input_gate else {
-            return Ok(());
-        };
-        gate.deferrals = gate.deferrals.saturating_add(1);
-        if gate.deferrals < RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-            return Ok(());
-        }
-        Err(self.poison_raw_release_gate(driver, Error::InvalidState(reason.into())))
     }
 
     fn clear_raw_release_gate(&mut self) {
@@ -2046,7 +2028,6 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
     {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
-        let mut turns = 0_usize;
         loop {
             let progress = self
                 .pump_once_inner(
@@ -2057,7 +2038,6 @@ impl BlockingOwner {
                     PumpMode::FirstDispatchWait,
                 )
                 .map_err(|error| self.boundary_error_or(error))?;
-            turns = turns.saturating_add(1);
             let now = Instant::now();
             // `pump_once_inner` owns both complete-frame replay and retained
             // prefix classification.  A gate still pending means the most
@@ -2074,15 +2054,6 @@ impl BlockingOwner {
                         observer_deadline.map_or(await_until, |observer| observer.min(await_until)),
                     );
                 }
-                if turns >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-                    return Err(self.poison_raw_release_gate(
-                        driver,
-                        Error::InvalidState(
-                            "blocking raw release receive work cap exhausted before input-first fence"
-                                .into(),
-                        ),
-                    ));
-                }
                 continue;
             }
 
@@ -2090,19 +2061,10 @@ impl BlockingOwner {
                 break;
             }
             if progress.decoded_frames > 0 {
-                // A peer that keeps yielding complete stale frames cannot
-                // monopolize the caller thread until H. The same fixed cap
-                // applies before and after the deadline, and it is scoped to
-                // this one raw correlation wait.
-                if turns >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-                    return Err(self.poison_raw_release_gate(
-                        driver,
-                        Error::InvalidState(
-                            "blocking raw release receive work cap exhausted while complete input remained pending"
-                                .into(),
-                        ),
-                    ));
-                }
+                // Continue consuming complete input under the old scope until
+                // the fixed wall-clock hold ends. A count-based work cap made
+                // legitimate other-target traffic poison a chatty serial
+                // session before that deadline (#725).
                 continue;
             }
             // A reader may return an idle result before its requested deadline
@@ -2129,7 +2091,6 @@ impl BlockingOwner {
         D: BlockingWireDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
     {
-        let mut discarded = 0_usize;
         loop {
             let buffered = decoder
                 .has_buffered_stream_input()
@@ -2161,22 +2122,36 @@ impl BlockingOwner {
             })?;
             match self.state.resolve_raw_release_gate(now, Some(evidence)) {
                 RawReleaseGateAction::DiscardFirst => {
-                    if discarded >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
+                    let before = decoder
+                        .buffered_stream_input_len()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?
+                        .ok_or_else(|| {
+                            self.poison_tombstone_decoder(
+                                driver,
+                                Error::InvalidState(
+                                    "blocking stream decoder reported buffered input without a progress measure"
+                                        .into(),
+                                ),
+                            )
+                        })?;
+                    decoder
+                        .discard_buffered_stream_input()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
+                    let after = decoder
+                        .buffered_stream_input_len()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
+                    if after.is_some_and(|after| after >= before) {
                         return Err(self.poison_tombstone_decoder(
                             driver,
                             Error::InvalidState(
-                                "blocking raw correlation release framing work cap exhausted"
+                                "blocking raw stream decoder did not consume the discarded prefix"
                                     .into(),
                             ),
                         ));
                     }
-                    decoder
-                        .discard_buffered_stream_input()
-                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
                     let _ = self
                         .state
                         .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                    discarded = discarded.saturating_add(1);
                 }
                 action => return Ok(action),
             }
@@ -2593,13 +2568,18 @@ impl BlockingOwner {
                 (0, Instant::now(), true, Some(self.idle_receives.record()))
             }
             Ok(BlockingReceive::Bytes(0)) => {
+                let reason = "blocking transport returned zero bytes (EOF)";
                 let effects = self.input_for_mode(
-                    Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
+                    Input::Shutdown(ShutdownReason::TransportClosed {
+                        reason: Some(reason.into()),
+                    }),
                     Instant::now(),
                     mode,
                 );
                 let _ = self.drive_for_mode(driver, effects, mode);
-                return Err(Error::ConnectionClosed { reason: None });
+                return Err(Error::ConnectionClosed {
+                    reason: Some(reason.into()),
+                });
             }
             Ok(BlockingReceive::Bytes(received)) => {
                 // Any successful read breaks a transient-fault run, even when
@@ -2622,13 +2602,13 @@ impl BlockingOwner {
                 let _ = self
                     .state
                     .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                // A malformed/oversized datagram was consumed; it cannot
-                // certify that a due raw release saw no input.
-                if self.raw_release_gate_at(Instant::now()).is_some() {
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release remained unresolved after oversized datagram",
-                    )?;
+                // The malformed datagram is one complete, consumed transport
+                // boundary. At a due raw release it is therefore the required
+                // receive-first turn; discard it and release without counting
+                // toward a synthetic work cap (#725).
+                let received_at = Instant::now();
+                if self.raw_release_gate_at(received_at).is_some() {
+                    self.advance_after_raw_release_input(driver, received_at, mode)?;
                 }
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
@@ -2674,14 +2654,10 @@ impl BlockingOwner {
                 if let Some(error) = report.boundary_error() {
                     return Err(error);
                 }
-                if raw_gate {
-                    // A genuine transient fault is not an idle fence: stale
-                    // input may still be ready behind it.
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted after transient faults",
-                    )?;
-                }
+                // A genuine transient fault is not an idle fence: stale input
+                // may still be ready behind it. Keep the release gate armed;
+                // the shared escalating pause and sustained-fault boundary
+                // provide wall-clock liveness without a poll-count poison.
                 pause_after_transient_receive_fault(length, owner_deadline);
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
@@ -2750,10 +2726,7 @@ impl BlockingOwner {
                             .state
                             .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                         if raw_gate {
-                            self.defer_raw_release_gate(
-                            driver,
-                            "blocking raw release receive work cap exhausted after malformed datagram",
-                        )?;
+                            self.advance_after_raw_release_input(driver, received_at, mode)?;
                         }
                         return Ok(PumpProgress {
                             decoded_frames: driven,
@@ -2786,10 +2759,7 @@ impl BlockingOwner {
                         .state
                         .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                     if raw_gate {
-                        self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted after invalid datagram batch",
-                    )?;
+                        self.advance_after_raw_release_input(driver, received_at, mode)?;
                     }
                     return Ok(PumpProgress {
                         decoded_frames: driven,
@@ -2868,7 +2838,6 @@ impl BlockingOwner {
             if !current_releases.is_empty() && current_releases != gate_releases {
                 self.raw_release_input_gate = Some(RawReleaseInputGate {
                     releases: current_releases,
-                    deferrals: 0,
                     await_until: None,
                 });
                 self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
@@ -2877,26 +2846,11 @@ impl BlockingOwner {
                 });
             }
 
-            // A valid decoded frame, a positively classified stream prefix,
-            // or true no-input with no retained stream bytes earns the one due
-            // tail.  Non-frame datagram input (including an empty/malformed
-            // packet) must take another receive turn; it is not an H fence.
-            // An atomic datagram that fails framing/validation returned above
-            // through the bounded deferral path; it cannot piggyback on an
-            // unrelated valid frame. A discarded *stream* delimiter is
-            // different: the framer has consumed and classified that exact
-            // fragment, while any response-shaped retained prefix was already
-            // handled by `raw_prefix_disposition` above. It is therefore safe
-            // to release after stream-only discard processing.
-            let safe_to_release = driven > 0 || no_input || is_stream;
-            if safe_to_release {
-                self.advance_after_raw_release_input(driver, received_at, mode)?;
-            } else {
-                self.defer_raw_release_gate(
-                    driver,
-                    "blocking raw release remained unresolved after non-frame datagram input",
-                )?;
-            }
+            // The post-boundary read is now fully classified. Stream prefixes
+            // were preserved, awaited, or discarded above; datagrams are
+            // atomic and any non-frame packet has already been consumed. That
+            // real input turn earns the one due tail without a turn counter.
+            self.advance_after_raw_release_input(driver, received_at, mode)?;
             self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
             return Ok(PumpProgress {
                 decoded_frames: driven,
@@ -3354,16 +3308,14 @@ mod tests {
     }
 
     impl BlockingTransport for CountingTransport {
-        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.counts.writes.fetch_add(1, Ordering::SeqCst);
             Ok(())
-        }
-
-        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
-            self.counts.receives.fetch_add(1, Ordering::SeqCst);
-            Err(Error::InvalidState(
-                "unexpected receive in capacity test".into(),
-            ))
         }
 
         fn recv_into_with_timeout(
@@ -4023,7 +3975,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_release_malformed_datagrams_exhaust_the_same_64_turn_cap() {
+    fn raw_release_discards_malformed_datagram_without_poison() {
         let mut owner = BlockingOwner::new(raw_two_target_owner_policy(TransportKind::Datagram))
             .expect("two-target owner");
         let mut driver = ReleaseCrossingDriver {
@@ -4036,7 +3988,7 @@ mod tests {
                 raw_request(CameraId::CAMERA_1, ReplyShape::NoReply, Duration::ZERO),
             )
             .expect("A local write");
-        let _b = stage_ready_without_dispatch(
+        let b = stage_ready_without_dispatch(
             &mut owner,
             &mut driver,
             raw_request(
@@ -4046,34 +3998,19 @@ mod tests {
             ),
         );
         let mut reader = FaultReader {
-            reads: std::iter::repeat_n(
-                Ok(BlockingReceive::Bytes(1)),
-                RAW_TOMBSTONE_PUMP_WORK_LIMIT,
-            )
-            .collect(),
+            reads: VecDeque::from([Ok(BlockingReceive::Bytes(1))]),
         };
         let mut decoder = MalformedDatagramDecoder;
-        for _ in 1..RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-            assert_eq!(
-                owner
-                    .pump_once(&mut driver, &mut reader, &mut decoder)
-                    .expect("a malformed datagram remains unfenced before the cap"),
-                0
-            );
-        }
-        let error = owner
-            .pump_once(&mut driver, &mut reader, &mut decoder)
-            .expect_err("the 64th malformed datagram fails closed");
-        assert!(matches!(error, Error::StreamPoisoned { .. }));
         assert_eq!(
-            driver.writes.len(),
-            1,
-            "B never writes through malformed input"
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .expect("the atomic malformed datagram is discarded"),
+            0
         );
-        assert!(
-            reader.reads.is_empty(),
-            "the exact bounded receive budget was consumed"
-        );
+        assert!(reader.reads.is_empty());
+        assert_eq!(driver.writes.len(), 2, "B writes after the consumed fence");
+        assert!(owner.state().boundary_error().is_none());
+        let _ = b;
     }
 
     #[test]
@@ -4599,6 +4536,148 @@ mod tests {
         assert!(owner
             .state()
             .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+    }
+
+    #[test]
+    fn preack_drain_transient_fault_does_not_dispatch_an_ordinary_peer() {
+        let mut policy = raw_two_target_owner_policy(TransportKind::Datagram);
+        policy.targets[usize::from(CameraId::CAMERA_1.id())]
+            .as_mut()
+            .expect("camera one is registered")
+            .command_sockets = 2;
+        policy.baseline.command_sockets[usize::from(CameraId::CAMERA_1.id())] = Some(2);
+        let mut owner = BlockingOwner::new(policy).expect("two-target owner");
+        let mut driver = ReleaseCrossingDriver {
+            release_after: Instant::now(),
+            writes: Vec::new(),
+        };
+        let predecessor = owner
+            .submit(
+                &mut driver,
+                raw_request(
+                    CameraId::CAMERA_1,
+                    ReplyShape::AckThenCompletion,
+                    Duration::from_secs(1),
+                ),
+            )
+            .expect("predecessor reaches the wire");
+        let queued_peer = stage_ready_without_dispatch(
+            &mut owner,
+            &mut driver,
+            raw_request(
+                CameraId::CAMERA_2,
+                ReplyShape::AckThenCompletion,
+                Duration::from_secs(1),
+            ),
+        );
+        let submitting_successor = stage_ready_without_dispatch(
+            &mut owner,
+            &mut driver,
+            raw_request(
+                CameraId::CAMERA_1,
+                ReplyShape::AckThenCompletion,
+                Duration::from_secs(1),
+            ),
+        );
+        assert_eq!(driver.writes.len(), 1);
+        assert!(owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+
+        let mut reader = FaultReader {
+            reads: VecDeque::from([
+                Err(Error::TransportError("transient receive fault".into())),
+                Ok(BlockingReceive::Bytes(1)),
+            ]),
+        };
+        let mut decoder = OneBatchDecoder::new(vec![DecodedFrame {
+            target: CameraId::CAMERA_1,
+            sequence: None,
+            response: DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        }]);
+
+        owner
+            .drain_raw_preack_gate_inner(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("fault and ACK are handled inside the no-dispatch drain");
+
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "neither the transient-fault turn nor the ACK turn dispatches the queued peer"
+        );
+        assert!(matches!(
+            owner.state().request_state(predecessor.id()),
+            Some((
+                Phase::Executing {
+                    socket: ViscaSocket::S1,
+                    ..
+                },
+                CancelState::None
+            ))
+        ));
+        assert!(owner.state().request_state(queued_peer).is_some());
+        assert!(owner.state().request_state(submitting_successor).is_some());
+
+        let effects = owner.state_mut().advance(Instant::now());
+        let report = owner.drive(&mut driver, effects);
+        assert!(report.boundary_error().is_none());
+        assert_eq!(
+            driver.writes.len(),
+            3,
+            "normal scheduling retains both ready requests"
+        );
+        assert_eq!(driver.writes[1][0], CameraId::CAMERA_2.to_address_byte());
+        assert_eq!(driver.writes[2][0], CameraId::CAMERA_1.to_address_byte());
+    }
+
+    #[test]
+    fn zero_byte_datagram_receive_closes_with_a_cause() {
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Ok(BlockingReceive::Bytes(0))]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("zero bytes is EOF even for a custom datagram transport");
+        assert!(matches!(
+            error,
+            Error::ConnectionClosed { reason: Some(reason) }
+                if reason.contains("zero bytes") && reason.contains("EOF")
+        ));
+        assert!(matches!(owner.state().state(), SessionState::Closed));
+    }
+
+    #[test]
+    fn invalid_input_receive_fault_closes_immediately() {
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Err(Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::InvalidInput,
+            ))))]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("invalid transport input is a fatal contract error");
+        assert!(matches!(
+            error,
+            Error::ConnectionClosed { reason: Some(reason) } if !reason.is_empty()
+        ));
+        assert_eq!(owner.faults.length, 0, "no transient run was started");
+        assert!(matches!(owner.state().state(), SessionState::Closed));
     }
 
     #[test]

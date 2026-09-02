@@ -116,7 +116,12 @@ mod blocking_observability {
     }
 
     impl BlockingTransport for Probe {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             if self.fail_send {
                 return Err(Error::ConnectionClosed { reason: None });
             }
@@ -129,10 +134,6 @@ mod blocking_observability {
             self.responses.push_back(vec![source, 0x41, 0xff]);
             self.responses.push_back(vec![source, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.receive(dst)
         }
 
         fn recv_into_with_timeout(

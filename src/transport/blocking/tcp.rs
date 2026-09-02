@@ -33,6 +33,14 @@ fn configured_read_deadline_expired(error: &io::Error) -> bool {
     }
 }
 
+/// Whether one write failed because the scoped per-call timeout elapsed.
+fn configured_write_deadline_expired(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    )
+}
+
 /// TCP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
@@ -85,7 +93,7 @@ impl Tcp {
     /// This method provides full control over connection and socket parameters.
     /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        config.validate_buffer_bounds()?;
+        config.validate()?;
         let canonical_addr = canonicalize_endpoint(address, None)?;
         let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
@@ -140,25 +148,48 @@ impl HasTransportConfig for Tcp {
 }
 
 impl BlockingTransport for Tcp {
-    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
-        // Send directly - retry logic is handled at the runtime/scheduler level
-        self.writer.write_all(data)?;
-        self.writer.flush()?;
-        Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        // Read directly into the provided buffer
-        match self.reader.read(dst) {
-            Ok(0) => {
-                // Connection closed
-                Err(Error::ConnectionClosed {
-                    reason: Some("peer closed connection".into()),
-                })
+    fn send_with_timeout(
+        &mut self,
+        data: &[u8],
+        _kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let original_timeout = self.writer.write_timeout()?;
+        let started = Instant::now();
+        let mut written = 0;
+        let result = loop {
+            if written == data.len() {
+                break Ok(());
             }
-            Ok(n) => Ok(n),
-            Err(e) => Err(e.into()),
-        }
+
+            // `write_all` may grant every partial write a fresh socket timeout.
+            // Re-sample one fixed operation budget before each syscall instead.
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break Err(Error::Timeout);
+            }
+            if let Err(error) = self.writer.set_write_timeout(Some(remaining)) {
+                break Err(error.into());
+            }
+
+            match self.writer.write(&data[written..]) {
+                Ok(0) => {
+                    break Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "TCP write made no progress",
+                    )
+                    .into());
+                }
+                Ok(count) => written += count,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if configured_write_deadline_expired(&error) => {
+                    break Err(Error::Timeout);
+                }
+                Err(error) => break Err(error.into()),
+            }
+        };
+        self.writer.set_write_timeout(original_timeout)?;
+        result
     }
 
     fn recv_into_with_timeout(

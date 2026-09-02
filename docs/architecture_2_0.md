@@ -604,7 +604,12 @@ live on the async surface rather than inert. Every write is raced against
 `write_timeout`; if it elapses the write is abandoned as a failure — a stream
 write that can no longer be confirmed poisons the session, a datagram write
 fails only its own request — so a stalled peer can never park the actor and
-block `close()`. Finally, both owner shells use one executor-free idle-receive
+block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
+so `BlockingTransport` exposes only deadline-bearing reads and writes and
+requires implementations to return within the supplied bound. Built-in TCP,
+UDP, and serial transports install that bound at the OS/device layer, and
+construction rejects a zero advertised read or write timeout. Finally, both
+owner shells use one executor-free idle-receive
 run. Immediately-returning no-data reads are paced by the same escalating
 10–250 ms, next-wake/caller-deadline-clamped pause the transient-fault path uses
 (recording no fault and spending no retry budget). Async maps that decision to

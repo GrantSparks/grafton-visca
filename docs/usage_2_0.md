@@ -305,9 +305,12 @@ executor as a third argument on the async side — is the single-camera form of
 the same boundary, taking the profile from `P` instead of a runtime
 `SessionConfig`. Implementors must
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
-correct stream/datagram send semantics. A standard-kind caller-owned transport
-is checked against the profile transport registry; one that reports no standard
-kind (`None`) may bypass only that standard profile/transport pair matrix. The
+correct stream/datagram send semantics. A blocking implementation must bound
+both `send_with_timeout` and `recv_into_with_timeout` by the supplied positive
+duration; the owner cannot preempt arbitrary synchronous code. Zero advertised
+read/write timeouts are rejected at construction. A standard-kind caller-owned
+transport is checked against the profile transport registry; one that reports
+no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
 custom path still undergoes target-registry, envelope, addressing/topology,
 pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from

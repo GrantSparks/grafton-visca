@@ -251,7 +251,8 @@ decision is the architecture guide's
 When no such raw command is awaiting ACK, a read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
 `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
-`NotConnected`) ends the session. A raw OS `TimedOut` is included because a
+`NotConnected`), or an `Io(InvalidInput)` reports a live transport contract
+failure, the session ends. A raw OS `TimedOut` is included because a
 connected TCP socket commonly reports it when keepalive has exhausted; it is
 not the spelling for an application-owned idle timer. The owner normalizes
 that fatal receive closure to
@@ -277,8 +278,10 @@ cooperatively after an empty datagram before polling again, so a stream of empty
 packets cannot starve owner controls.
 
 The async owner enforces `read_timeout` and `write_timeout` even when a custom
-transport has no timer, and both owners pace immediately idle reads. The exact
-stream/datagram failure split, pacing, and source-fairness rules live in
+transport has no timer. The blocking owner passes the configured bound to its
+only read/write trait operations, which implementations must honor, and rejects
+zero bounds before owner construction. Both owners pace immediately idle
+reads. The exact stream/datagram failure split, pacing, and source-fairness rules live in
 [Transport I/O deadlines and idle pacing](architecture_2_0.md#transport-io-deadlines-and-idle-pacing)
 and the preceding arbitration section.
 

@@ -455,7 +455,7 @@ where
         baud_rate: u32,
     ) -> crate::Result<crate::transport::serial::Config> {
         let transport_config = self.serial_transport_config();
-        transport_config.validate_buffer_bounds()?;
+        transport_config.validate()?;
 
         Ok(crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
@@ -576,7 +576,7 @@ where
         };
 
         session_config.validate_for_transport(Some(kind))?;
-        transport_config.validate_buffer_bounds()?;
+        transport_config.validate()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
         Ok(StandardConnectionPlan {
             kind,

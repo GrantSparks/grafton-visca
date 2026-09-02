@@ -76,7 +76,12 @@ mod blocking {
     }
 
     impl BlockingTransport for ReusedSocketTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             let write_number = {
                 let mut writes = self.writes.lock().expect("writes lock");
                 writes.push(bytes.to_vec());
@@ -94,10 +99,6 @@ mod blocking {
                 _ => {}
             }
             Ok(())
-        }
-
-        fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(destination, Duration::from_millis(1))
         }
 
         fn recv_into_with_timeout(

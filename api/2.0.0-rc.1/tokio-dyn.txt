@@ -21124,10 +21124,9 @@ pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub trait grafton_visca::transport::BlockingTransport: core::marker::Send
 pub fn grafton_visca::transport::BlockingTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
-pub fn grafton_visca::transport::BlockingTransport::recv_into(&mut self, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 pub fn grafton_visca::transport::BlockingTransport::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<usize, grafton_visca::Error>
 pub fn grafton_visca::transport::BlockingTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
-pub fn grafton_visca::transport::BlockingTransport::send_with_kind(&mut self, &[u8], grafton_visca::command::CommandKind) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::transport::BlockingTransport::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 pub trait grafton_visca::transport::Envelope: grafton_visca::transport::envelope::private::Sealed + core::marker::Send + core::marker::Sync + 'static
 pub const grafton_visca::transport::Envelope::SUPPORTS_SEQUENCE_CORRELATION: bool
 pub fn grafton_visca::transport::Envelope::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>

@@ -55,7 +55,12 @@ impl HasTransportConfig for CancelCamera {
 }
 
 impl BlockingTransport for CancelCamera {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         match bytes.get(8..) {
             Some([0x81, 0x01, 0x04, 0x07, 0x02, 0xff]) => {
                 self.queue_reply(bytes, &[0x90, 0x41, 0xff])
@@ -69,10 +74,6 @@ impl BlockingTransport for CancelCamera {
                 "scripted camera received an unexpected command".into(),
             )),
         }
-    }
-
-    fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(destination, self.config.read_timeout)
     }
 
     fn recv_into_with_timeout(

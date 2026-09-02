@@ -75,7 +75,12 @@ impl HasTransportConfig for TwoSocketTransport {
 }
 
 impl BlockingTransport for TwoSocketTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.writes
             .lock()
             .expect("writes lock")
@@ -92,10 +97,6 @@ impl BlockingTransport for TwoSocketTransport {
             self.responses.push_back(completion);
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(

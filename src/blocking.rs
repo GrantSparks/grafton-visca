@@ -1246,7 +1246,12 @@ mod tests {
     }
 
     impl BlockingTransport for FailFirstZoomStopSend {
-        fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            kind: CommandKind,
+            timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -1257,11 +1262,7 @@ mod tests {
                     "injected zoom stop send failure".into(),
                 ));
             }
-            self.inner.send_with_kind(bytes, kind)
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.inner.recv_into(dst)
+            self.inner.send_with_timeout(bytes, kind, timeout)
         }
 
         fn recv_into_with_timeout(
