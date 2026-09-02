@@ -205,6 +205,7 @@ pub struct ProfileTiming {
     cancellation_timeout: Duration,
     ambiguity_timeout: Duration,
     busy_timeout: Duration,
+    raw_inquiry_reply_skew: Duration,
     minimum_inquiry_spacing: Duration,
     minimum_command_spacing: Duration,
 }
@@ -225,6 +226,7 @@ pub struct ProfileTimingBuilder {
     cancellation_timeout: Option<Duration>,
     ambiguity_timeout: Option<Duration>,
     busy_timeout: Option<Duration>,
+    raw_inquiry_reply_skew: Option<Duration>,
     minimum_inquiry_spacing: Option<Duration>,
     minimum_command_spacing: Option<Duration>,
 }
@@ -322,6 +324,16 @@ impl ProfileTiming {
         self.busy_timeout
     }
 
+    /// Returns the bounded late-reply skew retained after a raw inquiry ends
+    /// without a matched response.
+    ///
+    /// This fact is unused by sequence-bearing envelopes and may be zero. It
+    /// cannot exceed [`Self::minimum_inquiry_spacing`].
+    #[must_use]
+    pub const fn raw_inquiry_reply_skew(self) -> Duration {
+        self.raw_inquiry_reply_skew
+    }
+
     /// Returns the minimum interval between inquiry writes.
     #[must_use]
     pub const fn minimum_inquiry_spacing(self) -> Duration {
@@ -359,6 +371,7 @@ impl ProfileTiming {
             self.cancellation_timeout,
             self.ambiguity_timeout,
             self.busy_timeout,
+            self.raw_inquiry_reply_skew,
             self.minimum_inquiry_spacing,
             self.minimum_command_spacing,
         ];
@@ -368,6 +381,11 @@ impl ProfileTiming {
         {
             return Err(Error::InvalidRequest(
                 "profile timing values must be representable by the monotonic clock".into(),
+            ));
+        }
+        if self.raw_inquiry_reply_skew > self.minimum_inquiry_spacing {
+            return Err(Error::InvalidRequest(
+                "raw inquiry reply skew cannot exceed minimum inquiry spacing".into(),
             ));
         }
 
@@ -404,6 +422,7 @@ impl ProfileTimingBuilder {
             cancellation_timeout: None,
             ambiguity_timeout: None,
             busy_timeout: None,
+            raw_inquiry_reply_skew: None,
             minimum_inquiry_spacing: None,
             minimum_command_spacing: None,
         }
@@ -451,6 +470,15 @@ impl ProfileTimingBuilder {
         self
     }
 
+    /// Sets the late-reply skew retained only after an uncertain raw inquiry
+    /// release. The value may be zero and must not exceed the profile's minimum
+    /// inquiry spacing.
+    #[must_use]
+    pub const fn raw_inquiry_reply_skew(mut self, skew: Duration) -> Self {
+        self.raw_inquiry_reply_skew = Some(skew);
+        self
+    }
+
     /// Sets the minimum interval between inquiry writes.
     #[must_use]
     pub const fn minimum_inquiry_spacing(mut self, spacing: Duration) -> Self {
@@ -490,6 +518,10 @@ impl ProfileTimingBuilder {
                 "profile ambiguity timeout is required",
             )?,
             busy_timeout: required(self.busy_timeout, "profile busy timeout is required")?,
+            raw_inquiry_reply_skew: required(
+                self.raw_inquiry_reply_skew,
+                "profile raw inquiry reply skew is required",
+            )?,
             minimum_inquiry_spacing: required(
                 self.minimum_inquiry_spacing,
                 "profile minimum inquiry spacing is required",
@@ -1814,6 +1846,8 @@ pub trait CompileTimeProfile: capabilities::Profile {
     const CANCELLATION_TIMEOUT: Duration;
     /// Pre-ack cancellation ambiguity timeout.
     const AMBIGUITY_TIMEOUT: Duration;
+    /// Late-reply skew retained after an uncertain raw inquiry release.
+    const RAW_INQUIRY_REPLY_SKEW: Duration = Self::MIN_INQUIRY_SPACING;
     /// Maximum number of command sockets per camera target.
     const MAXIMUM_COMMAND_SOCKETS: u8;
     /// Exact axes affected by a preset recall.
@@ -1898,6 +1932,7 @@ impl ProfileSpecBuilder {
                 cancellation_timeout: P::CANCELLATION_TIMEOUT,
                 ambiguity_timeout: P::AMBIGUITY_TIMEOUT,
                 busy_timeout: P::BUSY_TIMEOUT,
+                raw_inquiry_reply_skew: P::RAW_INQUIRY_REPLY_SKEW,
                 minimum_inquiry_spacing: P::MIN_INQUIRY_SPACING,
                 minimum_command_spacing: P::MIN_COMMAND_SPACING,
             }),
@@ -2207,6 +2242,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::from_millis(25))
                     .minimum_inquiry_spacing(Duration::from_millis(25))
                     .minimum_command_spacing(Duration::from_millis(25))
                     .build()
@@ -2375,6 +2411,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
                     .minimum_inquiry_spacing(Duration::ZERO)
                     .minimum_command_spacing(Duration::ZERO)
                     .build()
@@ -2544,6 +2581,7 @@ mod tests {
             .cancellation_timeout(Duration::from_secs(2))
             .ambiguity_timeout(Duration::from_secs(3))
             .busy_timeout(Duration::from_secs(4))
+            .raw_inquiry_reply_skew(Duration::from_millis(25))
             .minimum_inquiry_spacing(Duration::from_millis(25))
             .minimum_command_spacing(Duration::from_millis(50))
             .build()
@@ -2555,6 +2593,7 @@ mod tests {
         assert_eq!(timing.cancellation_timeout(), Duration::from_secs(2));
         assert_eq!(timing.ambiguity_timeout(), Duration::from_secs(3));
         assert_eq!(timing.busy_timeout(), Duration::from_secs(4));
+        assert_eq!(timing.raw_inquiry_reply_skew(), Duration::from_millis(25));
         assert_eq!(timing.minimum_inquiry_spacing(), Duration::from_millis(25));
         assert_eq!(timing.minimum_command_spacing(), Duration::from_millis(50));
 
@@ -2565,6 +2604,7 @@ mod tests {
             .cancellation_timeout(Duration::from_secs(1))
             .ambiguity_timeout(Duration::from_secs(1))
             .busy_timeout(Duration::ZERO)
+            .raw_inquiry_reply_skew(Duration::ZERO)
             .minimum_inquiry_spacing(Duration::ZERO)
             .minimum_command_spacing(Duration::ZERO)
             .build()
@@ -2581,6 +2621,7 @@ mod tests {
                 .cancellation_timeout(Duration::from_secs(1))
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
+                .raw_inquiry_reply_skew(Duration::ZERO)
                 .minimum_inquiry_spacing(Duration::ZERO)
                 .minimum_command_spacing(Duration::ZERO)
         };
@@ -2591,11 +2632,17 @@ mod tests {
             complete().cancellation_timeout(Duration::MAX).build(),
             complete().ambiguity_timeout(Duration::MAX).build(),
             complete().busy_timeout(Duration::MAX).build(),
+            complete().raw_inquiry_reply_skew(Duration::MAX).build(),
             complete().minimum_inquiry_spacing(Duration::MAX).build(),
             complete().minimum_command_spacing(Duration::MAX).build(),
         ] {
             assert!(result.is_err());
         }
+
+        assert!(complete()
+            .raw_inquiry_reply_skew(Duration::from_nanos(1))
+            .build()
+            .is_err());
 
         let default = CommandTimeouts::default();
         let command_timeout_cases = [
@@ -2658,6 +2705,7 @@ mod tests {
             .cancellation_timeout(Duration::from_secs(1))
             .ambiguity_timeout(Duration::from_secs(1))
             .busy_timeout(Duration::ZERO)
+            .raw_inquiry_reply_skew(Duration::ZERO)
             .minimum_inquiry_spacing(Duration::ZERO)
             .minimum_command_spacing(Duration::ZERO)
             .build()
@@ -2687,6 +2735,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::from_millis(25))
                     .minimum_inquiry_spacing(Duration::from_millis(25))
                     .minimum_command_spacing(Duration::from_millis(25))
                     .build()
@@ -2849,6 +2898,7 @@ mod tests {
                     .cancellation_timeout(timing.cancellation_timeout())
                     .ambiguity_timeout(timing.ambiguity_timeout())
                     .busy_timeout(timing.busy_timeout())
+                    .raw_inquiry_reply_skew(timing.raw_inquiry_reply_skew())
                     .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
                     .minimum_command_spacing(
                         timing.minimum_command_spacing() + Duration::from_millis(1),
@@ -3230,6 +3280,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
                     .minimum_inquiry_spacing(Duration::ZERO)
                     .minimum_command_spacing(Duration::ZERO)
                     .build()

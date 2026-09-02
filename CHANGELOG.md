@@ -21,6 +21,19 @@ entries below retain their original wording.
 
 ### Fixed
 
+- **BREAKING**: Matched raw inquiry replies now release their single-flight
+  lane immediately instead of installing every profile's one-second pre-ACK
+  ambiguity hold (#712). Only timeout, terminal error, or retry release retains
+  a late-reply hold; it uses the new validated
+  `ProfileTiming::raw_inquiry_reply_skew` fact (required by
+  `ProfileTimingBuilder`, and never greater than minimum inquiry spacing) and
+  blocks only a same-target inquiry. ACK-bearing commands and `Urgent` stops
+  remain eligible, and an inquiry no longer starts the urgent command-pacing
+  clock; consecutive commands/cancellations still honor physical pacing.
+  Blocking and async public-facade probes now require six PtzOptics G2 raw
+  position replies at at least 5 Hz and inquiry-to-stop wire latency below 50
+  ms. Public API snapshots regenerated.
+
 - Raw stream correlation release now gives an ambiguous partial frame one
   engine-owned grace interval, bounded by the configured read timeout and 100
   ms, on both async and blocking facades (#713). A tail arriving in that window

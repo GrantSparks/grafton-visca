@@ -279,6 +279,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::GenericVisca::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::GenericVisca::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::GenericVisca
 impl core::marker::Send for grafton_visca::camera::profiles::GenericVisca
@@ -423,6 +424,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::NearusBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::NearusBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::NearusBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::NearusBRC300
@@ -598,6 +600,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOptics30X::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOptics30X
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOptics30X
@@ -773,6 +776,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG2
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG2
@@ -946,6 +950,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG3
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG3
@@ -1089,6 +1094,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_TIMEOUT: core::ti
 pub const grafton_visca::camera::profiles::SonyBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRC300
@@ -1243,6 +1249,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRCH900::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRCH900
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRCH900
@@ -1393,6 +1400,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyEVIH100::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyEVIH100
 impl core::marker::Send for grafton_visca::camera::profiles::SonyEVIH100
@@ -1555,6 +1563,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_TIMEOUT: core::time:
 pub const grafton_visca::camera::profiles::SonyFR7::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyFR7::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyFR7
 impl core::marker::Send for grafton_visca::camera::profiles::SonyFR7
@@ -13169,6 +13178,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::GenericVisca::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::GenericVisca::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::GenericVisca
 impl core::marker::Send for grafton_visca::camera::profiles::GenericVisca
@@ -13530,6 +13540,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::NearusBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::NearusBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::NearusBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::NearusBRC300
@@ -13948,6 +13959,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOptics30X::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOptics30X
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOptics30X
@@ -14123,6 +14135,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG2
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG2
@@ -14296,6 +14309,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG3
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG3
@@ -14563,6 +14577,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_TIMEOUT: core::ti
 pub const grafton_visca::camera::profiles::SonyBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRC300
@@ -14717,6 +14732,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRCH900::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRCH900
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRCH900
@@ -14867,6 +14883,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyEVIH100::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyEVIH100
 impl core::marker::Send for grafton_visca::camera::profiles::SonyEVIH100
@@ -15029,6 +15046,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_TIMEOUT: core::time:
 pub const grafton_visca::camera::profiles::SonyFR7::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyFR7::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyFR7
 impl core::marker::Send for grafton_visca::camera::profiles::SonyFR7
@@ -16900,6 +16918,7 @@ pub const fn grafton_visca::profile::ProfileTiming::command_timeouts(self) -> gr
 pub const fn grafton_visca::profile::ProfileTiming::inquiry_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_command_spacing(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_inquiry_spacing(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::raw_inquiry_reply_skew(self) -> core::time::Duration
 impl core::clone::Clone for grafton_visca::profile::ProfileTiming
 pub fn grafton_visca::profile::ProfileTiming::clone(&self) -> grafton_visca::profile::ProfileTiming
 impl core::cmp::Eq for grafton_visca::profile::ProfileTiming
@@ -16930,6 +16949,7 @@ pub const fn grafton_visca::profile::ProfileTimingBuilder::inquiry_timeout(self,
 pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_command_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_inquiry_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::ProfileTimingBuilder::new() -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::raw_inquiry_reply_skew(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::profile::ProfileTimingBuilder
 pub fn grafton_visca::profile::ProfileTimingBuilder::clone(&self) -> grafton_visca::profile::ProfileTimingBuilder
 impl core::default::Default for grafton_visca::profile::ProfileTimingBuilder
@@ -16975,6 +16995,7 @@ pub const grafton_visca::profile::CompileTimeProfile::INQUIRY_TIMEOUT: core::tim
 pub const grafton_visca::profile::CompileTimeProfile::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::profile::CompileTimeProfile::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::profile::CompileTimeProfile::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::profile::CompileTimeProfile::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::profile::CompileTimeProfile::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -16983,6 +17004,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::GenericVisca::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::GenericVisca::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -16991,6 +17013,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::NearusBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::NearusBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -16999,6 +17022,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOptics30X::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17007,6 +17031,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17015,6 +17040,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17023,6 +17049,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_TIMEOUT: core::ti
 pub const grafton_visca::camera::profiles::SonyBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17031,6 +17058,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRCH900::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17039,6 +17067,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyEVIH100::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -17047,6 +17076,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_TIMEOUT: core::time:
 pub const grafton_visca::camera::profiles::SonyFR7::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyFR7::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 pub mod grafton_visca::profiles
 #[non_exhaustive] pub enum grafton_visca::profiles::InquirySupport
@@ -17283,6 +17313,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::GenericVisca::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::GenericVisca::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::GenericVisca
 impl core::marker::Send for grafton_visca::camera::profiles::GenericVisca
@@ -17427,6 +17458,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::NearusBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::NearusBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::NearusBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::NearusBRC300
@@ -17602,6 +17634,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOptics30X::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOptics30X
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOptics30X
@@ -17777,6 +17810,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG2
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG2
@@ -17950,6 +17984,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::PtzOpticsG3
 impl core::marker::Send for grafton_visca::camera::profiles::PtzOpticsG3
@@ -18093,6 +18128,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_TIMEOUT: core::ti
 pub const grafton_visca::camera::profiles::SonyBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRC300
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRC300
@@ -18247,6 +18283,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRCH900::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyBRCH900
 impl core::marker::Send for grafton_visca::camera::profiles::SonyBRCH900
@@ -18397,6 +18434,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyEVIH100::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyEVIH100
 impl core::marker::Send for grafton_visca::camera::profiles::SonyEVIH100
@@ -18559,6 +18597,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_TIMEOUT: core::time:
 pub const grafton_visca::camera::profiles::SonyFR7::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyFR7::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl core::marker::Freeze for grafton_visca::camera::profiles::SonyFR7
 impl core::marker::Send for grafton_visca::camera::profiles::SonyFR7
@@ -25191,6 +25230,7 @@ pub const fn grafton_visca::profile::ProfileTiming::command_timeouts(self) -> gr
 pub const fn grafton_visca::profile::ProfileTiming::inquiry_timeout(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_command_spacing(self) -> core::time::Duration
 pub const fn grafton_visca::profile::ProfileTiming::minimum_inquiry_spacing(self) -> core::time::Duration
+pub const fn grafton_visca::profile::ProfileTiming::raw_inquiry_reply_skew(self) -> core::time::Duration
 impl core::clone::Clone for grafton_visca::profile::ProfileTiming
 pub fn grafton_visca::profile::ProfileTiming::clone(&self) -> grafton_visca::profile::ProfileTiming
 impl core::cmp::Eq for grafton_visca::profile::ProfileTiming
@@ -25221,6 +25261,7 @@ pub const fn grafton_visca::profile::ProfileTimingBuilder::inquiry_timeout(self,
 pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_command_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::ProfileTimingBuilder::minimum_inquiry_spacing(self, core::time::Duration) -> Self
 pub const fn grafton_visca::profile::ProfileTimingBuilder::new() -> Self
+pub const fn grafton_visca::profile::ProfileTimingBuilder::raw_inquiry_reply_skew(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::profile::ProfileTimingBuilder
 pub fn grafton_visca::profile::ProfileTimingBuilder::clone(&self) -> grafton_visca::profile::ProfileTimingBuilder
 impl core::default::Default for grafton_visca::profile::ProfileTimingBuilder
@@ -25642,6 +25683,7 @@ pub const grafton_visca::CompileTimeProfile::INQUIRY_TIMEOUT: core::time::Durati
 pub const grafton_visca::CompileTimeProfile::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::CompileTimeProfile::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::CompileTimeProfile::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::CompileTimeProfile::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::CompileTimeProfile::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25650,6 +25692,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::GenericVisca::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::GenericVisca::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::GenericVisca::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::GenericVisca::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::GenericVisca::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25658,6 +25701,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::NearusBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::NearusBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::NearusBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::NearusBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25666,6 +25710,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::INQUIRY_TIMEOUT: core::
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOptics30X::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOptics30X::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOptics30X::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25674,6 +25719,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG2::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG2::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG2::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25682,6 +25728,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::PtzOpticsG3::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::PtzOpticsG3::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::PtzOpticsG3::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25690,6 +25737,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::INQUIRY_TIMEOUT: core::ti
 pub const grafton_visca::camera::profiles::SonyBRC300::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRC300::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRC300::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRC300::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25698,6 +25746,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyBRCH900::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyBRCH900::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyBRCH900::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25706,6 +25755,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::INQUIRY_TIMEOUT: core::t
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyEVIH100::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyEVIH100::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyEVIH100::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 impl grafton_visca::profile::CompileTimeProfile for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::AMBIGUITY_TIMEOUT: core::time::Duration
@@ -25714,6 +25764,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::INQUIRY_TIMEOUT: core::time:
 pub const grafton_visca::camera::profiles::SonyFR7::MAXIMUM_COMMAND_SOCKETS: u8
 pub const grafton_visca::camera::profiles::SonyFR7::POSITION_INQUIRIES: grafton_visca::profile::PositionInquirySupport
 pub const grafton_visca::camera::profiles::SonyFR7::PRESET_RECALL_AXES: core::option::Option<grafton_visca::AffectedAxes>
+pub const grafton_visca::camera::profiles::SonyFR7::RAW_INQUIRY_REPLY_SKEW: core::time::Duration
 pub const grafton_visca::camera::profiles::SonyFR7::TRANSPORTS: grafton_visca::profile::TransportCompatibility
 pub trait grafton_visca::DynAdvanced: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::DynAdvanced::auto_trace_enabled(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>

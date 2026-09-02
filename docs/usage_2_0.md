@@ -135,6 +135,7 @@ let timing = ProfileTiming::builder()
     .cancellation_timeout(Duration::from_secs(1))
     .ambiguity_timeout(Duration::from_secs(1))
     .busy_timeout(Duration::ZERO)
+    .raw_inquiry_reply_skew(Duration::ZERO)
     .minimum_inquiry_spacing(Duration::ZERO)
     .minimum_command_spacing(Duration::ZERO)
     .build()?;
@@ -142,7 +143,9 @@ let timing = ProfileTiming::builder()
 ```
 
 Pass the resulting value to `ProfileSpecBuilder::timing`. The builder rejects
-missing or zero protocol deadlines before a profile can be admitted.
+missing or zero protocol deadlines before a profile can be admitted. The raw
+inquiry reply skew may be zero, but cannot exceed the profile's minimum inquiry
+spacing; it is retained only when a raw inquiry ends without a matched reply.
 
 The equivalent builder form is `SessionConfig::for_target(...).with_target(...)`.
 `SessionConfig::from_compile_time::<P>()` creates a reusable camera-1 config

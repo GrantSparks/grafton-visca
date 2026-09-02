@@ -14,12 +14,13 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use grafton_visca::{
     camera::{IdleWait, MotionQuery},
     profile::{PositionInquirySupport, ProfileSpec},
+    profiles::PtzOpticsG2,
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
     AffectedAxes, Error, Executor, Session, SessionConfig,
 };
@@ -318,14 +319,83 @@ where
     session.shutdown().await.expect("shutdown");
 }
 
+/// #712 public-facade regression: the raw profile's physical 150 ms inquiry
+/// spacing remains, but a successful reply adds no one-second hold and cannot
+/// delay the safety lane.
+async fn run_raw_success_release_regression<E>(executor: E)
+where
+    E: Executor,
+{
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics profile");
+    let (transport, writes) = MotionTransport::new(PositionScript::default(), false);
+    let session = Session::open(transport, SessionConfig::new(profile), executor.clone())
+        .await
+        .expect("raw session");
+    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+
+    let polling_started = Instant::now();
+    for _ in 0..6 {
+        camera
+            .zoom()
+            .position()
+            .await
+            .expect("raw zoom position reply");
+    }
+    let polling_elapsed = polling_started.elapsed();
+    assert!(
+        polling_elapsed <= Duration::from_millis(1_200),
+        "six replies exceeded the 5 Hz floor: {polling_elapsed:?}"
+    );
+
+    let stop_started = Instant::now();
+    let stop = camera
+        .zoom()
+        .stop()
+        .await
+        .expect("urgent stop reaches the wire");
+    while writes.lock().expect("writes lock").len() < 7 {
+        assert!(
+            stop_started.elapsed() < Duration::from_millis(50),
+            "urgent stop did not reach the wire within 50 ms"
+        );
+        executor.sleep(Duration::from_millis(1)).await;
+    }
+    let stop_latency = stop_started.elapsed();
+    assert!(
+        stop_latency < Duration::from_millis(50),
+        "matched inquiry delayed urgent stop by {stop_latency:?}"
+    );
+    stop.applied().await.expect("urgent stop applies");
+
+    assert_eq!(writes.lock().expect("writes lock").len(), 7);
+    session.shutdown().await.expect("shutdown");
+}
+
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_owner_motion_surface_is_exact_and_deadline_bound() {
     run_motion_surface(grafton_visca::TokioRuntime::from_current().expect("runtime")).await;
 }
 
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn tokio_successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
+    run_raw_success_release_regression(
+        grafton_visca::TokioRuntime::from_current().expect("runtime"),
+    )
+    .await;
+}
+
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_owner_motion_surface_is_exact_and_deadline_bound() {
     smol::block_on(run_motion_surface(grafton_visca::SmolRuntime::new()));
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
+    smol::block_on(run_raw_success_release_regression(
+        grafton_visca::SmolRuntime::new(),
+    ));
 }

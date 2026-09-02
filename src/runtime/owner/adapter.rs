@@ -250,6 +250,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     let mut command_spacing = std::time::Duration::ZERO;
     let mut inquiry_spacing = std::time::Duration::ZERO;
     let mut inquiry_cooldown = std::time::Duration::ZERO;
+    let mut raw_inquiry_release_hold = std::time::Duration::ZERO;
     let mut seen = [false; 9];
     // The profile-only facts, kept alongside the tuned ones so a later runtime
     // reconfiguration can re-derive from the profile rather than ratcheting off
@@ -299,6 +300,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
                 .unwrap_or_else(|| timing.minimum_inquiry_spacing()),
         );
         inquiry_cooldown = inquiry_cooldown.max(timing.busy_timeout());
+        raw_inquiry_release_hold = raw_inquiry_release_hold.max(timing.raw_inquiry_reply_skew());
         target_policies[index] = Some(TargetPolicy {
             command_sockets: tuning
                 .maximum_command_sockets_override()
@@ -349,6 +351,11 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             // profile busy/cooldown fact. Ordinary inquiries do not incur this
             // wait.
             inquiry_cooldown,
+            // A raw inquiry that times out or retries may still emit one late,
+            // unkeyed reply. Bound that narrow inquiry-only hold by the
+            // profile's dedicated reply-skew fact rather than the unrelated
+            // one-second cancellation ambiguity window (#712).
+            raw_inquiry_release_hold,
             raw_release_grace: config
                 .read_timeout
                 .min(std::time::Duration::from_millis(100)),
@@ -1295,6 +1302,10 @@ mod tests {
         .unwrap();
         assert_eq!(raw_policy.protocol.envelope, EnvelopeKind::Raw);
         assert_eq!(raw_policy.protocol.inquiry_capacity, 1);
+        assert_eq!(
+            raw_policy.protocol.raw_inquiry_release_hold,
+            raw.timing().raw_inquiry_reply_skew()
+        );
 
         let sony_policy = owner_policy_for_targets_with_tuning(
             &sony_profiles,

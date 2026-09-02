@@ -425,6 +425,9 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
+    /// Profile-derived skew window retained only after an unkeyed raw inquiry
+    /// can still produce a late reply (#712).
+    pub(crate) raw_inquiry_release_hold: Duration,
     /// Maximum time retained raw stream evidence may wait for a completing
     /// tail after a correlation hold becomes releasable (#713).
     pub(crate) raw_release_grace: Duration,

@@ -168,6 +168,7 @@ fn unsupported_focus_profile() -> ProfileSpec {
                 .cancellation_timeout(Duration::from_secs(1))
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
+                .raw_inquiry_reply_skew(Duration::ZERO)
                 .minimum_inquiry_spacing(Duration::ZERO)
                 .minimum_command_spacing(Duration::ZERO)
                 .build()

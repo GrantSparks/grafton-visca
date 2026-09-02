@@ -28,6 +28,7 @@ fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::from_millis(25),
+        raw_inquiry_release_hold: Duration::from_millis(50),
         raw_release_grace: Duration::from_millis(100),
         strict_unconfirmed_poison: false,
     }
@@ -102,6 +103,15 @@ fn command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
         context: context(target, cancellation),
         applied_state: None,
     }
+}
+
+fn urgent_command(target: u8, cancellation: CancellationPolicy) -> RuntimeRequest {
+    let mut request = command(target, cancellation);
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command helper always constructs a command");
+    };
+    context.control.class = ControlClass::Urgent;
+    request
 }
 
 /// A raw command that declares a non-default reply shape (issue #700).
@@ -4012,12 +4022,9 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         terminal_outcome(&second_reply, second_id),
         Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [1]
     ));
-    assert!(request_transmit_optional(&second_reply).is_none());
-
-    // B's successful reply takes the same bounded hold. Only at its exact
-    // release may the FIFO-tail retry transmit, and it must retain A's wire.
-    let retried = engine.advance(start + Duration::from_millis(100));
-    let (retry_tx, retried_id, retried_wire) = request_transmit(&retried);
+    // A matched reply cannot produce a late duplicate, so B's success releases
+    // the FIFO-tail retry immediately without adding another hold (#712).
+    let (retry_tx, retried_id, retried_wire) = request_transmit(&second_reply);
     assert_eq!(retried_id, first_id);
     assert!(Arc::ptr_eq(&first_wire, &retried_wire));
     engine.handle(
@@ -4025,7 +4032,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             transmission: retry_tx,
             result: Ok(TransmissionMeta { sequence: None }),
         },
-        start + Duration::from_millis(100),
+        start + Duration::from_millis(50),
     );
     assert_eq!(engine.raw_inquiry_front(camera(1)), Some(first_id));
 
@@ -4038,7 +4045,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
                 payload: smallvec![0x0b],
             },
         ),
-        start + Duration::from_millis(100),
+        start + Duration::from_millis(50),
     );
     assert!(matches!(
         terminal_outcome(&legitimate_retry, first_id),
@@ -10147,22 +10154,18 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
     engine.assert_invariants().unwrap();
 }
 
-/// A raw inquiry reply has no request identity. The production raw policy is
-/// single-flight, so after A succeeds the target tombstone makes an A duplicate
-/// inert until expiry rather than letting it satisfy queued B. Other targets
-/// remain eligible while the fixed target lane is held.
+/// A matched raw inquiry reply exhausts that request's possible response. It
+/// therefore releases the single-flight inquiry lane immediately and installs
+/// no target tombstone (#712).
 #[test]
-fn raw_single_flight_inquiry_success_quarantines_duplicate_until_exact_expiry() {
+fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
     let start = Instant::now();
-    let deadline = start + Duration::from_millis(50);
     let mut engine = single_flight_raw_engine();
 
     let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
     send_ok(&mut engine, &first, None, start);
     let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
     assert!(request_transmit_optional(&successor).is_none());
-    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), start);
-    assert!(request_transmit_optional(&other_target).is_none());
 
     let first_reply = engine.handle(
         frame(
@@ -10181,79 +10184,11 @@ fn raw_single_flight_inquiry_success_quarantines_duplicate_until_exact_expiry() 
     ));
     assert_eq!(
         request_transmit(&first_reply).1,
-        other_target_id,
-        "the same-target hold does not block another camera"
+        successor_id,
+        "a matched reply releases the same-target successor in the same turn"
     );
-    let other_sent = send_ok(&mut engine, &first_reply, None, start);
-    assert!(request_transmit_optional(&other_sent).is_none());
-    let other_reply = engine.handle(
-        frame(
-            2,
-            None,
-            DecodedResponse::InquiryReply {
-                route: Some(FOCUS),
-                payload: smallvec![0x0c],
-            },
-        ),
-        start,
-    );
-    assert!(matches!(
-        terminal_outcome(&other_reply, other_target_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0c]
-    ));
-    assert!(matches!(
-        phase_of(&engine, successor_id),
-        Some(Phase::Ready { .. })
-    ));
-
-    let stale = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::InquiryReply {
-                route: Some(POWER),
-                payload: smallvec![0x0a],
-            },
-        ),
-        start + Duration::from_nanos(1),
-    );
-    assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
-    assert!(terminal_outcome(&stale, successor_id).is_none());
-
-    // Input wins at the deadline: this last A duplicate is ignored while the
-    // tombstone is live, then due work releases B in the same owner turn.
-    let at_expiry = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::InquiryReply {
-                route: Some(POWER),
-                payload: smallvec![0x0a],
-            },
-        ),
-        deadline,
-    );
-    assert_eq!(
-        ignored_reasons(&at_expiry),
-        vec![IgnoreReason::UnmatchedFrame]
-    );
-    let ignored = position_of(&at_expiry, |effect| {
-        matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
-    })
-    .expect("stale A reply is ignored before due work");
-    let transmitted = position_of(&at_expiry, |effect| {
-        matches!(
-            effect,
-            Effect::Transmit {
-                request,
-                kind: Transmission::Request { .. },
-                ..
-            } if *request == successor_id
-        )
-    })
-    .expect("expiry dispatches B");
-    assert!(ignored < transmitted);
-    let successor_sent = send_ok(&mut engine, &at_expiry, None, deadline);
+    assert_eq!(engine.raw_target_tombstones[1], None);
+    let successor_sent = send_ok(&mut engine, &first_reply, None, start);
     assert!(request_transmit_optional(&successor_sent).is_none());
     let successor_reply = engine.handle(
         frame(
@@ -10264,12 +10199,64 @@ fn raw_single_flight_inquiry_success_quarantines_duplicate_until_exact_expiry() 
                 payload: smallvec![0x0b],
             },
         ),
-        deadline + Duration::from_nanos(1),
+        start,
     );
     assert!(matches!(
         terminal_outcome(&successor_reply, successor_id),
         Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
     ));
+    engine.assert_invariants().unwrap();
+}
+
+/// A successful inquiry does not start the urgent command-pacing clock. The
+/// safety command may therefore write immediately, while its write does start
+/// that clock for the next urgent command (#712).
+#[test]
+fn successful_inquiry_does_not_pace_urgent_but_urgent_commands_pace_each_other() {
+    let start = Instant::now();
+    let spacing = Duration::from_millis(100);
+    let mut engine = single_flight_raw_engine();
+    engine.policy.command_spacing = spacing;
+
+    let (inquiry_send, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    send_ok(&mut engine, &inquiry_send, None, start);
+    let reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![0x0a],
+            },
+        ),
+        start,
+    );
+    assert!(terminal_outcome(&reply, inquiry_id).is_some());
+
+    let (first_urgent, first_urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert_eq!(request_transmit(&first_urgent).1, first_urgent_id);
+    send_ok(&mut engine, &first_urgent, None, start);
+
+    let (second_urgent, second_urgent_id) = admit(
+        &mut engine,
+        3,
+        urgent_command(2, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&second_urgent).is_none());
+    assert!(
+        request_transmit_optional(&engine.advance(start + spacing - Duration::from_nanos(1)))
+            .is_none()
+    );
+    assert_eq!(
+        request_transmit(&engine.advance(start + spacing)).1,
+        second_urgent_id
+    );
     engine.assert_invariants().unwrap();
 }
 
@@ -10282,39 +10269,35 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     let start = Instant::now();
     let mut engine = single_flight_raw_engine();
 
-    let (command_send, command_id) = admit(
+    let (inquiry_send, inquiry_id) = admit(
         &mut engine,
         1,
-        command(1, CancellationPolicy::Supported),
+        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
         start,
     );
-    send_ok(&mut engine, &command_send, None, start);
+    send_ok(&mut engine, &inquiry_send, None, start);
+    let timeout_at = start + Duration::from_millis(30);
+    let inquiry_timeout = engine.advance(timeout_at);
+    assert!(matches!(
+        terminal_failure(&inquiry_timeout, inquiry_id),
+        Some(Error::Timeout)
+    ));
+
+    let (command_send, command_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        timeout_at,
+    );
+    send_ok(&mut engine, &command_send, None, timeout_at);
     assert!(matches!(
         phase_of(&engine, command_id),
         Some(Phase::AwaitingAck { .. })
     ));
-
-    let (inquiry_send, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
-    send_ok(&mut engine, &inquiry_send, None, start);
-    let inquiry_done = engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::InquiryReply {
-                route: Some(POWER),
-                payload: smallvec![0x0a],
-            },
-        ),
-        start,
-    );
-    assert!(matches!(
-        terminal_outcome(&inquiry_done, inquiry_id),
-        Some(RuntimeOutcome::Reply { .. })
-    ));
     assert_eq!(
         engine.raw_target_tombstones[1],
         Some(RawTerminalTombstone::inquiry(
-            start + Duration::from_millis(50)
+            timeout_at + Duration::from_millis(50)
         ))
     );
 
@@ -10334,7 +10317,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
             code: 0x01,
         },
     ] {
-        let effects = engine.handle(frame(1, None, stale), start + Duration::from_nanos(1));
+        let effects = engine.handle(frame(1, None, stale), timeout_at + Duration::from_nanos(1));
         assert_eq!(
             ignored_reasons(&effects),
             vec![IgnoreReason::UnmatchedFrame]
@@ -10352,7 +10335,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
                 socket: Some(ViscaSocket::S1),
             },
         ),
-        start + Duration::from_nanos(2),
+        timeout_at + Duration::from_nanos(2),
     );
     assert!(ack.iter().any(|effect| matches!(
         effect,
@@ -10376,7 +10359,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
                 socket: Some(ViscaSocket::S2),
             },
         ),
-        start + Duration::from_nanos(3),
+        timeout_at + Duration::from_nanos(3),
     );
     assert_eq!(
         ignored_reasons(&unowned),
@@ -10388,7 +10371,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     // live command even though the inquiry hold remains active.
     let completed = engine.handle(
         frame(1, None, DecodedResponse::Completion { socket: None }),
-        start + Duration::from_nanos(4),
+        timeout_at + Duration::from_nanos(4),
     );
     assert!(matches!(
         terminal_outcome(&completed, command_id),
@@ -10405,13 +10388,26 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
     let start = Instant::now();
     let setup = || {
         let mut engine = single_flight_raw_engine();
-        let (command_send, command_id) = admit(
+        let (inquiry_send, inquiry_id) = admit(
             &mut engine,
             1,
-            command(1, CancellationPolicy::Supported),
+            inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
             start,
         );
-        send_ok(&mut engine, &command_send, None, start);
+        send_ok(&mut engine, &inquiry_send, None, start);
+        let timeout_at = start + Duration::from_millis(30);
+        let timed_out = engine.advance(timeout_at);
+        assert!(matches!(
+            terminal_failure(&timed_out, inquiry_id),
+            Some(Error::Timeout)
+        ));
+        let (command_send, command_id) = admit(
+            &mut engine,
+            2,
+            command(1, CancellationPolicy::Supported),
+            timeout_at,
+        );
+        send_ok(&mut engine, &command_send, None, timeout_at);
         engine.handle(
             frame(
                 1,
@@ -10420,26 +10416,12 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
                     socket: Some(ViscaSocket::S1),
                 },
             ),
-            start,
+            timeout_at,
         );
-        let (inquiry_send, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
-        send_ok(&mut engine, &inquiry_send, None, start);
-        let inquiry_done = engine.handle(
-            frame(
-                1,
-                None,
-                DecodedResponse::InquiryReply {
-                    route: Some(POWER),
-                    payload: smallvec![0x0a],
-                },
-            ),
-            start,
-        );
-        assert!(terminal_outcome(&inquiry_done, inquiry_id).is_some());
-        (engine, command_id)
+        (engine, command_id, timeout_at)
     };
 
-    let (mut completion_engine, completion_id) = setup();
+    let (mut completion_engine, completion_id, timeout_at) = setup();
     let completion = completion_engine.handle(
         frame(
             1,
@@ -10448,7 +10430,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
                 socket: Some(ViscaSocket::S1),
             },
         ),
-        start + Duration::from_nanos(1),
+        timeout_at + Duration::from_nanos(1),
     );
     assert!(matches!(
         terminal_outcome(&completion, completion_id),
@@ -10456,7 +10438,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
     ));
     completion_engine.assert_invariants().unwrap();
 
-    let (mut error_engine, error_id) = setup();
+    let (mut error_engine, error_id, timeout_at) = setup();
     let error = error_engine.handle(
         frame(
             1,
@@ -10466,7 +10448,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
                 code: 0x01,
             },
         ),
-        start + Duration::from_nanos(1),
+        timeout_at + Duration::from_nanos(1),
     );
     assert_eq!(terminal_id(&error), Some(error_id));
     error_engine.assert_invariants().unwrap();
@@ -10832,6 +10814,77 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
     engine.assert_invariants().unwrap();
 }
 
+/// The uncertainty left by a timed-out raw inquiry is narrow: another
+/// same-target inquiry must wait, but an ACK-bearing safety command can write
+/// immediately and own its ACK while that inquiry hold remains live (#712).
+#[test]
+fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
+    let start = Instant::now();
+    let timeout_at = start + Duration::from_millis(30);
+    let release_at = timeout_at + Duration::from_millis(50);
+    let mut engine = single_flight_raw_engine();
+
+    let (first, first_id) = admit(
+        &mut engine,
+        1,
+        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+        start,
+    );
+    send_ok(&mut engine, &first, None, start);
+    let timed_out = engine.advance(timeout_at);
+    assert!(matches!(
+        terminal_failure(&timed_out, first_id),
+        Some(Error::Timeout)
+    ));
+
+    let (inquiry_effects, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), timeout_at);
+    assert!(request_transmit_optional(&inquiry_effects).is_none());
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let (urgent_effects, urgent_id) = admit(
+        &mut engine,
+        3,
+        urgent_command(1, CancellationPolicy::Supported),
+        timeout_at,
+    );
+    assert_eq!(
+        request_transmit(&urgent_effects).1,
+        urgent_id,
+        "the inquiry-only hold cannot delay an urgent ACK-bearing command"
+    );
+    send_ok(&mut engine, &urgent_effects, None, timeout_at);
+
+    let ack = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        timeout_at + Duration::from_nanos(1),
+    );
+    assert!(ack.iter().any(|effect| matches!(
+        effect,
+        Effect::Transition {
+            id,
+            to: Phase::Executing { socket: ViscaSocket::S1, .. },
+            ..
+        } if *id == urgent_id
+    )));
+    assert!(matches!(
+        phase_of(&engine, successor_id),
+        Some(Phase::Ready { .. })
+    ));
+
+    let released = engine.advance(release_at);
+    assert_eq!(request_transmit(&released).1, successor_id);
+    engine.assert_invariants().unwrap();
+}
+
 /// A raw single-flight inquiry can run out of its admission budget while its
 /// first write is still Sending. That release is physically uncertain just as
 /// an `AwaitingReply` timeout is, so it must retain the target-only hold before
@@ -10991,32 +11044,28 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
 fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
     let start = Instant::now();
     let hold = Duration::from_millis(50);
-    let release_at = start + hold;
+    let timeout_at = start + Duration::from_millis(30);
+    let release_at = timeout_at + hold;
 
     let setup = |budget| {
         let mut engine = single_flight_raw_engine();
-        let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
-        send_ok(&mut engine, &first, None, start);
-        let first_reply = engine.handle(
-            frame(
-                1,
-                None,
-                DecodedResponse::InquiryReply {
-                    route: Some(POWER),
-                    payload: smallvec![0x0a],
-                },
-            ),
+        let (first, first_id) = admit(
+            &mut engine,
+            1,
+            inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
             start,
         );
+        send_ok(&mut engine, &first, None, start);
+        let first_reply = engine.advance(timeout_at);
         assert!(matches!(
-            terminal_outcome(&first_reply, first_id),
-            Some(RuntimeOutcome::Reply { .. })
+            terminal_failure(&first_reply, first_id),
+            Some(Error::Timeout)
         ));
         let (successor, successor_id) = admit(
             &mut engine,
             2,
             inquiry_with_retry(1, ZOOM, immediate_retry_budget(budget)),
-            start,
+            timeout_at,
         );
         assert!(request_transmit_optional(&successor).is_none());
         assert_eq!(

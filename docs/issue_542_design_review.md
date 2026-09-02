@@ -222,11 +222,13 @@ encoding.
    release only that exact target/socket, while pre-ACK or otherwise unowned
    ambiguity remains unkeyed. These scopes remain distinct when simultaneous.
    A terminal `NoReply`/`CompletionOnly` tombstone is instead a broad
-   target-response hold. A raw inquiry terminal hold blocks new same-target
-   response-bearing successor dispatch and filters stale unkeyed inquiry
-   data/reply and socketless-error evidence, while live attributable
-   ACK/completion (including a uniquely attributable socketless completion) and
-   exact named socket terminals remain eligible.
+   target-response hold. A matched raw inquiry reply creates no hold; an
+   uncertain timeout/error/retry release retains only the profile's short
+   reply-skew hold. That narrow scope blocks a new same-target inquiry and
+   filters stale unkeyed inquiry data/reply and socketless-error evidence, while
+   ACK-bearing commands (including `Urgent`), live attributable completion
+   (including a uniquely attributable socketless completion), and exact named
+   socket terminals remain eligible (#712).
 8. A successfully sent raw command is never automatically replayed after an
    ACK, completion, or cancellation ambiguity timeout, or an active retry-budget
    expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` — a

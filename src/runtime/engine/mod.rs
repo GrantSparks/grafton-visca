@@ -134,8 +134,8 @@ impl RawTerminalTombstone {
         self.terminal_deadline.is_some() || self.inquiry_deadline.is_some()
     }
 
-    /// A response-bearing successor must wait until every active scope has
-    /// expired, not merely the earliest one.
+    /// A successor blocked by its applicable scope waits until every such
+    /// deadline has expired, not merely the earliest one.
     fn dispatch_deadline(self) -> Option<Instant> {
         self.terminal_deadline
             .into_iter()
@@ -337,6 +337,7 @@ pub(crate) struct ProtocolEngine {
     next_transmission_order: u64,
     jitter: Jitter,
     last_request_sent: Option<Instant>,
+    last_command_sent: Option<Instant>,
     last_inquiry_sent: Option<Instant>,
     inquiry_cooldown_until: Option<Instant>,
     state: SessionState,
@@ -371,6 +372,7 @@ impl ProtocolEngine {
             next_transmission_order: 0,
             jitter: Jitter::new(),
             last_request_sent: None,
+            last_command_sent: None,
             last_inquiry_sent: None,
             inquiry_cooldown_until: None,
             state: SessionState::Running,
@@ -1161,6 +1163,8 @@ impl ProtocolEngine {
         self.last_request_sent = Some(now);
         if lane == Lane::Inquiry {
             self.last_inquiry_sent = Some(now);
+        } else {
+            self.last_command_sent = Some(now);
         }
         effects.push(Effect::Transmit {
             transmission,
@@ -1209,7 +1213,17 @@ impl ProtocolEngine {
             .policy
             .command_spacing
             .max(entry.request.context().control.minimum_spacing);
-        let mut at = self.last_request_sent.map_or(entry.submitted_at, |last| {
+        // Urgent controls retain command-to-command physical pacing, but an
+        // inquiry does not start their safety-lane clock (#712). Ordinary work
+        // keeps the established session-wide pacing floor.
+        let last_spacing_write = if !entry.request.is_inquiry()
+            && entry.request.context().control.class == ControlClass::Urgent
+        {
+            self.last_command_sent
+        } else {
+            self.last_request_sent
+        };
+        let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
         if entry.request.is_inquiry() {
@@ -1227,7 +1241,7 @@ impl ProtocolEngine {
     /// requests, cancellation does not inherit the request's control-class
     /// minimum spacing; only the shared profile command-spacing floor applies.
     fn cancellation_send_at(&self, entry: &Entry) -> Instant {
-        self.last_request_sent.map_or(entry.submitted_at, |last| {
+        self.last_command_sent.map_or(entry.submitted_at, |last| {
             add_duration(last, self.policy.command_spacing)
         })
     }
@@ -1264,14 +1278,14 @@ impl ProtocolEngine {
             .count()
     }
 
-    /// Whether a released raw response correlation still prevents later
-    /// response-bearing work from starting on `target`.
+    /// Whether any released raw response correlation remains on `target`.
     ///
     /// `NoReply` and `CompletionOnly` never establish a socket identity, and
     /// raw inquiry replies carry no request identity. A delayed raw frame is
     /// therefore indistinguishable from the same frame for new work. The only
     /// evidence-safe action is to hold that target's correlation lane for the
     /// bounded tombstone interval.
+    #[cfg(feature = "blocking")]
     fn raw_target_correlation_quarantined(&self, target: CameraId) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.raw_target_tombstones[target.id() as usize]
@@ -1281,14 +1295,25 @@ impl ProtocolEngine {
     /// Whether a target terminal tombstone prevents this ready request from
     /// dispatching.
     ///
-    /// A successor that expects a response would make delayed terminal traffic
-    /// ambiguous, including an inquiry whose socketless error has no
-    /// command/inquiry discriminator. A second `NoReply` consumes no response
-    /// at all, so it can safely write and extend the same fixed hold.
+    /// A broad uncorrelatable-command tombstone blocks response-bearing work;
+    /// the narrow inquiry skew blocks only another inquiry. A second `NoReply`
+    /// consumes no response at all, so it can safely write and extend a broad
+    /// hold.
     fn raw_tombstone_blocks_dispatch(&self, entry: &Entry, target: CameraId) -> bool {
-        self.raw_target_correlation_quarantined(target)
-            && (entry.request.is_inquiry()
-                || entry.request.context().reply_shape != ReplyShape::NoReply)
+        if self.policy.envelope != EnvelopeKind::Raw {
+            return false;
+        }
+        let Some(tombstone) = self.raw_target_tombstones[target.id() as usize] else {
+            return false;
+        };
+        if tombstone.terminal_deadline.is_some() {
+            return entry.request.is_inquiry()
+                || entry.request.context().reply_shape != ReplyShape::NoReply;
+        }
+        // A late inquiry reply has only target/data correlation. It can bind
+        // to a later inquiry, but it cannot be mistaken for the ACK of an
+        // ordinary or urgent command (#712).
+        tombstone.inquiry_deadline.is_some() && entry.request.is_inquiry()
     }
 
     /// The deterministic release time for a ready request blocked only by a
@@ -2129,7 +2154,7 @@ impl ProtocolEngine {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    self.inquiry_reply(id, route, payload, now, effects);
+                    self.inquiry_reply(id, route, payload, effects);
                 }
             }
             DecodedResponse::Error { socket, code } => {
@@ -2652,18 +2677,16 @@ impl ProtocolEngine {
         extend_tombstone(&mut self.raw_target_tombstones[target_index], tombstone);
     }
 
-    /// Retains one bounded raw inquiry hold before its target-only reply
-    /// correlation is released or becomes uncertain while its write is still
-    /// pending in the raw single-flight topology. A raw reply has no request
-    /// identity, so the hold is deliberately a bounded ambiguity policy rather
-    /// than a claim of permanent identity: stale or duplicate frames are inert
-    /// until expiry, then a queued successor may acquire the lane. This
-    /// helper's single-flight precondition is intentional: a wider raw FIFO is
-    /// *not* protected by this hold, because it cannot distinguish a duplicate
-    /// from an already-live next inquiry. Production raw owners enter this
-    /// engine through the adapter with `inquiry_capacity == 1`.
+    /// Retains one bounded raw inquiry hold when timeout, error, or retry
+    /// release leaves a late target-only reply possible. A matched reply never
+    /// enters this path (#712). The hold is a bounded ambiguity policy rather
+    /// than a claim of permanent identity: stale frames are inert until expiry,
+    /// then a queued inquiry may acquire the lane. This helper's single-flight
+    /// precondition is intentional: a wider raw FIFO cannot distinguish a late
+    /// reply from an already-live next inquiry. Production raw owners enter
+    /// this engine through the adapter with `inquiry_capacity == 1`.
     fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
-        let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
+        let Some(target) = self.entries.get(&id).and_then(|entry| {
             (self.policy.envelope == EnvelopeKind::Raw
                 && self.policy.inquiry_capacity == 1
                 && entry.request.is_inquiry()
@@ -2671,16 +2694,13 @@ impl ProtocolEngine {
                     entry.phase,
                     Phase::Sending { .. } | Phase::AwaitingReply { .. }
                 ))
-            .then_some((
-                entry.request.context().target,
-                entry.request.context().timeout.ambiguity,
-            ))
+            .then_some(entry.request.context().target)
         }) else {
             return;
         };
         extend_tombstone(
             &mut self.raw_target_tombstones[target.id() as usize],
-            RawTerminalTombstone::inquiry(add_duration(now, ambiguity)),
+            RawTerminalTombstone::inquiry(add_duration(now, self.policy.raw_inquiry_release_hold)),
         );
     }
 
@@ -2689,7 +2709,6 @@ impl ProtocolEngine {
         id: RequestId,
         route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
-        now: Instant,
         effects: &mut Vec<Effect>,
     ) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
@@ -2699,7 +2718,6 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        self.quarantine_raw_inquiry_correlation(id, now);
         self.finish(id, RuntimeOutcome::Reply { route, payload }, effects);
     }
 
@@ -2765,9 +2783,9 @@ impl ProtocolEngine {
         let retryable = correlation_kind == CorrelationKind::Request
             && self.camera_error_retryable(entry, code);
         let error = Error::from_code(code);
-        // A raw inquiry error releases the same target-only reply evidence as
-        // a successful reply. Retain the bounded hold before a retry or a
-        // terminal failure can expose a successor to that stale frame class.
+        // A raw inquiry error can race a late data reply. Retain the bounded
+        // inquiry-only skew before a retry or terminal failure exposes another
+        // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
         if retryable {
             if cancellation_active {
@@ -2991,6 +3009,7 @@ impl ProtocolEngine {
             },
         });
         self.last_request_sent = Some(now);
+        self.last_command_sent = Some(now);
     }
 
     fn schedule_retry(
@@ -4662,6 +4681,7 @@ mod cancellation_regression_tests {
             command_spacing,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_millis(50),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         }

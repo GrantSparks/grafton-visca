@@ -3350,6 +3350,7 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                raw_inquiry_release_hold: Duration::from_secs(1),
                 raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
@@ -3371,6 +3372,7 @@ mod tests {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_secs(1),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };

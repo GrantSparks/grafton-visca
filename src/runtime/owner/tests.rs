@@ -17,6 +17,7 @@ fn policy_for_target_validation() -> ProtocolPolicy {
         command_spacing: Duration::ZERO,
         inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
+        raw_inquiry_release_hold: Duration::ZERO,
         raw_release_grace: Duration::from_millis(100),
         strict_unconfirmed_poison: false,
     }
@@ -223,6 +224,7 @@ mod blocking {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_millis(10),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
@@ -292,6 +294,19 @@ mod blocking {
         }
     }
 
+    fn raw_inquiry_with_immediate_timeout(
+        target: CameraId,
+        route: InquiryRoute,
+        total_budget: Duration,
+    ) -> RuntimeRequest {
+        let mut request = raw_inquiry(target, route, total_budget);
+        let RuntimeRequest::Inquiry { context, .. } = &mut request else {
+            unreachable!("raw_inquiry always constructs an inquiry");
+        };
+        context.timeout.inquiry = Duration::ZERO;
+        request
+    }
+
     fn frame(target: CameraId, response: DecodedResponse) -> DecodedFrame {
         DecodedFrame {
             target,
@@ -323,36 +338,28 @@ mod blocking {
     ) -> (BlockingOwner, FakeDriver, Instant) {
         let mut owner_policy = policy(4, transport);
         owner_policy.protocol.inquiry_capacity = 1;
+        owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let mut driver = FakeDriver::default();
-        let mut first_request = raw_inquiry(CameraId::CAMERA_1, route, Duration::from_secs(1));
-        if let RuntimeRequest::Inquiry { context, .. } = &mut first_request {
-            context.timeout.ambiguity = ambiguity;
-        }
         let first = owner
-            .submit(&mut driver, first_request)
-            .expect("first raw inquiry writes");
-        owner
-            .inject_frame(
+            .submit(
                 &mut driver,
-                frame(
+                raw_inquiry_with_immediate_timeout(
                     CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(route),
-                        payload: smallvec::smallvec![0x0c],
-                    },
+                    route,
+                    Duration::from_secs(1),
                 ),
-                Instant::now(),
             )
-            .expect("first inquiry completes into its raw tombstone");
+            .expect("first raw inquiry writes");
+        owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
         let hold_until = owner
             .state()
             .next_wake()
-            .expect("terminal raw inquiry retains a target tombstone");
+            .expect("timed-out raw inquiry retains a target tombstone");
         (owner, driver, hold_until)
     }
 
@@ -1037,30 +1044,22 @@ mod blocking {
         let first = owner
             .submit(
                 &mut driver,
-                raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1)),
+                raw_inquiry_with_immediate_timeout(
+                    CameraId::CAMERA_1,
+                    first_route,
+                    Duration::from_secs(1),
+                ),
             )
             .expect("first raw inquiry writes");
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(first_route),
-                        payload: smallvec::smallvec![0x01],
-                    },
-                ),
-                Instant::now(),
-            )
-            .expect("first raw inquiry completes into its target tombstone");
+        owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
         let hold_until = owner
             .state()
             .next_wake()
-            .expect("the terminal raw inquiry leaves its target hold");
+            .expect("the timed-out raw inquiry leaves its target hold");
 
         let mut reader = TombstoneWaitReader::default();
         let mut decoder = EmptyDecoder;
@@ -1112,34 +1111,22 @@ mod blocking {
         let predecessor = owner
             .submit(
                 &mut driver,
-                raw_inquiry(
+                raw_inquiry_with_immediate_timeout(
                     CameraId::CAMERA_1,
                     predecessor_route,
                     Duration::from_secs(1),
                 ),
             )
             .expect("predecessor raw inquiry writes");
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(predecessor_route),
-                        payload: smallvec::smallvec![0x01],
-                    },
-                ),
-                Instant::now(),
-            )
-            .expect("predecessor reply leaves its target tombstone");
+        owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             predecessor.terminal(),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
         let hold_until = owner
             .state()
             .next_wake()
-            .expect("the terminal raw inquiry leaves its target hold");
+            .expect("the timed-out raw inquiry leaves its target hold");
 
         let error = owner
             .submit(
@@ -1164,17 +1151,6 @@ mod blocking {
             permit_capacity,
             "the successor returns its admission permit"
         );
-
-        // `RequireFirstWrite` reaches the same failed-wait branch. Keep its
-        // established terminal cleanup alongside the QueueAllowed regression.
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let require_first_write_error = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .expect_err("an unwritten operation also fails closed at the raw tombstone");
-        assert!(matches!(require_first_write_error, Error::TransportBusy));
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), permit_capacity);
 
         owner.wake(&mut driver, hold_until).unwrap();
         assert_eq!(
@@ -1201,25 +1177,17 @@ mod blocking {
         let first = owner
             .submit(
                 &mut driver,
-                raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1)),
+                raw_inquiry_with_immediate_timeout(
+                    CameraId::CAMERA_1,
+                    first_route,
+                    Duration::from_secs(1),
+                ),
             )
             .expect("first raw inquiry writes");
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(first_route),
-                        payload: smallvec::smallvec![0x0a],
-                    },
-                ),
-                Instant::now(),
-            )
-            .expect("first raw inquiry completes into its target tombstone");
+        owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
         let mut other_target = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
@@ -1300,39 +1268,30 @@ mod blocking {
     fn pumped_stream_raw_tombstone_consumes_fragmented_stale_input_before_successor_write() {
         let mut owner_policy = policy(4, TransportKind::Stream);
         owner_policy.protocol.inquiry_capacity = 1;
+        owner_policy.protocol.raw_inquiry_release_hold = Duration::from_millis(100);
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let mut driver = FakeDriver::default();
         let first_route = InquiryRoute(0x53);
         let successor_route = InquiryRoute(0x54);
-        let mut first_request =
-            raw_inquiry(CameraId::CAMERA_1, first_route, Duration::from_secs(1));
-        if let RuntimeRequest::Inquiry { context, .. } = &mut first_request {
-            context.timeout.ambiguity = Duration::from_millis(100);
-        }
         let first = owner
-            .submit(&mut driver, first_request)
-            .expect("first raw inquiry writes");
-        owner
-            .inject_frame(
+            .submit(
                 &mut driver,
-                frame(
+                raw_inquiry_with_immediate_timeout(
                     CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(first_route),
-                        payload: smallvec::smallvec![0x0c],
-                    },
+                    first_route,
+                    Duration::from_secs(1),
                 ),
-                Instant::now(),
             )
-            .expect("first raw inquiry completes into its target tombstone");
+            .expect("first raw inquiry writes");
+        owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
         let hold_until = owner
             .state()
             .next_wake()
-            .expect("the terminal raw inquiry leaves its target hold");
+            .expect("the timed-out raw inquiry leaves its target hold");
 
         let mut reader = FragmentedTombstoneWaitReader::default();
         let mut decoder = FragmentTrackingDecoder::new([
@@ -5674,6 +5633,7 @@ mod metrics {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_millis(10),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
@@ -6245,6 +6205,7 @@ mod lifecycle_trace {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_millis(10),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };

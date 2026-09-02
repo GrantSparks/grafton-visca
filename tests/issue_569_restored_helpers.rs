@@ -12,7 +12,7 @@ mod profile_fixtures;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use grafton_visca::{
@@ -462,10 +462,41 @@ fn no_argument_is_moving_samples_every_mechanical_movement_axis() {
     session.shutdown().expect("shutdown");
 }
 
+/// #712: matched raw inquiry replies do not create a one-second dispatch hold.
+/// PtzOpticsG2's 150 ms physical inquiry spacing still permits sustained
+/// polling above 5 Hz, and it never delays an urgent stop command.
+#[test]
+fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
+    let (session, writes) = ptz_session();
+    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+
+    let polling_started = Instant::now();
+    for _ in 0..6 {
+        camera.zoom().position().expect("raw zoom position reply");
+    }
+    let polling_elapsed = polling_started.elapsed();
+    assert!(
+        polling_elapsed <= Duration::from_millis(1_200),
+        "six replies exceeded the 5 Hz floor: {polling_elapsed:?}"
+    );
+
+    let stop_started = Instant::now();
+    let stop = camera.zoom().stop().expect("urgent stop reaches the wire");
+    let stop_latency = stop_started.elapsed();
+    assert!(
+        stop_latency < Duration::from_millis(50),
+        "matched inquiry delayed urgent stop by {stop_latency:?}"
+    );
+    stop.applied().expect("urgent stop applies");
+
+    assert_eq!(drain(&writes).len(), 7);
+    session.shutdown().expect("shutdown");
+}
+
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
-    let (session, writes) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+    let (session, writes) = ptz_session();
+    let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
     camera
         .motion()

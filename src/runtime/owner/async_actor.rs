@@ -3500,6 +3500,7 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                raw_inquiry_release_hold: Duration::from_secs(1),
                 raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
@@ -3546,6 +3547,7 @@ mod tests {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_secs(1),
             raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
@@ -3638,6 +3640,19 @@ mod tests {
 
     fn inquiry() -> RuntimeRequest {
         inquiry_for(CameraId::CAMERA_1)
+    }
+
+    /// An inquiry whose successful write immediately reaches its response
+    /// deadline. Boundary tests use this to create the genuine late-reply
+    /// hold that remains after timeout (#712).
+    #[cfg(feature = "runtime-tokio")]
+    fn timed_out_inquiry() -> RuntimeRequest {
+        let mut request = inquiry();
+        let RuntimeRequest::Inquiry { context, .. } = &mut request else {
+            unreachable!("inquiry helper always constructs an inquiry");
+        };
+        context.timeout.inquiry = Duration::ZERO;
+        request
     }
 
     fn inquiry_for(target: CameraId) -> RuntimeRequest {
@@ -5588,17 +5603,11 @@ mod tests {
         handle: &AsyncOwnerHandle,
         harness: &RawReleaseProbeHarness,
     ) -> ReceiptCore {
-        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-        harness
-            .reads
-            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
-            .await
-            .unwrap();
-        harness.reads_observed.recv_async().await.unwrap();
         assert!(matches!(
             predecessor.terminal().await.unwrap(),
-            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+            RuntimeOutcome::Failed(Error::Timeout)
         ));
 
         let successor = handle.submit(inquiry()).await.unwrap();
@@ -5895,17 +5904,11 @@ mod tests {
         let mut harness = parked_write_raw_release_harness();
         let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
 
-        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-        harness
-            .reads
-            .send_async(RawReleaseProbeRead::Complete(raw_inquiry_reply(0xa1)))
-            .await
-            .unwrap();
-        harness.reads_observed.recv_async().await.unwrap();
         assert!(matches!(
             predecessor.terminal().await.unwrap(),
-            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+            RuntimeOutcome::Failed(Error::Timeout)
         ));
 
         let successor = handle.submit(inquiry()).await.unwrap();
@@ -6207,16 +6210,11 @@ mod tests {
         handle: &AsyncOwnerHandle,
         harness: &BoundaryStreamHarness,
     ) -> ReceiptCore {
-        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-        harness
-            .reads
-            .send_async(BoundaryStreamRead::Complete(raw_inquiry_reply(0xa1)))
-            .await
-            .unwrap();
         assert!(matches!(
             predecessor.terminal().await.unwrap(),
-            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+            RuntimeOutcome::Failed(Error::Timeout)
         ));
 
         let successor = handle.submit(inquiry()).await.unwrap();
@@ -6564,37 +6562,23 @@ mod tests {
         // grace deadline rather than discarding immediately.
         driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
-        // Admit and finish A, which installs A's inquiry tombstone. B remains
-        // queued behind it.
-        let (a_completion, a_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        // A times out after its successful write, which installs the genuine
+        // late-reply hold retained by #712. B remains queued behind it.
+        let (a_completion, a_admitted) =
+            handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
         let a_boundary = actor.admissions.try_recv().unwrap();
         actor
             .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a);
-        let now = Executor::now(&runtime);
-        assert!(matches!(
-            actor
-                .handle_event(
-                    ActorEvent::Receive {
-                        result: batch(vec![raw_inquiry_reply(0xa1)]),
-                        received_at: now,
-                    },
-                    &mut driver,
-                    &runtime,
-                    Executor::now(&runtime),
-                    false,
-                )
-                .await,
-            TurnOutcome::Continue
-        ));
         assert!(matches!(
             a_completion.recv_async().await.unwrap(),
-            ReceiptObservation::Terminal(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
-        let (b_completion, b_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+        let (b_completion, b_admitted) =
+            handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
         let b_boundary = actor.admissions.try_recv().unwrap();
         actor
             .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
@@ -6642,25 +6626,12 @@ mod tests {
         assert!(actor.raw_release_wait_until.is_none());
         assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
 
-        // Finish B and create its own tombstone. C now waits behind that new
-        // hold. It must receive a fresh grace budget rather than inheriting the
-        // completed predecessor's deadline.
-        let now = Executor::now(&runtime);
-        let _ = actor
-            .handle_event(
-                ActorEvent::Receive {
-                    result: batch(vec![raw_inquiry_reply(0xb2)]),
-                    received_at: now,
-                },
-                &mut driver,
-                &runtime,
-                Executor::now(&runtime),
-                false,
-            )
-            .await;
+        // B's zero-length response deadline creates its own timeout hold as
+        // soon as that dispatch succeeds. C waits behind the new hold and must
+        // receive a fresh grace budget rather than inheriting A's deadline.
         assert!(matches!(
             b_completion.recv_async().await.unwrap(),
-            ReceiptObservation::Terminal(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
         let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
@@ -6734,18 +6705,15 @@ mod tests {
         .unwrap();
         let mut actor_policy = adapter.policy().clone();
         actor_policy.limits.frames_per_receive = 1;
+        actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
         let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
         let actor_task = tokio::spawn(actor.run(adapter));
 
-        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         let _ = sent_rx.recv_async().await.unwrap();
-        chunk_tx
-            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
-            .await
-            .unwrap();
         assert!(matches!(
             predecessor.terminal().await.unwrap(),
-            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+            RuntimeOutcome::Failed(Error::Timeout)
         ));
 
         let successor = handle.submit(inquiry()).await.unwrap();
@@ -6799,18 +6767,15 @@ mod tests {
             .unwrap();
             let mut actor_policy = adapter.policy().clone();
             actor_policy.limits.frames_per_receive = 1;
+            actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
             let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
             let actor_task = tokio::spawn(actor.run(adapter));
 
-            let predecessor = handle.submit(inquiry()).await.unwrap();
+            let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
             let _ = sent_rx.recv_async().await.unwrap();
-            chunk_tx
-                .send_async(vec![0x90, 0x50, 0xa1, 0xff])
-                .await
-                .unwrap();
             assert!(matches!(
                 predecessor.terminal().await.unwrap(),
-                RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+                RuntimeOutcome::Failed(Error::Timeout)
             ));
             let successor = handle.submit(inquiry()).await.unwrap();
             assert!(sent_rx.try_recv().is_err());
@@ -7231,16 +7196,16 @@ mod tests {
         .unwrap();
         let mut actor_policy = adapter.policy().clone();
         actor_policy.limits.frames_per_receive = 1;
+        actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
         let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
         let actor_task = tokio::spawn(actor.run(adapter));
 
-        let predecessor = handle.submit(inquiry()).await.unwrap();
+        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
         let _ = sent_rx.recv_async().await.unwrap();
-        chunk_tx
-            .send_async(vec![0x90, 0x50, 0xa1, 0xff])
-            .await
-            .unwrap();
-        let _ = predecessor.terminal().await.unwrap();
+        assert!(matches!(
+            predecessor.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::Timeout)
+        ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
 

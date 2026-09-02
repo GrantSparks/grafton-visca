@@ -69,11 +69,12 @@ lifecycle.
 
 Timeout policy has one ownership boundary. A validated profile owns its exact
 `CommandTimeouts` category table and its inquiry, acknowledgement,
-cancellation, ambiguity, busy, and pacing facts. `OperationalTuning` contains
-only validated per-category or per-fact overrides; it is not a second profile
-or transport policy. Pure request preparation selects one response deadline —
-the inquiry deadline for an inquiry, otherwise the request's exact command
-category — and lowers it with the acknowledgement, cancellation, ambiguity,
+cancellation, ambiguity, raw inquiry-reply skew, busy, and pacing facts.
+`OperationalTuning` contains only validated per-category or per-fact overrides;
+it is not a second profile or transport policy. Pure request preparation
+selects one response deadline — the inquiry deadline for an inquiry, otherwise
+the request's exact command category — and lowers it with the acknowledgement,
+cancellation, ambiguity,
 and retry policy into an inert request context. The owner/engine consumes that
 context without reselecting or inventing a deadline. `TransportConfig` carries
 socket/serial behavior only and does not own protocol retry or completion
@@ -347,18 +348,19 @@ transition functions in `src/runtime/engine/mod.rs` and describe the settled
 post-#671 behavior, not an aspirational one.
 
 Raw inquiry replies have no wire identity. The production Raw adapter therefore
-uses one live inquiry per target. Whenever that inquiry releases its response
-correlation — after a reply, a terminal error or timeout, or before a retry is
-requeued — the engine retains a target-local ambiguity hold for the profile's
-ambiguity timeout. It blocks same-target response-bearing successor dispatch
-and filters stale unkeyed inquiry data/reply and socketless-error evidence,
-while live attributable ACK/completion (including a uniquely attributable
-socketless completion) and exact named socket terminals remain eligible. This
-is deliberately a single-flight production rule: a wider raw FIFO cannot
-distinguish a duplicate from the already-live next inquiry. At the exact hold
-deadline complete input is correlated first; the byte-stream ambiguity rule
-above governs any retained prefix before the due pass releases a successor.
-Other targets and no-reply work remain independently eligible.
+uses one live inquiry per target. A matched reply exhausts that inquiry's
+response and releases the lane immediately, with no tombstone. Only an
+uncertain release — terminal error/timeout or retry release/requeue — retains a
+target-local hold for the profile's `raw_inquiry_reply_skew`, which is validated
+at no more than its minimum inquiry spacing. That narrow hold blocks only a
+same-target inquiry; ACK-bearing commands, including `Urgent` stops, remain
+eligible and their ACK/completion evidence is still routed normally. It filters
+stale unkeyed inquiry data/reply and socketless-error evidence while live
+attributable ACK/completion (including a uniquely attributable socketless
+completion) and exact named socket terminals remain eligible. At the exact
+skew deadline complete input is correlated first; the byte-stream ambiguity
+rule above governs retained input before the due pass releases a successor.
+Other targets and all command work remain independently eligible (#712).
 
 ### Protocol phases
 
@@ -404,9 +406,9 @@ Other targets and no-reply work remain independently eligible.
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing` | `finish` with `RuntimeOutcome::Applied`; a retained cancellation observer maps this to `Completed`. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. Retain the bounded broad target-response tombstone before same-target raw response-bearing command or inquiry work starts; a later `NoReply` may only extend that fixed hold. |
-| Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. A production single-flight Raw inquiry first retains its target's response correlation through the ambiguity deadline. |
-| Raw inquiry response-correlation release | A reply, terminal error/timeout, or retry release/requeue retains a hold before same-target response-bearing successor work may send. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. |
-| Raw inquiry frame at exact ambiguity expiry | Complete input wins over the due pass. Stale unkeyed inquiry data/reply and socketless-error evidence remain filtered, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. Retained partial-byte ambiguity drains input first and fails closed if it cannot resolve within the bounded turn limit. |
+| Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. A matched Raw reply installs no tombstone and releases the single-flight lane immediately (#712). |
+| Uncertain Raw inquiry response-correlation release | A terminal error/timeout or retry release/requeue retains the profile's short `raw_inquiry_reply_skew` before another same-target inquiry may send. ACK-bearing commands, including `Urgent`, are never gated by this inquiry-only hold. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible (#712). |
+| Raw inquiry frame at exact reply-skew expiry | Complete input wins over the due pass. Stale unkeyed inquiry data/reply and socketless-error evidence remain filtered, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. Retained partial-byte ambiguity follows the engine-owned time grace before an orphan is discarded (#713). |
 | Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
 | Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
 | `0x04` command-cancelled terminal | `finish` with `Cancelled`. |
@@ -483,10 +485,11 @@ traffic (`Background`, `Normal`, or `User`). The public QoS type has no urgent
 variant, and both override forms preserve an intrinsically urgent request.
 Within each effective class the owner retains admission order; class selection
 only chooses the next eligible queued write and never interrupts in-flight I/O.
-Urgency bypasses ordinary admission backlog, not the target's physical pacing
-floor. Owner-issued socket cancellation is selected before ordinary ready work
-when eligible, but is transmitted only after the shared command-spacing
-deadline and itself advances that deadline.
+Urgency bypasses ordinary admission backlog, not command-to-command physical
+pacing. A preceding inquiry does not start the urgent command clock (#712).
+Owner-issued socket cancellation is selected before ordinary ready work when
+eligible, but is transmitted only after the preceding command/cancellation's
+command-spacing deadline and itself advances that deadline.
 
 The async actor expresses simultaneous readiness as deterministic,
 progress-sensitive phases rather than a randomized race or a history

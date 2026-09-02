@@ -586,6 +586,17 @@ configured read timeout), then discard and diagnose an orphaned prefix while
 leaving the session usable. `StreamPoisoned` remains reserved for an
 unrecoverable stream position, such as overflow or a failed discard.
 
+**Behavior change (issue #712).** A matched raw inquiry reply now releases its
+single-flight lane immediately; it no longer installs the profile's one-second
+pre-ACK ambiguity hold or delays an urgent stop. Only inquiry timeout, terminal
+error, or retry release can retain a late reply. That remaining hold uses the
+new `ProfileTiming::raw_inquiry_reply_skew` fact (required by
+`ProfileTimingBuilder`, defaulted by compile-time profiles to no more than their
+minimum inquiry spacing) and blocks only another inquiry for the same target.
+ACK-bearing commands remain eligible. An inquiry also no longer starts the
+urgent command-spacing clock, while consecutive commands and cancellations
+still honor physical command pacing.
+
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
 reserved for a stream whose framing or write position became unknowable (for
