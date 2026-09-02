@@ -4124,8 +4124,6 @@ impl core::clone::Clone for grafton_visca::capabilities::ValidationError
 pub fn grafton_visca::capabilities::ValidationError::clone(&self) -> grafton_visca::capabilities::ValidationError
 impl core::cmp::PartialEq for grafton_visca::capabilities::ValidationError
 pub fn grafton_visca::capabilities::ValidationError::eq(&self, &grafton_visca::capabilities::ValidationError) -> bool
-impl core::convert::From<grafton_visca::capabilities::ValidationError> for grafton_visca::Error
-pub fn grafton_visca::Error::from(grafton_visca::capabilities::ValidationError) -> Self
 impl core::error::Error for grafton_visca::capabilities::ValidationError
 impl core::fmt::Debug for grafton_visca::capabilities::ValidationError
 pub fn grafton_visca::capabilities::ValidationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -13808,21 +13806,11 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AutoWhiteB
 pub grafton_visca::prelude::async::Error::BufferTooSmall
 pub grafton_visca::prelude::async::Error::BufferTooSmall::actual: usize
 pub grafton_visca::prelude::async::Error::BufferTooSmall::required: usize
-pub grafton_visca::prelude::async::Error::CameraBusy
-pub grafton_visca::prelude::async::Error::CameraMoving
-pub grafton_visca::prelude::async::Error::CameraMoving::pan: i32
-pub grafton_visca::prelude::async::Error::CameraMoving::tilt: i32
-pub grafton_visca::prelude::async::Error::CameraNotReady
 pub grafton_visca::prelude::async::Error::CancellationUnconfirmed
 pub grafton_visca::prelude::async::Error::CommandBufferFull
 pub grafton_visca::prelude::async::Error::CommandCanceled
 pub grafton_visca::prelude::async::Error::CommandNotExecutable
 pub grafton_visca::prelude::async::Error::CommandPending
-pub grafton_visca::prelude::async::Error::CommandRejected
-pub grafton_visca::prelude::async::Error::CommandRejected::reason: alloc::borrow::Cow<'static, str>
-pub grafton_visca::prelude::async::Error::CommandTimeout
-pub grafton_visca::prelude::async::Error::CommandTimeout::command: alloc::borrow::Cow<'static, str>
-pub grafton_visca::prelude::async::Error::CommandTimeout::duration: core::time::Duration
 pub grafton_visca::prelude::async::Error::ConnectionClosed
 pub grafton_visca::prelude::async::Error::ConnectionClosed::reason: core::option::Option<alloc::borrow::Cow<'static, str>>
 pub grafton_visca::prelude::async::Error::ConnectionFailed
@@ -13859,7 +13847,6 @@ pub grafton_visca::prelude::async::Error::Io(alloc::sync::Arc<core::io::error::E
 pub grafton_visca::prelude::async::Error::MaxRetriesExceeded
 pub grafton_visca::prelude::async::Error::MessageLengthError
 pub grafton_visca::prelude::async::Error::MissingRuntime
-pub grafton_visca::prelude::async::Error::NoResponse
 pub grafton_visca::prelude::async::Error::NoSocket
 pub grafton_visca::prelude::async::Error::NotSupported
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange
@@ -13868,8 +13855,6 @@ pub grafton_visca::prelude::async::Error::ParameterOutOfRange::min: i32
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange::parameter: &'static str
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::prelude::async::Error::ParseError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::prelude::async::Error::PresetNotFound
-pub grafton_visca::prelude::async::Error::PresetNotFound::id: u8
 pub grafton_visca::prelude::async::Error::ResponseTooLarge
 pub grafton_visca::prelude::async::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::prelude::async::Error::RuntimeIdentityExhausted
@@ -13884,14 +13869,10 @@ pub grafton_visca::prelude::async::Error::TransportBusy
 pub grafton_visca::prelude::async::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::async::Error::UnexpectedResponseType
 pub grafton_visca::prelude::async::Error::Unknown(u8)
-pub grafton_visca::prelude::async::Error::UnknownResponseKind
-pub grafton_visca::prelude::async::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
-pub grafton_visca::prelude::async::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::async::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::prelude::async::Error::UnsupportedTransport
 pub grafton_visca::prelude::async::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::prelude::async::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
-pub grafton_visca::prelude::async::Error::ValidationError(grafton_visca::capabilities::ValidationError)
 pub grafton_visca::prelude::async::Error::WithContext
 pub grafton_visca::prelude::async::Error::WithContext::context: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::async::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
@@ -13910,8 +13891,6 @@ impl core::convert::From<core::io::error::Error> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::io::error::Error) -> Self
 impl core::convert::From<grafton_visca::ExecError> for grafton_visca::Error
 pub fn grafton_visca::Error::from(grafton_visca::ExecError) -> Self
-impl core::convert::From<grafton_visca::capabilities::ValidationError> for grafton_visca::Error
-pub fn grafton_visca::Error::from(grafton_visca::capabilities::ValidationError) -> Self
 impl core::convert::From<never> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::convert::Infallible) -> Self
 impl core::convert::From<nom::internal::Err<nom::error::Error<&[u8]>>> for grafton_visca::Error
@@ -18037,21 +18016,11 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AutoWhiteB
 pub grafton_visca::prelude::blocking::Error::BufferTooSmall
 pub grafton_visca::prelude::blocking::Error::BufferTooSmall::actual: usize
 pub grafton_visca::prelude::blocking::Error::BufferTooSmall::required: usize
-pub grafton_visca::prelude::blocking::Error::CameraBusy
-pub grafton_visca::prelude::blocking::Error::CameraMoving
-pub grafton_visca::prelude::blocking::Error::CameraMoving::pan: i32
-pub grafton_visca::prelude::blocking::Error::CameraMoving::tilt: i32
-pub grafton_visca::prelude::blocking::Error::CameraNotReady
 pub grafton_visca::prelude::blocking::Error::CancellationUnconfirmed
 pub grafton_visca::prelude::blocking::Error::CommandBufferFull
 pub grafton_visca::prelude::blocking::Error::CommandCanceled
 pub grafton_visca::prelude::blocking::Error::CommandNotExecutable
 pub grafton_visca::prelude::blocking::Error::CommandPending
-pub grafton_visca::prelude::blocking::Error::CommandRejected
-pub grafton_visca::prelude::blocking::Error::CommandRejected::reason: alloc::borrow::Cow<'static, str>
-pub grafton_visca::prelude::blocking::Error::CommandTimeout
-pub grafton_visca::prelude::blocking::Error::CommandTimeout::command: alloc::borrow::Cow<'static, str>
-pub grafton_visca::prelude::blocking::Error::CommandTimeout::duration: core::time::Duration
 pub grafton_visca::prelude::blocking::Error::ConnectionClosed
 pub grafton_visca::prelude::blocking::Error::ConnectionClosed::reason: core::option::Option<alloc::borrow::Cow<'static, str>>
 pub grafton_visca::prelude::blocking::Error::ConnectionFailed
@@ -18088,7 +18057,6 @@ pub grafton_visca::prelude::blocking::Error::Io(alloc::sync::Arc<core::io::error
 pub grafton_visca::prelude::blocking::Error::MaxRetriesExceeded
 pub grafton_visca::prelude::blocking::Error::MessageLengthError
 pub grafton_visca::prelude::blocking::Error::MissingRuntime
-pub grafton_visca::prelude::blocking::Error::NoResponse
 pub grafton_visca::prelude::blocking::Error::NoSocket
 pub grafton_visca::prelude::blocking::Error::NotSupported
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange
@@ -18097,8 +18065,6 @@ pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::min: i32
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::parameter: &'static str
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::prelude::blocking::Error::ParseError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::prelude::blocking::Error::PresetNotFound
-pub grafton_visca::prelude::blocking::Error::PresetNotFound::id: u8
 pub grafton_visca::prelude::blocking::Error::ResponseTooLarge
 pub grafton_visca::prelude::blocking::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::prelude::blocking::Error::RuntimeIdentityExhausted
@@ -18113,14 +18079,10 @@ pub grafton_visca::prelude::blocking::Error::TransportBusy
 pub grafton_visca::prelude::blocking::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::blocking::Error::UnexpectedResponseType
 pub grafton_visca::prelude::blocking::Error::Unknown(u8)
-pub grafton_visca::prelude::blocking::Error::UnknownResponseKind
-pub grafton_visca::prelude::blocking::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
-pub grafton_visca::prelude::blocking::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::blocking::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::prelude::blocking::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
-pub grafton_visca::prelude::blocking::Error::ValidationError(grafton_visca::capabilities::ValidationError)
 pub grafton_visca::prelude::blocking::Error::WithContext
 pub grafton_visca::prelude::blocking::Error::WithContext::context: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::blocking::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
@@ -18139,8 +18101,6 @@ impl core::convert::From<core::io::error::Error> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::io::error::Error) -> Self
 impl core::convert::From<grafton_visca::ExecError> for grafton_visca::Error
 pub fn grafton_visca::Error::from(grafton_visca::ExecError) -> Self
-impl core::convert::From<grafton_visca::capabilities::ValidationError> for grafton_visca::Error
-pub fn grafton_visca::Error::from(grafton_visca::capabilities::ValidationError) -> Self
 impl core::convert::From<never> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::convert::Infallible) -> Self
 impl core::convert::From<nom::internal::Err<nom::error::Error<&[u8]>>> for grafton_visca::Error
@@ -30654,21 +30614,11 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::Diag
 pub grafton_visca::Error::BufferTooSmall
 pub grafton_visca::Error::BufferTooSmall::actual: usize
 pub grafton_visca::Error::BufferTooSmall::required: usize
-pub grafton_visca::Error::CameraBusy
-pub grafton_visca::Error::CameraMoving
-pub grafton_visca::Error::CameraMoving::pan: i32
-pub grafton_visca::Error::CameraMoving::tilt: i32
-pub grafton_visca::Error::CameraNotReady
 pub grafton_visca::Error::CancellationUnconfirmed
 pub grafton_visca::Error::CommandBufferFull
 pub grafton_visca::Error::CommandCanceled
 pub grafton_visca::Error::CommandNotExecutable
 pub grafton_visca::Error::CommandPending
-pub grafton_visca::Error::CommandRejected
-pub grafton_visca::Error::CommandRejected::reason: alloc::borrow::Cow<'static, str>
-pub grafton_visca::Error::CommandTimeout
-pub grafton_visca::Error::CommandTimeout::command: alloc::borrow::Cow<'static, str>
-pub grafton_visca::Error::CommandTimeout::duration: core::time::Duration
 pub grafton_visca::Error::ConnectionClosed
 pub grafton_visca::Error::ConnectionClosed::reason: core::option::Option<alloc::borrow::Cow<'static, str>>
 pub grafton_visca::Error::ConnectionFailed
@@ -30705,7 +30655,6 @@ pub grafton_visca::Error::Io(alloc::sync::Arc<core::io::error::Error>)
 pub grafton_visca::Error::MaxRetriesExceeded
 pub grafton_visca::Error::MessageLengthError
 pub grafton_visca::Error::MissingRuntime
-pub grafton_visca::Error::NoResponse
 pub grafton_visca::Error::NoSocket
 pub grafton_visca::Error::NotSupported
 pub grafton_visca::Error::ParameterOutOfRange
@@ -30714,8 +30663,6 @@ pub grafton_visca::Error::ParameterOutOfRange::min: i32
 pub grafton_visca::Error::ParameterOutOfRange::parameter: &'static str
 pub grafton_visca::Error::ParameterOutOfRange::value: i32
 pub grafton_visca::Error::ParseError(alloc::borrow::Cow<'static, str>)
-pub grafton_visca::Error::PresetNotFound
-pub grafton_visca::Error::PresetNotFound::id: u8
 pub grafton_visca::Error::ResponseTooLarge
 pub grafton_visca::Error::ResponseTooLarge::max_size: usize
 pub grafton_visca::Error::RuntimeIdentityExhausted
@@ -30730,14 +30677,10 @@ pub grafton_visca::Error::TransportBusy
 pub grafton_visca::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::Error::UnexpectedResponseType
 pub grafton_visca::Error::Unknown(u8)
-pub grafton_visca::Error::UnknownResponseKind
-pub grafton_visca::Error::UnknownResponseKind::data: alloc::vec::Vec<u8>
-pub grafton_visca::Error::UnknownResponseKind::response_type: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::UnsequencedCommandUnconfirmed
 pub grafton_visca::Error::UnsupportedTransport
 pub grafton_visca::Error::UnsupportedTransport::profile: grafton_visca::camera::profiles::ProfileId
 pub grafton_visca::Error::UnsupportedTransport::transport: grafton_visca::camera::TransportKind
-pub grafton_visca::Error::ValidationError(grafton_visca::capabilities::ValidationError)
 pub grafton_visca::Error::WithContext
 pub grafton_visca::Error::WithContext::context: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
@@ -30756,8 +30699,6 @@ impl core::convert::From<core::io::error::Error> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::io::error::Error) -> Self
 impl core::convert::From<grafton_visca::ExecError> for grafton_visca::Error
 pub fn grafton_visca::Error::from(grafton_visca::ExecError) -> Self
-impl core::convert::From<grafton_visca::capabilities::ValidationError> for grafton_visca::Error
-pub fn grafton_visca::Error::from(grafton_visca::capabilities::ValidationError) -> Self
 impl core::convert::From<never> for grafton_visca::Error
 pub fn grafton_visca::Error::from(core::convert::Infallible) -> Self
 impl core::convert::From<nom::internal::Err<nom::error::Error<&[u8]>>> for grafton_visca::Error

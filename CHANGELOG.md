@@ -942,6 +942,21 @@ entries below retain their original wording.
 
 ### Removed
 
+- **Removed nine more never-constructed public `Error` variants** (#722):
+  `CommandTimeout`, `CameraBusy`, `CameraMoving`, `CameraNotReady`,
+  `CommandRejected`, `PresetNotFound`, `NoResponse`, `ValidationError`, and
+  `UnknownResponseKind`. Runtime and observer deadlines already report the
+  reachable `Error::Timeout`; camera protocol errors use their exact VISCA
+  variants, and capability validation continues to return the public
+  `capabilities::ValidationError` directly. Removing `Error::ValidationError`
+  also removes its unused `From<capabilities::ValidationError>` conversion.
+  The Tokio error-handling example now classifies only outcomes the library can
+  produce, and CI inventories every remaining `Error` variant against a
+  production construction site. Because `Error` is `#[non_exhaustive]`, callers
+  already require a wildcard arm; only code that explicitly constructed or
+  matched one of these unreachable variants needs adjustment. Public API
+  snapshots regenerated.
+
 - **Withdrew the public `timeout` module** (audit #685; the change landed in the
   newest rc commits with no changelog note). `pub mod timeout` is now
   `pub(crate)`, removing `timeout::{TimeoutConfig, TimeoutConfigBuilder,

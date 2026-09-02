@@ -4502,7 +4502,7 @@ const FUZZ_CONFIGURATIONS: [(EnvelopeKind, TransportKind); 4] = [
 fn fuzz_receive_fault(action: u64) -> Error {
     match action % 4 {
         0 => Error::Timeout,
-        1 => Error::NoResponse,
+        1 => Error::from(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
         2 => Error::TransportBusy,
         _ => Error::TransportError("fuzz receive fault".into()),
     }
