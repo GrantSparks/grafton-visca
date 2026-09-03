@@ -72,9 +72,7 @@ fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camer
 /// no typed image noun.
 #[allow(dead_code)]
 fn base_image_surface<P: CompileTimeProfile + HasImageProcessing>(camera: &Camera<P>) {
-    plain(camera.image().freeze_on());
-    plain(camera.image().freeze_off());
-    inquiry(camera.image().defog_level());
+    let _ = camera.image();
 }
 
 #[allow(dead_code)]

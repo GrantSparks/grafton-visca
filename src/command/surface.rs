@@ -457,9 +457,29 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::PictureEffect,
         )
     };
+    (HasImageFreeze) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ImageFreeze,
+        )
+    };
+    (HasDefogLevel) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::DefogLevel,
+        )
+    };
     (HasTally) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::Tally,
+        )
+    };
+    (HasTallyBrightness) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::TallyBrightness,
+        )
+    };
+    (HasPtzOpticsTally) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::PtzOpticsTally,
         )
     };
     (HasDirectMenuControl) => {

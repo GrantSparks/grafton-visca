@@ -1,11 +1,12 @@
 # Releasing grafton-visca 2.0
 
-This checklist is the source of truth for the 2.0 prerelease and final
+This document is the source of truth for the 2.0 prerelease and final
 release. The workspace contains two crates, and publication is irreversible.
-Qualify hardware first from an immutable, non-release tag on the reviewed 2.0
-pull-request tip. Publish only from a clean `main` commit whose pull request
-passed every required CI job, including blocking, async, dynamic, and
-API-contract checks.
+Software release gates, the exact release tag, and CI on that exact release
+commit are required for every publication. Physical-camera evidence is a
+separate claim: an RC may be published while hardware remains explicitly
+unverified, while a stable release with major version 2 or higher requires a
+targeted representative hardware pass.
 
 ## Version and changelog
 
@@ -29,32 +30,32 @@ heading must agree. Do not reuse a published version for different source.
 
 ## Candidate validation
 
-Run the hardware-free gates on the commit proposed for qualification. The
-strict release-tag validator runs after the bench evidence and dated changelog
-heading are committed; it is expected to reject the still-pending unpublished
-hardware candidate. The hardware rows in
-[`docs/hardware_release_checklist.md`](docs/hardware_release_checklist.md)
-must be assigned and have evidence before any 2.0 release tag is created; an
-unfilled row is `Pending (Not run)`.
+Run the software gates on the commit proposed for release. An RC can proceed
+with the hardware checklist still marked `Pending (Not run)` or `Unverified`,
+provided the release notes and checklist make that status plain and do not
+describe hardware support as verified.
 
-Ratified decision D8 in #732 applies the hardware gate to every publishable
-release tag with major version 2 or higher, including `2.0.0-rc.*` and other
-prereleases. The validation script rejects such a tag when any checklist table
-cell is `Pending`, `Pending (Not run)`, `Blocked`, or `Fail` (in any letter
-case), when the checklist carries no table row under a `Status` column, when a
-required scenario ID is absent or duplicated, when the unpublished candidate
-provenance is incomplete, or when the checklist has no non-placeholder
-`Final sign-off:` and `Evidence index:` records. Every checklist status cell
-must be exactly `Pass`; software CI does not constitute hardware evidence.
+For a stable release whose major version is 2 or higher, run the five targeted
+representative scenarios in
+[`docs/hardware_release_checklist.md`](docs/hardware_release_checklist.md).
+Record the exact firmware and transcript or capture link for each scenario,
+plus the operator and date for the pass. A neighboring model, firmware, or
+software-only test does not substitute for the representative hardware pass.
 
-Pending hardware work belongs only on an unpublished `hardware-candidate-*`
-tag described below. That tag is a qualification anchor, not a semantic
-version, release, crates.io package, or permission to describe hardware as
-verified.
+Before that stable hardware pass, finalize the Rust sources, Cargo manifests,
+and dependency metadata at one commit. Record its full SHA as
+`Hardware-tested commit:` in the checklist. Tests, documentation, workflows,
+and release records may change afterward, but shipped Rust sources and Cargo
+manifests may not. The publication workflow compares those source and manifest
+paths between the recorded bench commit and the release `HEAD`; any difference
+requires another targeted hardware pass.
 
-Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly the
-same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
-outright rather than letting one release be published under two identities.
+Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly
+the same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
+rather than allowing one release to be published under two identities.
+
+Run the release checks, including the exact-tag and exact-commit CI checks,
+before creating the release tag:
 
 ```sh
 cargo metadata --no-deps --format-version 1
@@ -102,52 +103,16 @@ registry until the macro package is available there. Package and publish the
 macro first, then perform the main-package dry run after the exact index entry
 is visible.
 
-## Unpublished hardware qualification tag
-
-Before the final merge to `main`, choose a reviewed 2.0 pull-request tip for
-physical qualification. The exact commit must already have a successful run
-of `.github/workflows/ci.yml`. Create and push an annotated tag whose name
-starts with `hardware-candidate-`, embeds the intended release version, and
-ends with an eight-digit UTC date plus a positive attempt number:
-
-```sh
-git tag -a hardware-candidate-v2.0.0-rc.1-20260903.1 \
-  -m "grafton-visca 2.0.0-rc.1 hardware qualification attempt 1"
-git push origin refs/tags/hardware-candidate-v2.0.0-rc.1-20260903.1
-```
-
-The non-`v` prefix is a safety boundary. It does not match `ci.yml`'s
-`v*.*.*` release-tag push selector, and both
-`publish-existing-release.yml` and `verify-release-tag.sh` reject it as a
-release input. Never invoke publication for this tag. Treat it as immutable:
-if any source, dependency, feature, profile, protocol, or runtime behavior
-changes, retain the old tag as historical evidence, create a new numbered
-hardware-candidate tag, and rerun the affected hardware matrix.
-
-Before running the bench, record all five provenance fields in the hardware
-checklist: the short tag name, annotated tag-object ID, peeled commit ID, exact
-successful Actions run URL for that commit, and operator/date. Obtain the IDs
-without abbreviating them:
-
-```sh
-git rev-parse refs/tags/hardware-candidate-v2.0.0-rc.1-20260903.1
-git rev-parse 'refs/tags/hardware-candidate-v2.0.0-rc.1-20260903.1^{commit}'
-```
-
-Run every hardware scenario from that peeled commit and attach the artifacts
-to the checklist. Commit the evidence and final sign-off to the 2.0 pull
-request. From the hardware-candidate commit to the proposed release tree, only
-reviewed evidence, changelog, and release metadata may change. Any executable
-or dependency change invalidates the qualification and requires a new
-hardware-candidate tag and hardware pass.
-
 ## Release tag and publication order
 
-Once hardware evidence is complete, prepare the final release metadata in the
-2.0 pull request and rerun the full matrix. Only after maintainers accept the
-implementation and evidence should that pull request merge to `main`. Wait for
-CI to pass on the exact resulting `main` commit, rerun the strict validator
-there, then create the immutable annotated release tag, for example:
+Once the software implementation and release metadata are complete, rerun the
+full software matrix. For a stable release, complete the targeted hardware
+checklist before publication; for an RC, retain the explicit unverified status
+if hardware has not been run. Only after maintainers accept the implementation
+and its documented evidence should the pull request merge to `main`.
+
+Wait for CI to pass on the exact resulting `main` commit, rerun the release
+validator there, and create an immutable annotated release tag:
 
 ```sh
 bash .github/scripts/validate-release.sh v2.0.0-rc.1
@@ -155,38 +120,35 @@ git tag -a v2.0.0-rc.1 -m "grafton-visca 2.0.0-rc.1"
 git push origin v2.0.0-rc.1
 ```
 
-An external repository ruleset must make release tags protected and immutable
-before this workflow is enabled: disallow force-updates and deletion of
-release tags, and limit who can create them. The workflow checks
-`git ls-remote --refs` at
-provenance, immediately before each crate publication, and during final
-verification, comparing the remote tag object's ID with the validated local
-annotated-tag object. Those repeated checks detect a tag that drifted between
-checkpoints, but they cannot atomically prevent a force-move after a check and
-do not replace server-side protected/immutable-tag enforcement.
+The release tag must be annotated and must peel to the checked-out `HEAD`. The
+publication workflow queries the Actions API for the exact
+`.github/workflows/ci.yml` path and exact release `HEAD` SHA, follows
+pagination, and requires the latest run/attempt to be completed successfully.
+An external repository ruleset should make release tags protected and
+immutable by disallowing force-updates and deletion and limiting who can
+create them.
 
-The release automation should validate the tag and manifests, package the
-macro crate, dry-run and publish `grafton-visca-macros`, wait for its exact
-registry index entry, then package, dry-run, and publish `grafton-visca`.
-Before any source or CI validation, the automation accepts only the strict tag
-syntax, resolves the fully qualified `refs/tags/<tag>` ref, and verifies that
-it is an annotated tag whose peeled commit is the checked-out `HEAD`. It then
-queries the Actions workflow-runs API for `.github/workflows/ci.yml` at that
-exact commit, follows pagination, and requires the latest run/attempt to be
-completed successfully. Manual publication is not part of this checklist. For
-each crate, the automation builds the local `.crate` payload and, after the
-exact registry version is visible, downloads the crates.io payload and requires
-SHA-256 and byte-for-byte equality before treating publication (including a
-retry of an existing version) as successful. No release is complete until both
-package results are independently verified.
+The release automation validates the tag and manifests, packages the macro
+crate, dry-runs and publishes `grafton-visca-macros`, waits for its exact
+registry index entry, then packages, dry-runs, and publishes `grafton-visca`.
+Before any source or CI validation, it accepts only the strict tag syntax,
+resolves the fully qualified `refs/tags/<tag>` ref, and verifies that the
+annotated tag peels to the checked-out `HEAD`. It also verifies the exact
+release-HEAD CI run and compares source/manifests with the recorded stable
+bench commit when stable hardware evidence is required. For each crate, the
+automation builds the local `.crate` payload and, after the exact registry
+version is visible, downloads the crates.io payload and requires SHA-256 and
+byte-for-byte equality before treating publication (including a retry of an
+existing version) as successful. No release is complete until both package
+results are independently verified.
 
 For a final release, repeat the same process with `2.0.0`: update both
 workspace packages and the exact macro dependency together, move the changelog
-notes to the final heading, rerun the complete matrix against a new unpublished
-hardware-candidate tag, complete the hardware checklist and its final
-sign-off/evidence records, generate a fresh local lockfile for packaging, and
-use a new immutable `v2.0.0` tag. Do not mark any hardware row complete without
-the required bench evidence.
+notes to the final heading, rerun the complete software matrix, complete the
+targeted hardware checklist and its evidence/sign-off if this is a stable
+release, generate a fresh local lockfile for packaging, and use a new immutable
+`v2.0.0` tag. If hardware was not run for an RC, keep that fact visible in the
+checklist and release notes.
 
 ## Partial-publication recovery
 
@@ -195,11 +157,9 @@ source behind that version. Diagnose the failure and retry the main package
 from the exact tagged commit only when its payload is unchanged; the automated
 registry-payload equality gate must pass for that retry. If source or package
 metadata must change, choose a new patch version, update both crates and the
-changelog, and run the complete candidate process again. Never move a tag to
-bypass a failed validation gate. Protected/immutable tag rules remain a
-repository prerequisite: the workflow's repeated remote-object checks can
-detect drift between checkpoints, but cannot atomically prevent a force-move
-after a check or substitute for server-side enforcement.
+changelog, and run the release validation again. For a stable major-2-or-later
+release, a source or manifest change after the bench pass also requires a new
+targeted hardware pass. Never move a tag to bypass a failed validation gate.
 
 After successful publication, verify both package pages and generated docs,
 then create the repository release from the matching annotated tag. These are

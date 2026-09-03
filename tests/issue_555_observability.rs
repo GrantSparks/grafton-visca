@@ -69,7 +69,6 @@ mod blocking_observability {
     use grafton_visca::{
         blocking::Session,
         command::CommandKind,
-        command::ImageFreeze,
         command::PanTiltLimitCorner,
         request::builtin::PanTiltLimitClear,
         transport::{
@@ -165,13 +164,12 @@ mod blocking_observability {
             .unwrap();
         let cache = camera.state_cache();
         assert_eq!(cache.target(), CameraId::CAMERA_1);
-        assert_unknown(&cache, StateKey::ImageFreeze);
         assert_unknown(&cache, StateKey::PanTiltLimits);
         assert_metrics_shape(session.metrics().unwrap());
 
         assert!(session.drain_diagnostics().unwrap().is_empty());
-        camera.execute(&ImageFreeze::on()).unwrap();
-        assert_set(&cache, StateKey::ImageFreeze, &[1]);
+        camera.advanced().multicast_on().unwrap();
+        assert_set(&cache, StateKey::MulticastStreaming, &[1]);
         camera
             .execute(&PanTiltLimitClear::new(PanTiltLimitCorner::UpRight))
             .unwrap();
@@ -205,12 +203,12 @@ mod blocking_observability {
             .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
             .unwrap()
             .state_cache();
-        assert_unknown(&first_view, StateKey::ImageFreeze);
-        assert_unknown(&second_view, StateKey::ImageFreeze);
-        first.execute(&ImageFreeze::on()).unwrap();
-        assert_set(&first_view, StateKey::ImageFreeze, &[1]);
-        assert_set(&first_clone, StateKey::ImageFreeze, &[1]);
-        assert_unknown(&second_view, StateKey::ImageFreeze);
+        assert_unknown(&first_view, StateKey::MulticastStreaming);
+        assert_unknown(&second_view, StateKey::MulticastStreaming);
+        first.advanced().multicast_on().unwrap();
+        assert_set(&first_view, StateKey::MulticastStreaming, &[1]);
+        assert_set(&first_clone, StateKey::MulticastStreaming, &[1]);
+        assert_unknown(&second_view, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
 
         let fresh = Session::open(Probe::new(), SessionConfig::new(profile())).unwrap();
@@ -219,7 +217,7 @@ mod blocking_observability {
                 .camera::<grafton_visca::profiles::PtzOpticsG2>()
                 .unwrap()
                 .state_cache(),
-            StateKey::ImageFreeze,
+            StateKey::MulticastStreaming,
         );
         fresh.shutdown().unwrap();
     }
@@ -233,8 +231,8 @@ mod blocking_observability {
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap();
         let cache = camera.state_cache();
-        assert!(camera.execute(&ImageFreeze::on()).is_err());
-        assert_unknown(&cache, StateKey::ImageFreeze);
+        assert!(camera.advanced().multicast_on().is_err());
+        assert_unknown(&cache, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
     }
 }
@@ -244,7 +242,6 @@ mod tokio_observability {
     use std::{future::Future, sync::Arc, time::Duration};
 
     use grafton_visca::{
-        command::ImageFreeze,
         runtime::TokioRuntime,
         transport::{
             AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
@@ -370,14 +367,14 @@ mod tokio_observability {
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap();
-        camera.execute(&ImageFreeze::on()).await.unwrap();
-        camera.execute(&ImageFreeze::off()).await.unwrap();
+        camera.advanced().multicast_on().await.unwrap();
+        camera.advanced().multicast_off().await.unwrap();
         let snapshot = session.metrics().await.unwrap();
         assert!(snapshot.dropped_diagnostic_events > 0);
         assert_eq!(snapshot.received_frames, 4);
         assert!(fast.try_recv().is_some());
         assert!(slow.try_recv().is_some());
-        camera.execute(&ImageFreeze::on()).await.unwrap();
+        camera.advanced().multicast_on().await.unwrap();
         session.shutdown().await.unwrap();
     }
 
@@ -388,7 +385,8 @@ mod tokio_observability {
         session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap()
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .await
             .unwrap();
         let event = subscription.try_recv().expect("diagnostic event");
@@ -403,7 +401,8 @@ mod tokio_observability {
         assert!(session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap()
-            .execute(&ImageFreeze::off())
+            .advanced()
+            .multicast_off()
             .await
             .is_err());
     }
@@ -447,11 +446,11 @@ mod tokio_observability {
             .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_2)
             .unwrap()
             .state_cache();
-        assert_unknown(&view, StateKey::ImageFreeze);
-        assert_unknown(&second, StateKey::ImageFreeze);
-        first.execute(&ImageFreeze::on()).await.unwrap();
-        assert_set(&view, StateKey::ImageFreeze, &[1]);
-        assert_unknown(&second, StateKey::ImageFreeze);
+        assert_unknown(&view, StateKey::MulticastStreaming);
+        assert_unknown(&second, StateKey::MulticastStreaming);
+        first.advanced().multicast_on().await.unwrap();
+        assert_set(&view, StateKey::MulticastStreaming, &[1]);
+        assert_unknown(&second, StateKey::MulticastStreaming);
         session.shutdown().await.unwrap();
 
         let mut failed = Probe::new();
@@ -467,8 +466,8 @@ mod tokio_observability {
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap();
         let cache = camera.state_cache();
-        assert!(camera.execute(&ImageFreeze::on()).await.is_err());
-        assert_unknown(&cache, StateKey::ImageFreeze);
+        assert!(camera.advanced().multicast_on().await.is_err());
+        assert_unknown(&cache, StateKey::MulticastStreaming);
         failed_session.shutdown().await.unwrap();
     }
 
@@ -564,7 +563,8 @@ mod smol_observability {
             session
                 .camera::<grafton_visca::profiles::PtzOpticsG2>()
                 .unwrap()
-                .execute(&grafton_visca::command::ImageFreeze::on())
+                .advanced()
+                .multicast_on()
                 .await
                 .unwrap();
             assert!(subscription.try_recv().is_some());

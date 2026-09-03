@@ -98,6 +98,10 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "IrisControlInquiry",
     "NoiseReduction2DControl",
     "NoiseReduction3DControl",
+    "ImageFreeze",
+    "DefogLevel",
+    "TallyBrightness",
+    "PtzOpticsTally",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[

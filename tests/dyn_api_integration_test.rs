@@ -17,7 +17,7 @@ use std::{
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    command::ImageFreeze,
+    command::MulticastStreaming,
     dynapi::{
         DynAppliedRequest, DynSessionCamera, DynSessionCameraControl, DynSessionCameraNouns,
         DynTargetedRequest,
@@ -212,15 +212,15 @@ async fn open_session(transport: ProbeTransport, config: SessionConfig) -> Sessi
 
 fn assert_unknown(camera: &DynSessionCamera) {
     assert_eq!(
-        camera.state_cache().value(StateKey::ImageFreeze),
+        camera.state_cache().value(StateKey::MulticastStreaming),
         StateEntry::Unknown
     );
 }
 
 fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
-    match camera.state_cache().value(StateKey::ImageFreeze) {
+    match camera.state_cache().value(StateKey::MulticastStreaming) {
         StateEntry::Set(value) => assert_eq!(value.as_slice(), expected),
-        other => panic!("expected image-freeze state {expected:?}, got {other:?}"),
+        other => panic!("expected multicast state {expected:?}, got {other:?}"),
     }
 }
 
@@ -316,19 +316,19 @@ async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
     assert_unknown(&first);
     assert_unknown(&second);
     first
-        .image()
-        .freeze_on()
+        .advanced()
+        .multicast_on()
         .await
-        .expect("exact applied image-freeze effect");
+        .expect("exact applied multicast effect");
     assert_state(&first, &[1]);
     assert_state(&first_view, &[1]);
     assert_unknown(&second);
 
     first
-        .image()
-        .freeze_off()
+        .advanced()
+        .multicast_off()
         .await
-        .expect("exact applied clear effect");
+        .expect("exact applied multicast clear effect");
     assert_state(&first, &[0]);
     assert_unknown(&second);
     session.shutdown().await.expect("shutdown");
@@ -434,4 +434,4 @@ async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
 // canonical state effect through the same public request type used by static
 // callers, even though the dynamic noun invokes it internally.
 #[allow(dead_code)]
-fn _image_freeze_type_is_public(_: ImageFreeze) {}
+fn _multicast_streaming_type_is_public(_: MulticastStreaming) {}

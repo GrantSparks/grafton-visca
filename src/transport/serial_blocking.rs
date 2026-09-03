@@ -116,7 +116,12 @@ fn perform_startup_handshakes(
     for operation in startup_plan(config).into_iter().flatten() {
         match operation {
             StartupOperation::AddressSet => {
-                address_set_blocking(port, Duration::from_secs(2), config.write_timeout)?;
+                address_set_blocking(
+                    port,
+                    Duration::from_secs(2),
+                    config.write_timeout,
+                    config.buffer_config,
+                )?;
             }
             StartupOperation::InterfaceClear => {
                 if_clear_blocking(port, config.write_timeout)?;
@@ -239,6 +244,7 @@ mod tests {
     use crate::transport::serial::handshake::blocking_handshake::{
         address_set_blocking, if_clear_blocking,
     };
+    use crate::transport::BufferConfig;
     use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits};
     use std::io::{self, ErrorKind, Read};
     use std::sync::{
@@ -255,17 +261,14 @@ mod tests {
         assert_eq!(config.camera_address, 1);
         assert!(config.if_clear_on_connect);
         assert!(!config.address_set_on_connect);
-        assert_eq!(
-            config.buffer_config,
-            crate::transport::buffer::BufferConfig::for_serial()
-        );
+        assert_eq!(config.buffer_config, BufferConfig::for_serial());
     }
 
     #[test]
     fn invalid_buffer_bounds_fail_before_serial_device_open() {
         let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
             .if_clear_on_connect(false)
-            .buffer_config(crate::transport::BufferConfig {
+            .buffer_config(BufferConfig {
                 recv_buffer_size: 65,
                 max_buffer_size: 64,
             });
@@ -329,6 +332,8 @@ mod tests {
         read_steps: RefCell<VecDeque<ReadStep>>,
         /// Timeout visible to the fake at each read.
         read_timeouts: RefCell<Vec<Duration>>,
+        /// Buffer length supplied to each read.
+        read_buffer_sizes: RefCell<Vec<usize>>,
         /// Number of low-level writes issued to the fake.
         write_calls: Arc<AtomicUsize>,
         /// Complete byte sequences submitted to the fake, in transmission order.
@@ -351,6 +356,7 @@ mod tests {
                 read_data: RefCell::new(Vec::new()),
                 read_steps: RefCell::new(VecDeque::new()),
                 read_timeouts: RefCell::new(Vec::new()),
+                read_buffer_sizes: RefCell::new(Vec::new()),
                 write_calls: Arc::new(AtomicUsize::new(0)),
                 writes: RefCell::new(Vec::new()),
                 flush_calls: Arc::new(AtomicUsize::new(0)),
@@ -396,6 +402,7 @@ mod tests {
     impl Read for TestSerialPort {
         fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
             self.read_timeouts.borrow_mut().push(self.timeout());
+            self.read_buffer_sizes.borrow_mut().push(buf.len());
 
             let step = { self.read_steps.borrow_mut().pop_front() };
             if let Some(step) = step {
@@ -601,8 +608,12 @@ mod tests {
             ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
         ]);
 
-        let result =
-            address_set_blocking(&mut port, Duration::from_secs(1), configured_write_timeout);
+        let result = address_set_blocking(
+            &mut port,
+            Duration::from_secs(1),
+            configured_write_timeout,
+            BufferConfig::for_serial(),
+        );
 
         assert!(matches!(result, Ok(1)));
         assert_eq!(
@@ -625,7 +636,12 @@ mod tests {
         let mut port = TestSerialPort::new(configured_read_timeout)
             .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
 
-        let result = address_set_blocking(&mut port, attempt_timeout, configured_write_timeout);
+        let result = address_set_blocking(
+            &mut port,
+            attempt_timeout,
+            configured_write_timeout,
+            BufferConfig::for_serial(),
+        );
 
         assert!(matches!(result, Ok(1)));
         let read_timeouts = port.read_timeouts.borrow();
@@ -659,8 +675,12 @@ mod tests {
                 delay: Duration::from_millis(100),
             }]);
 
-        let result =
-            address_set_blocking(&mut port, Duration::from_millis(50), Duration::from_secs(1));
+        let result = address_set_blocking(
+            &mut port,
+            Duration::from_millis(50),
+            Duration::from_secs(1),
+            BufferConfig::for_serial(),
+        );
 
         assert!(matches!(result, Err(Error::Timeout)));
         assert_eq!(
@@ -677,7 +697,12 @@ mod tests {
         let configured_read_timeout = Duration::from_millis(50);
         let mut port = TestSerialPort::new(configured_read_timeout);
 
-        let result = address_set_blocking(&mut port, Duration::ZERO, Duration::from_millis(7));
+        let result = address_set_blocking(
+            &mut port,
+            Duration::ZERO,
+            Duration::from_millis(7),
+            BufferConfig::for_serial(),
+        );
 
         assert!(matches!(result, Err(Error::Timeout)));
         assert_eq!(port.write_calls.load(Ordering::SeqCst), 0);
@@ -699,6 +724,7 @@ mod tests {
                 &mut address_port,
                 Duration::from_secs(1),
                 configured_write_timeout,
+                BufferConfig::for_serial(),
             ),
             Ok(1)
         ));
@@ -717,7 +743,11 @@ mod tests {
         let config = SerialConfig::new("/dev/test")
             .address_set_on_connect(true)
             .if_clear_on_connect(true)
-            .write_timeout(Duration::from_millis(7));
+            .write_timeout(Duration::from_millis(7))
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 4,
+                max_buffer_size: 32,
+            });
 
         perform_startup_handshakes(&mut port, &config).expect("startup handshakes succeed");
 
@@ -729,6 +759,7 @@ mod tests {
             ],
             "the blocking serial startup transcript must address the bus before clearing it"
         );
+        assert_eq!(port.read_buffer_sizes.borrow().as_slice(), &[4]);
     }
 
     #[test]
@@ -737,8 +768,12 @@ mod tests {
         let mut port = TestSerialPort::new(configured_read_timeout)
             .with_next_timeout_set_failure(configured_read_timeout);
 
-        let result =
-            address_set_blocking(&mut port, Duration::from_secs(1), Duration::from_millis(7));
+        let result = address_set_blocking(
+            &mut port,
+            Duration::from_secs(1),
+            Duration::from_millis(7),
+            BufferConfig::for_serial(),
+        );
 
         assert!(matches!(
             result,

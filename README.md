@@ -68,7 +68,11 @@ custom integrations.
 | --------------------- | -------- |
 | ND filter controls and inquiries | `SonyFR7` |
 | Variable speed mode controls | `SonyFR7` |
-| Tally controls and inquiries | `SonyFR7`, `SonyBRCH900` |
+| Tally controls and inquiries | `SonyFR7` |
+| Image-freeze control | No built-in profile currently marks this typed capability |
+| Vendor defog-level inquiry | No built-in profile currently marks this typed capability |
+| Extended tally-brightness commands | No built-in profile currently marks this typed capability |
+| PTZOptics tally extensions | No built-in profile currently marks this typed capability |
 | Direct menu controls | `SonyFR7` |
 | PTZOptics anti-flicker control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -78,6 +82,10 @@ custom integrations.
 | PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
+
+The Sony FR7 tally row refers to the source-backed red/green tally controls and
+inquiries; packed status, mode, auto-adjust, and extended brightness remain
+separate row-specific surfaces and have no built-in profile grant.
 
 ### Profile-Gated Sub-Capabilities
 

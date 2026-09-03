@@ -3,8 +3,6 @@ name: Rust 2.0 CI
 on:
   push:
     branches: [main, "feature/**"]
-    # `hardware-candidate-*` is an unpublished bench anchor, not a release.
-    # Its non-v prefix deliberately does not trigger this release-tag path.
     tags: ["v*.*.*"]
   # no base-branch filter: stacked PRs (feature-branch bases) must run CI too
   pull_request:
@@ -441,11 +439,9 @@ jobs:
     # It is expected to report drift for most of a release cycle: the validator
     # requires a dated `## [2.0.0-rc.1] - YYYY-MM-DD` CHANGELOG heading, while
     # RELEASING.md keeps the notes under `## [Unreleased]` until the release
-    # commit. After that heading exists, ratified decision D8 also requires the
-    # unpublished hardware-candidate provenance and completed bench evidence.
-    # Those stage-dependent findings are why this job is advisory rather than
-    # required; it still surfaces version, dependency-pin, manifest, evidence,
-    # and release-record drift before publication.
+    # commit. Those stage-dependent findings are why this job is advisory
+    # rather than required; it still surfaces version, dependency-pin,
+    # manifest, evidence, and release-record drift before publication.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
@@ -462,13 +458,13 @@ jobs:
             echo "The release validator accepts this checkout as \`${tag}\`." >>"${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
-          echo "::warning title=Release drift::validate-release.sh ${tag} exited ${status}; see this step's log. The Unreleased heading is expected before release prep; pending hardware evidence is expected before D8 qualification."
+          echo "::warning title=Release drift::validate-release.sh ${tag} exited ${status}; see this step's log. The Unreleased heading is expected before release prep."
           {
             echo "### Release drift (advisory)"
             echo
             echo "\`validate-release.sh ${tag}\` exited \`${status}\`. The findings are in this job's step log."
             echo
-            echo "An undated \`## [Unreleased]\` heading is expected before release prep, and pending hardware evidence is expected before D8 qualification. All findings must be resolved before publishing."
+            echo "An undated \`## [Unreleased]\` heading is expected before release prep; dated changelog and release metadata are finalized when publishing. All findings must be resolved before publishing."
           } >>"${GITHUB_STEP_SUMMARY}"
           # Advisory: the finding is reported, not enforced.
           exit 0

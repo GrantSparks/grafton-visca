@@ -78,9 +78,7 @@ fn exposure_mode_surface<'session, P: CompileTimeProfile + HasExposureMode>(
 fn base_image_surface<'session, P: CompileTimeProfile + HasImageProcessing>(
     camera: &Camera<'session, P>,
 ) {
-    plain(camera.image().freeze_on());
-    plain(camera.image().freeze_off());
-    let _ = camera.image().defog_level();
+    let _ = camera.image();
 }
 
 fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session, P>) {
@@ -175,10 +173,8 @@ where
     let _ = camera.white_balance().blue_gain();
     let _ = camera.white_balance().red_tuning();
     let _ = camera.white_balance().blue_tuning();
-    let _ = camera.tally().status();
     let _ = camera.tally().red_status();
     let _ = camera.tally().green_status();
-    let _ = camera.tally().auto_adjust_enabled();
     let _ = camera.nd_filter().position();
     let _ = camera.nd_filter().preset();
     let _ = camera.motion_sync().mode();
@@ -187,7 +183,7 @@ where
 
 fn sony_optional<'session>(camera: &Camera<'session, SonyFR7>) {
     plain(camera.tally().red_on());
-    plain(camera.tally().off());
+    plain(camera.tally().green_off());
     targeted(camera.nd_filter().set_value(1));
     targeted(camera.nd_filter().step_up());
     applied(camera.zoom().tele());

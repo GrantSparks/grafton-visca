@@ -1803,7 +1803,13 @@ impl ProfileSpec {
                 capabilities::TypedSupportSurface::PictureEffect => {
                     capabilities.has_image_processing && capabilities.has_picture_effect
                 }
+                capabilities::TypedSupportSurface::ImageFreeze
+                | capabilities::TypedSupportSurface::DefogLevel => {
+                    capabilities.has_image_processing
+                }
                 capabilities::TypedSupportSurface::Tally => capabilities.has_tally,
+                capabilities::TypedSupportSurface::TallyBrightness
+                | capabilities::TypedSupportSurface::PtzOpticsTally => capabilities.has_tally,
                 capabilities::TypedSupportSurface::DirectMenu => {
                     capabilities.has_direct_menu_control
                 }

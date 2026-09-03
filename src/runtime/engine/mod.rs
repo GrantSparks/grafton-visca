@@ -487,7 +487,7 @@ impl ProtocolEngine {
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
             if self.raw_hold_blocks_dispatch(entry, target)
-                || self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return None;
@@ -1103,7 +1103,7 @@ impl ProtocolEngine {
         if entry.request.is_inquiry() {
             let target = entry.request.context().target;
             if self.raw_hold_blocks_dispatch(entry, target)
-                || self.inquiries_inflight() >= self.policy.inquiry_capacity
+                || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                 || self.uncorrelated_raw_shape_blocked(entry, target)
             {
                 return false;
@@ -1165,6 +1165,26 @@ impl ProtocolEngine {
         })
     }
 
+    /// Inquiry capacity is session-wide for Sony envelopes because sequence
+    /// correlation shares one transport namespace. Raw VISCA has no sequence
+    /// field, but its response source identifies the camera, so independent
+    /// targets have independent positional inquiry lanes.
+    fn inquiries_inflight_for(&self, target: CameraId) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| {
+                entry.request.is_inquiry()
+                    && (self.policy.envelope != EnvelopeKind::Raw
+                        || entry.request.context().target == target)
+                    && matches!(
+                        entry.phase,
+                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                    )
+            })
+            .count()
+    }
+
+    #[cfg(test)]
     fn inquiries_inflight(&self) -> usize {
         self.entries
             .values()
@@ -3852,7 +3872,8 @@ impl ProtocolEngine {
     fn capacity_available_for(&self, entry: &Entry) -> bool {
         if entry.request.is_inquiry() {
             !self.raw_hold_blocks_dispatch(entry, entry.request.context().target)
-                && self.inquiries_inflight() < self.policy.inquiry_capacity
+                && self.inquiries_inflight_for(entry.request.context().target)
+                    < self.policy.inquiry_capacity
                 && !self.uncorrelated_raw_shape_blocked(entry, entry.request.context().target)
         } else {
             let target = entry.request.context().target;
@@ -4352,9 +4373,14 @@ fn active_cancellation_ambiguity(entry: &Entry) -> Option<Instant> {
 /// cancellation ambiguity still bounds that latch.
 fn correlated_response_deadline(entry: &Entry) -> Option<Instant> {
     let phase_deadline = match entry.phase {
-        Phase::AwaitingAck { deadline, .. }
-        | Phase::AwaitingCompletion { deadline, .. }
-        | Phase::Executing { deadline, .. }
+        // Cancellation replaces (rather than merely bounds) a socketless
+        // command's ordinary ACK/completion deadline. Due work performs the
+        // same phase extension, but input is intentionally processed first;
+        // using the old deadline here would reject a response in that race.
+        Phase::AwaitingAck { deadline, .. } | Phase::AwaitingCompletion { deadline, .. } => {
+            cancellation_ambiguity(entry.cancellation).or(Some(deadline))
+        }
+        Phase::Executing { deadline, .. }
         | Phase::AwaitingReply { deadline, .. }
         | Phase::AwaitingCancellationResolution { deadline, .. } => Some(deadline),
         Phase::Sending { .. } => None,

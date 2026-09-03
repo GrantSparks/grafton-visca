@@ -170,20 +170,17 @@ use grafton_visca::{ViscaInquiry, ViscaEnum, ViscaValue};
 ### Example Inquiry and Enum
 
 ```rust
-use grafton_visca_macros::{ViscaInquiry, ViscaEnum};
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-pub enum ExposureMode {
-    Auto = 0x00,
-    Manual = 0x03,
-    Shutter = 0x0A,
-    Iris = 0x0B,
-}
+use grafton_visca::{command::ExposureMode, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x39, response = ExposureMode, parser = Mode, value_type = ExposureMode)]
 pub struct ExposureModeInquiry;
 ```
+
+Generated parsers return the named built-in `InquiryData` variant, so a Mode
+parser's value type must be the corresponding `grafton_visca::command` enum.
+Use `ViscaEnum` independently for downstream wire enums whose response parsing
+is implemented by downstream code.
 
 ### Value Types with Validation
 

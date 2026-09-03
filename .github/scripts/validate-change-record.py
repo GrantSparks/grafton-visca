@@ -94,15 +94,13 @@ def is_ancestor(ancestor: str, descendant: str) -> bool:
     return result.returncode == 0
 
 
-def policy_start(merge_base: str, head: str, marker_path: str, policy: str) -> str:
-    marker = git_file(head, marker_path, required=False)
-    if marker is None:
-        return merge_base
-
+def policy_boundary(
+    marker: str, revision: str, marker_path: str, policy: str
+) -> str:
     boundary = marker.strip()
     if re.fullmatch(r"[0-9a-f]{40}", boundary) is None:
         raise ValidationError(
-            f"{marker_path} at {head} must contain one full lowercase commit ID"
+            f"{marker_path} at {revision} must contain one full lowercase commit ID"
         )
 
     object_check = git("cat-file", "-e", f"{boundary}^{{commit}}", check=False)
@@ -111,8 +109,39 @@ def policy_start(merge_base: str, head: str, marker_path: str, policy: str) -> s
             f"{policy} policy boundary {boundary} is unavailable; use a full-history checkout"
         )
 
-    # A boundary bootstraps a policy once. Once a PR base contains that
-    # boundary, its own merge base wins and every new change remains in scope.
+    return boundary
+
+
+def policy_start(merge_base: str, head: str, marker_path: str, policy: str) -> str:
+    base_marker = git_file(merge_base, marker_path, required=False)
+    head_marker = git_file(head, marker_path, required=False)
+
+    # A marker is a reviewed, immutable policy boundary once it is present in
+    # the merge base. Reading a replacement from HEAD would let a PR advance the
+    # marker past its own noncompliant commits and remove them from validation.
+    if base_marker is not None:
+        boundary = policy_boundary(base_marker, merge_base, marker_path, policy)
+        if head_marker is None:
+            raise ValidationError(
+                f"{marker_path} at {head} must retain the merge-base marker "
+                f"{boundary}; it is missing"
+            )
+        head_boundary = policy_boundary(head_marker, head, marker_path, policy)
+        if head_boundary != boundary:
+            raise ValidationError(
+                f"{marker_path} at {head} must retain the merge-base marker "
+                f"{boundary}; found {head_boundary}"
+            )
+    elif head_marker is None:
+        return merge_base
+    else:
+        # A branch whose base predates this policy may establish its reviewed
+        # boundary once. Future ranges must retain the merge-base marker above.
+        boundary = policy_boundary(head_marker, head, marker_path, policy)
+
+    # A bootstrap boundary inside this range starts enforcement at itself. A
+    # pre-existing boundary is behind the merge base, so normal PR validation
+    # continues to start at the merge base.
     if is_ancestor(merge_base, boundary) and is_ancestor(boundary, head):
         return boundary
     return merge_base

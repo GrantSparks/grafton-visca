@@ -768,11 +768,11 @@ macro_rules! noun_table {
             plain [ImageFlipCombined] set_flip_mode(mode: command::ImageFlipMode)
                 -> command::ImageFlipCombinedCommand where HasCombinedImageFlip
                 = command::ImageFlipCombinedCommand::new(mode);
-            /// Freezes the image.
-            plain [ImageFreezeOn] freeze_on() -> command::ImageFreeze
+            /// Freezes the image on profiles with explicitly validated support.
+            plain [ImageFreezeOn] freeze_on() -> command::ImageFreeze where HasImageFreeze
                 = command::ImageFreeze::on();
-            /// Resumes live image output.
-            plain [ImageFreezeOff] freeze_off() -> command::ImageFreeze
+            /// Resumes live image output on profiles with explicitly validated support.
+            plain [ImageFreezeOff] freeze_off() -> command::ImageFreeze where HasImageFreeze
                 = command::ImageFreeze::off();
             /// Returns the canonical image-flip state.
             inquiry command::ImageFlipInquiry flip() -> command::FlipState where HasImageFlip
@@ -788,9 +788,9 @@ macro_rules! noun_table {
             plain [PictureEffect] set_picture_effect(mode: command::PictureEffectMode)
                 -> command::PictureEffectCommand where HasPictureEffect
                 = command::PictureEffectCommand::new(mode);
-            /// Returns the camera's defog level.
+            /// Returns the vendor defog level on profiles with validated support.
             inquiry command::DefogLevelInquiry defog_level() -> types::DefogLevel
-                = command::DefogLevelInquiry;
+                where HasDefogLevel = command::DefogLevelInquiry;
         ]; $($rest)* }
     };
 
@@ -802,38 +802,41 @@ macro_rules! noun_table {
         noun_table! { @collect $consumer; [
             $($acc)*
             @noun Tally;
-            /// Returns all tally light state.
+            /// Returns PTZOptics packed tally-light state.
             inquiry command::TallyStatusInquiry status() -> command::TallyStatusState
-                = command::TallyStatusInquiry;
+                where HasPtzOpticsTally = command::TallyStatusInquiry;
             /// Turns the red tally on.
             plain [TallyRedOn] red_on() -> command::TallyRedOn = command::TallyRedOn::new();
             /// Turns the red tally off.
             plain [TallyRedOff] red_off() -> command::TallyRedOff = command::TallyRedOff::new();
-            /// Sets low tally brightness.
+            /// Sets low tally brightness on profiles with validated support.
             plain [TallyBrightLow] bright_lo() -> command::TallyBrightLo
-                = command::TallyBrightLo::new();
-            /// Sets high tally brightness.
+                where HasTallyBrightness = command::TallyBrightLo::new();
+            /// Sets high tally brightness on profiles with validated support.
             plain [TallyBrightHigh] bright_hi() -> command::TallyBrightHi
-                = command::TallyBrightHi::new();
+                where HasTallyBrightness = command::TallyBrightHi::new();
             /// Turns the green tally on.
             plain [TallyGreenOn] green_on() -> command::TallyGreenOn
                 = command::TallyGreenOn::new();
             /// Turns the green tally off.
             plain [TallyGreenOff] green_off() -> command::TallyGreenOff
                 = command::TallyGreenOff::new();
-            /// Sets tally flash mode.
-            plain [TallyFlash] flash() -> command::TallyFlash = command::TallyFlash::new();
-            /// Sets tally solid-on mode.
-            plain [TallyOn] on() -> command::TallyOn = command::TallyOn::new();
-            /// Turns tally output off.
-            plain [TallyOff] off() -> command::TallyOff = command::TallyOff::new();
+            /// Sets PTZOptics tally flash mode on profiles with validated support.
+            plain [TallyFlash] flash() -> command::TallyFlash where HasPtzOpticsTally
+                = command::TallyFlash::new();
+            /// Sets PTZOptics tally solid-on mode on profiles with validated support.
+            plain [TallyOn] on() -> command::TallyOn where HasPtzOpticsTally
+                = command::TallyOn::new();
+            /// Turns PTZOptics tally output off on profiles with validated support.
+            plain [TallyOff] off() -> command::TallyOff where HasPtzOpticsTally
+                = command::TallyOff::new();
             /// Returns red tally state.
             inquiry command::TallyRedInquiry red_status() -> bool = command::TallyRedInquiry;
             /// Returns green tally state.
             inquiry command::TallyGreenInquiry green_status() -> bool = command::TallyGreenInquiry;
-            /// Returns automatic tally adjustment state.
+            /// Returns PTZOptics automatic tally-adjustment state.
             inquiry command::TallyAutoAdjustInquiry auto_adjust_enabled() -> bool
-                = command::TallyAutoAdjustInquiry;
+                where HasPtzOpticsTally = command::TallyAutoAdjustInquiry;
         ]; $($rest)* }
     };
 

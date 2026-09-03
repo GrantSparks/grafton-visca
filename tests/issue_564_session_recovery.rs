@@ -24,7 +24,7 @@ mod blocking_recovery {
 
     use grafton_visca::{
         blocking::Session,
-        command::{CommandKind, ImageFreeze},
+        command::CommandKind,
         state_cache::StateEntry,
         transport::{
             AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
@@ -135,11 +135,13 @@ mod blocking_recovery {
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view");
         camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .expect("the first command applies before the transport fails");
 
         let poisoned = camera
-            .execute(&ImageFreeze::off())
+            .advanced()
+            .multicast_off()
             .expect_err("a stream write failure poisons the session");
         assert!(
             matches!(poisoned, Error::StreamPoisoned { .. }),
@@ -153,7 +155,8 @@ mod blocking_recovery {
         // A poisoned session is terminal: every later operation keeps reporting
         // a condition that classifies the same way, and it is never revived.
         let retained = camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .expect_err("a poisoned session never accepts new work");
         assert!(retained.requires_new_session());
         assert!(session
@@ -175,14 +178,15 @@ mod blocking_recovery {
             .expect("camera view on the rebuilt session");
         let cache = rebuilt_camera.state_cache();
         assert_eq!(
-            cache.value(StateKey::ImageFreeze),
+            cache.value(StateKey::MulticastStreaming),
             StateEntry::Unknown,
             "a fresh session starts with an unknown state cache"
         );
         rebuilt_camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .expect("the rebuilt session drives a command through to completion");
-        match cache.value(StateKey::ImageFreeze) {
+        match cache.value(StateKey::MulticastStreaming) {
             StateEntry::Set(value) => assert_eq!(value.as_slice(), &[1]),
             other => {
                 panic!("expected the rebuilt session to record the applied state, got {other:?}")
@@ -201,7 +205,8 @@ mod blocking_recovery {
         let closed = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view")
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .expect_err("a zero-byte read closes the session");
         assert!(
             matches!(closed, Error::ConnectionClosed { .. }),
@@ -217,12 +222,13 @@ mod blocking_recovery {
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view");
-        camera.execute(&ImageFreeze::on()).expect("first command");
+        camera.advanced().multicast_on().expect("first command");
 
         session.shutdown().expect("deliberate shutdown");
 
         let stopped = camera
-            .execute(&ImageFreeze::off())
+            .advanced()
+            .multicast_off()
             .expect_err("a shut-down session rejects new work");
         assert!(
             matches!(stopped, Error::RuntimeShutdown),
@@ -250,7 +256,6 @@ mod tokio_recovery {
     };
 
     use grafton_visca::{
-        command::ImageFreeze,
         runtime::TokioRuntime,
         transport::{
             AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
@@ -356,12 +361,14 @@ mod tokio_recovery {
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view");
         camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .await
             .expect("the first command applies before the transport fails");
 
         let poisoned = camera
-            .execute(&ImageFreeze::off())
+            .advanced()
+            .multicast_off()
             .await
             .expect_err("a stream write failure poisons the session");
         assert!(
@@ -370,7 +377,8 @@ mod tokio_recovery {
         );
         assert!(poisoned.requires_new_session());
         assert!(camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .await
             .expect_err("a poisoned session never accepts new work")
             .requires_new_session());
@@ -388,7 +396,8 @@ mod tokio_recovery {
         rebuilt
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view on the rebuilt session")
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .await
             .expect("the rebuilt session drives a command through to completion");
         rebuilt.shutdown().await.expect("shutdown");
@@ -407,14 +416,16 @@ mod tokio_recovery {
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view");
         camera
-            .execute(&ImageFreeze::on())
+            .advanced()
+            .multicast_on()
             .await
             .expect("first command");
 
         session.shutdown().await.expect("deliberate shutdown");
 
         let stopped = camera
-            .execute(&ImageFreeze::off())
+            .advanced()
+            .multicast_off()
             .await
             .expect_err("a shut-down session rejects new work");
         assert!(

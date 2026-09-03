@@ -198,10 +198,14 @@ encoding.
    empty intersection returns `Option<AffectedAxes>`.
 5. Recoverable cancellation refusal is approved and retained.
 6. Hardware verification remains distinct from calling the software work
-   development-complete. The later ratified D8 decision in #732 supersedes the
-   release-order portion of this review: hardware now gates the first
-   publishable RC as well as the stable release, using an unpublished
-   `hardware-candidate-*` tag for qualification.
+   development-complete. A later ratified D8 decision in #732 temporarily
+   proposed gating the first publishable RC as well as the stable release and
+   anchoring qualification on an unpublished hardware tag. Before publication,
+   that release-order decision was superseded by a proportional policy: an RC
+   may publish with hardware plainly marked unverified, while a stable release
+   with major version 2 or higher requires a targeted representative hardware
+   pass recorded against the final software commit. No unpublished hardware
+   qualification-tag mechanism is part of the final policy.
 7. Raw VISCA does not use universal FIFO pre-ACK attribution. It normally keeps
    one unacknowledged command candidate per target across `Sending`,
    `AwaitingAck`, and `AwaitingCompletion`. One intrinsic `Urgent` command may
@@ -368,7 +372,13 @@ Development-complete issue closure should require implementation, contract
 tests, documentation/migration notes, public-API snapshot review, MSRV/lint,
 and the supported feature matrix. It should not claim physical-camera evidence.
 This review originally allowed an RC tag to carry pending hardware rows. The
-subsequent ratified D8 decision (#732), enforced by #738, supersedes that
-release-order conclusion: every publishable 2.0+ RC or stable tag requires the
-completed hardware checklist. Pending work is anchored only by an unpublished,
-non-release `hardware-candidate-*` tag.
+subsequent ratified D8 decision (#732), later described and enforced by #738,
+temporarily superseded that release-order conclusion by requiring a completed
+matrix and an unpublished qualification tag for every 2.0+ release identity.
+Before publication, that policy was itself superseded by the proportional final
+policy: an RC may carry pending hardware rows when the release notes state that
+hardware is unverified; a stable release with major version 2 or higher needs
+the five-row targeted representative pass in
+`docs/hardware_release_checklist.md`. Record the full `Hardware-tested commit:`
+SHA, exact firmware/transcripts, operator/date, evidence, and sign-off for that
+stable pass. No unpublished hardware-candidate tag mechanism is required.

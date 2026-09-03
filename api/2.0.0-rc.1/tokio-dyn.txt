@@ -1136,7 +1136,6 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -3104,6 +3103,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::BrightnessControl
 pub grafton_visca::capabilities::TypedSupportSurface::ColorTemperature
 pub grafton_visca::capabilities::TypedSupportSurface::CombinedImageFlip
 pub grafton_visca::capabilities::TypedSupportSurface::ContrastControl
+pub grafton_visca::capabilities::TypedSupportSurface::DefogLevel
 pub grafton_visca::capabilities::TypedSupportSurface::DigitalZoomRange
 pub grafton_visca::capabilities::TypedSupportSurface::DigitalZoomToggle
 pub grafton_visca::capabilities::TypedSupportSurface::DirectMenu
@@ -3117,6 +3117,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::FocusZoneInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::GammaControl
 pub grafton_visca::capabilities::TypedSupportSurface::HueControl
 pub grafton_visca::capabilities::TypedSupportSurface::ImageFlip
+pub grafton_visca::capabilities::TypedSupportSurface::ImageFreeze
 pub grafton_visca::capabilities::TypedSupportSurface::ImageMirror
 pub grafton_visca::capabilities::TypedSupportSurface::IrisControl
 pub grafton_visca::capabilities::TypedSupportSurface::IrisControlInquiry
@@ -3136,6 +3137,7 @@ pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsNdiQuality
 pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed
 pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsSettingsSave
 pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
+pub grafton_visca::capabilities::TypedSupportSurface::PtzOpticsTally
 pub grafton_visca::capabilities::TypedSupportSurface::PushAutoFocus
 pub grafton_visca::capabilities::TypedSupportSurface::RgbGain
 pub grafton_visca::capabilities::TypedSupportSurface::RgbTuning
@@ -3144,11 +3146,12 @@ pub grafton_visca::capabilities::TypedSupportSurface::SharpnessControl
 pub grafton_visca::capabilities::TypedSupportSurface::SonyAutoSlowShutter
 pub grafton_visca::capabilities::TypedSupportSurface::SonySpotlight
 pub grafton_visca::capabilities::TypedSupportSurface::Tally
+pub grafton_visca::capabilities::TypedSupportSurface::TallyBrightness
 pub grafton_visca::capabilities::TypedSupportSurface::UsbAudio
 pub grafton_visca::capabilities::TypedSupportSurface::VariableSpeed
 pub grafton_visca::capabilities::TypedSupportSurface::WideDynamicRange
 impl grafton_visca::capabilities::TypedSupportSurface
-pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 51]
+pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 55]
 impl core::clone::Clone for grafton_visca::capabilities::TypedSupportSurface
 pub fn grafton_visca::capabilities::TypedSupportSurface::clone(&self) -> grafton_visca::capabilities::TypedSupportSurface
 impl core::cmp::Eq for grafton_visca::capabilities::TypedSupportSurface
@@ -3682,6 +3685,7 @@ impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::PtzOpticsG3
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasContrastControl for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasDefogLevel
 pub trait grafton_visca::capabilities::HasDigitalZoomRange
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasDigitalZoomRange for grafton_visca::camera::profiles::SonyFR7
@@ -3754,6 +3758,7 @@ impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageFlip for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasImageFreeze
 pub trait grafton_visca::capabilities::HasImageMirror
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageMirror for grafton_visca::camera::profiles::PtzOpticsG2
@@ -3844,6 +3849,7 @@ impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::ca
 impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasPtzOpticsSettingsSave for grafton_visca::camera::profiles::PtzOpticsG3
 pub trait grafton_visca::capabilities::HasPtzOpticsSnapFocus
+pub trait grafton_visca::capabilities::HasPtzOpticsTally
 pub trait grafton_visca::capabilities::HasPushAutoFocus
 impl grafton_visca::capabilities::HasPushAutoFocus for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasRgbGain
@@ -3878,8 +3884,8 @@ pub trait grafton_visca::capabilities::HasSonySpotlight
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasTally
-impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasTallyBrightness
 pub trait grafton_visca::capabilities::HasUsbAudio
 impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
@@ -13171,7 +13177,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ImageAcce
 pub async fn grafton_visca::ImageAccessor<'a, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::contrast(&self) -> grafton_visca::Result<grafton_visca::types::ContrastLevel> where P: grafton_visca::capabilities::HasContrastControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
+pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel> where P: grafton_visca::capabilities::HasDefogLevel
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
@@ -13180,8 +13186,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip_mode(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
 pub async fn grafton_visca::ImageAccessor<'a, P>::gamma(&self) -> grafton_visca::Result<grafton_visca::types::GammaLevel> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::hue(&self) -> grafton_visca::Result<grafton_visca::types::HueLevel> where P: grafton_visca::capabilities::HasHueControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::increase_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
@@ -14566,7 +14572,6 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -15081,19 +15086,19 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SystemAc
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::SystemAccessor<'a, P>
 pub struct grafton_visca::prelude::async::TallyAccessor<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> grafton_visca::TallyAccessor<'a, P>
-pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState>
+pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState> where P: grafton_visca::capabilities::HasPtzOpticsTally
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> core::fmt::Debug for grafton_visca::TallyAccessor<'a, P>
 pub fn grafton_visca::TallyAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::TallyAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -18118,7 +18123,6 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
-impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -20427,7 +20431,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ImageAcce
 pub async fn grafton_visca::ImageAccessor<'a, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::contrast(&self) -> grafton_visca::Result<grafton_visca::types::ContrastLevel> where P: grafton_visca::capabilities::HasContrastControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
+pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel> where P: grafton_visca::capabilities::HasDefogLevel
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
@@ -20436,8 +20440,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip_mode(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
 pub async fn grafton_visca::ImageAccessor<'a, P>::gamma(&self) -> grafton_visca::Result<grafton_visca::types::GammaLevel> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::hue(&self) -> grafton_visca::Result<grafton_visca::types::HueLevel> where P: grafton_visca::capabilities::HasHueControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::increase_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
@@ -20666,19 +20670,19 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SystemAc
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::SystemAccessor<'a, P>
 pub struct grafton_visca::session::TallyAccessor<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> grafton_visca::TallyAccessor<'a, P>
-pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState>
+pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState> where P: grafton_visca::capabilities::HasPtzOpticsTally
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> core::fmt::Debug for grafton_visca::TallyAccessor<'a, P>
 pub fn grafton_visca::TallyAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::TallyAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -24492,7 +24496,7 @@ impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::ImageAcce
 pub async fn grafton_visca::ImageAccessor<'a, P>::backlight(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasBacklightCompensation
 pub async fn grafton_visca::ImageAccessor<'a, P>::contrast(&self) -> grafton_visca::Result<grafton_visca::types::ContrastLevel> where P: grafton_visca::capabilities::HasContrastControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::decrease_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
-pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel>
+pub async fn grafton_visca::ImageAccessor<'a, P>::defog_level(&self) -> grafton_visca::Result<grafton_visca::types::DefogLevel> where P: grafton_visca::capabilities::HasDefogLevel
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::disable_noise_reduction_2d(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasNoiseReduction2DControl
@@ -24501,8 +24505,8 @@ pub async fn grafton_visca::ImageAccessor<'a, P>::enable_flip(&self) -> grafton_
 pub async fn grafton_visca::ImageAccessor<'a, P>::enable_horizontal_flip(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageMirror
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
 pub async fn grafton_visca::ImageAccessor<'a, P>::flip_mode(&self) -> grafton_visca::Result<grafton_visca::command::FlipState> where P: grafton_visca::capabilities::HasImageFlip
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
+pub async fn grafton_visca::ImageAccessor<'a, P>::freeze_on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasImageFreeze
 pub async fn grafton_visca::ImageAccessor<'a, P>::gamma(&self) -> grafton_visca::Result<grafton_visca::types::GammaLevel> where P: grafton_visca::capabilities::HasGammaControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::hue(&self) -> grafton_visca::Result<grafton_visca::types::HueLevel> where P: grafton_visca::capabilities::HasHueControl
 pub async fn grafton_visca::ImageAccessor<'a, P>::increase_sharpness(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasSharpnessControl
@@ -25261,19 +25265,19 @@ impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SystemAc
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::SystemAccessor<'a, P>
 pub struct grafton_visca::TallyAccessor<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> grafton_visca::TallyAccessor<'a, P>
-pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::auto_adjust_enabled(&self) -> grafton_visca::Result<bool> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_hi(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::bright_lo(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasTallyBrightness
+pub async fn grafton_visca::TallyAccessor<'a, P>::flash(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::green_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()>
-pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()>
+pub async fn grafton_visca::TallyAccessor<'a, P>::off(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
+pub async fn grafton_visca::TallyAccessor<'a, P>::on(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsTally
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_off(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_on(&self) -> grafton_visca::Result<()>
 pub async fn grafton_visca::TallyAccessor<'a, P>::red_status(&self) -> grafton_visca::Result<bool>
-pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState>
+pub async fn grafton_visca::TallyAccessor<'a, P>::status(&self) -> grafton_visca::Result<grafton_visca::command::TallyStatusState> where P: grafton_visca::capabilities::HasPtzOpticsTally
 impl<'a, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasTally> core::fmt::Debug for grafton_visca::TallyAccessor<'a, P>
 pub fn grafton_visca::TallyAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::TallyAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze

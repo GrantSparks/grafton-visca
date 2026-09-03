@@ -1846,7 +1846,7 @@ macro_rules! builtin_inquiry_table {
                 mode: SharpnessMode,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 let mode = match payload.as_slice()[0] {
                     0x02 => SharpnessMode::Auto,
                     0x03 => SharpnessMode::Manual,
@@ -2273,7 +2273,7 @@ macro_rules! builtin_inquiry_table {
                 position: NdFilterPosition,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 Ok(Response::Inquiry(InquiryData::NdFilter {
                     position: NdFilterPosition::from_byte(payload.as_slice()[0]),
                 }))
@@ -2358,7 +2358,7 @@ macro_rules! builtin_inquiry_table {
                 range: FocusRange,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 let range = FocusRange::try_from(payload.as_slice()[0])?;
                 Ok(Response::Inquiry(InquiryData::FocusRange { range }))
             };
@@ -2413,7 +2413,7 @@ macro_rules! builtin_inquiry_table {
                 level: DefogLevel,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 let level = DefogLevel::new(payload.as_slice()[0]).map_err(|_| Error::InvalidParameter {
                     parameter: "defog_level",
                     value: Cow::Owned(payload.as_slice()[0].to_string()),
@@ -2454,7 +2454,7 @@ macro_rules! builtin_inquiry_table {
                 sensitivity: AutoWhiteBalanceSensitivity,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 let sensitivity = match payload.as_slice()[0] {
                     0x00 => AutoWhiteBalanceSensitivity::High,
                     0x01 => AutoWhiteBalanceSensitivity::Normal,
@@ -2563,7 +2563,7 @@ macro_rules! builtin_inquiry_table {
                 value: u8,
             };
             decode: |payload| {
-                require_nonempty(&payload)?;
+                require_len(&payload, 1)?;
                 Ok(Response::Inquiry(InquiryData::Gamma { value: payload.as_slice()[0] }))
             };
             response: true;
@@ -2797,7 +2797,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the red tally light status.
         TallyRedInquiry => {
-            const TALLY_RED = [0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
+            const TALLY_RED = [0x81, 0x09, 0x7E, 0x01, 0x0A];
             kind: TallyRed {
                 /// Whether the red tally light is on.
                 on: bool,
@@ -2809,13 +2809,13 @@ macro_rules! builtin_inquiry_table {
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
-            rationale: Some("Extended baseline tally inquiry with non-standard byte length.");
+            rationale: Some("Sony FR7 extended red-tally inquiry (81 09 7E 01 0A FF).");
             typed: (bool, { on } => Ok(on));
         }
 
         /// Inquiry command to get the green tally light status.
         TallyGreenInquiry => {
-            const TALLY_GREEN = [0x81, 0x09, 0x7E, 0x04, 0x1A, 0x00];
+            const TALLY_GREEN = [0x81, 0x09, 0x7E, 0x04, 0x1A];
             kind: TallyGreen {
                 /// Whether the green tally light is on.
                 on: bool,
@@ -2827,7 +2827,7 @@ macro_rules! builtin_inquiry_table {
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: true;
-            rationale: Some("Sony FR7 extended tally inquiry with non-standard byte length.");
+            rationale: Some("Sony FR7 extended green-tally inquiry (81 09 7E 04 1A FF).");
             typed: (bool, { on } => Ok(on));
         }
 
@@ -3082,8 +3082,8 @@ macro_rules! builtin_inquiry_table {
             base_gate: crate::capabilities::HasWhiteBalance;
             WhiteBalanceModeInquiry => white_balance_mode: WhiteBalanceMode;
         }
-        ImageInquiryControl {
-            base_gate: crate::capabilities::HasImageProcessing;
+        DefogLevelInquiryControl {
+            gate: crate::capabilities::HasDefogLevel;
             DefogLevelInquiry => defog_level: crate::types::DefogLevel;
         }
         InquiryControl {
@@ -3118,9 +3118,12 @@ macro_rules! builtin_inquiry_table {
         }
         TallyControl {
             gate: crate::capabilities::HasTally;
-            TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
             TallyRedInquiry => red_tally_status: bool;
             TallyGreenInquiry => green_tally_status: bool;
+        }
+        PtzOpticsTallyInquiryControl {
+            gate: crate::capabilities::HasPtzOpticsTally;
+            TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
             TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
         }
         ExposureCompensationInquiryControl {
@@ -3241,15 +3244,6 @@ builtin_inquiry_table!(define_builtin_inquiries);
 fn require_len(payload: &Payload<'_>, expected: usize) -> Result<(), Error> {
     if payload.len() != expected {
         return Err(Error::invalid_response_length(expected, payload.as_slice()));
-    }
-    Ok(())
-}
-
-/// Require payload to be non-empty.
-#[inline]
-fn require_nonempty(payload: &Payload<'_>) -> Result<(), Error> {
-    if payload.is_empty() {
-        return Err(Error::invalid_response_length(1, payload.as_slice()));
     }
     Ok(())
 }

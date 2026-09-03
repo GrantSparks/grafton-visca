@@ -221,6 +221,25 @@ impl<T> Percentage<T> {
     }
 }
 
+fn validate_percentage(value: f32, parameter: &'static str) -> Result<f32, Error> {
+    if !value.is_finite() {
+        return Err(Error::InvalidParameter {
+            parameter,
+            value: Cow::Owned(value.to_string()),
+            reason: Cow::Borrowed("Value must be finite and between 0.0 and 100.0"),
+        });
+    }
+    if !(0.0..=100.0).contains(&value) {
+        return Err(Error::ParameterOutOfRange {
+            parameter,
+            value: value as i32,
+            min: 0,
+            max: 100,
+        });
+    }
+    Ok(value)
+}
+
 impl<T> Raw<T> {
     /// Create a new raw value.
     pub fn new(value: T) -> Self {
@@ -292,15 +311,8 @@ impl TryFrom<Percentage<f32>> for IrisLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "iris percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 0x10 as f32) as u8;
+        let percentage = validate_percentage(percentage.0, "iris percentage")?;
+        let value = (percentage / 100.0 * f32::from(IrisLevel::MAX.value())).round() as u8;
         IrisLevel::new(value)
     }
 }
@@ -357,15 +369,8 @@ impl TryFrom<Percentage<f32>> for PanSpeed {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "pan speed percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 24.0) as u8;
+        let percentage = validate_percentage(percentage.0, "pan speed percentage")?;
+        let value = (percentage / 100.0 * 24.0) as u8;
         PanSpeed::new(value)
     }
 }
@@ -374,15 +379,8 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "tilt speed percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * f32::from(TiltSpeed::MAX.value())) as u8;
+        let percentage = validate_percentage(percentage.0, "tilt speed percentage")?;
+        let value = (percentage / 100.0 * f32::from(TiltSpeed::MAX.value())) as u8;
         TiltSpeed::new(value)
     }
 }
@@ -403,15 +401,8 @@ impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "gain percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 7.0).round() as u8;
+        let percentage = validate_percentage(percentage.0, "gain percentage")?;
+        let value = (percentage / 100.0 * 7.0).round() as u8;
         crate::types::GainLevel::new(value)
     }
 }
@@ -426,15 +417,8 @@ impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "sharpness percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 7.0).round() as u8;
+        let percentage = validate_percentage(percentage.0, "sharpness percentage")?;
+        let value = (percentage / 100.0 * 7.0).round() as u8;
         crate::types::SharpnessLevel::new(value)
     }
 }
@@ -449,15 +433,8 @@ impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "brightness percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 0x11 as f32).round() as u16;
+        let percentage = validate_percentage(percentage.0, "brightness percentage")?;
+        let value = (percentage / 100.0 * 0x11 as f32).round() as u16;
         crate::types::BrightnessLevel::new(value)
     }
 }
@@ -472,15 +449,8 @@ impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "contrast percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 14.0).round() as u8;
+        let percentage = validate_percentage(percentage.0, "contrast percentage")?;
+        let value = (percentage / 100.0 * 14.0).round() as u8;
         crate::types::ContrastLevel::new(value)
     }
 }
@@ -495,15 +465,8 @@ impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "saturation percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
+        let percentage = validate_percentage(percentage.0, "saturation percentage")?;
+        let value = (percentage / 100.0 * 0x0E as f32).round() as u8;
         crate::types::SaturationLevel::new(value)
     }
 }
@@ -518,15 +481,8 @@ impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
     type Error = Error;
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        if percentage.0 < 0.0 || percentage.0 > 100.0 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "hue percentage",
-                value: percentage.0 as i32,
-                min: 0,
-                max: 100,
-            });
-        }
-        let value = (percentage.0 / 100.0 * 0x0E as f32).round() as u8;
+        let percentage = validate_percentage(percentage.0, "hue percentage")?;
+        let value = (percentage / 100.0 * 0x0E as f32).round() as u8;
         crate::types::HueLevel::new(value)
     }
 }
@@ -578,7 +534,21 @@ mod tests {
     #[test]
     #[allow(clippy::unwrap_used)]
     fn tilt_speed_percentage_uses_the_syntactic_union_maximum() {
-        let speed = TiltSpeed::try_from(Percentage(100.0)).unwrap();
+        let speed = TiltSpeed::try_from(Percentage::new(100.0)).unwrap();
         assert_eq!(speed.value(), 0x18);
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn percentage_conversions_reject_invalid_values_and_iris_uses_its_declared_maximum() {
+        for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.1, 100.1] {
+            assert!(
+                IrisLevel::try_from(Percentage::new(invalid)).is_err(),
+                "accepted {invalid}"
+            );
+        }
+
+        let iris = IrisLevel::try_from(Percentage::new(100.0)).unwrap();
+        assert_eq!(iris, IrisLevel::MAX);
     }
 }

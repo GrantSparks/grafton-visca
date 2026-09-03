@@ -214,28 +214,31 @@ fn smol_dynamic_cache_views_share_and_isolate_owner_state() {
         let second = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
             .expect("camera 2 view");
         assert_eq!(
-            first.state_cache().value(StateKey::ImageFreeze),
+            first.state_cache().value(StateKey::MulticastStreaming),
             StateEntry::Unknown
         );
         assert_eq!(
-            second.state_cache().value(StateKey::ImageFreeze),
+            second.state_cache().value(StateKey::MulticastStreaming),
             StateEntry::Unknown
         );
         first
-            .image()
-            .freeze_on()
+            .advanced()
+            .multicast_on()
             .await
-            .expect("owner applied state");
+            .expect("owner applied multicast state");
         assert!(matches!(
-            first.state_cache().value(StateKey::ImageFreeze),
+            first
+                .state_cache()
+                .value(StateKey::MulticastStreaming),
             StateEntry::Set(value) if value.get(0) == Some(1)
         ));
         assert!(matches!(
-            same.state_cache().value(StateKey::ImageFreeze),
+            same.state_cache()
+                .value(StateKey::MulticastStreaming),
             StateEntry::Set(value) if value.get(0) == Some(1)
         ));
         assert_eq!(
-            second.state_cache().value(StateKey::ImageFreeze),
+            second.state_cache().value(StateKey::MulticastStreaming),
             StateEntry::Unknown
         );
         session.shutdown().await.expect("smol shutdown");

@@ -377,31 +377,9 @@ fn validate_variable_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(
     }
 }
 
-fn validate_image_state(profile: &crate::ProfileSpec, feature: &'static str) -> Result<(), Error> {
-    require(profile.capabilities().has_image_processing, feature)
-}
-
-/// Gates the whole tally noun on typed tally support.
-///
-/// Every tally row — the red/green on/off and brightness commands, the
-/// tally-mode `TallyFlash`/`TallyOn`/`TallyOff` opcodes (`0A 02 02 0p`), and the
-/// tally inquiries — shares this one gate, so the erased dynamic surface admits
-/// exactly the profiles the static `tally()` accessor is reachable on
-/// (`HasTally`, i.e. `TypedSupportSurface::Tally`). 1.x published the tally-mode
-/// methods from the same `HasTally`-gated `TallyControl` impl as the rest of the
-/// surface (1.x `src/camera/controls/tally.rs:256`), so a tally-capable profile
-/// must accept them or the typed `tally()` noun is dead for every built-in
-/// profile.
-///
-/// The tally-mode opcode is recorded for PTZOptics as an *unvalidated candidate*
-/// (`docs/visca_reference.md`, appendix A.11: "Confirm support on target
-/// model/firmware"), and the registry records `tally: { supported: false }` for
-/// all three PTZOptics profiles. Admitting it there would expose an unsupported
-/// typed operation — the failure mode `docs/architecture_2_0.md` forbids
-/// ("metadata is discovery, not a fallback") — and left the dynamic tally noun
-/// incoherent: `tally().on()` succeeded while `tally().red_on()` was refused.
-/// A caller that has confirmed a specific PTZOptics firmware supports the opcode
-/// can still send it through the raw-command escape hatch (`raw::Plain`).
+/// Gates the source-backed Sony FR7 red/green tally family. PTZOptics packed
+/// status, brightness, mode, and auto-adjust candidates deliberately remain
+/// low-level wire types and are refused by every built-in profile.
 fn validate_tally_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_tally, "tally control")?;
@@ -4524,7 +4502,12 @@ impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
 
 impl BuiltinValidation for crate::command::flip::ImageFreeze {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_image_state(profile, "image freeze control")
+        let command = if self.enabled() {
+            StaticBuiltinCommand::ImageFreezeOn
+        } else {
+            StaticBuiltinCommand::ImageFreezeOff
+        };
+        validate_static_typed_command(profile, command, "validated image-freeze command")
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4584,7 +4567,11 @@ impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
 
 impl BuiltinValidation for crate::command::tally::TallyBrightLo {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile)
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::TallyBrightLow,
+            "validated tally-brightness command",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4594,7 +4581,11 @@ impl BuiltinValidation for crate::command::tally::TallyBrightLo {
 
 impl BuiltinValidation for crate::command::tally::TallyBrightHi {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile)
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::TallyBrightHigh,
+            "validated tally-brightness command",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4624,7 +4615,11 @@ impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode 
 
 impl BuiltinValidation for crate::command::tally::TallyOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile)
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::TallyOn,
+            "validated PTZOptics tally-mode command",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4634,7 +4629,11 @@ impl BuiltinValidation for crate::command::tally::TallyOn {
 
 impl BuiltinValidation for crate::command::tally::TallyOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile)
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::TallyOff,
+            "validated PTZOptics tally-mode command",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4644,7 +4643,11 @@ impl BuiltinValidation for crate::command::tally::TallyOff {
 
 impl BuiltinValidation for crate::command::tally::TallyFlash {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile)
+        validate_static_typed_command(
+            profile,
+            StaticBuiltinCommand::TallyFlash,
+            "validated PTZOptics tally-mode command",
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -5033,6 +5036,32 @@ mod tests {
         assert_eq!(actual, expected, "{name} applied-state projection");
     }
 
+    // Some command rows deliberately have no built-in profile permission yet
+    // (for example image-freeze and the unevidenced tally families).  Their
+    // closed projection is still part of the semantic ledger, so verify that
+    // mapping independently of profile validation.  The runtime rejection of
+    // those rows remains covered by the profile-gating tests below.
+    fn assert_semantic_state_row<C>(
+        name: &str,
+        command: &C,
+        semantic: crate::command::semantics::BuiltinCommand,
+        requirement: crate::command::semantics::AppliedStateEffectRequirement,
+        expected: crate::runtime::engine::AppliedStateProjection,
+    ) where
+        C: BuiltinValidation + ?Sized,
+    {
+        assert_eq!(
+            semantic.classification(),
+            crate::command::semantics::BuiltinRequestClass::Plain {
+                state_effect: Some(requirement),
+            },
+            "{name} classification"
+        );
+        let actual = BuiltinValidation::applied_state(command)
+            .expect("state command must expose an applied-state projection");
+        assert_eq!(actual, expected, "{name} applied-state projection");
+    }
+
     #[test]
     fn every_write_only_state_command_has_an_exact_closed_projection() {
         use crate::command::semantics::{
@@ -5055,6 +5084,13 @@ mod tests {
                     $requirement,
                     $expected,
                 );
+            }};
+        }
+
+        macro_rules! semantic_row {
+            ($name:literal, $command:expr, $semantic:expr, $requirement:expr, $expected:expr) => {{
+                let command = $command;
+                assert_semantic_state_row($name, &command, $semantic, $requirement, $expected);
             }};
         }
 
@@ -5196,19 +5232,17 @@ mod tests {
                 .expect("automatic ND projection")
         );
 
-        row!(
+        semantic_row!(
             "image freeze on",
             ImageFreeze::on(),
-            &fr7,
             B::ImageFreezeOn,
             Set(S::ImageFreeze),
             crate::runtime::engine::AppliedStateProjection::set(S::ImageFreeze, &[1])
                 .expect("image freeze projection")
         );
-        row!(
+        semantic_row!(
             "image freeze off",
             ImageFreeze::off(),
-            &fr7,
             B::ImageFreezeOff,
             Set(S::ImageFreeze),
             crate::runtime::engine::AppliedStateProjection::set(S::ImageFreeze, &[0])
@@ -5269,19 +5303,17 @@ mod tests {
             );
         }
 
-        row!(
+        semantic_row!(
             "tally brightness low",
             TallyBrightLo::new(),
-            &fr7,
             B::TallyBrightLow,
             Set(S::TallyBrightness),
             crate::runtime::engine::AppliedStateProjection::set(S::TallyBrightness, &[0])
                 .expect("tally brightness projection")
         );
-        row!(
+        semantic_row!(
             "tally brightness high",
             TallyBrightHi::new(),
-            &fr7,
             B::TallyBrightHigh,
             Set(S::TallyBrightness),
             crate::runtime::engine::AppliedStateProjection::set(S::TallyBrightness, &[1])
@@ -5306,31 +5338,28 @@ mod tests {
                 .expect("variable speed projection")
         );
 
-        // Tally-mode opcodes are gated on typed tally support (`HasTally`), which
-        // the Sony FR7 declares and the PTZOptics profiles do not, so the whole
-        // tally noun stays coherent on one gate (#684).
-        row!(
+        // PTZOptics tally-mode opcodes retain their closed state projections
+        // even though no built-in profile currently opts into their dedicated
+        // typed-support surface.
+        semantic_row!(
             "tally on",
             TallyOn::new(),
-            &fr7,
             B::TallyOn,
             Set(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::set(S::TallyMode, &[1])
                 .expect("tally mode projection")
         );
-        row!(
+        semantic_row!(
             "tally off",
             TallyOff::new(),
-            &fr7,
             B::TallyOff,
             Set(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::set(S::TallyMode, &[0])
                 .expect("tally mode projection")
         );
-        row!(
+        semantic_row!(
             "tally flash",
             TallyFlash::new(),
-            &fr7,
             B::TallyFlash,
             Invalidate(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::TallyMode)
@@ -6278,23 +6307,14 @@ mod tests {
         assert_eq!(request_write_count(), 0);
     }
 
-    /// Issue #684: the tally-mode opcodes share the one `HasTally` gate with the
-    /// rest of the tally noun, so the whole noun is coherent on every surface.
-    ///
-    /// The tally-mode `TallyOn`/`TallyOff`/`TallyFlash` opcodes previously
-    /// validated for the PTZOptics profile ids as well, which made the erased
-    /// dynamic surface strictly larger than the static one: `tally().on()`
-    /// succeeded on PTZOptics while `tally().red_on()` — the same noun — was
-    /// refused. PTZOptics tally mode is an unvalidated candidate
-    /// (`docs/visca_reference.md` A.11) and the registry records
-    /// `tally: { supported: false }` for those profiles, so admitting it exposed
-    /// an unsupported typed operation. Tally mode now needs typed tally support
-    /// exactly like the red/green/brightness rows.
+    /// Sony FR7 red/green tally and the unevidenced PTZOptics/brightness
+    /// candidates occupy independent typed-support surfaces.
     #[test]
-    fn tally_mode_commands_admit_only_the_tally_capable_profiles() {
+    fn tally_families_do_not_inherit_each_others_support() {
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
 
         macro_rules! admits {
             ($profile:expr, $command:expr) => {
@@ -6308,37 +6328,25 @@ mod tests {
             };
         }
 
-        // The tally-capable profile admits every tally row.
-        assert!(admits!(&fr7, TallyOn::new()));
-        assert!(admits!(&fr7, TallyOff::new()));
-        assert!(admits!(&fr7, TallyFlash::new()));
+        assert!(admits!(&fr7, TallyRedOn::new()));
+        assert!(admits!(&fr7, crate::command::TallyGreenOn::new()));
+        assert!(!admits!(&fr7, TallyOn::new()));
+        assert!(!admits!(&fr7, TallyOff::new()));
+        assert!(!admits!(&fr7, TallyFlash::new()));
+        assert!(!admits!(&fr7, TallyBrightLo::new()));
+        assert!(!admits!(&fr7, TallyBrightHi::new()));
 
-        // Neither a PTZOptics profile (no typed tally support, only an
-        // unvalidated vendor candidate) nor a generic profile has any tally
-        // mode, and the whole noun refuses together: the tally-mode opcodes and
-        // the red row that gates the same noun are both refused.
-        for profile in [&ptz, &generic] {
+        // Neither the PTZOptics candidate documentation nor generic metadata
+        // opts a built-in profile into either typed family.
+        for profile in [&ptz, &generic, &h900] {
             assert!(!admits!(profile, TallyOn::new()));
             assert!(!admits!(profile, TallyOff::new()));
             assert!(!admits!(profile, TallyFlash::new()));
             assert!(!admits!(profile, TallyRedOn::new()));
         }
-
-        // The rest of the tally surface is on the same gate: the brightness
-        // opcodes need the tally capability and are refused on PTZOptics too.
-        assert!(prepare_builtin_command(
-            &TallyBrightLo::new(),
-            CameraId::CAMERA_1,
-            &fr7,
-            OperationalTuning::new(),
-        )
-        .is_ok());
-        assert!(prepare_builtin_command(
-            &TallyBrightHi::new(),
-            CameraId::CAMERA_1,
-            &ptz,
-            OperationalTuning::new(),
-        )
-        .is_err());
+        assert!(!admits!(&h900, crate::command::TallyRedOff::new()));
+        assert!(!admits!(&h900, crate::command::TallyGreenOn::new()));
+        assert!(!admits!(&h900, crate::command::TallyGreenOff::new()));
+        assert!(!admits!(&ptz, TallyBrightHi::new()));
     }
 }

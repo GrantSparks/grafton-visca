@@ -13206,3 +13206,123 @@ fn completion_only_named_unowned_error_does_not_fallback() {
     ));
     engine.assert_invariants().unwrap();
 }
+
+/// A cancellation requested before ACK replaces the ordinary ACK deadline
+/// immediately. Input is processed before due work, so an ACK arriving after
+/// the old deadline but inside the ambiguity window must still correlate and
+/// start the socket-addressed cancellation.
+#[test]
+fn pre_ack_cancellation_extends_correlation_before_due_work() {
+    let start = Instant::now();
+    for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+        let mut engine = engine(envelope, TransportKind::Datagram);
+        let (admission, id) = admit(
+            &mut engine,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
+        send_ok(&mut engine, &admission, sequence, start);
+
+        let cancel_at = start + Duration::from_millis(1);
+        let requested = engine.handle(Input::Cancel { id }, cancel_at);
+        assert!(cancel_transmit_optional(&requested).is_none());
+
+        let ack = engine.handle(
+            frame(
+                1,
+                sequence.map(|value| (value, SequenceWidth::Full32)),
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(20) + Duration::from_nanos(1),
+        );
+        assert!(
+            ignored_reasons(&ack).is_empty(),
+            "{envelope:?} ACK inside cancellation ambiguity was rejected: {ack:?}"
+        );
+        assert_eq!(cancel_transmit(&ack).1, id);
+        assert!(terminal_outcome(&ack, id).is_none());
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// Completion-only commands have the same input-first deadline race as the
+/// pre-ACK path, but remain socketless. Their old completion deadline must not
+/// reject a completion that is still inside cancellation ambiguity.
+#[test]
+fn pre_completion_cancellation_extends_correlation_before_due_work() {
+    let start = Instant::now();
+    for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
+        let mut engine = engine(envelope, TransportKind::Datagram);
+        let (admission, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+            start,
+        );
+        let sequence = (envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
+        send_ok(&mut engine, &admission, sequence, start);
+
+        let requested = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
+        assert!(cancel_transmit_optional(&requested).is_none());
+
+        let completion = engine.handle(
+            frame(
+                1,
+                sequence.map(|value| (value, SequenceWidth::Full32)),
+                DecodedResponse::Completion { socket: None },
+            ),
+            start + Duration::from_millis(40) + Duration::from_nanos(1),
+        );
+        assert!(
+            ignored_reasons(&completion).is_empty(),
+            "{envelope:?} completion inside cancellation ambiguity was rejected: {completion:?}"
+        );
+        assert!(matches!(
+            terminal_outcome(&completion, id),
+            Some(RuntimeOutcome::Applied)
+        ));
+        engine.assert_invariants().unwrap();
+    }
+}
+
+/// Raw inquiry capacity is positional per response source. A cap of one keeps
+/// same-camera inquiries serialized without needlessly blocking another
+/// camera on the same serial bus.
+#[test]
+fn raw_inquiry_capacity_is_per_target() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    engine.policy.inquiry_capacity = 1;
+
+    let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    assert_eq!(request_transmit(&first).1, first_id);
+    let (second, second_id) = admit(&mut engine, 2, inquiry(2, POWER), start);
+    assert_eq!(request_transmit(&second).1, second_id);
+    let (third, third_id) = admit(&mut engine, 3, inquiry(1, ZOOM), start);
+    assert!(request_transmit_optional(&third).is_none());
+
+    send_ok(&mut engine, &first, None, start);
+    send_ok(&mut engine, &second, None, start);
+    let first_reply = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::InquiryReply {
+                route: Some(POWER),
+                payload: smallvec![1],
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        terminal_outcome(&first_reply, first_id),
+        Some(RuntimeOutcome::Reply { .. })
+    ));
+    assert_eq!(request_transmit(&first_reply).1, third_id);
+    assert!(engine.entry(second_id).is_some());
+    engine.assert_invariants().unwrap();
+}

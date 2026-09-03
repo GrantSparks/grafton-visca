@@ -17,7 +17,7 @@ use std::time::Duration;
 
 use grafton_visca::{
     blocking::Session,
-    command::{CommandKind, ImageFreeze},
+    command::{CommandKind, PowerOn},
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyFR7},
@@ -107,7 +107,7 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     let session = silent_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera facade");
     let error = camera
-        .execute(&ImageFreeze::on())
+        .execute(&PowerOn::new())
         .expect_err("a silent camera cannot acknowledge");
     assert!(
         matches!(error, Error::UnsequencedCommandUnconfirmed),

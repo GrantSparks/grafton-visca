@@ -205,6 +205,19 @@ async fn tokio_babbling_peer_never_starves_boundaries() {
     .await;
     join.join().unwrap();
 }
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tokio_buffered_babbling_peer_never_starves_boundaries() {
+    let (handle, terminated, join) = run_isolated_tokio_actor(policy(1), BufferedBabblingDriver);
+    assert_babble_never_starves_boundaries(
+        TokioRuntime::from_current().unwrap(),
+        handle,
+        terminated,
+    )
+    .await;
+    join.join().unwrap();
+}
 #[cfg(feature = "runtime-tokio")]
 #[test]
 fn tokio_current_thread_babbling_peer_yields_to_caller_control_and_timer() {
@@ -341,6 +354,18 @@ async fn tokio_nodata_receive_never_hot_spins() {
 #[test]
 fn smol_babbling_peer_never_starves_boundaries() {
     let (handle, terminated, join) = run_isolated_smol_actor(policy(1), BabblingDriver);
+    smol::block_on(assert_babble_never_starves_boundaries(
+        SmolRuntime::new(),
+        handle,
+        terminated,
+    ));
+    join.join().unwrap();
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn smol_buffered_babbling_peer_never_starves_boundaries() {
+    let (handle, terminated, join) = run_isolated_smol_actor(policy(1), BufferedBabblingDriver);
     smol::block_on(assert_babble_never_starves_boundaries(
         SmolRuntime::new(),
         handle,

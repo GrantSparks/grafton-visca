@@ -62,11 +62,10 @@ expect_failure "a fully qualified ref passed as the tag" \
     bash -c 'cd "$1" && "$2" "refs/tags/v2.0.0-rc.1" "$3" "$4"' \
     bash "${source_repository}" "${helper}" "${annotated_tag_object}" "${remote_repository}"
 
-# A hardware-qualification tag is deliberately not a release identity. Its
-# non-v prefix keeps it outside both release CI tag pushes and the manual
-# publication workflow's accepted input grammar.
-expect_failure "a hardware candidate passed as a release tag" \
-    bash -c 'cd "$1" && "$2" "hardware-candidate-v2.0.0-rc.1-20260903.1" "$3" "$4"' \
+# A non-v tag is deliberately not a release identity. It must remain outside
+# the release CI tag pattern and the publication workflow's accepted grammar.
+expect_failure "a non-release tag passed as a release tag" \
+    bash -c 'cd "$1" && "$2" "qualification-v2.0.0-rc.1" "$3" "$4"' \
     bash "${source_repository}" "${helper}" "${annotated_tag_object}" "${remote_repository}"
 
 echo "verify-release-tag self-test passed"

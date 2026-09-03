@@ -16,9 +16,6 @@ where
         + grafton_visca::capabilities::HasNoiseReduction2DControl
         + grafton_visca::capabilities::HasNoiseReduction3DControl,
 {
-    let _ = camera.image().freeze_on();
-    let _ = camera.image().freeze_off();
-    let _ = camera.image().defog_level();
     let _ = camera.image().noise_reduction_2d();
     let _ = camera.image().noise_reduction_2d_mode();
     let _ = camera.image().noise_reduction_3d();

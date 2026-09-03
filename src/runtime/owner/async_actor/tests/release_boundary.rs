@@ -906,10 +906,9 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
     handle.shutdown().await.unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
-/// Raw serial holds are target-local. Expiring A while camera C has a
-/// retained partial reply must preserve C's prefix; its later literal tail
-/// still resolves C before the globally single-flight inquiry lane admits
-/// A's queued successor.
+/// Raw serial holds are target-local. While camera C has a retained partial
+/// reply, camera A's independently eligible successor may already be sent;
+/// C's later literal tail must still resolve C without being confused with A.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_serial_a_release_preserves_c_partial_reply() {
@@ -965,7 +964,9 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         .submit(inquiry_for(CameraId::CAMERA_1))
         .await
         .unwrap();
-    assert!(sent_rx.try_recv().is_err());
+    // A's inquiry lane is independent from C's live inquiry, so the successor
+    // is written before C's retained prefix is installed.
+    let _ = sent_rx.recv_async().await.unwrap();
 
     chunk_tx.send_async(vec![0xb0, 0x50]).await.unwrap();
     let _ = handle.snapshot().await.unwrap();
@@ -983,7 +984,6 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
     ));
 
-    let _ = sent_rx.recv_async().await.unwrap();
     chunk_tx
         .send_async(vec![0x90, 0x50, 0xb2, 0xff])
         .await
@@ -1003,9 +1003,9 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
 /// A frame-limit batch can leave a complete camera-C reply ahead of an
 /// incomplete camera-A prefix. The async owner must decode C without due
 /// work, then keep the ambiguous socketless A prefix input-first until its
-/// tail is delimited before releasing A's successor. This covers hidden
-/// suffix ordering, the fail-closed socketless rule, and target-local raw
-/// serial framing through the production adapter and `ProtocolFramer`.
+/// tail is delimited for A's already-sent, target-local successor. This covers
+/// hidden suffix ordering, the fail-closed socketless rule, and raw serial
+/// framing through the production adapter and `ProtocolFramer`.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix() {
@@ -1069,7 +1069,9 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         .submit(inquiry_for(CameraId::CAMERA_1))
         .await
         .unwrap();
-    assert!(sent_rx.try_recv().is_err());
+    // A's per-target inquiry lane is independent from C's, so this write is
+    // legal before the retained C/A input batch arrives.
+    let _ = sent_rx.recv_async().await.unwrap();
 
     runtime.advance(Duration::from_secs(1));
     let mut burst = Vec::new();
@@ -1077,8 +1079,8 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         burst.extend_from_slice(&[0xb0, 0x38, 0xff]);
     }
     // C's complete reply is the first retained item after the frame-limit
-    // batch. A's socketless prefix sits behind it and must not reach B
-    // until it becomes a complete, ordinary input frame.
+    // batch. A's socketless prefix sits behind it and must remain input-first
+    // until its tail completes the already-sent A successor's reply.
     burst.extend_from_slice(&[0xb0, 0x50, 0xc3, 0xff]);
     burst.extend_from_slice(&[0x90, 0x50]);
     chunk_tx.send_async(burst).await.unwrap();
@@ -1096,21 +1098,13 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         .await,
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
     ));
-    // The complete old inquiry reply is consumed on the ordinary input
-    // path before due work. It is inert under its terminal hold, after
-    // which A's successor may write.
-    let _ = sent_rx.recv_async().await.unwrap();
-    chunk_tx
-        .send_async(vec![0x90, 0x50, 0xb2, 0xff])
-        .await
-        .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(
             &successor,
-            "camera A's successor completes after retained input drains",
+            "camera A's successor completes from its retained input",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
     ));
 
     handle.shutdown().await.unwrap();

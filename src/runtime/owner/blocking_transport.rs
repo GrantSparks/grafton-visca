@@ -1731,8 +1731,8 @@ mod tests {
             .expect("A's target-local hold releases without erasing camera 2 input");
         assert_eq!(
             io.lock().unwrap().sent.len(),
-            2,
-            "B still waits for the globally single-flight camera-2 inquiry"
+            3,
+            "camera 2's inquiry remains independently dispatched while camera 1 is held"
         );
         assert!(decoder.has_buffered_stream_input().unwrap());
         assert_eq!(
@@ -1760,7 +1760,7 @@ mod tests {
         assert_eq!(
             io.lock().unwrap().sent.len(),
             3,
-            "B writes as soon as camera 2's preserved reply completes"
+            "camera 1's successor remains behind its retained target-local prefix"
         );
 
         assert_eq!(
@@ -1775,8 +1775,8 @@ mod tests {
         ));
         assert_eq!(
             io.lock().unwrap().send_counts_at_read,
-            [2, 2, 2, 3],
-            "camera 2's tail and B's own reply are read only after B writes"
+            [2, 2, 3, 3],
+            "camera 2's tail and B's own reply are read after camera 2's independent write"
         );
     }
 
@@ -2227,20 +2227,67 @@ mod tests {
     }
 
     #[test]
-    fn serial_raw_inquiries_remain_globally_single_flight() {
-        let (adapter, io) =
-            serial_owner_adapter([Ok(vec![0x90, 0x50, 0x02, 0xff])], SendSemantics::Stream);
+    fn serial_raw_inquiries_dispatch_independently_per_target() {
+        let (adapter, io) = serial_owner_adapter(
+            [
+                Ok(vec![0x90, 0x50, 0x02, 0xff]),
+                Ok(vec![0xa0, 0x50, 0x04, 0xff]),
+            ],
+            SendSemantics::Stream,
+        );
         assert_eq!(adapter.policy().protocol.inquiry_capacity, 1);
         let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
         let first = owner
             .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
             .unwrap();
-        // Issue #561: the second inquiry queues behind the single flight
-        // instead of failing, and stays unwritten until the flight frees.
-        let queued = owner
+        let second = owner
             .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))
-            .expect("a busy inquiry flight queues rather than failing");
+            .expect("an inquiry on another target is independently admitted");
+        assert_eq!(io.lock().unwrap().sent.len(), 2);
+        assert!(try_terminal(&first).is_none());
+        assert!(try_terminal(&second).is_none());
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&first),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x02]
+        ));
+        assert_eq!(
+            io.lock().unwrap().sent.len(),
+            2,
+            "the second target was already written while the first awaited its reply"
+        );
+
+        assert_eq!(
+            owner
+                .pump_once(&mut writer, &mut reader, &mut decoder)
+                .unwrap(),
+            1
+        );
+        assert!(matches!(
+            try_terminal(&second),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x04]
+        ));
+    }
+
+    #[test]
+    fn serial_raw_inquiries_remain_single_flight_per_target() {
+        let (adapter, io) =
+            serial_owner_adapter([Ok(vec![0x90, 0x50, 0x02, 0xff])], SendSemantics::Stream);
+        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let (mut writer, mut reader, mut decoder) = adapter.parts();
+        let first = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
+            .unwrap();
+        let queued = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_1))
+            .expect("a same-target inquiry queues rather than failing");
         assert_eq!(io.lock().unwrap().sent.len(), 1);
         assert!(try_terminal(&queued).is_none());
 
@@ -2257,7 +2304,7 @@ mod tests {
         assert_eq!(
             io.lock().unwrap().sent.len(),
             2,
-            "the queued inquiry is written once the single flight frees"
+            "the same-target inquiry is written only after the first flight completes"
         );
     }
 }

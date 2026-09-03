@@ -135,8 +135,16 @@ fn generate_visca_enum(input: &DeriveInput) -> Result<TokenStream, Error> {
         .cloned()
         .collect();
 
-    // Check for discriminant collisions
-    check_discriminant_collisions_with_attrs(&active_variants)?;
+    if active_variants.is_empty() {
+        return Err(Error::new_spanned(
+            &input.ident,
+            "ViscaEnum requires at least one non-skipped variant",
+        ));
+    }
+
+    // Every variant participates in `From<Enum> for u8`, including skipped
+    // variants, so uniqueness is an enum-wide invariant.
+    check_discriminant_collisions_with_attrs(&variants_with_data)?;
 
     // Generate TryFrom<u8> implementation
     let try_from_impl = generate_try_from_impl_with_attrs(
@@ -339,7 +347,7 @@ fn generate_try_from_impl_with_attrs(
     let match_arms = variants.iter().map(|(variant, value, _)| {
         let variant_name = &variant.ident;
         quote! {
-            #value => Ok(#enum_name::#variant_name)
+            #value => ::core::result::Result::Ok(#enum_name::#variant_name)
         }
     });
 
@@ -372,15 +380,15 @@ fn generate_try_from_impl_with_attrs(
         if is_grafton_error {
             // Use InvalidResponse constructor for grafton_visca::Error
             quote! {
-                Err(#error_type::InvalidResponse {
+                ::core::result::Result::Err(#error_type::InvalidResponse {
                     expected: ::std::borrow::Cow::Borrowed(#error_message),
-                    actual: vec![value],
+                    actual: ::std::vec![value],
                 })
             }
         } else {
             // For other error types, try to use From trait
             quote! {
-                return Err(Self::Error::from(format!(
+                return ::core::result::Result::Err(Self::Error::from(::std::format!(
                     "Invalid value {value:#04X}, expected: {error_message}",
                     error_message = #error_message
                 )))

@@ -38,12 +38,17 @@ pub fn generate_bool_parser(response_variant: &Ident, crate_path: &TokenStream) 
 
     quote! {
         {
+            if data.len() != 1 {
+                return ::core::result::Result::Err(
+                    #crate_path::Error::invalid_response_length(1, data)
+                );
+            }
             match data[0] {
-                0x02 => Ok(#crate_path::command::InquiryData::#response_variant { #field_name: true }),
-                0x03 => Ok(#crate_path::command::InquiryData::#response_variant { #field_name: false }),
-                _ => Err(#crate_path::Error::InvalidResponse {
+                0x02 => ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name: true }),
+                0x03 => ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name: false }),
+                _ => ::core::result::Result::Err(#crate_path::Error::InvalidResponse {
                     expected: ::std::borrow::Cow::Borrowed("0x02 (on) or 0x03 (off)"),
-                    actual: vec![data[0]],
+                    actual: ::std::vec![data[0]],
                 }),
             }
         }
@@ -56,60 +61,76 @@ pub fn generate_direct_byte_parser(
     _field_name: &Ident,
     crate_path: &TokenStream,
 ) -> TokenStream {
+    let require_one = quote! {
+        if data.len() != 1 {
+            return ::core::result::Result::Err(
+                #crate_path::Error::invalid_response_length(1, data)
+            );
+        }
+    };
     match response_variant.to_string().as_str() {
         "GainLimit" => {
             quote! {
-                Ok(#crate_path::command::InquiryData::#response_variant { limit: data[0] })
+                { #require_one
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { limit: data[0] })
+                }
             }
         }
         "NoiseReduction2D" | "NoiseReduction3D" | "DynamicRange" => {
             quote! {
-                Ok(#crate_path::command::InquiryData::#response_variant { level: data[0] })
+                { #require_one
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { level: data[0] })
+                }
             }
         }
         "NdFilterPreset" => {
             quote! {
                 {
+                    #require_one
                     let preset = #crate_path::types::NdFilterPreset::new(data[0])
                         .map_err(|_| #crate_path::Error::InvalidParameter {
                             parameter: "nd_filter_preset",
                             value: ::std::borrow::Cow::Owned(data[0].to_string()),
                             reason: ::std::borrow::Cow::Borrowed("value out of range (0-3)"),
                         })?;
-                    Ok(#crate_path::command::InquiryData::#response_variant { preset })
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { preset })
                 }
             }
         }
         "DefogLevel" => {
             quote! {
                 {
+                    #require_one
                     let level = #crate_path::types::DefogLevel::new(data[0])
                         .map_err(|_| #crate_path::Error::InvalidParameter {
                             parameter: "defog_level",
                             value: ::std::borrow::Cow::Owned(data[0].to_string()),
                             reason: ::std::borrow::Cow::Borrowed("value out of range (0-5)"),
                         })?;
-                    Ok(#crate_path::command::InquiryData::#response_variant { level })
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { level })
                 }
             }
         }
         "BroadcastDomain" => {
             quote! {
                 {
+                    #require_one
                     let domain = #crate_path::types::BroadcastDomain::new(data[0])
                         .map_err(|_| #crate_path::Error::InvalidParameter {
                             parameter: "broadcast_domain",
                             value: ::std::borrow::Cow::Owned(data[0].to_string()),
                             reason: ::std::borrow::Cow::Borrowed("value out of range (0-3)"),
                         })?;
-                    Ok(#crate_path::command::InquiryData::#response_variant(domain))
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant(domain))
                 }
             }
         }
         _ => {
             // Default to tuple variant
             quote! {
-                Ok(#crate_path::command::InquiryData::#response_variant(data[0]))
+                { #require_one
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant(data[0]))
+                }
             }
         }
     }
@@ -120,14 +141,13 @@ pub fn generate_direct_byte_parser(
 pub fn generate_position_parser(response_variant: &Ident, crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.len() < 4 {
-                return Err(#crate_path::Error::invalid_response_length(4, data));
-            }
-            let position = ((data[0] & 0x0F) as u16) << 12
-                | ((data[1] & 0x0F) as u16) << 8
-                | ((data[2] & 0x0F) as u16) << 4
-                | (data[3] & 0x0F) as u16;
-            Ok(#crate_path::command::InquiryData::#response_variant { position })
+            let payload = #crate_path::command::Payload::new(data);
+            let nibbles = <#crate_path::command::Nibbles<'_, 4> as
+                ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
+            let position = nibbles.u16_quad(0);
+            ::core::result::Result::Ok(
+                #crate_path::command::InquiryData::#response_variant { position }
+            )
         }
     }
 }
@@ -141,12 +161,11 @@ pub fn generate_extended_nibble_parser(
 ) -> TokenStream {
     quote! {
         {
-            if data.len() < 2 {
-                return Err(#crate_path::Error::invalid_response_length(2, data));
-            }
-            let value = ((data[0] & 0x0F) << 4) | (data[1] & 0x0F);
-            Ok(#crate_path::command::InquiryData::#response_variant {
-                #field_name: value as u8,
+            let payload = #crate_path::command::Payload::new(data);
+            let nibbles = <#crate_path::command::Nibbles<'_, 2> as
+                ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant {
+                #field_name: nibbles.u8_pair(0),
             })
         }
     }
@@ -159,7 +178,12 @@ pub fn generate_bit_flags_parser(
 ) -> TokenStream {
     quote! {
         {
-            Ok(#crate_path::command::InquiryData::#response_variant {
+            if data.len() != 1 {
+                return ::core::result::Result::Err(
+                    #crate_path::Error::invalid_response_length(1, data)
+                );
+            }
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant {
                 horizontal: (data[0] & 0x01) != 0,
                 vertical: (data[0] & 0x02) != 0,
             })
@@ -182,12 +206,17 @@ pub fn generate_mode_enum_parser(
 
     quote! {
         {
-            let value = <#crate_path::command::#mode_type as TryFrom<u8>>::try_from(data[0])
+            if data.len() != 1 {
+                return ::core::result::Result::Err(
+                    #crate_path::Error::invalid_response_length(1, data)
+                );
+            }
+            let value = <#mode_type as ::core::convert::TryFrom<u8>>::try_from(data[0])
                 .map_err(|_| #crate_path::Error::InvalidResponse {
-                    expected: ::std::borrow::Cow::Owned(format!("Valid {} value", stringify!(#mode_type))),
-                    actual: vec![data[0]],
+                    expected: ::std::borrow::Cow::Owned(::std::format!("Valid {} value", ::core::stringify!(#mode_type))),
+                    actual: ::std::vec![data[0]],
                 })?;
-            Ok(#crate_path::command::InquiryData::#response_variant { #field_name: value })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name: value })
         }
     }
 }
@@ -207,7 +236,7 @@ pub fn generate_pan_tilt_parser(response_variant: &Ident, crate_path: &TokenStre
             let pan = i32::from(nibbles.i16_quad(0));
             let tilt = i32::from(nibbles.i16_quad(4));
 
-            Ok(#crate_path::command::InquiryData::#response_variant { pan, tilt })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { pan, tilt })
         }
     }
 }
@@ -229,7 +258,7 @@ pub fn generate_bool_convention_parser(
                 #param_name,
                 #convention
             )?;
-            Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
         }
     }
 }
@@ -246,7 +275,7 @@ pub fn generate_last_nibble_parser(
         {
             let payload = #crate_path::command::Payload::new(data);
             let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
-            Ok(#crate_path::command::InquiryData::#response_variant {
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant {
                 #field_name: nibbles.last_nibble()
             })
         }
@@ -259,8 +288,8 @@ pub fn generate_last_nibble_parser(
 pub fn generate_tally_status_parser(crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.len() < 2 {
-                return Err(#crate_path::Error::invalid_response_length(2, data));
+            if data.len() != 2 {
+                return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(2, data));
             }
             let red_payload = #crate_path::command::Payload::new(&data[0..1]);
             let green_payload = #crate_path::command::Payload::new(&data[1..2]);
@@ -272,7 +301,7 @@ pub fn generate_tally_status_parser(crate_path: &TokenStream) -> TokenStream {
                 "tally_green_status",
                 #crate_path::command::BoolConvention::OnIs03
             )?;
-            Ok(#crate_path::command::InquiryData::TallyStatus { red_on, green_on })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::TallyStatus { red_on, green_on })
         }
     }
 }
@@ -283,19 +312,19 @@ pub fn generate_tally_status_parser(crate_path: &TokenStream) -> TokenStream {
 pub fn generate_sharpness_mode_parser(crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.is_empty() {
-                return Err(#crate_path::Error::invalid_response_length(1, data));
+            if data.len() != 1 {
+                return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
             }
             let mode = match data[0] {
                 0x02 => #crate_path::command::SharpnessMode::Auto,
                 0x03 => #crate_path::command::SharpnessMode::Manual,
-                _ => return Err(#crate_path::Error::InvalidParameter {
+                _ => return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
                     parameter: "sharpness_mode",
-                    value: ::std::borrow::Cow::Owned(format!("0x{:02X}", data[0])),
+                    value: ::std::borrow::Cow::Owned(::std::format!("0x{:02X}", data[0])),
                     reason: ::std::borrow::Cow::Borrowed("Expected 0x02 (Auto) or 0x03 (Manual)"),
                 }),
             };
-            Ok(#crate_path::command::InquiryData::SharpnessMode { mode })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::SharpnessMode { mode })
         }
     }
 }
@@ -327,30 +356,30 @@ pub fn generate_byte_converter_parser(
         ConverterMethod::FromByte => {
             quote! {
                 {
-                    if data.is_empty() {
-                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    if data.len() != 1 {
+                        return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
                     }
                     let #field_name = #converter_type::from_byte(data[0]);
-                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
                 }
             }
         }
         ConverterMethod::TryFrom => {
             quote! {
                 {
-                    if data.is_empty() {
-                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    if data.len() != 1 {
+                        return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
                     }
                     let #field_name = #converter_type::try_from(data[0])?;
-                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
                 }
             }
         }
         ConverterMethod::New => {
             quote! {
                 {
-                    if data.is_empty() {
-                        return Err(#crate_path::Error::invalid_response_length(1, data));
+                    if data.len() != 1 {
+                        return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
                     }
                     let #field_name = #converter_type::new(data[0]).map_err(|_| {
                         #crate_path::Error::InvalidParameter {
@@ -359,7 +388,7 @@ pub fn generate_byte_converter_parser(
                             reason: ::std::borrow::Cow::Borrowed("value out of range"),
                         }
                     })?;
-                    Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
+                    ::core::result::Result::Ok(#crate_path::command::InquiryData::#response_variant { #field_name })
                 }
             }
         }
@@ -370,10 +399,10 @@ pub fn generate_byte_converter_parser(
 pub fn generate_gamma_parser(crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.is_empty() {
-                return Err(#crate_path::Error::invalid_response_length(1, data));
+            if data.len() != 1 {
+                return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
             }
-            Ok(#crate_path::command::InquiryData::Gamma { value: data[0] })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::Gamma { value: data[0] })
         }
     }
 }
@@ -384,22 +413,22 @@ pub fn generate_gamma_parser(crate_path: &TokenStream) -> TokenStream {
 pub fn generate_auto_wb_sensitivity_parser(crate_path: &TokenStream) -> TokenStream {
     quote! {
         {
-            if data.is_empty() {
-                return Err(#crate_path::Error::invalid_response_length(1, data));
+            if data.len() != 1 {
+                return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
             }
             let sensitivity = match data[0] {
                 0x00 => #crate_path::command::AutoWhiteBalanceSensitivity::High,
                 0x01 => #crate_path::command::AutoWhiteBalanceSensitivity::Normal,
                 0x02 => #crate_path::command::AutoWhiteBalanceSensitivity::Low,
-                _ => return Err(#crate_path::Error::InvalidParameter {
+                _ => return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
                     parameter: "auto_wb_sensitivity",
-                    value: ::std::borrow::Cow::Owned(format!("0x{:02X}", data[0])),
+                    value: ::std::borrow::Cow::Owned(::std::format!("0x{:02X}", data[0])),
                     reason: ::std::borrow::Cow::Borrowed(
                         "Expected 0x00 (High), 0x01 (Normal), or 0x02 (Low)"
                     ),
                 }),
             };
-            Ok(#crate_path::command::InquiryData::AutoWhiteBalanceSensitivity { sensitivity })
+            ::core::result::Result::Ok(#crate_path::command::InquiryData::AutoWhiteBalanceSensitivity { sensitivity })
         }
     }
 }

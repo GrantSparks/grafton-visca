@@ -1708,6 +1708,10 @@ macro_rules! __define_builtin_profiles {
                             | $crate::capabilities::TypedSupportSurface::MotionSync
                             | $crate::capabilities::TypedSupportSurface::IrisControlInquiry
                             | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
+                            | $crate::capabilities::TypedSupportSurface::ImageFreeze
+                            | $crate::capabilities::TypedSupportSurface::DefogLevel
+                            | $crate::capabilities::TypedSupportSurface::TallyBrightness
+                            | $crate::capabilities::TypedSupportSurface::PtzOpticsTally
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -3027,7 +3031,7 @@ macro_rules! define_builtin_profiles {
                         home_on_power_up: false,
                     },
                     menu: { direct: false },
-                    tally: { supported: true },
+                    tally: { supported: false },
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
@@ -3050,11 +3054,10 @@ macro_rules! define_builtin_profiles {
                         SharpnessControl,
                         SaturationControl,
                         GammaControl,
-                        Tally,
                     ],
                     evidence: [
                         ("sony_spotlight", "The BRC-H900 command list (R11 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
-                        ("tally", "Sony professional profile metadata and typed controls expose tally for BRC-H900."),
+                        ("tally", "The BRC-H900 source-backed command list does not establish the FR7 red/green tally family; typed tally remains unavailable."),
                         ("exposure_mode", "The BRC-H900 command list R11 lines 706-717 and 1003 documents the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri commands and `09 04 39` inquiry. Bright mode is not listed and is therefore absent from this profile's inventory."),
                         ("iris", "The BRC-H900 command list R11 lines 706-717 and 1012 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
                         ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),

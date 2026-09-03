@@ -146,6 +146,18 @@ fn parse_visca_value_attributes(attributes: &[syn::Attribute]) -> Result<ViscaVa
                 )
             } else if meta.path.is_ident("valid_values") {
                 let literal = parse_string_value(&meta, "valid_values")?;
+                let values = syn::parse_str::<syn::ExprArray>(&literal.value()).map_err(|_| {
+                    Error::new(
+                        literal.span(),
+                        "`valid_values` must be a non-empty array literal",
+                    )
+                })?;
+                if values.elems.is_empty() {
+                    return Err(Error::new(
+                        literal.span(),
+                        "`valid_values` must be a non-empty array literal",
+                    ));
+                }
                 set_attribute(
                     &mut attrs.valid_values,
                     literal.value(),
@@ -196,6 +208,15 @@ fn parse_visca_value_attributes(attributes: &[syn::Attribute]) -> Result<ViscaVa
             ))
         }
         _ => {}
+    }
+
+    if let Some(valid_values) = &attrs.valid_values {
+        if attrs.min.is_some() || attrs.max.is_some() {
+            return Err(Error::new(
+                valid_values.key_span,
+                "`valid_values` cannot be combined with `min` or `max`",
+            ));
+        }
     }
 
     Ok(attrs)

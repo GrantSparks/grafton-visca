@@ -159,10 +159,17 @@ where
     for operation in startup_plan(config).into_iter().flatten() {
         match operation {
             StartupOperation::AddressSet => {
-                address_set_async(executor, io, Duration::from_secs(2)).await?;
+                address_set_async(
+                    executor,
+                    io,
+                    Duration::from_secs(2),
+                    config.write_timeout,
+                    config.buffer_config,
+                )
+                .await?;
             }
             StartupOperation::InterfaceClear => {
-                if_clear_async(executor, io).await?;
+                if_clear_async(executor, io, config.write_timeout).await?;
             }
         }
     }
@@ -180,6 +187,7 @@ mod tests {
     struct TranscriptIo {
         reads: VecDeque<Vec<u8>>,
         writes: Vec<Vec<u8>>,
+        read_buffer_sizes: Vec<usize>,
     }
 
     impl TranscriptIo {
@@ -187,12 +195,14 @@ mod tests {
             Self {
                 reads: [bytes].into(),
                 writes: Vec::new(),
+                read_buffer_sizes: Vec::new(),
             }
         }
     }
 
     impl AsyncReadExtTrait for TranscriptIo {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            self.read_buffer_sizes.push(buf.len());
             let bytes = self.reads.pop_front().expect("unexpected serial read");
             buf[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
@@ -257,7 +267,11 @@ mod tests {
         let mut io = TranscriptIo::with_read(vec![0x88, 0x30, 0x02, 0xFF]);
         let config = SerialConfig::new("/dev/test")
             .address_set_on_connect(true)
-            .if_clear_on_connect(true);
+            .if_clear_on_connect(true)
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 4,
+                max_buffer_size: 32,
+            });
 
         perform_startup_handshakes(&executor, &mut io, &config)
             .await
@@ -271,5 +285,41 @@ mod tests {
             ],
             "the Tokio serial startup transcript must address the bus before clearing it"
         );
+        assert_eq!(io.read_buffer_sizes, [4]);
+    }
+
+    struct PendingWriteIo;
+
+    impl AsyncReadExtTrait for PendingWriteIo {
+        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+            std::future::pending().await
+        }
+    }
+
+    impl AsyncWriteExtTrait for PendingWriteIo {
+        async fn write_all(&mut self, _buf: &[u8]) -> Result<()> {
+            std::future::pending().await
+        }
+
+        async fn flush(&mut self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_uses_the_configured_write_timeout() {
+        let executor = TokioExecutor::from_current().expect("Tokio runtime is present");
+        let mut io = PendingWriteIo;
+        let config = SerialConfig::new("/dev/test")
+            .address_set_on_connect(false)
+            .if_clear_on_connect(true)
+            .write_timeout(Duration::from_millis(5));
+
+        let bounded = tokio::time::timeout(
+            Duration::from_millis(100),
+            perform_startup_handshakes(&executor, &mut io, &config),
+        )
+        .await;
+        assert!(matches!(bounded, Ok(Err(Error::Timeout))));
     }
 }

@@ -7,9 +7,9 @@
 //! for robust frame handling instead of manual buffer scanning.
 //!
 //! Address-set discovery retains only the final camera count reported by the
-//! bus. The protocol framer bounds incomplete wire data by the serial
-//! `BufferConfig` limit (8 KiB); no second response-history buffer is kept by
-//! either loop.
+//! bus. The protocol framer bounds incomplete wire data by the caller's
+//! configured `BufferConfig` limit; no second response-history buffer is kept
+//! by either loop.
 
 #[cfg(any(
     feature = "transport-serial-tokio",
@@ -108,8 +108,6 @@ pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
     ParseOutcome::Partial { camera_count: 0 }
 }
 
-const SERIAL_HANDSHAKE_READ_SIZE: usize = 64;
-
 /// Scalar state carried across framed address-set responses.
 ///
 /// An address-set reply contains the final count rather than one response per
@@ -205,16 +203,19 @@ pub mod async_handshake {
         bytes: &[u8],
         attempt_started: Instant,
         attempt_budget: Duration,
+        configured_write_timeout: Duration,
     ) -> Result<()>
     where
         E: Executor,
         S: AsyncWriteExt + Send + ?Sized,
     {
         let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        exec.timeout(remaining, io.write_all(bytes)).await??;
+        exec.timeout(configured_write_timeout.min(remaining), io.write_all(bytes))
+            .await??;
 
         let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        exec.timeout(remaining, io.flush()).await??;
+        exec.timeout(configured_write_timeout.min(remaining), io.flush())
+            .await??;
         Ok(())
     }
 
@@ -255,7 +256,11 @@ pub mod async_handshake {
     /// Send I/F Clear command to reset all devices on the bus.
     ///
     /// This is executor-driven and runtime-agnostic.
-    pub async fn if_clear_async<E, S>(exec: &E, io: &mut S) -> Result<()>
+    pub async fn if_clear_async<E, S>(
+        exec: &E,
+        io: &mut S,
+        configured_write_timeout: Duration,
+    ) -> Result<()>
     where
         E: Executor,
         S: AsyncWriteExt + Send + ?Sized,
@@ -276,6 +281,7 @@ pub mod async_handshake {
             &buffer[..len],
             attempt_started,
             IF_CLEAR_OPERATION_TIMEOUT,
+            configured_write_timeout,
         )
         .await?;
 
@@ -295,7 +301,13 @@ pub mod async_handshake {
     ///
     /// Returns the number of cameras detected.
     /// This is executor-driven and runtime-agnostic.
-    pub async fn address_set_async<E, S>(exec: &E, io: &mut S, timeout: Duration) -> Result<u8>
+    pub async fn address_set_async<E, S>(
+        exec: &E,
+        io: &mut S,
+        timeout: Duration,
+        configured_write_timeout: Duration,
+        buffer_config: BufferConfig,
+    ) -> Result<u8>
     where
         E: Executor,
         S: AsyncReadExt + AsyncWriteExt + Send + ?Sized,
@@ -318,10 +330,19 @@ pub mod async_handshake {
             // A timed-out write is a send failure, not an absent reply: after
             // cancellation its stream position may be unknowable, so surface
             // it immediately rather than retrying on the same serial stream.
-            write_all_and_flush_within_attempt(exec, io, &buffer[..len], attempt_started, timeout)
-                .await?;
+            write_all_and_flush_within_attempt(
+                exec,
+                io,
+                &buffer[..len],
+                attempt_started,
+                timeout,
+                configured_write_timeout,
+            )
+            .await?;
 
-            match recv_address_set_response_async(exec, io, attempt_started, timeout).await {
+            match recv_address_set_response_async(exec, io, attempt_started, timeout, buffer_config)
+                .await
+            {
                 Ok(camera_count) => {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
@@ -349,6 +370,7 @@ pub mod async_handshake {
         stream: &mut S,
         attempt_started: Instant,
         timeout_duration: Duration,
+        buffer_config: BufferConfig,
     ) -> Result<u8>
     where
         E: Executor,
@@ -357,11 +379,10 @@ pub mod async_handshake {
         // Use ProtocolFramer for robust frame handling
         // Serial VISCA has no Sony envelope; raw framing remains authoritative
         // even when noise begins with Sony payload-type bytes.
-        let mut framer = ProtocolFramer::new_with_config_and_mode(
-            BufferConfig::for_serial(),
-            FramingMode::RawVisca,
-        );
+        let mut framer =
+            ProtocolFramer::new_with_config_and_mode(buffer_config, FramingMode::RawVisca);
         let mut state = AddressSetState::default();
+        let mut temp_buf = vec![0u8; buffer_config.recv_buffer_size];
 
         loop {
             let remaining = match remaining_attempt_budget(exec, attempt_started, timeout_duration)
@@ -370,7 +391,6 @@ pub mod async_handshake {
                 Err(Error::Timeout) => break,
                 Err(error) => return Err(error),
             };
-            let mut temp_buf = [0u8; SERIAL_HANDSHAKE_READ_SIZE];
             match exec.timeout(remaining, stream.read(&mut temp_buf)).await {
                 Ok(Ok(n)) if n > 0 => {
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
@@ -481,6 +501,7 @@ pub mod async_handshake {
                 &mut stream,
                 attempt_started,
                 timeout,
+                BufferConfig::for_serial(),
             ));
 
             assert!(matches!(result, Err(Error::Timeout)));
@@ -512,6 +533,7 @@ pub mod async_handshake {
                 &mut stream,
                 attempt_started,
                 timeout,
+                BufferConfig::for_serial(),
             ));
 
             assert!(matches!(result, Err(Error::Timeout)));
@@ -757,6 +779,7 @@ pub mod blocking_handshake {
         io: &mut dyn serialport::SerialPort,
         timeout: Duration,
         configured_write_timeout: Duration,
+        buffer_config: BufferConfig,
     ) -> Result<u8> {
         let max_attempts = 3;
 
@@ -784,7 +807,7 @@ pub mod blocking_handshake {
                 configured_write_timeout,
             )?;
 
-            match recv_address_set_response_blocking(io, attempt_started, timeout) {
+            match recv_address_set_response_blocking(io, attempt_started, timeout, buffer_config) {
                 Ok(camera_count) => {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
@@ -806,16 +829,15 @@ pub mod blocking_handshake {
         stream: &mut dyn serialport::SerialPort,
         attempt_started: Instant,
         timeout: Duration,
+        buffer_config: BufferConfig,
     ) -> Result<u8> {
         // Use ProtocolFramer for robust frame handling
         // Serial VISCA has no Sony envelope; raw framing remains authoritative
         // even when noise begins with Sony payload-type bytes.
-        let mut framer = ProtocolFramer::new_with_config_and_mode(
-            BufferConfig::for_serial(),
-            FramingMode::RawVisca,
-        );
+        let mut framer =
+            ProtocolFramer::new_with_config_and_mode(buffer_config, FramingMode::RawVisca);
         let mut state = AddressSetState::default();
-        let mut temp_buf = [0u8; SERIAL_HANDSHAKE_READ_SIZE];
+        let mut temp_buf = vec![0u8; buffer_config.recv_buffer_size];
 
         loop {
             let remaining = match remaining_attempt_budget(attempt_started, timeout) {

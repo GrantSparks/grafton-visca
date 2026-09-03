@@ -688,54 +688,61 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
     session.shutdown().expect("shutdown");
 }
 
-/// `tally_mode` had no decode-side coverage at all. The typed `tally()` noun is
-/// gated on `HasTally`, which only the two Sony profiles declare, so the noun is
-/// the primary driver for the key (see #661: the vendor tally-mode opcode used
-/// to validate for PTZOptics alone, which made these three methods unreachable
-/// for every built-in profile).
+/// PTZOptics tally-mode candidates are a distinct, unevidenced family from the
+/// FR7 red/green tally commands and must fail before transport I/O.
 #[test]
-fn typed_cache_getters_decode_the_vendor_tally_mode() {
-    let (session, _writes) = fr7_session();
+fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
+    use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
+
+    let (session, writes) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
     assert_eq!(cache.tally_mode(), None);
-
-    camera.tally().on().expect("tally on");
-    assert_eq!(cache.tally_mode(), Some(true));
-    camera.tally().off().expect("tally off");
-    assert_eq!(cache.tally_mode(), Some(false));
-
-    // A flash does not determine the steady-state mode, so the key is
-    // invalidated rather than left reporting the last steady value.
-    camera.tally().flash().expect("tally flash");
+    for result in [
+        camera.execute(&TallyOn),
+        camera.execute(&TallyOff),
+        camera.execute(&TallyFlash),
+    ] {
+        assert!(
+            matches!(result, Err(Error::FeatureNotSupported { .. })),
+            "unsupported PTZOptics tally mode must be rejected before I/O: {result:?}"
+        );
+    }
+    assert!(
+        drain(&writes).is_empty(),
+        "rejected tally rows must not reach I/O"
+    );
     assert_eq!(cache.tally_mode(), None);
 
     session.shutdown().expect("shutdown");
 }
 
-/// The same key is reachable through the untyped `execute` path, not only the
-/// typed `tally()` noun, and the cache contract has to be identical on both.
-/// Tally-mode is gated on `HasTally` on every entry path (issue #684: the vendor
-/// opcode no longer validates for PTZOptics, whose tally support is unconfirmed;
-/// those profiles reach the raw opcode through `raw::Plain`), so this contract is
-/// exercised on a tally-capable profile.
+/// Rejection through direct request admission also leaves the cache unknown.
 #[test]
-fn executed_vendor_tally_mode_records_the_same_cache_key() {
+fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
     use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
 
-    let (session, _writes) = fr7_session();
+    let (session, writes) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
     assert_eq!(cache.tally_mode(), None);
 
-    camera.execute(&TallyOn).expect("tally on");
-    assert_eq!(cache.tally_mode(), Some(true));
-    camera.execute(&TallyOff).expect("tally off");
-    assert_eq!(cache.tally_mode(), Some(false));
-
-    camera.execute(&TallyFlash).expect("tally flash");
+    for result in [
+        camera.execute(&TallyOn),
+        camera.execute(&TallyOff),
+        camera.execute(&TallyFlash),
+    ] {
+        assert!(
+            matches!(result, Err(Error::FeatureNotSupported { .. })),
+            "unsupported PTZOptics tally mode must be rejected before I/O: {result:?}"
+        );
+    }
+    assert!(
+        drain(&writes).is_empty(),
+        "rejected tally rows must not reach I/O"
+    );
     assert_eq!(cache.tally_mode(), None);
 
     session.shutdown().expect("shutdown");
@@ -766,9 +773,8 @@ fn typed_cache_getters_decode_the_focus_lock_mode() {
     session.shutdown().expect("shutdown");
 }
 
-/// The remaining three typed getters without decode-side coverage. All three
-/// keys live on the FR7, the only built-in profile that documents digital-zoom
-/// toggling, tally brightness, and variable-speed mode together.
+/// Source-backed FR7 write-only keys remain available; unevidenced tally
+/// brightness remains unknown.
 #[test]
 fn typed_cache_getters_decode_the_remaining_write_only_keys() {
     let (session, _writes) = fr7_session();
@@ -784,10 +790,7 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
     camera.zoom().set_digital_zoom(false).expect("digital zoom");
     assert_eq!(cache.digital_zoom(), Some(false));
 
-    camera.tally().bright_hi().expect("tally high brightness");
-    assert_eq!(cache.tally_brightness_is_high(), Some(true));
-    camera.tally().bright_lo().expect("tally low brightness");
-    assert_eq!(cache.tally_brightness_is_high(), Some(false));
+    assert_eq!(cache.tally_brightness_is_high(), None);
 
     camera
         .advanced()
@@ -842,7 +845,7 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 
 #[test]
 fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
-    let (session, _writes) = ptz_session();
+    let (session, writes) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -868,10 +871,20 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
         .expect("ndi quality");
     assert_eq!(cache.ndi_quality(), Some(NdiQuality::Medium));
 
-    camera.image().freeze_on().expect("freeze on");
-    assert_eq!(cache.image_freeze(), Some(true));
-    camera.image().freeze_off().expect("freeze off");
-    assert_eq!(cache.image_freeze(), Some(false));
+    let writes_before = writes.lock().expect("writes lock").len();
+    let error = camera
+        .execute(&grafton_visca::command::ImageFreeze::on())
+        .expect_err("unsupported image-freeze must be rejected before I/O");
+    assert!(
+        matches!(error, Error::FeatureNotSupported { .. }),
+        "image-freeze must be rejected by the profile gate: {error:?}"
+    );
+    assert_eq!(
+        writes.lock().expect("writes lock").len(),
+        writes_before,
+        "rejected image-freeze must not reach I/O"
+    );
+    assert_eq!(cache.image_freeze(), None);
 
     session.shutdown().expect("shutdown");
 }

@@ -473,8 +473,8 @@ SharpnessPositionInquiry	81 09 04 42 FF
 ShutterInquiry	81 09 04 4A FF
 StandbyInquiry	81 09 04 70 FF
 TallyAutoAdjustInquiry	81 09 04 A9 FF
-TallyGreenInquiry	81 09 7E 04 1A 00 FF
-TallyRedInquiry	81 09 7E 01 0A 00 FF
+TallyGreenInquiry	81 09 7E 04 1A FF
+TallyRedInquiry	81 09 7E 01 0A FF
 TallyStatusInquiry	81 09 04 A8 FF
 TwoToneModeInquiry	81 09 04 74 FF
 UsbAudioInquiry	81 2A 02 A0 04 FF

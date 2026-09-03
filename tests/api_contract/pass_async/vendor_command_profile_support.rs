@@ -26,6 +26,13 @@ fn sony_spotlight_commands(camera: &Camera<SonyFR7>) {
     let _ = camera.exposure().spotlight_off();
 }
 
+fn sony_tally_commands(camera: &Camera<SonyFR7>) {
+    let _ = camera.tally().red_on();
+    let _ = camera.tally().red_off();
+    let _ = camera.tally().green_on();
+    let _ = camera.tally().green_off();
+}
+
 fn sony_auto_slow_shutter_commands(camera: &Camera<SonyEVIH100>) {
     let _ = camera.exposure().auto_slow_shutter_on();
     let _ = camera.exposure().auto_slow_shutter_off();
@@ -34,5 +41,6 @@ fn sony_auto_slow_shutter_commands(camera: &Camera<SonyEVIH100>) {
 fn main() {
     let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_commands;
     let _: fn(&Camera<SonyFR7>) = sony_spotlight_commands;
+    let _: fn(&Camera<SonyFR7>) = sony_tally_commands;
     let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_commands;
 }

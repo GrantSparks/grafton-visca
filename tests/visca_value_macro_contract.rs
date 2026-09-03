@@ -20,6 +20,10 @@ fn visca_value_attributes_are_checked_downstream() {
             "tests/api_contract/fail/visca_value_missing_min.rs",
             "tests/api_contract/fail/visca_value_malformed_min.rs",
             "tests/api_contract/fail/visca_value_malformed_max.rs",
+            "tests/api_contract/fail/visca_value_empty_valid_values.rs",
+            "tests/api_contract/fail/visca_value_mixed_valid_values_bounds.rs",
+            "tests/api_contract/fail/visca_enum_all_skipped.rs",
+            "tests/api_contract/fail/visca_enum_skipped_discriminant_collision.rs",
         ],
         &features,
     );

@@ -1967,6 +1967,42 @@ impl AsyncOwnerDriver for BabblingDriver {
     }
 }
 
+/// A frame flood whose adapter reports retained stream input after every
+/// bounded batch. Production stream adapters do this whenever a read contains
+/// more complete frames than `frames_per_receive`; resetting fairness on this
+/// outcome used to starve every actor boundary indefinitely.
+#[derive(Debug, Default)]
+struct BufferedBabblingDriver;
+
+impl AsyncOwnerDriver for BufferedBabblingDriver {
+    #[allow(clippy::manual_async_fn)]
+    fn write(
+        &mut self,
+        _write: WireWrite<'_>,
+    ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+        async { Ok(TransmissionMeta { sequence: None }) }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn receive(
+        &mut self,
+        _buffers: &mut super::super::OwnerBuffers,
+        _frame_limit: usize,
+    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+        async {
+            Ok(AsyncReceive::Frames(vec![DecodedFrame {
+                target: CameraId::CAMERA_1,
+                sequence: None,
+                response: DecodedResponse::Unknown,
+            }]))
+        }
+    }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(true)
+    }
+}
+
 /// A babbling peer with an external test-only escape hatch. The watchdog
 /// uses `stop` only after declaring the single-thread liveness check
 /// failed, so a regressed actor can be released rather than wedging the

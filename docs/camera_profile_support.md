@@ -119,6 +119,10 @@ declarative vocabulary rather than this marked region.
 | Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
 | Image | `HasNoiseReduction2DControl` | 2D noise-reduction mode/level controls and disable |
 | Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
+| Image | `HasImageFreeze` | image-freeze control |
+| Image | `HasDefogLevel` | vendor defog-level inquiry |
+| Tally | `HasTallyBrightness` | extended tally-brightness commands |
+| Tally | `HasPtzOpticsTally` | PTZOptics packed status, mode, and auto-adjust tally family |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 ## Built-In Transport Matrix
@@ -166,7 +170,7 @@ optional typed operations when a capability is not universal.
 | `PtzOpticsG3` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `PtzOptics30X` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `SonyFR7` | `HasSonySpotlight`<br>`HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
-| `SonyBRCH900` | `HasSonySpotlight`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasTally` |
+| `SonyBRCH900` | `HasSonySpotlight`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl` |
 | `SonyEVIH100` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl` |
 | `SonyBRC300` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
 | `NearusBRC300` | `HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
@@ -179,6 +183,13 @@ likewise remain limited to the G2 and raw 30X UAC table entries. Picture effect
 is retained for all three PTZOptics profiles from the G2/G3 references and the
 raw 30X Gen-2 table; it is not inferred for Sony FR7 or BRC-H900. The Sony
 model lists also do not establish the removed brightness controls.
+
+The row-specific surfaces `HasImageFreeze`, `HasDefogLevel`,
+`HasTallyBrightness`, and `HasPtzOpticsTally` currently have no built-in profile
+grant. Image freeze remains firmware/path-specific until its VISCA command path
+is validated; defog level, extended tally brightness, and PTZOptics tally
+extensions likewise remain custom/evidenced-profile surfaces. Sony FR7's
+source-backed red/green tally controls remain under `HasTally`.
 
 R14 documents the current G2/G3 noise-reduction command inputs and inquiry
 outputs separately. Its `04 50` input selects Auto (`02`) or Manual (`03`),

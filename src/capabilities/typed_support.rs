@@ -324,14 +324,14 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_preserves_the_historical_wire_contract_and_appends_noise_reduction_controls(
+    fn serde_preserves_the_historical_wire_contract_and_appends_new_surfaces(
     ) -> Result<(), serde_json::Error> {
         // This table is intentionally independent of `TypedSupportSurface::ALL`
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass by merely
         // agreeing with the aggregate fixtures below.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 51] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 55] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -440,6 +440,10 @@ mod tests {
                 "noise-reduction3-d-control",
                 TypedSupportSurface::NoiseReduction3DControl,
             ),
+            ("image-freeze", TypedSupportSurface::ImageFreeze),
+            ("defog-level", TypedSupportSurface::DefogLevel),
+            ("tally-brightness", TypedSupportSurface::TallyBrightness),
+            ("ptz-optics-tally", TypedSupportSurface::PtzOpticsTally),
         ];
 
         // These wire fixtures deliberately do not derive from the surface list
@@ -450,9 +454,11 @@ mod tests {
         const PREVIOUS_CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode"]"#;
         const CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode","iris-control-inquiry"]"#;
         const CONTROL_JSON: &str = r#"["noise-reduction2-d-control","noise-reduction3-d-control"]"#;
+        const ROW_SCOPED_JSON: &str =
+            r#"["image-freeze","defog-level","tally-brightness","ptz-optics-tally"]"#;
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 51);
-        assert_eq!(WIRE_SURFACES.len(), 51);
+        assert_eq!(TypedSupportSurface::ALL.len(), 55);
+        assert_eq!(WIRE_SURFACES.len(), 55);
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);
             let singleton_json = serde_json::to_string(&[wire_name])?;
@@ -492,7 +498,7 @@ mod tests {
         assert_eq!(
             legacy,
             TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..WIRE_SURFACES.len() - 4]
+                &WIRE_SURFACES[..47]
                     .iter()
                     .map(|(_, surface)| *surface)
                     .collect::<Vec<_>>(),
@@ -509,7 +515,7 @@ mod tests {
         assert_eq!(
             previous_current,
             TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..WIRE_SURFACES.len() - 3]
+                &WIRE_SURFACES[..48]
                     .iter()
                     .map(|(_, surface)| *surface)
                     .collect::<Vec<_>>(),
@@ -529,7 +535,7 @@ mod tests {
         assert_eq!(
             current,
             TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..WIRE_SURFACES.len() - 2]
+                &WIRE_SURFACES[..49]
                     .iter()
                     .map(|(_, surface)| *surface)
                     .collect::<Vec<_>>(),
@@ -548,8 +554,15 @@ mod tests {
         assert!(controls.contains(TypedSupportSurface::NoiseReduction3DControl));
         assert_eq!(serde_json::to_string(&controls)?, CONTROL_JSON);
 
-        let final_current = current.union(controls);
-        assert_eq!(final_current.iter().count(), 51);
+        let row_scoped: TypedSupportSet = serde_json::from_str(ROW_SCOPED_JSON)?;
+        assert!(row_scoped.contains(TypedSupportSurface::ImageFreeze));
+        assert!(row_scoped.contains(TypedSupportSurface::DefogLevel));
+        assert!(row_scoped.contains(TypedSupportSurface::TallyBrightness));
+        assert!(row_scoped.contains(TypedSupportSurface::PtzOpticsTally));
+        assert_eq!(serde_json::to_string(&row_scoped)?, ROW_SCOPED_JSON);
+
+        let final_current = current.union(controls).union(row_scoped);
+        assert_eq!(final_current.iter().count(), 55);
         assert_eq!(
             final_current,
             TypedSupportSet::from_surfaces(
@@ -562,7 +575,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&final_current)?,
             format!(
-                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control"]"#,
+                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control","image-freeze","defog-level","tally-brightness","ptz-optics-tally"]"#,
                 &CURRENT_JSON[..CURRENT_JSON.len() - 1]
             )
         );

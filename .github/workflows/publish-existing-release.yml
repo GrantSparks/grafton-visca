@@ -236,6 +236,47 @@ jobs:
             exit 1
           fi
 
+      - name: Verify stable release source equivalence
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_TAG#v}"
+          if [[ "${release_version}" == *-* ]]; then
+            echo "prerelease ${RELEASE_TAG}: hardware source check skipped"
+            exit 0
+          fi
+
+          major="${release_version%%.*}"
+          if (( major < 2 )); then
+            echo "pre-2.0 stable release ${RELEASE_TAG}: hardware source check skipped"
+            exit 0
+          fi
+
+          mapfile -t tested_records < <(grep -E '^Hardware-tested commit:' docs/hardware_release_checklist.md || true)
+          if (( ${#tested_records[@]} != 1 )) || [[ ! "${tested_records[0]:-}" =~ ^Hardware-tested\ commit:\ [0-9a-f]{40}$ ]]; then
+            echo "::error::stable ${RELEASE_TAG} requires exactly one Hardware-tested commit: full lowercase 40-hex record"
+            exit 1
+          fi
+          tested_commit="${tested_records[0]#Hardware-tested commit: }"
+
+          if ! git cat-file -e "${tested_commit}^{commit}" 2>/dev/null; then
+            echo "::error::hardware-tested commit ${tested_commit} is not present"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${tested_commit}" HEAD; then
+            echo "::error::hardware-tested commit ${tested_commit} is not an ancestor of release HEAD"
+            exit 1
+          fi
+
+          changed_paths="$(git diff --name-only "${tested_commit}" HEAD -- Cargo.toml grafton-visca-macros/Cargo.toml src/ grafton-visca-macros/src/)"
+          if [[ -n "${changed_paths}" ]]; then
+            echo "::error::stable ${RELEASE_TAG} changes shipped code or manifests after ${tested_commit}"
+            printf '%s\n' "${changed_paths}"
+            exit 1
+          fi
+          echo "stable ${RELEASE_TAG} matches hardware-tested source ${tested_commit}"
+
       - name: Install system dependencies
         run: |
           sudo apt-get update

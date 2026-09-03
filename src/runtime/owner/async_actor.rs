@@ -50,8 +50,9 @@ enum TurnOutcome {
     /// Keep running with protocol input first.
     Continue,
     /// Keep protocol input first because the stream framer still retains
-    /// ordered input. This uses its own fixed work bound rather than the
-    /// ordinary receive fairness ceiling.
+    /// ordered input. Buffered work still counts toward the ordinary receive
+    /// fairness ceiling: an adversarial stream can alternate buffered and
+    /// transport-backed batches forever.
     ContinueBuffered,
     /// This receive turn made no protocol progress, so poll the ordered
     /// boundary sources first on the next selection after one cooperative
@@ -2225,11 +2226,8 @@ where
             }
             if event_was_receive {
                 match outcome {
-                    TurnOutcome::Continue => {
+                    TurnOutcome::Continue | TurnOutcome::ContinueBuffered => {
                         receive_first_streak = receive_first_streak.saturating_add(1);
-                    }
-                    TurnOutcome::ContinueBuffered => {
-                        receive_first_streak = 0;
                     }
                     TurnOutcome::YieldBoundaries | TurnOutcome::Stop => {
                         receive_first_streak = 0;

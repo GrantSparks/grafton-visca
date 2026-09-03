@@ -25,8 +25,6 @@ const TALLY_RED_ON: &[u8] = &[0x81, 0x01, 0x7e, 0x01, 0x0a, 0x00, 0x02, 0xff];
 const TALLY_RED_OFF: &[u8] = &[0x81, 0x01, 0x7e, 0x01, 0x0a, 0x00, 0x03, 0xff];
 const TALLY_GREEN_ON: &[u8] = &[0x81, 0x01, 0x7e, 0x04, 0x1a, 0x00, 0x02, 0xff];
 const TALLY_GREEN_OFF: &[u8] = &[0x81, 0x01, 0x7e, 0x04, 0x1a, 0x00, 0x03, 0xff];
-const TALLY_ON: &[u8] = &[0x81, 0x0a, 0x02, 0x02, 0x02, 0xff];
-const TALLY_OFF: &[u8] = &[0x81, 0x0a, 0x02, 0x02, 0x03, 0xff];
 
 const PAN_TILT_UP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0a, 0x05, 0x03, 0x01, 0xff];
 const PAN_TILT_DOWN: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0a, 0x05, 0x03, 0x02, 0xff];
@@ -106,9 +104,9 @@ mod blocking_surface {
     use super::{
         envelope, visca_payload, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,
         FOCUS_NEAR, MENU_CANCEL, MENU_SELECT, MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP,
-        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON,
-        TALLY_RED_OFF, TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF,
-        ZOOM_TELE, ZOOM_WIDE,
+        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_RED_OFF,
+        TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE,
+        ZOOM_WIDE,
     };
 
     /// A small in-memory Sony VISCA-over-IP camera.  It records raw VISCA
@@ -269,7 +267,7 @@ mod blocking_surface {
     }
 
     #[test]
-    fn blocking_tally_branch_and_on_off_rows_are_distinct() {
+    fn blocking_fr7_red_and_green_tally_rows_are_distinct() {
         let (session, writes) = open();
         let camera = session.camera::<SonyFR7>().expect("camera");
 
@@ -281,11 +279,6 @@ mod blocking_surface {
         assert_eq!(one_frame(&writes), TALLY_GREEN_ON);
         camera.tally().green_off().expect("green tally off");
         assert_eq!(one_frame(&writes), TALLY_GREEN_OFF);
-        camera.tally().on().expect("tally mode on");
-        assert_eq!(one_frame(&writes), TALLY_ON);
-        camera.tally().off().expect("tally mode off");
-        assert_eq!(one_frame(&writes), TALLY_OFF);
-
         session.shutdown().expect("shutdown");
     }
 
@@ -468,9 +461,9 @@ mod async_surface {
     use super::{
         envelope, visca_payload, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,
         FOCUS_NEAR, MENU_CANCEL, MENU_SELECT, MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP,
-        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_OFF, TALLY_ON,
-        TALLY_RED_OFF, TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF,
-        ZOOM_TELE, ZOOM_WIDE,
+        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_RED_OFF,
+        TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE,
+        ZOOM_WIDE,
     };
 
     #[derive(Debug)]
@@ -640,7 +633,7 @@ mod async_surface {
     }
 
     #[tokio::test]
-    async fn async_tally_branch_and_on_off_rows_are_distinct() {
+    async fn async_fr7_red_and_green_tally_rows_are_distinct() {
         let (transport, writes) = ProbeTransport::new();
         let session = open_session(
             transport,
@@ -657,11 +650,6 @@ mod async_surface {
         assert_eq!(one_frame(&writes), TALLY_GREEN_ON);
         camera.tally().green_off().await.expect("green tally off");
         assert_eq!(one_frame(&writes), TALLY_GREEN_OFF);
-        camera.tally().on().await.expect("tally mode on");
-        assert_eq!(one_frame(&writes), TALLY_ON);
-        camera.tally().off().await.expect("tally mode off");
-        assert_eq!(one_frame(&writes), TALLY_OFF);
-
         session.shutdown().await.expect("shutdown");
     }
 
@@ -952,6 +940,10 @@ mod async_surface {
                 "Sony BRC-300",
                 ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
             ),
+            (
+                "PTZOptics G2",
+                ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+            ),
         ] {
             let (transport, writes) = ProbeTransport::new();
             let session = open_session(transport, profile).await;
@@ -987,10 +979,43 @@ mod async_surface {
         }
     }
 
-    /// Issue #684: the erased tally noun is coherent on PtzOpticsG2 — which has
-    /// no typed tally support — so `tally().on()/.off()/.flash()` are refused
-    /// exactly like `tally().red_on()`, instead of the tally-mode opcodes
-    /// slipping through while the red row was refused.
+    /// The FR7 exposes only the source-backed red/green tally rows.  Its
+    /// packed PTZOptics status, auto-adjust inquiry, brightness commands, and
+    /// tally-mode commands must remain runtime-gated on the erased surface.
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_fr7_unsupported_tally_rows_fail_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        for result in [
+            camera.tally().bright_lo().await,
+            camera.tally().bright_hi().await,
+            camera.tally().status().await.map(|_| ()),
+            camera.tally().auto_adjust_enabled().await.map(|_| ()),
+            camera.tally().on().await,
+            camera.tally().off().await,
+            camera.tally().flash().await,
+        ] {
+            assert!(
+                matches!(result, Err(Error::FeatureNotSupported { .. })),
+                "unsupported FR7 tally row must fail through capability validation: {result:?}",
+            );
+        }
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "rejected FR7 tally rows must not reach the wire",
+        );
+        session.shutdown().await.expect("shutdown");
+    }
+
+    /// The erased tally noun rejects both the Sony family and the independently
+    /// gated PTZOptics family before I/O when neither surface is supported.
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_tally_noun_refuses_as_one_on_a_profile_without_tally() {
@@ -1003,7 +1028,7 @@ mod async_surface {
         let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
 
         // The tally-mode opcodes are refused, not admitted through a vendor
-        // fallback: the whole noun shares one `HasTally` gate.
+        // fallback; the red row is independently refused as well.
         for result in [
             camera.tally().on().await,
             camera.tally().off().await,

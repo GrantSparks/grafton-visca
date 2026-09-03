@@ -135,8 +135,8 @@ entries below retain their original wording.
   close, and a `requires_new_session()` supervisor rebuild to recover from it
   (with the #680 retained terminal cause keeping later calls informative). The
   `recovery` example header now frames the same idle-drop supervisor scenario,
-  and a new `CR-07` row in `docs/hardware_release_checklist.md` records the
-  hardware evidence (idle interval, heartbeat efficacy, FIN/RST direction).
+  and the targeted stable hardware checklist's `HW-04` recovery scenario records
+  that hardware evidence (idle interval, heartbeat efficacy, FIN/RST direction).
   Docs-only; no public API or snapshot change.
 
 - **Added `CommandTimeouts`** (audit #685), the public five-field value
@@ -378,23 +378,25 @@ entries below retain their original wording.
   deadline, then must receive and exhaust the same engine-owned grace interval
   before the successor can write; the runtime contract is unchanged.
 
-- Recorded the `2.0.0-rc.1` hardware-candidate provenance and software sign-off
-  in the checked-in release checklist (#557). Attempt `.1` remains immutable
-  historical evidence after #741 changed test source before hardware execution;
-  the active `.2` tag/object/commit and its 43-check exact-head run replace it.
-  The hardware operator/date, all 59 physical scenario results, the remaining
-  six release sign-off gates, final sign-off, and evidence index remain
-  explicitly pending.
+- **Policy correction: proportional hardware evidence supersedes D8/#738.** An
+  RC may be published while the hardware checklist remains `Pending (Not run)`
+  or `Unverified`, provided the release notes say plainly that no hardware
+  support has been verified. A stable release with major version 2 or higher
+  requires one targeted representative pass covering the five concise rows in
+  `docs/hardware_release_checklist.md`, with exact firmware and transcript or
+  capture evidence. The checklist records only the full `Hardware-tested
+  commit:` SHA, operator/date, evidence index, and final sign-off; the release
+  workflow still checks the exact release tag and exact release-HEAD CI run and
+  compares source/manifests with the stable bench commit. The validator reads
+  that fixed five-row contract directly instead of treating arbitrary Markdown
+  as an adversarial evidence format. No hardware run is claimed for this RC.
 
-- **Hardware evidence now gates every publishable 2.0+ tag, including
-  prereleases** (#738), implementing the ratified D8 order in #732 and
-  superseding #632's prerelease exemption. Physical validation runs first on
-  an immutable annotated `hardware-candidate-*` tag that cannot enter the
-  release publication workflow. The release validator now requires all 59
-  scenario IDs, including `WC-01` through `WC-11`, plus the candidate tag
-  object, peeled commit, exact-commit CI run, operator/date, final sign-off,
-  and evidence index before `v2.0.0-rc.1` or any later 2.0+ release identity
-  can pass.
+- **Historical, superseded policy (#738 / D8 in #732).** An earlier release
+  policy required hardware evidence for every publishable 2.0+ tag, including
+  prereleases, and required a 59-row matrix plus an unpublished qualification
+  tag and its provenance. That policy was never evidence that hardware had been
+  run for this RC; the proportional policy above supersedes it before
+  publication.
 
 - **BREAKING: transport deadlines are now valid before I/O begins** (#736).
   `TransportConfig` rejects zero connect/read/write timeouts and durations that
@@ -566,7 +568,7 @@ entries below retain their original wording.
   | `PtzOpticsG3` | No supported operation removed. Shared AE/iris are retained; NR permission is split; vendor command families gain explicit markers. | R10 and R14. |
   | `PtzOptics30X` | No supported operation removed. Shared AE/iris are retained; NR permission is split; legacy focus-zone inquiry and USB-audio permission are explicit. | R1, with R14 scoped to the legacy G2/Gen-2 model family by R15. |
   | `SonyFR7` | Carries forward the #733 release correction: no shared `HasExposureMode`/`HasIrisControl`, brightness, focus-zone, shared autofocus-sensitivity, shared noise-reduction, or picture-effect surface. Model-specific spotlight, push-AF/MF, variable-ND, and variable-speed support remain separately typed. | R7; its iris family is vendor-relative `7E 04 4B` with `05 34` Auto Iris, not the shared family. |
-  | `SonyBRCH900` | Shared AE and `HasIrisControl` are retained/restored. `HasBrightnessControl`, aggregate/shared `HasNoiseReduction` plus its 2D/3D inquiry markers, and `HasPictureEffect` are removed; their shared command rows are not established for this model. | R11 lines 706–717, 1003, and 1012 establish AE/iris; the audited R11 list does not establish the removed shared families. |
+  | `SonyBRCH900` | Shared AE and `HasIrisControl` are retained/restored. `HasBrightnessControl`, `HasTally`, aggregate/shared `HasNoiseReduction` plus its 2D/3D inquiry markers, and `HasPictureEffect` are removed; their shared command rows are not established for this model. | R11 lines 706–717, 1003, and 1012 establish AE/iris; the audited R11 list does not establish the removed shared families, including the FR7 red/green tally family. |
   | `SonyEVIH100` | Shared AE and iris remain available (AE now has an explicit marker). The 1.x aggregate noise-reduction inquiry marker has no 2.0 profile-specific replacement. | R8 is the model authority; D4 in #716 preserves the 1.2 AE/iris breadth pending a direct line-item audit. |
   | `SonyBRC300` | Shared AE and iris are retained/restored. The blanket 1.x `HasImageProcessing` grant is removed because no BRC-300 image subcontrol is established. | R12 lines 440–454 and 609–617 establish AE/iris; the audited R12 list does not establish the broad image noun. |
   | `NearusBRC300` | Shared AE and iris are retained under its BRC-300 compatibility contract; its sourced saturation/image surface remains. | R12 plus the profile's explicit BRC-300 compatibility assumption; vendor-only exposure extensions remain withheld. |
@@ -1452,7 +1454,7 @@ entries below retain their original wording.
   still projecting the matching compile-time camera facade (#728). Reply
   domains remain capability-owned and never depend on mutable profile identity.
   The shared `04 39` exposure-mode command and inquiry now report one
-  `shared exposure-mode family` rejection on every unsupported profile. The 51
+  `shared exposure-mode family` rejection on every unsupported profile. The 55
   optional typed surfaces, their private dense bits, stable serde spellings,
   public marker traits, registry marker impls, and contributor vocabulary table
   are generated from one declarative registry; the old bit-30 persistence claim
@@ -1627,25 +1629,21 @@ entries below retain their original wording.
   does: a live session still reconfigures, a re-entrant call is `TransportBusy`,
   and a terminated session yields its terminal error. (Together with #680 the
   poisoned-session case now surfaces the true poison rather than nothing.)
-- **The erased (dynamic) noun surface no longer exposes controls the static
-  surface forbids** (#684). Two gaps let a `DynSessionCamera` reach operations
-  that the compile-time `camera.<noun>()` accessor could not name:
-  - *Tally mode on PTZOptics.* `TallyOn`/`TallyOff`/`TallyFlash` validated for a
-    profile with typed tally support **or** for the three PTZOptics profile ids,
-    while the rest of the tally noun (`red_on()`, `bright_hi()`, ...) required
-    typed tally support. On `PtzOpticsG2/G3/30X` — which declare
-    `tally: { supported: false }` — the erased noun was therefore incoherent:
-    `tally().on()` succeeded while `tally().red_on()` was refused. PTZOptics
-    tally mode is an *unvalidated candidate* in the reference
-    (`docs/visca_reference.md` A.11: "Confirm support on target model/firmware"),
-    so admitting it exposed an unsupported typed operation, contradicting
-    `docs/architecture_2_0.md` ("metadata is discovery, not a fallback"). The
-    whole tally noun now shares one `HasTally` gate on every surface. This
-    supersedes the "**or** for the PTZOptics profiles the reference documents it
-    under" allowance introduced with #661: the erased/`execute` route no longer
-    admits tally mode on PTZOptics. A caller that has confirmed a specific
-    PTZOptics firmware supports the opcode can still send it through the raw
-    escape hatch (`raw::Plain::new(&[0x81, 0x0A, 0x02, 0x02, 0x02, 0xFF])`).
+- **BREAKING: static, erased, and direct typed routes now enforce the same
+  row-specific evidence gates** (#684). Broad noun gates previously admitted
+  operations whose exact command rows were not established for a profile:
+  - *Tally families.* Sony FR7's sourced red/green commands and inquiries remain
+    behind `HasTally`. PTZOptics packed status and mode/auto-adjust rows now use
+    the distinct `HasPtzOpticsTally` gate, while brightness rows use
+    `HasTallyBrightness`. No built-in profile grants either candidate-extension
+    gate. BRC-H900 loses `HasTally` and tally metadata because R11 does not
+    establish the FR7 tally family. Unsupported static, erased, and direct
+    typed calls all reject before transport I/O; confirmed vendor extensions
+    remain reachable through the raw-command escape hatch.
+  - *Image subcontrols.* Image-freeze control and the vendor defog-level inquiry
+    no longer inherit permission from broad `HasImageProcessing`. They use
+    `HasImageFreeze` and `HasDefogLevel`, respectively, and no built-in profile
+    grants either surface without exact model-specific source evidence.
   - *Base-domain inquiries.* Fifteen inquiries (`power().state()`,
     `zoom().position()`, `focus().position()`/`mode()`/`range()`, the base
     `exposure()` and `image()` and `white_balance()` inquiries) carried no
@@ -1718,27 +1716,15 @@ entries below retain their original wording.
   implementations); only the wrapper's missing forward was the defect. This is a
   2.0-only wrapper, so no 1.x program is affected. The public API is unchanged.
 
-- **The typed `tally()` noun is reachable again for the profiles that had tally
-  in 1.x** (#661). `TallyOn`, `TallyOff` and `TallyFlash` validated against the
-  PTZOptics profile ids alone, while the static `tally()` accessor is gated on
-  `HasTally`, which only `SonyFR7` and `SonyBRCH900` declare (the erased surface
-  enforces the same gate per operation at runtime). The two conditions can never
-  both hold for a built-in profile, so `tally().on()`, `.off()` and `.flash()` —
-  and with them `StateCache::tally_mode()` — were dead methods on the only
-  profiles that can reach them, and the sole route to the opcode was
-  `camera.execute(&TallyOn)`. 1.x published exactly those three methods from the
-  same `HasTally`-gated `TallyControl` impl as the rest of the tally surface, so
-  the capability declarations were the side that was already right and the
-  command validation is the side that moved: the vendor tally-mode opcode now
-  validates for a profile with typed tally support, exactly like the rest of the
-  tally noun. (The initial fix also admitted the PTZOptics profile ids, on the
-  strength of `docs/visca_reference.md` appendix A.11; #684 removed that
-  allowance because A.11 records those rows as *unvalidated candidates*, and
-  admitting them left the erased tally noun incoherent — see the #684 entry.) No
-  capability marker moved — 1.x recorded `tally: { supported: false }` for all
-  three PTZOptics profiles, and #524 deliberately removed `camera.tally()` from
-  them — so the README and `docs/camera_profile_support.md` matrices are
-  unchanged.
+- **Superseded tally-gating correction** (#661; final contract in #684). An
+  intermediate fix aligned `TallyOn`, `TallyOff`, and `TallyFlash` with the
+  shared `HasTally` marker and briefly admitted the three PTZOptics profile ids.
+  The final source audit separates the vendor families instead: Sony FR7 keeps
+  only its sourced red/green `HasTally` surface; no built-in profile grants the
+  PTZOptics mode/status/auto-adjust `HasPtzOpticsTally` surface or the
+  `HasTallyBrightness` surface; and BRC-H900 loses `HasTally` because its model
+  reference does not establish the FR7 rows. Confirmed firmware-specific
+  extensions remain available through raw commands.
 - **A refused `cancel` no longer consumes the operation handle** (#612).
   Cancelling an already-written command needs profile support for the standard
   VISCA socket-cancel command; `PtzOpticsG2` is the one built-in profile without

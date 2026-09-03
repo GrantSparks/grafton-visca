@@ -64,7 +64,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             let write_into_body = quote! {
                 const LEN: usize = 5;
                 if buffer.len() < LEN {
-                    return Err(#crate_path::Error::BufferTooSmall {
+                    return ::core::result::Result::Err(#crate_path::Error::BufferTooSmall {
                         required: LEN,
                         actual: buffer.len(),
                     });
@@ -74,7 +74,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 buffer[2] = #subcategory;
                 buffer[3] = #byte_value;
                 buffer[4] = #crate_path::command::VISCA_TERMINATOR;
-                Ok(LEN)
+                ::core::result::Result::Ok(LEN)
             };
 
             let parser_info = attrs.parser_info();
@@ -93,9 +93,9 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 quote! {
                     impl #struct_name {
                         /// Parse the response data for this inquiry command
-                        pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path::command::InquiryData, #crate_path::Error> {
+                        pub fn parse_response(&self, data: &[u8]) -> ::core::result::Result<#crate_path::command::InquiryData, #crate_path::Error> {
                             if data.is_empty() {
-                                return Err(#crate_path::Error::invalid_response_length(1, data));
+                                return ::core::result::Result::Err(#crate_path::Error::invalid_response_length(1, data));
                             }
                             #parser_body
                         }
@@ -128,7 +128,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                             &self,
                             camera_id: #crate_path::CameraId,
                             buffer: &mut [u8],
-                        ) -> Result<usize, #crate_path::EncodeError> {
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
                             #write_into_body
                         }
                     }
@@ -143,8 +143,8 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                         fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
                             fn decode(
                                 payload: &[u8],
-                            ) -> Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
-                                Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
+                            ) -> ::core::result::Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
+                                ::core::result::Result::Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
                             }
                             #crate_path::ResponseDecoder::from_fn(decode)
                         }
@@ -165,7 +165,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                             &self,
                             camera_id: #crate_path::CameraId,
                             buffer: &mut [u8],
-                        ) -> Result<usize, #crate_path::EncodeError> {
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
                             #write_into_body
                         }
                     }
@@ -182,7 +182,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                         fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
                             fn decode(
                                 payload: &[u8],
-                            ) -> Result<#response_type, #crate_path::Error> {
+                            ) -> ::core::result::Result<#response_type, #crate_path::Error> {
                                 let response = #crate_path::command::parse_inquiry_payload(
                                     payload,
                                     &#crate_path::command::InquiryKind::#response_kind,
@@ -209,7 +209,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                             &self,
                             camera_id: #crate_path::CameraId,
                             buffer: &mut [u8],
-                        ) -> Result<usize, #crate_path::EncodeError> {
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
                             #write_into_body
                         }
                     }
@@ -226,7 +226,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                         fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
                             fn decode(
                                 payload: &[u8],
-                            ) -> Result<#crate_path::command::Response, #crate_path::Error> {
+                            ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
                                 #crate_path::command::parse_inquiry_payload(
                                     payload,
                                     &#crate_path::command::InquiryKind::#response_kind,
@@ -806,7 +806,7 @@ fn generate_typed_impl(
     let construction = match constructor.as_deref() {
         None => {
             let f = &field_names[0];
-            quote! { Ok(#f) }
+            quote! { ::core::result::Result::Ok(#f) }
         }
         Some("new") => {
             let f = &field_names[0];
@@ -814,14 +814,14 @@ fn generate_typed_impl(
         }
         Some("ok_new") => {
             let f = &field_names[0];
-            quote! { Ok(#response_type::new(#f)) }
+            quote! { ::core::result::Result::Ok(#response_type::new(#f)) }
         }
         Some("new_u8") => {
             let f = &field_names[0];
             quote! { #response_type::new(#f as u8) }
         }
         Some("ok_struct") => {
-            quote! { Ok(#response_type { #(#field_names),* }) }
+            quote! { ::core::result::Result::Ok(#response_type { #(#field_names),* }) }
         }
         Some(unknown) => {
             let msg = format!("unknown typed_constructor: {unknown}");
@@ -835,11 +835,11 @@ fn generate_typed_impl(
 
             fn from_response(
                 resp: #crate_path::command::Response,
-            ) -> Result<Self::Response, #crate_path::Error> {
+            ) -> ::core::result::Result<Self::Response, #crate_path::Error> {
                 match resp {
                     #crate_path::command::Response::Inquiry(#destructure) => #construction,
-                    #crate_path::command::Response::Error(e) => Err(e),
-                    _ => Err(#crate_path::Error::UnexpectedResponseType),
+                    #crate_path::command::Response::Error(e) => ::core::result::Result::Err(e),
+                    _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
                 }
             }
         }

@@ -8,11 +8,12 @@
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
-        Brightness, BrightnessInquiry, FocusZone, FocusZoneInquiry, InquiryKind, NoiseReduction2D,
-        NoiseReduction2DInquiry, NoiseReduction2DMode, NoiseReduction2DModeCommand,
-        NoiseReduction2DModeInquiry, NoiseReduction3D, NoiseReduction3DInquiry,
-        PictureEffectInquiry, PictureEffectMode, Response, ResponseParser, UsbAudio,
-        UsbAudioInquiry,
+        AutoWhiteBalanceSensitivityInquiry, Brightness, BrightnessInquiry, DefogLevelInquiry,
+        FocusRangeInquiry, FocusZone, FocusZoneInquiry, GammaInquiry, InquiryKind, NdFilterInquiry,
+        NoiseReduction2D, NoiseReduction2DInquiry, NoiseReduction2DMode,
+        NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry, NoiseReduction3D,
+        NoiseReduction3DInquiry, PictureEffectInquiry, PictureEffectMode, Response, ResponseParser,
+        SharpnessModeInquiry, UsbAudio, UsbAudioInquiry,
     },
     profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyFR7},
     types::{BrightnessLevel, NoiseReduction2DLevel, NoiseReduction3DLevel},
@@ -72,6 +73,113 @@ fn rejects_trailing_payload<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) 
             .is_err(),
         "{kind:?} must reject a reply with trailing payload bytes"
     );
+}
+
+#[derive(Clone, Copy)]
+enum OneByteInquiryParser {
+    Sharpness,
+    NdFilter,
+    FocusRange,
+    DefogLevel,
+    AutoWhiteBalanceSensitivity,
+    Gamma,
+}
+
+impl OneByteInquiryParser {
+    fn parse(self, response: Response) -> Result<(), Error> {
+        match self {
+            Self::Sharpness => SharpnessModeInquiry::from_response(response).map(|_| ()),
+            Self::NdFilter => NdFilterInquiry::from_response(response).map(|_| ()),
+            Self::FocusRange => FocusRangeInquiry::from_response(response).map(|_| ()),
+            Self::DefogLevel => DefogLevelInquiry::from_response(response).map(|_| ()),
+            Self::AutoWhiteBalanceSensitivity => {
+                AutoWhiteBalanceSensitivityInquiry::from_response(response).map(|_| ())
+            }
+            Self::Gamma => GammaInquiry::from_response(response).map(|_| ()),
+        }
+    }
+}
+
+struct OneByteInquiryCase {
+    name: &'static str,
+    kind: InquiryKind,
+    parser: OneByteInquiryParser,
+    valid: &'static [u8],
+    trailing: &'static [u8],
+}
+
+#[test]
+fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
+    // The source tables describe these replies as one-byte values. Keep the
+    // valid and malformed forms together so every decoder gets both checks.
+    let cases = [
+        OneByteInquiryCase {
+            name: "sharpness mode",
+            kind: InquiryKind::SharpnessMode,
+            parser: OneByteInquiryParser::Sharpness,
+            valid: &[0x90, 0x50, 0x02, 0xFF],
+            trailing: &[0x90, 0x50, 0x02, 0x00, 0xFF],
+        },
+        OneByteInquiryCase {
+            name: "ND filter",
+            kind: InquiryKind::NdFilter,
+            parser: OneByteInquiryParser::NdFilter,
+            valid: &[0x90, 0x50, 0x00, 0xFF],
+            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
+        },
+        OneByteInquiryCase {
+            name: "focus range",
+            kind: InquiryKind::FocusRange,
+            parser: OneByteInquiryParser::FocusRange,
+            valid: &[0x90, 0x50, 0x00, 0xFF],
+            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
+        },
+        OneByteInquiryCase {
+            name: "defog level",
+            kind: InquiryKind::DefogLevel,
+            parser: OneByteInquiryParser::DefogLevel,
+            valid: &[0x90, 0x50, 0x00, 0xFF],
+            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
+        },
+        OneByteInquiryCase {
+            name: "AWB sensitivity",
+            kind: InquiryKind::AutoWhiteBalanceSensitivity,
+            parser: OneByteInquiryParser::AutoWhiteBalanceSensitivity,
+            valid: &[0x90, 0x50, 0x00, 0xFF],
+            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
+        },
+        OneByteInquiryCase {
+            name: "gamma",
+            kind: InquiryKind::Gamma,
+            parser: OneByteInquiryParser::Gamma,
+            valid: &[0x90, 0x50, 0x00, 0xFF],
+            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
+        },
+    ];
+
+    for case in cases {
+        let valid_response = Response::parse_with_type(case.valid, &case.kind)
+            .unwrap_or_else(|error| panic!("{} valid reply failed: {error:?}", case.name));
+        case.parser.parse(valid_response).unwrap_or_else(|error| {
+            panic!("{} valid reply failed typed decoding: {error:?}", case.name)
+        });
+
+        let error = Response::parse_with_type(case.trailing, &case.kind)
+            .and_then(|response| case.parser.parse(response))
+            .expect_err("trailing payload must be rejected");
+        assert!(
+            matches!(
+                error,
+                Error::InvalidResponseLength {
+                    expected: 1,
+                    actual: 2,
+                    ..
+                }
+            ),
+            "{} trailing reply returned {error:?}",
+            case.name
+        );
+    }
 }
 
 #[test]
