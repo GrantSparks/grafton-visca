@@ -76,10 +76,8 @@ fn root_value_and_transport_contract() {
 
     let buffer = BufferConfig::default();
     assert_eq!(buffer.recv_buffer_size, 128);
-    assert_eq!(buffer.send_buffer_size, 128);
     assert_eq!(buffer.max_buffer_size, 8192);
     assert_eq!(BufferConfig::for_udp().recv_buffer_size, 1024);
-    assert_eq!(BufferConfig::for_raw_ip().send_buffer_size, 256);
 
     let keepalive = TcpKeepaliveConfig::for_visca_long_lived_tcp();
     assert_eq!(keepalive.idle, Duration::from_secs(10));

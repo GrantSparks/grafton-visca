@@ -290,7 +290,6 @@ mod async_standard {
             write_timeout: Duration::from_millis(23),
             buffer_config: BufferConfig {
                 recv_buffer_size: 11,
-                send_buffer_size: 13,
                 max_buffer_size: 17,
             },
             tcp_nodelay: Some(false),
@@ -317,7 +316,6 @@ mod async_standard {
             write_timeout: Duration::from_millis(41),
             buffer_config: BufferConfig {
                 recv_buffer_size: 43,
-                send_buffer_size: 47,
                 max_buffer_size: 53,
             },
             ttl: Some(59),
@@ -360,7 +358,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 0,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer must be non-zero",
@@ -368,7 +365,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 64,
-                    send_buffer_size: 64,
                     max_buffer_size: 0,
                 },
                 "transport maximum buffer must be non-zero",
@@ -376,7 +372,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer cannot exceed maximum buffer",
@@ -448,7 +443,6 @@ mod async_standard {
                 .transport_config(TransportConfig {
                     buffer_config: BufferConfig {
                         recv_buffer_size: 65,
-                        send_buffer_size: 64,
                         max_buffer_size: 64,
                     },
                     ..TransportConfig::default()
@@ -592,7 +586,6 @@ mod blocking_standard {
             .transport_config(TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()
@@ -614,7 +607,6 @@ mod blocking_standard {
                 .transport_config(TransportConfig {
                     buffer_config: BufferConfig {
                         recv_buffer_size: 65,
-                        send_buffer_size: 64,
                         max_buffer_size: 64,
                     },
                     ..TransportConfig::default()

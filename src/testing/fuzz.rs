@@ -56,7 +56,6 @@ pub fn protocol_framer(bytes: &[u8]) {
 fn drive_framer(mode: FramingMode, chunks: &[&[u8]]) {
     let config = BufferConfig {
         recv_buffer_size: 1_024,
-        send_buffer_size: 1_024,
         max_buffer_size: 8_192,
     };
     let mut framer = ProtocolFramer::new_with_config_and_mode(config, mode);

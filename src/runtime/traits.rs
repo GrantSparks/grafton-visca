@@ -430,7 +430,6 @@ mod tokio_impl {
             TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()
@@ -506,7 +505,6 @@ mod tokio_impl {
             .if_clear_on_connect(false)
             .buffer_config(BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             });
 
@@ -714,7 +712,6 @@ mod smol_impl {
             TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()

@@ -63,7 +63,6 @@ impl StreamCamera {
             addressing,
             buffer_config: BufferConfig {
                 recv_buffer_size: 1024,
-                send_buffer_size: 128,
                 max_buffer_size: 8192,
             },
             ..TransportConfig::default()

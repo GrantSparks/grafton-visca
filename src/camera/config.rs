@@ -730,7 +730,6 @@ mod tests {
             write_timeout: Duration::from_millis(23),
             buffer_config: BufferConfig {
                 recv_buffer_size: 11,
-                send_buffer_size: 13,
                 max_buffer_size: 17,
             },
             tcp_nodelay: Some(false),
@@ -882,7 +881,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 0,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer must be non-zero",
@@ -890,7 +888,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 64,
-                    send_buffer_size: 64,
                     max_buffer_size: 0,
                 },
                 "transport maximum buffer must be non-zero",
@@ -898,7 +895,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer cannot exceed maximum buffer",
@@ -942,7 +938,6 @@ mod tests {
             write_timeout: Duration::from_millis(41),
             buffer_config: BufferConfig {
                 recv_buffer_size: 43,
-                send_buffer_size: 47,
                 max_buffer_size: 53,
             },
             addressing: AddressingMode::Ip,
@@ -981,7 +976,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 0,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer must be non-zero",
@@ -989,7 +983,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 64,
-                    send_buffer_size: 64,
                     max_buffer_size: 0,
                 },
                 "transport maximum buffer must be non-zero",
@@ -997,7 +990,6 @@ mod tests {
             (
                 BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer cannot exceed maximum buffer",

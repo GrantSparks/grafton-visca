@@ -18342,7 +18342,6 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::SendSema
 pub struct grafton_visca::transport::BufferConfig
 pub grafton_visca::transport::BufferConfig::max_buffer_size: usize
 pub grafton_visca::transport::BufferConfig::recv_buffer_size: usize
-pub grafton_visca::transport::BufferConfig::send_buffer_size: usize
 impl grafton_visca::transport::BufferConfig
 pub fn grafton_visca::transport::BufferConfig::for_raw_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_serial() -> Self
@@ -18394,7 +18393,6 @@ pub fn grafton_visca::transport::NetTransportBuilder::max_buffer_size(self, usiz
 pub fn grafton_visca::transport::NetTransportBuilder::raw_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::read_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::recv_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::send_buffer_size(self, usize) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::sony_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp() -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp_keepalive(self, grafton_visca::transport::TcpKeepaliveConfig) -> Self

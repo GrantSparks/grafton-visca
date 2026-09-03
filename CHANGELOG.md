@@ -372,6 +372,16 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING: transport deadlines are now valid before I/O begins** (#736).
+  `TransportConfig` rejects zero connect/read/write timeouts and durations that
+  cannot be added to the platform monotonic clock; an impossible blocking UDP
+  receive deadline can no longer invert into an immediate timeout.
+  `TransportBusy` documentation now names its actual second cause: a blocking
+  operation-handle submission that cannot win the immediate first-dispatch
+  boundary, whether because of socket capacity or an earlier normative
+  scheduler winner. Its fail-fast scheduling behavior is unchanged. This
+  corrects the narrower cause list recorded under #726.
+
 - **BREAKING: bounded blocking transport I/O and owner contract cleanup**
   (#725). `BlockingTransport` now exposes only deadline-bearing
   `send_with_timeout` and `recv_into_with_timeout` operations; the unused
@@ -1199,6 +1209,14 @@ entries below retain their original wording.
 
 ### Removed
 
+- **Removed the public no-op send-buffer configuration** (#736).
+  `BufferConfig::send_buffer_size` and
+  `NetTransportBuilder::send_buffer_size` never influenced a production
+  transport or owner: wire encoders already reuse fixed protocol-bounded
+  buffers, and the setting was read only by a test-only allocator. Receive and
+  framing limits remain configurable through `recv_buffer_size` and
+  `max_buffer_size`.
+
 - **Removed the duplicate standard-connection builders and constructor
   aliases** (#729). `ConnectBuilder`, `TcpConnectBuilder`,
   `UdpConnectBuilder`, and `SerialConnectBuilder` duplicated the configurable
@@ -1376,6 +1394,12 @@ entries below retain their original wording.
   callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
+
+- **Made the public-error reachability release gate non-vacuous** (#736). The
+  gate now inventories one explicit production constructor for every public
+  `Error` variant instead of accepting pattern matches and documentation as
+  evidence. A mutation fixture deletes the real `SyntaxError` constructor
+  while retaining its engine match and proves that CI fails.
 
 - **Corrected three Sony FR7 wire identities exposed by the #730 reference
   audit.** Push AF/MF now uses R7's distinct `7E 04 58` press/release family

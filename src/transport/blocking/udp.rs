@@ -195,9 +195,14 @@ impl BlockingTransport for Udp {
     ) -> Result<usize, Error> {
         // Save the current timeout
         let original_timeout = self.socket.read_timeout()?;
-        let deadline = Instant::now()
-            .checked_add(duration)
-            .unwrap_or_else(Instant::now);
+        let deadline =
+            Instant::now()
+                .checked_add(duration)
+                .ok_or_else(|| Error::InvalidParameter {
+                    parameter: "read timeout",
+                    value: format!("{duration:?}").into(),
+                    reason: "duration exceeds the monotonic clock range".into(),
+                })?;
 
         // Keep one deadline for the whole operation. Empty datagrams must not
         // give the caller a fresh full timeout on every receive attempt.
@@ -266,7 +271,6 @@ mod tests {
         TransportConfig {
             buffer_config: BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             },
             ..TransportConfig::default()
@@ -391,6 +395,33 @@ mod tests {
 
         assert!(matches!(result, Err(Error::Timeout)));
         assert!(started.elapsed() >= timeout.saturating_sub(Duration::from_millis(20)));
+    }
+
+    #[test]
+    fn recv_rejects_an_unrepresentable_operation_deadline() {
+        let (receiver, _sender) = connected_socket_pair();
+        let original_timeout = receiver.read_timeout().expect("read timeout");
+        let mut transport = Udp {
+            socket: receiver,
+            config: TransportConfig::default(),
+        };
+        let mut dst = [0; 16];
+
+        let error = transport
+            .recv_into_with_timeout(&mut dst, Duration::MAX)
+            .expect_err("an unrepresentable deadline must fail before reading");
+
+        assert!(matches!(
+            error,
+            Error::InvalidParameter {
+                parameter: "read timeout",
+                ..
+            }
+        ));
+        assert_eq!(
+            transport.socket.read_timeout().expect("read timeout"),
+            original_timeout
+        );
     }
 
     #[test]

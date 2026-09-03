@@ -26,7 +26,7 @@
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
 //! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
 //! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
-//! | Blocking owner re-entry, or a genuine first-dispatch command-socket collision | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
+//! | Blocking owner re-entry, or an operation-handle submission that cannot win its immediate first-dispatch boundary | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
 //! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. |
 //! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
 //! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
@@ -361,9 +361,10 @@ pub enum Error {
     /// ownership.
     ///
     /// This has two meanings: a blocking call re-entered an owner turn already
-    /// in progress, or a newly submitted command lost a genuine first-dispatch
-    /// socket-capacity race. It is never a peer-disconnect verdict and is not
-    /// emitted by the async facade.
+    /// in progress, or a newly submitted operation-handle request could not win
+    /// its immediate first-dispatch boundary. The latter includes socket
+    /// capacity and an earlier normative scheduler winner. It is never a
+    /// peer-disconnect verdict and is not emitted by the async facade.
     #[error("Transport is busy with another operation")]
     TransportBusy,
 

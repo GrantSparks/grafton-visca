@@ -40,7 +40,6 @@ mod tests {
         TransportConfig {
             buffer_config: BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             },
             ..TransportConfig::default()

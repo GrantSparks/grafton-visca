@@ -267,7 +267,6 @@ mod tests {
             .if_clear_on_connect(false)
             .buffer_config(crate::transport::BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             });
 
