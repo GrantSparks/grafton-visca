@@ -378,13 +378,13 @@ entries below retain their original wording.
   deadline, then must receive and exhaust the same engine-owned grace interval
   before the successor can write; the runtime contract is unchanged.
 
-- Recorded the initial `2.0.0-rc.1` hardware-candidate provenance and software
-  sign-off in the checked-in release checklist (#557). After #741 changed test
-  source before hardware execution, attempt `.1` remains immutable historical
-  evidence while the active candidate and software sign-off reset pending a
-  replacement exact-head run. The hardware operator/date, all 59 physical
-  scenario results, all seven release sign-off gates, final sign-off, and
-  evidence index remain explicitly pending.
+- Recorded the `2.0.0-rc.1` hardware-candidate provenance and software sign-off
+  in the checked-in release checklist (#557). Attempt `.1` remains immutable
+  historical evidence after #741 changed test source before hardware execution;
+  the active `.2` tag/object/commit and its 43-check exact-head run replace it.
+  The hardware operator/date, all 59 physical scenario results, the remaining
+  six release sign-off gates, final sign-off, and evidence index remain
+  explicitly pending.
 
 - **Hardware evidence now gates every publishable 2.0+ tag, including
   prereleases** (#738), implementing the ratified D8 order in #732 and
