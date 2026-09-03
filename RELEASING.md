@@ -51,6 +51,8 @@ outright rather than letting one release be published under two identities.
 cargo metadata --no-deps --format-version 1
 bash .github/scripts/validate-release.sh v2.0.0-rc.1
 bash .github/scripts/test-validate-release.sh
+python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
+bash .github/scripts/test-validate-change-record.sh
 cargo +nightly fmt --all -- --check
 bash .github/scripts/test-all-features.sh
 cargo clippy --all-targets --all-features -- -D warnings
@@ -63,6 +65,13 @@ cargo test --all-features --test issue_555_observability
 cargo metadata --no-deps --format-version 1
 git diff --check
 ```
+
+The change-record validator requires a full-history checkout. It keeps every
+released changelog section immutable, requires public API snapshot changes to
+carry an Unreleased record, requires `**BREAKING**` records to name an issue,
+and requires explanatory commit bodies for source changes. Correct an old
+release note with a dated superseding Unreleased entry; never rewrite the old
+text to make the current release look internally consistent.
 
 Also run the supported no-default, blocking-only, async-runtime, dynamic, and
 coexistence matrices documented in the repository before tagging. Check the

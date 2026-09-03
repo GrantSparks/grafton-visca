@@ -15,11 +15,14 @@ use crate::{
     profile::OperationalTuning,
     profile::ProfileSpec,
     protocol::framer::ProtocolFramer,
-    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
+    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::envelope::FrameSequence,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
     CameraId, Error,
 };
+
+#[cfg(test)]
+use crate::protocol::framer::RawIncompletePrefix;
 
 use super::{
     adapter::{
@@ -93,6 +96,7 @@ where
             &[(target, profile)],
             tuning,
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
     }
 
@@ -103,6 +107,7 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
         // Keep the blocking startup boundary identical to async: reject a
         // known standard transport before reading startup configuration or
@@ -133,6 +138,7 @@ where
             transport.send_semantics(),
             tuning,
             admission_capacity,
+            strict_unconfirmed_poison,
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
@@ -159,12 +165,45 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, profiles, tuning, admission_capacity)
+        Self::new_with_targets(
+            transport,
+            profiles,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )
     }
 
     pub(crate) fn policy(&self) -> &OwnerPolicy {
         &self.policy
+    }
+
+    /// Send Sony's sequence-number RESET before the owner host starts.
+    pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+        let mut state = lock_state(&self.state)?;
+        let mut frame = bytes::BytesMut::new();
+        state.envelope.frame_sony_sequence_reset(&mut frame)?;
+        let write_timeout = state.config.write_timeout;
+        let datagram = matches!(
+            state.transport.send_semantics(),
+            crate::transport::SendSemantics::Datagram
+        );
+        state
+            .transport
+            .send_with_timeout(
+                frame.as_ref(),
+                crate::command::CommandKind::Command,
+                write_timeout,
+            )
+            .map_err(|error| {
+                if datagram {
+                    super::normalize_datagram_send_error(error)
+                } else {
+                    error
+                }
+            })
     }
 
     /// Return write/read/decode views backed by this adapter's one transport.
@@ -242,6 +281,10 @@ where
         has_buffered_stream_input_state(&self.state)
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        buffered_stream_input_len_state(&self.state)
+    }
+
     fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         buffered_raw_prefix_evidence_state(&self.state)
     }
@@ -290,6 +333,10 @@ where
         has_buffered_stream_input_state(&self.state)
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        buffered_stream_input_len_state(&self.state)
+    }
+
     fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         buffered_raw_prefix_evidence_state(&self.state)
     }
@@ -335,9 +382,10 @@ where
         write.requested_sequence,
         write.frame_buffer,
     )?;
+    let write_timeout = state.config.write_timeout;
     state
         .transport
-        .send_with_kind(write.frame_buffer.as_ref(), kind)
+        .send_with_timeout(write.frame_buffer.as_ref(), kind, write_timeout)
         .map_err(|error| {
             if datagram {
                 super::normalize_datagram_send_error(error)
@@ -377,9 +425,10 @@ where
         .recv_into_with_timeout(receive_buffer, timeout)
     {
         Ok(received) => Ok(BlockingReceive::Bytes(received)),
-        // An expired idle read timeout is no data, not a failed read. The
-        // raw `WouldBlock`/`Interrupted`/`TimedOut` spellings a custom
-        // transport may forward mean the same thing (#637).
+        // An expired application-owned idle read timeout is no data, not a
+        // failed read. Custom transports use `Error::Timeout`; raw
+        // `WouldBlock`/`Interrupted` spellings mean the same thing. Preserve
+        // raw `TimedOut`, which can be TCP keepalive exhaustion (#719).
         Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
         Err(error) => Err(error),
     }
@@ -431,6 +480,20 @@ where
     ) && state.framer.has_buffered_data())
 }
 
+fn buffered_stream_input_len_state<T>(
+    state: &Arc<Mutex<BlockingAdapterState<T>>>,
+) -> Result<Option<usize>, Error>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
+    let state = lock_state(state)?;
+    Ok(matches!(
+        state.transport.send_semantics(),
+        crate::transport::SendSemantics::Stream
+    )
+    .then(|| state.framer.buffered_len()))
+}
+
 fn buffered_raw_prefix_evidence_state<T>(
     state: &Arc<Mutex<BlockingAdapterState<T>>>,
 ) -> Result<Option<RawPrefixEvidence>, Error>
@@ -447,22 +510,12 @@ where
     if state.framer.buffered_first_raw_input_is_complete()? {
         return Ok(Some(RawPrefixEvidence::Complete));
     }
-    let prefix = state.framer.buffered_first_two_raw_input_bytes()?;
-    let Some(&source) = prefix.first() else {
+    let Some((source, kind)) = state.framer.buffered_raw_incomplete_prefix()? else {
         return Ok(None);
     };
     let target = decode_response_target(state.routing, &[source])?.ok_or_else(|| {
         Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
     })?;
-    let kind = match prefix.get(1).copied() {
-        None => RawIncompletePrefix::SourceOnly,
-        Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
-        Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
-        Some(0x60) => RawIncompletePrefix::SocketlessError,
-        Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S1),
-        Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S2),
-        Some(_) => RawIncompletePrefix::Noncorrelating,
-    };
     Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
 }
 
@@ -512,6 +565,7 @@ mod tests {
     struct ScriptedTransport {
         config: TransportConfig,
         sent: Arc<Mutex<Vec<Vec<u8>>>>,
+        write_timeouts: Arc<Mutex<Vec<Duration>>>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
     }
@@ -524,6 +578,7 @@ mod tests {
             Self {
                 config,
                 sent: Arc::new(Mutex::new(Vec::new())),
+                write_timeouts: Arc::new(Mutex::new(Vec::new())),
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             }
@@ -537,13 +592,15 @@ mod tests {
     }
 
     impl BlockingTransport for ScriptedTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            timeout: Duration,
+        ) -> Result<(), Error> {
             self.sent.lock().unwrap().push(bytes.to_vec());
+            self.write_timeouts.lock().unwrap().push(timeout);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -624,13 +681,14 @@ mod tests {
     }
 
     impl BlockingTransport for TombstoneIntegrationTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.io.lock().unwrap().sent.push(bytes.to_vec());
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -722,13 +780,14 @@ mod tests {
     }
 
     impl BlockingTransport for ScriptedSerialTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.io.lock().unwrap().sent.push(bytes.to_vec());
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -807,6 +866,7 @@ mod tests {
             &profiles,
             OperationalTuning::new(),
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
         .unwrap();
         (adapter, io)
@@ -867,6 +927,15 @@ mod tests {
         request
     }
 
+    fn raw_inquiry_with_immediate_timeout(target: CameraId) -> RuntimeRequest {
+        let mut request = serial_inquiry(target);
+        let RuntimeRequest::Inquiry { context, .. } = &mut request else {
+            unreachable!("serial_inquiry always constructs an inquiry")
+        };
+        context.timeout.inquiry = Duration::ZERO;
+        request
+    }
+
     fn serial_request_with_completion_and_ambiguity(
         target: CameraId,
         completion: Duration,
@@ -893,7 +962,10 @@ mod tests {
 
     #[test]
     fn policy_and_raw_write_use_profile_and_transport_facts() {
-        let transport = ScriptedTransport::new(config(), std::iter::empty());
+        let mut transport_config = config();
+        transport_config.write_timeout = Duration::from_millis(37);
+        let transport = ScriptedTransport::new(transport_config, std::iter::empty());
+        let write_timeouts = Arc::clone(&transport.write_timeouts);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
         assert_eq!(
@@ -918,6 +990,27 @@ mod tests {
         )
         .unwrap();
         owner.submit_command(&mut writer, prepared).unwrap();
+        assert_eq!(
+            *write_timeouts.lock().unwrap(),
+            [Duration::from_millis(37)],
+            "the owner forwards the configured bound to every blocking write"
+        );
+    }
+
+    #[test]
+    fn startup_sony_sequence_reset_writes_the_control_frame() {
+        let transport = ScriptedTransport::new(config(), std::iter::empty());
+        let sent = Arc::clone(&transport.sent);
+        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let mut adapter =
+            BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+
+        adapter.send_sony_sequence_reset().unwrap();
+
+        assert_eq!(
+            *sent.lock().unwrap(),
+            [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
     }
 
     #[test]
@@ -945,9 +1038,9 @@ mod tests {
         ));
     }
 
-    /// Issue #637: the raw I/O spellings of an idle read mean the same thing as
-    /// `Error::Timeout`, so a custom transport that forwards them verbatim gets
-    /// the same "no data" treatment on both owners.
+    /// Issue #637/#719: raw `WouldBlock` and `Interrupted` mean an idle read;
+    /// raw `TimedOut` remains a fault because TCP keepalive exhaustion can use
+    /// that spelling. Custom idle timers use `Error::Timeout`.
     #[test]
     fn reader_maps_raw_idle_io_kinds_to_the_same_no_data_answer() {
         let mut cfg = config();
@@ -959,10 +1052,10 @@ mod tests {
                     std::io::ErrorKind::WouldBlock,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::TimedOut,
+                    std::io::ErrorKind::Interrupted,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::Interrupted,
+                    std::io::ErrorKind::TimedOut,
                 )))),
                 Err(Error::Io(Arc::new(std::io::Error::from(
                     std::io::ErrorKind::ConnectionRefused,
@@ -973,7 +1066,7 @@ mod tests {
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
         let (_writer, mut reader, _decoder) = adapter.parts();
         let mut receive = [0; 32];
-        for _ in 0..3 {
+        for _ in 0..2 {
             assert_eq!(
                 reader.receive(&mut receive, None).unwrap(),
                 BlockingReceive::TimedOut
@@ -981,7 +1074,11 @@ mod tests {
         }
         assert!(
             matches!(reader.receive(&mut receive, None), Err(Error::Io(_))),
-            "a real read failure is still a fault the owner gets to classify"
+            "an OS timeout remains a fault the owner classifies as terminal"
+        );
+        assert!(
+            matches!(reader.receive(&mut receive, None), Err(Error::Io(_))),
+            "another real read failure still reaches the owner"
         );
     }
 
@@ -1155,7 +1252,7 @@ mod tests {
     fn production_raw_tombstone_consumes_prefix_fault_tail_before_writing_successor() {
         let ambiguity = Duration::from_millis(80);
         let (transport, io) = TombstoneIntegrationTransport::new([
-            // A's own reply creates its raw response-correlation tombstone.
+            // A has timed out, so this complete response is already stale.
             TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
             // A second stale reply is split across real stream-framer turns.
             TombstoneIntegrationRead::Bytes(vec![0x90, 0x50]),
@@ -1166,24 +1263,21 @@ mod tests {
         ]);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let mut owner_policy = adapter.policy().clone();
+        owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
+        let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
 
         let first = owner
             .submit(
                 &mut writer,
-                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
             )
             .unwrap();
-        assert_eq!(
-            owner
-                .pump_once(&mut writer, &mut reader, &mut decoder)
-                .unwrap(),
-            1
-        );
+        owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
         assert!(!decoder.has_buffered_stream_input().unwrap());
 
@@ -1231,46 +1325,41 @@ mod tests {
         );
     }
 
-    /// A stream peer can have more stale complete replies ready than one
-    /// caller-thread tombstone turn is allowed to consume. The production
-    /// adapter must fail closed at that bound: releasing B behind the
-    /// remaining literal A replies would re-open correlation ambiguity.
+    /// A stream peer can have more than 64 stale complete replies ready. The
+    /// production adapter drains them under A's old scope until the fixed
+    /// wall-clock hold, then uses a genuine idle read as the release fence.
     #[test]
-    fn production_raw_tombstone_work_cap_poisons_before_successor_write() {
-        // Keep this coupled to `RAW_TOMBSTONE_PUMP_WORK_LIMIT` in the owner:
-        // the first reply completes A, then these 64 real raw frames all
-        // belong to A's tombstoned correlation interval.
-        const STALE_TOMBSTONE_TURNS: usize = 64;
+    fn production_raw_tombstone_is_wall_clock_bounded_not_frame_counted() {
+        const STALE_REPLIES: usize = 65;
         let ambiguity = Duration::from_secs(1);
         let stale_reply = vec![0x90, 0x50, 0xa1, 0xff];
-        let reads = std::iter::once(TombstoneIntegrationRead::Bytes(stale_reply.clone())).chain(
-            (0..STALE_TOMBSTONE_TURNS)
-                .map(|_| TombstoneIntegrationRead::Bytes(stale_reply.clone())),
-        );
+        let reads = (0..STALE_REPLIES)
+            .map(|_| TombstoneIntegrationRead::Bytes(stale_reply.clone()))
+            .chain([
+                TombstoneIntegrationRead::TimedOut,
+                TombstoneIntegrationRead::TimedOut,
+            ]);
         let (transport, io) = TombstoneIntegrationTransport::new(reads);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let mut owner_policy = adapter.policy().clone();
+        owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
+        let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
 
         let first = owner
             .submit(
                 &mut writer,
-                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
             )
             .unwrap();
-        assert_eq!(
-            owner
-                .pump_once(&mut writer, &mut reader, &mut decoder)
-                .unwrap(),
-            1
-        );
+        owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
-        let error = owner
+        let successor = owner
             .submit_request_until_with_pump(
                 &mut writer,
                 &mut reader,
@@ -1279,31 +1368,22 @@ mod tests {
                 Duration::from_secs(2),
                 Instant::now() + Duration::from_secs(2),
             )
-            .expect_err("the production tombstone cap must fail closed");
-        assert!(
-            matches!(error, Error::StreamPoisoned { .. }),
-            "got {error:?}"
-        );
-        assert!(matches!(
-            owner.state().boundary_error(),
-            Some(Error::StreamPoisoned { .. })
-        ));
+            .expect("a legitimate stale burst cannot poison by frame count");
+        assert!(owner.state().boundary_error().is_none());
+        assert!(try_terminal(&successor).is_none());
 
         let io = io.lock().unwrap();
         assert_eq!(
             io.sent.len(),
-            1,
-            "B must not write while stale literal replies remain beyond the cap"
+            2,
+            "B writes after every stale reply is inert"
         );
         assert_eq!(
             io.send_counts_at_read,
-            vec![1; STALE_TOMBSTONE_TURNS + 1],
-            "every bounded tombstone read occurred before any possible B write"
+            vec![1; STALE_REPLIES + 2],
+            "every stale and idle boundary read occurred before B's write"
         );
-        assert!(
-            io.reads.is_empty(),
-            "the cap consumes its exact bounded turn budget"
-        );
+        assert!(io.reads.is_empty());
     }
 
     /// An inquiry's long unkeyed hold overlaps Y's later exact-S2 quarantine.
@@ -1324,8 +1404,8 @@ mod tests {
             // At Y's first completion deadline, complete noncorrelating input
             // wins, then due work creates its *later* exact-S2 quarantine.
             TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x38, 0xff]),
-            // The concurrent inquiry then establishes the longer unkeyed
-            // first-write hold that overlaps Y's exact socket expiry.
+            // The concurrent inquiry has timed out; this is its stale reply
+            // inside the longer unkeyed hold.
             TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
             // This lands at Y's exact-S2 quarantine deadline, before the
             // inquiry hold expires. X's S1 completion begins without a tail.
@@ -1336,7 +1416,9 @@ mod tests {
         ]);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let mut owner_policy = adapter.policy().clone();
+        owner_policy.protocol.raw_inquiry_release_hold = inquiry_ambiguity;
+        let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
 
         let x = owner
@@ -1369,9 +1451,10 @@ mod tests {
         let inquiry = owner
             .submit(
                 &mut writer,
-                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+                raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
             )
             .unwrap();
+        owner.wake(&mut writer, Instant::now()).unwrap();
         assert_eq!(io.lock().unwrap().sent.len(), 3);
         // This complete network-change frame is input-first at Y's initial
         // deadline; it leaves Y in the exact-S2 unconfirmed quarantine.
@@ -1381,7 +1464,7 @@ mod tests {
                 .unwrap(),
             1
         );
-        // Now finish the inquiry and retain its longer unkeyed tombstone.
+        // Consume the timed-out inquiry's stale reply under its narrow hold.
         assert_eq!(
             owner
                 .pump_once(&mut writer, &mut reader, &mut decoder)
@@ -1390,7 +1473,7 @@ mod tests {
         );
         assert!(matches!(
             try_terminal(&inquiry),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
         let successor = owner
@@ -1438,8 +1521,8 @@ mod tests {
             // exact-S2 unconfirmed quarantine.
             TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x38, 0xff]),
             TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
-            // This is at the S2 quarantine expiry, while the inquiry's long
-            // target hold is still active.
+            // This is at the S2 quarantine expiry, while the timed-out
+            // inquiry's longer target hold is still active.
             TombstoneIntegrationRead::BytesAtDeadline(vec![0x90, 0x52]),
             // After exact-prefix discard, the old terminator is only a
             // malformed delimiter at the later inquiry deadline and cannot
@@ -1448,7 +1531,9 @@ mod tests {
         ]);
         let adapter =
             BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let mut owner_policy = adapter.policy().clone();
+        owner_policy.protocol.raw_inquiry_release_hold = inquiry_ambiguity;
+        let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
 
         let x = owner
@@ -1473,20 +1558,21 @@ mod tests {
         let inquiry = owner
             .submit(
                 &mut writer,
-                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, inquiry_ambiguity),
+                raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
             )
             .unwrap();
+        owner.wake(&mut writer, Instant::now()).unwrap();
         // Y's first completion timeout creates the exact-S2 quarantine.
         owner
             .pump_once(&mut writer, &mut reader, &mut decoder)
             .unwrap();
-        // The inquiry reply now creates the longer target-scoped dispatch hold.
+        // Consume the timed-out inquiry's stale reply under its longer hold.
         owner
             .pump_once(&mut writer, &mut reader, &mut decoder)
             .unwrap();
         assert!(matches!(
             try_terminal(&inquiry),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
 
         let successor = owner
@@ -1518,12 +1604,11 @@ mod tests {
     }
 
     /// No source-only, ACK, or socketless terminal prefix proves an owner.
-    /// Just before the release boundary the production adapter keeps draining
-    /// those literals, then poisons at the independent 64-turn cap before a
-    /// successor write can make the bytes bindable to new work.
+    /// The production adapter gives each literal one real grace interval, then
+    /// discards the orphan and releases the successor without poisoning the
+    /// session (#713).
     #[test]
-    fn production_raw_tombstone_ambiguous_prefixes_poison_before_successor_write() {
-        const AMBIGUOUS_PREFIX_TURNS: usize = 64;
+    fn production_raw_tombstone_ambiguous_prefixes_expire_by_time_without_poison() {
         for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
             let ambiguity = Duration::from_millis(200);
             let reads = std::iter::once(TombstoneIntegrationRead::Bytes(vec![
@@ -1532,27 +1617,30 @@ mod tests {
             .chain(std::iter::once(
                 TombstoneIntegrationRead::BytesNearDeadline(prefix.clone()),
             ))
-            .chain((1..AMBIGUOUS_PREFIX_TURNS).map(|_| TombstoneIntegrationRead::TimedOut));
+            .chain([
+                TombstoneIntegrationRead::TimedOut,
+                TombstoneIntegrationRead::TimedOut,
+            ]);
             let (transport, io) = TombstoneIntegrationTransport::new(reads);
             let adapter =
                 BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-            let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+            let mut owner_policy = adapter.policy().clone();
+            owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
+            let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
             let (mut writer, mut reader, mut decoder) = adapter.parts();
             let first = owner
                 .submit(
                     &mut writer,
-                    raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                    raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
                 )
                 .unwrap();
-            owner
-                .pump_once(&mut writer, &mut reader, &mut decoder)
-                .unwrap();
+            owner.wake(&mut writer, Instant::now()).unwrap();
             assert!(matches!(
                 try_terminal(&first),
-                Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
+                Some(RuntimeOutcome::Failed(Error::Timeout))
             ));
 
-            let error = owner
+            let successor = owner
                 .submit_request_until_with_pump(
                     &mut writer,
                     &mut reader,
@@ -1561,25 +1649,26 @@ mod tests {
                     Duration::from_secs(1),
                     Instant::now() + Duration::from_secs(1),
                 )
-                .expect_err("ambiguous retained raw input must fail closed: {prefix:02x?}");
-            assert!(
-                matches!(error, Error::StreamPoisoned { .. }),
-                "{prefix:02x?}: {error:?}"
+                .expect("the orphan expires by elapsed time: {prefix:02x?}");
+            assert!(try_terminal(&successor).is_none());
+            assert_eq!(
+                owner.state().state(),
+                crate::runtime::engine::SessionState::Running
             );
             let io = io.lock().unwrap();
             assert_eq!(
                 io.sent.len(),
-                1,
-                "{prefix:02x?}: successor must not write before the cap"
+                2,
+                "{prefix:02x?}: successor writes only after the orphan is discarded"
             );
             assert_eq!(
                 io.send_counts_at_read.len(),
-                AMBIGUOUS_PREFIX_TURNS + 1,
-                "{prefix:02x?}: the initial reply plus every bounded retained-input turn are read"
+                4,
+                "{prefix:02x?}: one probe starts grace and one expires it"
             );
             assert!(
                 io.reads.is_empty(),
-                "{prefix:02x?}: the cap consumes its exact no-data budget"
+                "{prefix:02x?}: the single grace-expiry probe is consumed"
             );
         }
     }
@@ -1589,14 +1678,13 @@ mod tests {
         let ambiguity = Duration::from_millis(80);
         let (transport, io) = TombstoneIntegrationTransport::new_with_addressing(
             [
-                // A's inquiry reply creates only camera 1's tombstone.
+                // A has timed out; this complete response is already stale.
                 TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x01, 0xff]),
                 // Camera 2's reply begins at A's exact release boundary.
                 TombstoneIntegrationRead::BytesAtDeadline(vec![0xa0, 0x50]),
                 TombstoneIntegrationRead::Bytes(vec![0x04, 0xff]),
-                // B is a camera 1 command and receives only these own frames.
-                TombstoneIntegrationRead::Bytes(vec![0x90, 0x41, 0xff]),
-                TombstoneIntegrationRead::Bytes(vec![0x90, 0x51, 0xff]),
+                // B receives only this own inquiry reply after its write.
+                TombstoneIntegrationRead::Bytes(vec![0x90, 0x50, 0x05, 0xff]),
             ],
             AddressingMode::Serial,
         );
@@ -1610,37 +1698,33 @@ mod tests {
             &profiles,
             OperationalTuning::new(),
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
         .unwrap();
-        let mut owner = super::super::BlockingOwner::new(adapter.policy().clone()).unwrap();
+        let mut owner_policy = adapter.policy().clone();
+        owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
+        let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
         let (mut writer, mut reader, mut decoder) = adapter.parts();
 
         let first = owner
             .submit(
                 &mut writer,
-                raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
             )
             .unwrap();
-        let camera_two = owner
-            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))
-            .expect("camera 2 inquiry queues behind the global raw inquiry flight");
-        assert_eq!(io.lock().unwrap().sent.len(), 1);
-
-        assert_eq!(
-            owner
-                .pump_once(&mut writer, &mut reader, &mut decoder)
-                .unwrap(),
-            1
-        );
+        owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x01]
+            Some(RuntimeOutcome::Failed(Error::Timeout))
         ));
+        let camera_two = owner
+            .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))
+            .expect("camera 2 writes after A's timeout releases global inquiry capacity");
         assert!(try_terminal(&camera_two).is_none());
         assert_eq!(
             io.lock().unwrap().sent.len(),
             2,
-            "camera 2 writes as soon as A's inquiry flight finishes"
+            "camera 2 writes as soon as A's timed-out inquiry flight finishes"
         );
 
         let successor = owner
@@ -1648,15 +1732,15 @@ mod tests {
                 &mut writer,
                 &mut reader,
                 &mut decoder,
-                serial_request(CameraId::CAMERA_1),
+                serial_inquiry(CameraId::CAMERA_1),
                 Duration::from_secs(1),
                 Instant::now() + Duration::from_secs(1),
             )
             .expect("A's target-local hold releases without erasing camera 2 input");
         assert_eq!(
             io.lock().unwrap().sent.len(),
-            3,
-            "B writes after A releases"
+            2,
+            "B still waits for the globally single-flight camera-2 inquiry"
         );
         assert!(decoder.has_buffered_stream_input().unwrap());
         assert_eq!(
@@ -1681,14 +1765,12 @@ mod tests {
         ));
         assert!(try_terminal(&successor).is_none());
         assert!(!decoder.has_buffered_stream_input().unwrap());
-
         assert_eq!(
-            owner
-                .pump_once(&mut writer, &mut reader, &mut decoder)
-                .unwrap(),
-            1
+            io.lock().unwrap().sent.len(),
+            3,
+            "B writes as soon as camera 2's preserved reply completes"
         );
-        assert!(try_terminal(&successor).is_none(), "B has only ACKed");
+
         assert_eq!(
             owner
                 .pump_once(&mut writer, &mut reader, &mut decoder)
@@ -1697,12 +1779,12 @@ mod tests {
         );
         assert!(matches!(
             try_terminal(&successor),
-            Some(RuntimeOutcome::Applied)
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x05]
         ));
         assert_eq!(
             io.lock().unwrap().send_counts_at_read,
-            [1, 2, 3, 3, 3],
-            "camera 2's tail and B's own ACK/completion are read only after B writes"
+            [2, 2, 2, 3],
+            "camera 2's tail and B's own reply are read only after B writes"
         );
     }
 

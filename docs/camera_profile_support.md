@@ -46,6 +46,14 @@ permission check for those surfaces. Built-in profiles derive marker impls and
 profiles must keep optional marker impls and `TYPED_SUPPORT` in sync; do not use
 metadata constants as a fallback permission source.
 
+The two broad baseline markers are intentionally asymmetric. Implementing
+`Exposure` establishes a usable baseline exposure domain, so every
+`ProfileMetadata + Exposure` type receives `HasExposure`. `ImageProcessing`
+must be implemented only because `Profile` needs a uniform discovery shape and
+can validly contain no image surface at all; `HasImageProcessing` therefore
+requires an explicit, source-backed opt-in. A downstream profile with any typed
+image noun must implement that marker itself.
+
 This split also applies inside broad baseline areas. A profile may support zoom
 tele/wide movement without supporting direct absolute zoom, digital zoom toggle,
 or optical-plus-digital positioning. A profile may support exposure mode and
@@ -53,35 +61,34 @@ gain without iris control. A profile may support basic focus without one-push
 AF, focus zone, AF sensitivity, or focus near-limit inquiry. Model those
 surfaces with precise markers rather than runtime-only guards.
 
-Current built-in sub-capability markers include:
+Current built-in sub-capability markers include the generated table below. Its
+rows come from `src/capabilities/typed_support_registry.rs`; edit that
+declarative vocabulary rather than this marked region.
 
+<!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
 | Zoom | `HasDirectZoom` | Static gate for `camera.zoom().set_position`, `.set_normalized`, and `.set_normalized_in_domain` |
 | Zoom | `HasDigitalZoomToggle` | `camera.zoom().set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate only when `.set_normalized_in_domain(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
-| Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
+| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate when `.set_normalized_in_domain(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
 | Exposure | `HasIrisControl` | iris reset/up/down/direct control and `IrisInquiryControl` (`09 04 4B` position) |
-| Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
+| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
+| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
+| Focus | `HasFocusLock` | focus-lock control |
+| Focus | `HasPushAutoFocus` | Sony Push AF press/release control |
+| Focus | `HasFocusZone` | focus-zone selection control |
+| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
+| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
 | Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` and dynamic-range inquiry |
 | Exposure | `HasExposureCompensation` | exposure-compensation controls and inquiries |
 | Exposure | `HasBrightnessControl` | exposure brightness controls and inquiry |
-| Exposure | `HasPtzOpticsAntiFlicker` | PTZOptics anti-flicker control and inquiry |
-| Exposure | `HasSonySpotlight` | Sony spotlight controls |
-| Exposure | `HasSonyAutoSlowShutter` | Sony automatic slow-shutter controls |
 | White balance | `HasOnePushWhiteBalance` | one-push white balance mode and trigger |
 | White balance | `HasAutoTrackingWhiteBalance` | ATW white balance mode |
 | White balance | `HasAutoWhiteBalanceSensitivity` | AWB sensitivity control |
 | Color | `HasColorTemperature` | color-temperature mode, setters, and inquiry |
 | Color | `HasRgbGain` | red/blue gain controls and inquiries |
 | Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
-| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
-| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
-| Focus | `HasFocusZone` | focus-zone selection control |
-| Focus | `HasFocusZoneInquiry` | focus-zone inquiry |
-| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
-| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Image | `HasImageFlip` | vertical image flip control and inquiry |
 | Image | `HasImageMirror` | horizontal mirror control |
 | Image | `HasCombinedImageFlip` | combined flip-mode command |
@@ -93,19 +100,26 @@ Current built-in sub-capability markers include:
 | Image | `HasGammaControl` | gamma control and inquiry |
 | Image | `HasNoiseReduction2D` | 2D noise-reduction mode and level inquiries |
 | Image | `HasNoiseReduction3D` | 3D noise-reduction level inquiry |
-| Image | `HasNoiseReduction2DControl` | 2D noise-reduction mode/level controls and disable |
-| Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
 | Image | `HasPictureEffect` | picture-effect control and inquiry |
 | Tally | `HasTally` | tally light controls and inquiries |
 | Menu | `HasDirectMenuControl` | direct menu controls |
 | ND filter | `HasNdFilter` | ND filter controls and inquiries |
 | Variable speed | `HasVariableSpeed` | variable speed mode controls |
+| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
+| Focus | `HasFocusZoneInquiry` | focus-zone inquiry (independent of selection control) |
 | Streaming | `HasUsbAudio` | USB audio control and inquiry |
+| Exposure | `HasPtzOpticsAntiFlicker` | PTZOptics anti-flicker control and inquiry |
+| System | `HasPtzOpticsSettingsSave` | PTZOptics settings-save command |
+| Presets | `HasPtzOpticsPresetRecallSpeed` | PTZOptics preset-recall speed control |
+| Exposure | `HasSonySpotlight` | Sony spotlight controls |
+| Exposure | `HasSonyAutoSlowShutter` | Sony automatic slow-shutter controls |
 | Streaming | `HasPtzOpticsMulticastStreaming` | PTZOptics multicast-streaming controls |
 | Streaming | `HasPtzOpticsNdiQuality` | PTZOptics NDI-quality control |
-| Presets | `HasPtzOpticsPresetRecallSpeed` | PTZOptics preset-recall speed control |
-| System | `HasPtzOpticsSettingsSave` | PTZOptics settings-save command |
-| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
+| Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
+| Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
+| Image | `HasNoiseReduction2DControl` | 2D noise-reduction mode/level controls and disable |
+| Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
+<!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 ## Built-In Transport Matrix
 
@@ -151,12 +165,12 @@ optional typed operations when a capability is not universal.
 | `PtzOpticsG2` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `PtzOpticsG3` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `PtzOptics30X` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
-| `SonyFR7` | `HasSonySpotlight`<br>`HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasAutoFocusSensitivity`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
-| `SonyBRCH900` | `HasSonySpotlight`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasTally` |
-| `SonyEVIH100` | `HasSonyAutoSlowShutter`<br>`HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl` |
-| `SonyBRC300` | `HasSonyAutoSlowShutter`<br>`HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
-| `NearusBRC300` | `HasDirectZoom`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
-| `GenericVisca` | `HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
+| `SonyFR7` | `HasSonySpotlight`<br>`HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
+| `SonyBRCH900` | `HasSonySpotlight`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasTally` |
+| `SonyEVIH100` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl` |
+| `SonyBRC300` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
+| `NearusBRC300` | `HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
+| `GenericVisca` | `HasExposureMode`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
 
 Focus-zone selection is source-backed for PtzOptics G2, G3, and 30X, while the
 matching inquiry is enabled only for G2 and 30X because the G3 query response
@@ -170,11 +184,11 @@ R14 documents the current G2/G3 noise-reduction command inputs and inquiry
 outputs separately. Its `04 50` input selects Auto (`02`) or Manual (`03`),
 `04 53` accepts off (`00`) or levels `1–5`, and `04 54` accepts off (`00`) or
 levels `1–8`; its `09 04 50`/`53`/`54` inquiry rows report the current mode and
-levels `0–5`. A narrower inquiry-output range does not retract a separately
-documented command-input domain, and the API does not promise set-to-query
-round-trip identity. Archived R1 is inquiry evidence only: it includes all
-three inquiries and records a legacy 3D result of `0–8`; it contains no setter
-rows.
+levels `0–5`. Archived R1 is inquiry evidence only: it includes all three
+inquiries and records a 3D result of `0–8`; it contains no setter rows. Because
+the typed setter admits the full `0–8` public domain and both ranges are
+source-backed, the decoder accepts every `NoiseReduction3DLevel` instead of
+classifying levels `6–8` as malformed (#717).
 
 Accordingly, `HasNoiseReduction2D` and `HasNoiseReduction3D` remain inquiry
 markers, while `HasNoiseReduction2DControl` and
@@ -192,16 +206,12 @@ tag, `noise_reduction_level`, `noise_reduction_mode`, and aggregate
 modes/speeds/strength mappings); raw/custom requests remain the extension path
 for unsupported profiles and aggregate vendor dialects.
 
-The typed camera/session decoder also preserves the documented reply-domain
-split: current `PtzOpticsG2` and `PtzOpticsG3` reject `09 04 54` values `6–8`,
-while the exact registry-generated legacy `PtzOptics30X` profile accepts `0–8`
-from R1. The wider bound requires full `ProfileSpec` equality with that built-in
-row; a mutable `profile_id` claim or a derived/custom PTZOptics profile cannot
-grant it. The public `NoiseReduction3DInquiry::from_response` conversion is
-necessarily profile-neutral and validates the value type's `0–8` domain; the
-session-selected decoder applies the narrower profile fact before returning a
-typed result. This does not change the independently documented `04 54`
-command-input domain of `0–8` [R1, R14, R15].
+The typed camera/session decoder and the public
+`NoiseReduction3DInquiry::from_response` conversion therefore share one
+profile-neutral `0–8` domain. G2, G3, and 30X all decode a well-formed level
+`6`, `7`, or `8`; no mutable profile identity or whole-`ProfileSpec` comparison
+changes the numeric response domain. Profile markers still decide whether the
+inquiry itself is available [R1, R14, R15].
 
 The vendor state commands use their own support markers instead of inferring
 permission from broad exposure, preset, or streaming metadata. PTZOptics G2,
@@ -213,25 +223,28 @@ model source establishes the command family. Other profiles can use the raw
 escape hatch where appropriate but do not receive these typed methods.
 
 The shared `04 39` AE-mode command and inquiry use `HasExposureMode`, separate
-from broad `HasExposure`. The marker is emitted only for PtzOptics G2, G3, and
-30X, whose checked profile sources supply a nonempty shared mode list. A
-nonempty runtime discovery list is necessary but not sufficient to grant the
-typed surface; dynamic callers must pass both the typed-support and inventory
-checks before encoding.
+from broad `HasExposure`. Every built-in except Sony FR7 emits the marker and a
+nonempty shared-mode inventory. PtzOptics G2/G3/30X use R1/R10/R14 evidence;
+Sony BRC-H900 and BRC-300 use the exact R11/R12 command and inquiry rows;
+Nearus BRC-300 follows the BRC-300 compatibility contract; Generic VISCA
+deliberately assumes that Sony-standard family; and EVI-H100 retains its 1.2
+compatibility breadth pending the direct R8 line-item audit required by #716.
+The inventory and marker are equivalent for built-ins. Custom runtime profiles
+must still provide both before a dynamic call can encode.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
 grant. `HasIrisControl` covers standard iris reset/up/down/direct control and
-the `09 04 4B` position inquiry; it remains enabled for PTZOptics G2/G3/30X,
-whose sources establish those exact rows. R10 and R14 independently establish
-the G3 `04 39` AE family, `04 0B`/`04 4B` iris controls, and `09 04 39`/`09 04
-4B` inquiries. The distinct `09 04 2B` auto/manual status inquiry is instead
-gated by `HasIrisControlInquiry`; R10 and the comprehensive current G2/G3
-portal omit it, so no built-in profile implements that marker. The FR7 command
-list documents a distinct vendor-relative `7E 04 4B` Up/Down family and `05
-34` Auto Iris inquiry; it does not establish the shared `04 39` or `09 04 4B`
-families. Until those families have their own models, FR7 and the other Sony,
-EVI, Nearus, and generic profiles retain raw-command escape-hatch access
-without claiming the shared typed operations.
+the `09 04 4B` position inquiry. It is enabled for the same eight built-ins:
+the three PTZOptics profiles, BRC-H900, EVI-H100, BRC-300, Nearus BRC-300, and
+Generic VISCA. R10/R14, R11, and R12 establish the model-specific rows; the
+EVI-H100, Nearus, and generic grants follow the compatibility decisions above.
+The distinct `09 04 2B` auto/manual status inquiry is instead gated by
+`HasIrisControlInquiry`; none of the checked sources establishes that distinct
+row, so no built-in profile implements the marker. The FR7 command list
+documents a vendor-relative `7E 04 4B` Up/Down family and `05 34` Auto Iris
+inquiry; it does not establish the shared `04 39` or `09 04 4B` families.
+Until those FR7 families have their own models, they remain available only
+through the raw-command escape hatch.
 
 Raw/custom request APIs are different. They remain available as escape hatches
 for experiments, unsupported firmware variants, and downstream integrations.

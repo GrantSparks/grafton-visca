@@ -1,8 +1,9 @@
 //! Sony encapsulated VISCA protocol example.
 //!
-//! Sony professional profiles use an 8-byte encapsulation header with sequence
-//! numbers. The profile selects that protocol automatically; application code
-//! uses the same accessors as raw VISCA profiles.
+//! Sony professional profiles select the encapsulation and sequence handling
+//! automatically. Application code neither constructs the eight-byte header
+//! nor manages sequence numbers; it uses the same accessors as raw VISCA
+//! profiles.
 //!
 //! Run with:
 //! ```sh
@@ -31,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_udp::<SonyFR7, _>(&address, runtime).await?;
-    let camera = session.camera::<SonyFR7>()?;
+    let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
         let is_on = camera.power().state().await?;

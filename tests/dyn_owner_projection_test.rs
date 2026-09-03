@@ -124,6 +124,7 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
                 .cancellation_timeout(timing.cancellation_timeout())
                 .ambiguity_timeout(timing.ambiguity_timeout())
                 .busy_timeout(timing.busy_timeout())
+                .raw_inquiry_reply_skew(timing.raw_inquiry_reply_skew())
                 .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
                 .minimum_command_spacing(timing.minimum_command_spacing())
                 .build()
@@ -172,6 +173,7 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
                 .cancellation_timeout(Duration::from_secs(1))
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
+                .raw_inquiry_reply_skew(Duration::ZERO)
                 .minimum_inquiry_spacing(Duration::ZERO)
                 .minimum_command_spacing(Duration::ZERO)
                 .build()
@@ -213,6 +215,7 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
                 .cancellation_timeout(Duration::from_secs(1))
                 .ambiguity_timeout(Duration::from_secs(1))
                 .busy_timeout(Duration::ZERO)
+                .raw_inquiry_reply_skew(Duration::ZERO)
                 .minimum_inquiry_spacing(Duration::ZERO)
                 .minimum_command_spacing(Duration::ZERO)
                 .build()
@@ -235,7 +238,7 @@ where
     assert!(!static_profile.supports_operation_complete());
     assert_eq!(
         static_profile.position_inquiries(),
-        PositionInquirySupport::new(true, true, true)
+        PositionInquirySupport::new_with_iris_nd(true, true, true, true, false)
     );
     let runtime_profile = runtime_equivalent(&static_profile);
     assert_eq!(static_profile, runtime_profile);
@@ -425,7 +428,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "selected exposure mode"
+            feature: "shared exposure-mode family"
         }
     ));
     let error = fr7_nouns
@@ -436,7 +439,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "inquiry ExposureModeInquiry"
+            feature: "shared exposure-mode family"
         }
     ));
     assert!(
@@ -478,7 +481,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode control"
+            feature: "shared exposure-mode family"
         }
     ));
     let error = partial_nouns
@@ -489,7 +492,7 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "typed inquiry ExposureModeInquiry"
+            feature: "shared exposure-mode family"
         }
     ));
     assert!(

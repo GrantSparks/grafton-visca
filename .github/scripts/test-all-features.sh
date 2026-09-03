@@ -108,6 +108,8 @@ run_test "default blocking" \
     cargo_stable test --workspace --all-targets
 run_test "blocking-only" \
     cargo_stable test --no-default-features --features blocking --all-targets
+run_test "blocking + dyn-api" \
+    cargo_stable test --no-default-features --features blocking,dyn-api --all-targets
 run_test "native blocking dependency boundary" \
     bash .github/scripts/check-blocking-dependency-boundary.sh
 run_test "runtime-neutral async" \

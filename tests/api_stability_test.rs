@@ -76,10 +76,8 @@ fn root_value_and_transport_contract() {
 
     let buffer = BufferConfig::default();
     assert_eq!(buffer.recv_buffer_size, 128);
-    assert_eq!(buffer.send_buffer_size, 128);
     assert_eq!(buffer.max_buffer_size, 8192);
     assert_eq!(BufferConfig::for_udp().recv_buffer_size, 1024);
-    assert_eq!(BufferConfig::for_raw_ip().send_buffer_size, 256);
 
     let keepalive = TcpKeepaliveConfig::for_visca_long_lived_tcp();
     assert_eq!(keepalive.idle, Duration::from_secs(10));
@@ -199,6 +197,7 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
+    fn assert_send_sync<T: Send + Sync>() {}
 
     assert_profile::<PtzOpticsG2>();
     let _: PhantomData<Camera<'static, PtzOpticsG2>> = PhantomData;
@@ -206,6 +205,8 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     let _: PhantomData<SessionConfig> = PhantomData;
     let _: PhantomData<Operation<'static, AppliedOnly>> = PhantomData;
     let _: PhantomData<Operation<'static, Targeted>> = PhantomData;
+    assert_send_sync::<Session>();
+    assert_send_sync::<Camera<'static, PtzOpticsG2>>();
 }
 
 #[cfg(all(feature = "blocking", feature = "async"))]
@@ -222,7 +223,7 @@ fn blocking_and_async_facades_coexist() {
     let _: PhantomData<Operation<Targeted>> = PhantomData;
 }
 
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 #[test]
 fn dyn_root_is_object_safe() {
     use grafton_visca::dynapi::{
@@ -244,6 +245,14 @@ fn dyn_root_is_object_safe() {
     let _ = owner;
 }
 
+#[cfg(all(feature = "dyn-api", feature = "blocking"))]
+#[test]
+fn blocking_dyn_root_is_runtime_profile_view() {
+    use grafton_visca::dynapi::BlockingDynSessionCamera;
+
+    let _: PhantomData<BlockingDynSessionCamera<'static>> = PhantomData;
+}
+
 #[test]
 fn canonical_compile_contracts() {
     // The base-only feature leg has no conditional directory to append.
@@ -255,8 +264,10 @@ fn canonical_compile_contracts() {
     pass_dirs.push("tests/api_contract/pass_blocking");
     #[cfg(all(feature = "blocking", feature = "async"))]
     pass_dirs.push("tests/api_contract/pass_coexistence");
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     pass_dirs.push("tests/api_contract/pass_dyn");
+    #[cfg(all(feature = "dyn-api", feature = "blocking"))]
+    pass_dirs.push("tests/api_contract/pass_dyn_blocking");
     #[cfg(feature = "test-utils")]
     pass_dirs.push("tests/api_contract/pass_test_utils");
     #[cfg(all(feature = "blocking", feature = "transport-serial"))]
@@ -276,7 +287,7 @@ fn canonical_compile_contracts() {
     fail_dirs.push("tests/api_contract/fail_async_only");
     #[cfg(all(feature = "blocking", feature = "async"))]
     fail_dirs.push("tests/api_contract/fail_blocking_mode");
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     {
         fail_dirs.push("tests/api_contract/fail_dyn_async");
         fail_dirs.push("tests/api_contract/fail_must_use_dyn");

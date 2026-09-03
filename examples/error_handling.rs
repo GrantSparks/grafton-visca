@@ -10,7 +10,7 @@
 
 mod support;
 
-use std::{borrow::Cow, env, io, time::Duration};
+use std::{env, io, time::Duration};
 
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraConfig},
@@ -64,19 +64,16 @@ fn address() -> Result<String, io::Error> {
 
 fn classify_common_errors() {
     let examples = [
-        Error::CameraBusy,
         Error::CommandBufferFull,
+        Error::NoSocket,
         Error::Timeout,
         Error::SyntaxError,
         Error::CommandNotExecutable,
-        Error::PresetNotFound { id: 5 },
+        Error::RuntimeQueueFull { capacity: 64 },
         Error::FeatureNotSupported {
             feature: "advanced_zoom",
         },
-        Error::CommandTimeout {
-            duration: Duration::from_secs(5),
-            command: Cow::Borrowed("zoom"),
-        },
+        Error::UnsequencedCommandUnconfirmed,
     ];
 
     println!("\nClassification:");
@@ -113,7 +110,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
         }
     };
 
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let camera = session.camera();
     let inquiry_result = camera.power().state().await;
     match &inquiry_result {
         Ok(is_on) => println!(

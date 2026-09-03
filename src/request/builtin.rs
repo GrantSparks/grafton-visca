@@ -460,12 +460,12 @@ fn validate_exposure_mode(
     require(capabilities.has_exposure, "exposure control")?;
     require(
         capabilities.supports_exposure_mode(mode),
-        "selected exposure mode",
+        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )?;
     validate_static_typed_command(
         profile,
         StaticBuiltinCommand::ExposureMode,
-        "shared exposure-mode control",
+        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )
 }
 
@@ -816,7 +816,7 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
         validate_brightness(
             profile,
             match self {
-                Self::SetLevel(level) | Self::Direct(level) => Some(level.value()),
+                Self::SetLevel(level) => Some(level.value()),
                 _ => None,
             },
         )
@@ -1423,7 +1423,7 @@ impl_plain_request!(
 );
 impl_plain_request!(
     crate::command::variable_speed::SetVariableSpeedMode,
-    7,
+    6,
     TimeoutClass::Quick,
     RetryClass::Standard,
     ControlClass::Normal
@@ -1513,8 +1513,7 @@ impl_plain_request!(
     RetryClass::Standard,
     ControlClass::Normal,
     |value: &crate::command::exposure::Brightness| match value {
-        crate::command::exposure::Brightness::SetLevel(_)
-        | crate::command::exposure::Brightness::Direct(_) => 9,
+        crate::command::exposure::Brightness::SetLevel(_) => 9,
         _ => 6,
     }
 );
@@ -2286,11 +2285,6 @@ pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage
         crate::command::semantics::BuiltinCommand::BrightnessSet,
         crate::command::Brightness,
         "SetLevel"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessDirect,
-        crate::command::Brightness,
-        "Direct"
     ),
     typed_plain_coverage!(
         crate::command::semantics::BuiltinCommand::AntiFlicker,
@@ -3955,7 +3949,7 @@ impl PushAfPress {
 impl_request!(
     PushAfPress,
     request::Operation<completion::AppliedOnly>,
-    8,
+    7,
     TimeoutClass::Quick,
     RetryClass::Movement,
     ControlClass::User,
@@ -3983,7 +3977,7 @@ impl PushAfRelease {
 impl_request!(
     PushAfRelease,
     request::Operation<completion::AppliedOnly>,
-    8,
+    7,
     TimeoutClass::Quick,
     RetryClass::Movement,
     ControlClass::User,
@@ -5603,7 +5597,7 @@ mod tests {
             ControlClass::Normal,
         );
         assert_policy::<crate::command::SetVariableSpeedMode>(
-            7,
+            6,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
@@ -5861,13 +5855,13 @@ mod tests {
             ControlClass::User,
         );
         assert_policy::<PushAfPress>(
-            8,
+            7,
             TimeoutClass::Quick,
             RetryClass::Movement,
             ControlClass::User,
         );
         assert_policy::<PushAfRelease>(
-            8,
+            7,
             TimeoutClass::Quick,
             RetryClass::Movement,
             ControlClass::User,
@@ -5971,7 +5965,8 @@ mod tests {
 
     #[test]
     fn profile_validation_rejects_unsupported_physical_requests_before_encoding() {
-        let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
         let nd = NdFilterDirect::new(NdFilterValue::new(4).unwrap());
 
         reset_request_write_count();
@@ -5979,19 +5974,19 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisReset,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisUp,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisDown,
                 CameraId::CAMERA_1,
-                &profile,
+                &fr7,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6001,7 +5996,7 @@ mod tests {
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris_direct,
             CameraId::CAMERA_1,
-            &profile,
+            &fr7,
             OperationalTuning::new(),
         )
         .is_err());
@@ -6009,19 +6004,19 @@ mod tests {
             prepare_builtin_operation::<completion::Targeted, _>(
                 &nd,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepUp,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepDown,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6031,13 +6026,13 @@ mod tests {
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfPress,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfRelease,
                 CameraId::CAMERA_1,
-                &profile,
+                &generic,
                 OperationalTuning::new(),
             ),
         ] {
@@ -6225,7 +6220,7 @@ mod tests {
             assert!(matches!(
                 error,
                 Error::FeatureNotSupported {
-                    feature: "selected exposure mode"
+                    feature: "shared exposure-mode family"
                 }
             ));
         }
@@ -6234,7 +6229,33 @@ mod tests {
 
     #[test]
     fn shared_ae_modes_require_typed_support_beyond_nonempty_inventory() {
-        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let source = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
+        let coordinates = source
+            .pan_tilt_coordinates()
+            .expect("generic pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "Exposure inventory without typed permission".into();
+        capabilities.typed_support = capabilities
+            .typed_support
+            .without(TypedSupportSurface::ExposureMode);
+        let generic = ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .preset_recall_axes(source.preset_recall_axes())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect("runtime profile without exposure-mode permission");
         assert!(!generic.capabilities().exposure_modes.is_empty());
         assert!(!generic
             .capabilities()
@@ -6251,7 +6272,7 @@ mod tests {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode control"
+                feature: "shared exposure-mode family"
             }
         ));
         assert_eq!(request_write_count(), 0);

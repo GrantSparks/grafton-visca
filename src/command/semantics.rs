@@ -526,7 +526,6 @@ pub enum BuiltinCommand {
     BrightnessUp,
     BrightnessDown,
     BrightnessSet,
-    BrightnessDirect,
     AntiFlicker,
     SpotlightOn,
     SpotlightOff,
@@ -775,7 +774,6 @@ impl BuiltinCommand {
         Self::BrightnessUp,
         Self::BrightnessDown,
         Self::BrightnessSet,
-        Self::BrightnessDirect,
         Self::AntiFlicker,
         Self::SpotlightOn,
         Self::SpotlightOff,
@@ -937,8 +935,7 @@ impl BuiltinCommand {
             Self::BrightnessReset
             | Self::BrightnessUp
             | Self::BrightnessDown
-            | Self::BrightnessSet
-            | Self::BrightnessDirect => BuiltinCommandDomain::Brightness,
+            | Self::BrightnessSet => BuiltinCommandDomain::Brightness,
             Self::GainReset
             | Self::GainUp
             | Self::GainDown
@@ -1116,7 +1113,6 @@ impl BuiltinCommand {
             | Self::BrightnessUp
             | Self::BrightnessDown
             | Self::BrightnessSet
-            | Self::BrightnessDirect
             | Self::AntiFlicker
             | Self::GainReset
             | Self::GainUp
@@ -1440,15 +1436,15 @@ mod tests {
     }
 
     /// Machine-checks the timeout-policy partition documented in
-    /// `docs/behavioral_parity_1x.md`: of the 150 `BuiltinCommand` rows,
+    /// `docs/behavioral_parity_1x.md`: of the 149 `BuiltinCommand` rows,
     /// 29 carry an intentional 1.x timeout-category change, one is a new-v2
-    /// command without a 1.x category, and 120 preserve their 1.x category.
+    /// command without a 1.x category, and 119 preserve their 1.x category.
     /// Pinning the universe size and the two explicit sets here means adding a
     /// command or editing either decision set fails this test until that guide's
     /// table and counts are updated to match (issue #689). It does not re-derive
     /// the 1.x categories; it keeps the documented partition from silently
-    /// rotting the way it did when `ImageFlipBoth` was omitted (miscounting 120
-    /// as 121).
+    /// rotting the way it did when `ImageFlipBoth` was omitted (miscounting the
+    /// pre-#727 preserved partition as 121 rather than 120).
     #[test]
     fn timeout_category_partition_preserves_the_1x_provenance_boundary() {
         // The rows whose v2 `TimeoutClass` intentionally differs from their 1.x
@@ -1549,7 +1545,7 @@ mod tests {
         // rather than silently shifting the total.
         assert_eq!(
             BuiltinCommand::ALL.len(),
-            150,
+            149,
             "BuiltinCommand universe changed; re-derive the parity counts in \
              docs/behavioral_parity_1x.md"
         );
@@ -1591,7 +1587,7 @@ mod tests {
             "new-v2 command rows without a 1.x timeout category"
         );
         assert_eq!(
-            preserved, 120,
+            preserved, 119,
             "command rows that retain their 1.x timeout category"
         );
     }

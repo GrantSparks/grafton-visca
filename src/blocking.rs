@@ -285,78 +285,44 @@ mod construction {
 
     /// Final owner-backed standard construction namespace.
     ///
-    /// Blocking construction is owner-backed and returns a [`Session`].
+    /// Standard network construction is owner-backed and returns a
+    /// [`CameraSession`]. Serial and custom transports retain the multi-target
+    /// [`Session`] path.
     pub use crate::camera::CameraConfig;
 
     /// One-line owner-backed blocking connection constructor.
     #[derive(Debug, Clone, Copy)]
     pub struct Connect;
 
-    /// Runtime-free typed blocking connection builder.
-    #[derive(Debug, Clone, Copy)]
-    pub struct ConnectBuilder;
-
-    /// TCP-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct TcpConnectBuilder {
-        address: String,
-        use_default_port: bool,
-    }
-
-    /// UDP-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct UdpConnectBuilder {
-        address: String,
-        use_default_port: bool,
-    }
-
-    #[cfg(feature = "transport-serial")]
-    /// Serial-selected blocking connection builder.
-    #[derive(Debug, Clone)]
-    pub struct SerialConnectBuilder {
-        port: String,
-        baud_rate: u32,
-    }
-
     impl Connect {
-        /// Opens one owner-backed blocking TCP session.
-        pub fn open_tcp<P>(address: impl Into<String>) -> Result<Session>
+        /// Opens a standard TCP or UDP transport selected at runtime.
+        ///
+        /// Unlike [`Self::open_tcp`] and [`Self::open_udp`], this entry point
+        /// only requires [`CompileTimeProfile`]. Transport compatibility and
+        /// the profile's default port are resolved before any socket I/O.
+        /// Serial transports use `Connect::open_serial`, and custom transports
+        /// use [`Session::open`].
+        pub fn open<P>(transport: crate::camera::TransportOptions) -> Result<CameraSession<P>>
+        where
+            P: CompileTimeProfile,
+        {
+            CameraConfig::<P>::new().transport(transport).open()
+        }
+
+        /// Opens one owner-backed blocking TCP camera session.
+        pub fn open_tcp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
         where
             P: CompileTimeProfile + crate::capabilities::SupportsTcp,
         {
             CameraConfig::<P>::tcp(address).open()
         }
 
-        /// Opens one owner-backed blocking UDP session.
-        pub fn open_udp<P>(address: impl Into<String>) -> Result<Session>
+        /// Opens one owner-backed blocking UDP camera session.
+        pub fn open_udp<P>(address: impl Into<String>) -> Result<CameraSession<P>>
         where
             P: CompileTimeProfile + crate::capabilities::SupportsUdp,
         {
             CameraConfig::<P>::udp(address).open()
-        }
-
-        /// Opens one owner-backed blocking TCP session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        pub fn open_tcp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            CameraConfig::<P>::tcp(address).open_camera()
-        }
-
-        /// Opens one owner-backed blocking UDP session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        pub fn open_udp_camera<P>(address: impl Into<String>) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            CameraConfig::<P>::udp(address).open_camera()
         }
 
         /// Opens one owner-backed blocking serial session.
@@ -367,174 +333,11 @@ mod construction {
         {
             CameraConfig::<P>::serial(port, baud_rate).open_serial()
         }
-
-        /// Opens one owner-backed blocking serial session for a single camera.
-        ///
-        /// The profile is named once and bound at compile time: the returned
-        /// [`CameraSession`] hands out the `P` camera
-        /// view directly, with no second, runtime-checked profile naming.
-        #[cfg(feature = "transport-serial")]
-        pub fn open_serial_camera<P>(
-            port: impl Into<String>,
-            baud_rate: u32,
-        ) -> Result<CameraSession<P>>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
-        {
-            CameraConfig::<P>::serial(port, baud_rate).open_serial_camera()
-        }
-
-        /// Creates a typed blocking connection builder.
-        pub fn builder() -> ConnectBuilder {
-            ConnectBuilder
-        }
-    }
-
-    impl ConnectBuilder {
-        /// Select TCP.
-        pub fn tcp(self, address: impl Into<String>) -> TcpConnectBuilder {
-            TcpConnectBuilder {
-                address: address.into(),
-                use_default_port: false,
-            }
-        }
-
-        /// Select UDP.
-        pub fn udp(self, address: impl Into<String>) -> UdpConnectBuilder {
-            UdpConnectBuilder {
-                address: address.into(),
-                use_default_port: false,
-            }
-        }
-
-        /// Select blocking serial.
-        #[cfg(feature = "transport-serial")]
-        pub fn serial(self, port: impl Into<String>, baud_rate: u32) -> SerialConnectBuilder {
-            SerialConnectBuilder {
-                port: port.into(),
-                baud_rate,
-            }
-        }
-    }
-
-    impl TcpConnectBuilder {
-        fn into_config<P>(self) -> CameraConfig<P>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            if self.use_default_port {
-                CameraConfig::<P>::tcp(self.address)
-            } else {
-                CameraConfig::<P>::new()
-                    .transport(crate::camera::TransportOptions::tcp(self.address))
-                    .without_network_default_port()
-            }
-        }
-
-        /// Apply the selected profile's default TCP port.
-        pub fn with_default_port(mut self) -> Self {
-            self.use_default_port = true;
-            self
-        }
-
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsTcp,
-        {
-            self.into_config::<P>().open()
-        }
-    }
-
-    impl UdpConnectBuilder {
-        fn into_config<P>(self) -> CameraConfig<P>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            if self.use_default_port {
-                CameraConfig::<P>::udp(self.address)
-            } else {
-                CameraConfig::<P>::new()
-                    .transport(crate::camera::TransportOptions::udp(self.address))
-                    .without_network_default_port()
-            }
-        }
-
-        /// Apply the selected profile's default UDP port.
-        pub fn with_default_port(mut self) -> Self {
-            self.use_default_port = true;
-            self
-        }
-
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsUdp,
-        {
-            self.into_config::<P>().open()
-        }
-    }
-
-    #[cfg(feature = "transport-serial")]
-    impl SerialConnectBuilder {
-        /// Opens through the owner-backed blocking session.
-        pub fn open<P>(self) -> Result<Session>
-        where
-            P: CompileTimeProfile + crate::capabilities::SupportsSerial,
-        {
-            CameraConfig::<P>::serial(self.port, self.baud_rate).open_serial()
-        }
-    }
-
-    #[cfg(test)]
-    #[allow(clippy::expect_used)]
-    mod tests {
-        use crate::{camera::profiles::PtzOpticsG2, Error};
-
-        use super::Connect;
-
-        #[test]
-        fn tcp_builder_requires_an_explicit_port_without_opt_in() {
-            let without_default = Connect::builder()
-                .tcp("camera.local")
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan();
-            assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
-
-            let with_default = Connect::builder()
-                .tcp("camera.local")
-                .with_default_port()
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan()
-                .expect("profile TCP default port");
-            assert_eq!(with_default.endpoint, "camera.local:5678");
-        }
-
-        #[test]
-        fn udp_builder_requires_an_explicit_port_without_opt_in() {
-            let without_default = Connect::builder()
-                .udp("camera.local")
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan();
-            assert!(matches!(without_default, Err(Error::InvalidAddress { .. })));
-
-            let with_default = Connect::builder()
-                .udp("camera.local")
-                .with_default_port()
-                .into_config::<PtzOpticsG2>()
-                .standard_connection_plan()
-                .expect("profile UDP default port");
-            assert_eq!(with_default.endpoint, "camera.local:1259");
-        }
     }
 }
 
-#[cfg(all(feature = "blocking", feature = "transport-serial"))]
-pub use construction::SerialConnectBuilder;
 #[cfg(feature = "blocking")]
-pub use construction::{
-    CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
-};
+pub use construction::{CameraConfig, Connect};
 
 /// One caller-driven blocking owner session.
 ///
@@ -543,6 +346,12 @@ pub use construction::{
 /// multiple operation handles never creates a second protocol authority. This
 /// value is the RAII owner of its caller-thread host: dropping it releases
 /// the host and transport without sending shutdown or a protocol STOP.
+///
+/// `Session` is `Send + Sync`. Owner turns remain fail-fast: overlapping calls
+/// from different threads return [`Error::TransportBusy`] instead of waiting.
+/// Applications that want waiting serialization can place the session in a
+/// `Mutex` and derive each [`Camera`] while holding that lock; a camera view
+/// must not outlive the guard it borrows from.
 #[derive(Debug)]
 pub struct Session {
     host: BlockingSessionHost,
@@ -557,12 +366,17 @@ impl Session {
     {
         config.validate_for_transport(transport.standard_transport_kind())?;
         let profiles = config.profile_registry();
-        let adapter = crate::runtime::owner::BlockingTransportAdapter::new_with_profile_registry(
-            transport,
-            &profiles,
-            config.tuning(),
-            config.admission_capacity(),
-        )?;
+        let mut adapter =
+            crate::runtime::owner::BlockingTransportAdapter::new_with_profile_registry(
+                transport,
+                &profiles,
+                config.tuning(),
+                config.admission_capacity(),
+                config.strict_unconfirmed_poison(),
+            )?;
+        if config.sony_sequence_reset_on_connect() {
+            adapter.send_sony_sequence_reset()?;
+        }
         Ok(Self {
             host: BlockingSessionHost::from_adapter(adapter)?,
             config,
@@ -600,6 +414,111 @@ impl Session {
         }))
     }
 
+    /// Returns the runtime-profile camera view for the sole registered target.
+    ///
+    /// Unlike [`Self::camera`], this selector does not require a
+    /// [`CompileTimeProfile`] marker. Every request is still validated against
+    /// the registered [`ProfileSpec`] before encoding or transport I/O.
+    ///
+    /// # Example: a blocking runtime-only profile
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use grafton_visca::{
+    ///     blocking::Session,
+    ///     capabilities::Capabilities,
+    ///     command::PowerOn,
+    ///     profile::{
+    ///         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
+    ///         TransportCompatibility,
+    ///     },
+    ///     transport::Transport,
+    ///     CommandTimeouts, SessionConfig,
+    /// };
+    ///
+    /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
+    /// capabilities.has_power = true;
+    /// capabilities.power_on_time = Duration::from_secs(1);
+    ///
+    /// let timing = ProfileTiming::builder()
+    ///     .ack_timeout(Duration::from_millis(100))
+    ///     .command_timeouts(CommandTimeouts::default())
+    ///     .inquiry_timeout(Duration::from_secs(1))
+    ///     .cancellation_timeout(Duration::from_secs(1))
+    ///     .ambiguity_timeout(Duration::from_secs(1))
+    ///     .busy_timeout(Duration::ZERO)
+    ///     .raw_inquiry_reply_skew(Duration::ZERO)
+    ///     .minimum_inquiry_spacing(Duration::ZERO)
+    ///     .minimum_command_spacing(Duration::ZERO)
+    ///     .build()?;
+    /// let profile = ProfileSpec::builder(capabilities)
+    ///     .transports(TransportCompatibility::new(Some(5678), None, false))
+    ///     .envelope(ProfileEnvelope::RawVisca)
+    ///     .timing(timing)
+    ///     .maximum_command_sockets(1)
+    ///     .supports_operation_complete(true)
+    ///     .supports_command_cancel(false)
+    ///     .preset_recall_axes(None)
+    ///     .position_inquiries(PositionInquirySupport::new(false, false, false))
+    ///     .build()?;
+    ///
+    /// let transport = Transport::tcp()
+    ///     .address("192.168.0.110:5678")
+    ///     .build_blocking()?;
+    /// let session = Session::open(transport, SessionConfig::new(profile))?;
+    /// session.camera_dyn()?.execute(&PowerOn::new())?;
+    /// session.close()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
+        Ok(crate::dynapi::BlockingDynSessionCamera::new(
+            self.camera_core()?,
+        ))
+    }
+
+    /// Returns a target-specific runtime-profile camera view.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn_for(
+        &self,
+        target: CameraId,
+    ) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
+        Ok(crate::dynapi::BlockingDynSessionCamera::new(
+            self.camera_core_for(target)?,
+        ))
+    }
+
+    #[cfg(feature = "dyn-api")]
+    fn camera_core(&self) -> Result<BlockingCameraCore<'_>, Error> {
+        let target = self.config.sole_target().ok_or_else(|| {
+            if self.config.target_count() == 0 {
+                Error::InvalidState("session has no registered target".into())
+            } else {
+                Error::InvalidState(
+                    "session has multiple registered targets; select one with camera_dyn_for"
+                        .into(),
+                )
+            }
+        })?;
+        self.camera_core_for(target)
+    }
+
+    #[cfg(feature = "dyn-api")]
+    fn camera_core_for(&self, target: CameraId) -> Result<BlockingCameraCore<'_>, Error> {
+        let profile = self
+            .config
+            .profile(target)
+            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
+        Ok(BlockingCameraCore {
+            host: &self.host,
+            target,
+            profile,
+            class: ClassSelection::Request,
+        })
+    }
+
     /// Returns the operational tuning this session is currently preparing
     /// requests under.
     ///
@@ -629,20 +548,17 @@ impl Session {
     /// covered work in flight. To widen a deadline for a command that is
     /// already running, cancel it and resubmit.
     ///
-    /// The update is not a merge for runtime-mutable values: a field left unset
-    /// returns to its profile default rather than keeping the value a previous
-    /// call installed. [`OperationalTuning::strict_unconfirmed_poison`] is a
-    /// construction-only recovery policy, so setting it here is rejected; an
-    /// update that leaves it unset retains a construction-time strict opt-in in
-    /// [`Self::tuning`].
+    /// The update is not a merge: a field left unset returns to its profile
+    /// default rather than keeping the value a previous call installed.
+    /// Construction-only recovery policy lives on [`SessionConfig`], outside
+    /// `OperationalTuning`, and is therefore unaffected by this call.
     ///
     /// # Errors
     ///
     /// Rejects tuning that construction would reject for a registered profile:
     /// values that weaken pacing minima, raise a socket limit, undercut a
-    /// deadline, or specify incoherent retry timing. It also rejects an
-    /// explicit construction-only strict recovery setting, leaving the
-    /// session's current tuning untouched. Also returns
+    /// deadline, or specify incoherent retry timing, leaving the session's
+    /// current tuning untouched. Also returns
     /// [`Error::TransportBusy`] if called re-entrantly from inside another
     /// owner turn, and the session's terminal error if the owner is gone. A
     /// retained terminal error takes precedence over validation of the proposed
@@ -846,6 +762,15 @@ impl fmt::Debug for BlockingCameraCore<'_> {
 }
 
 impl<'session> BlockingCameraCore<'session> {
+    #[cfg(feature = "dyn-api")]
+    pub(crate) fn into_typed<P>(self) -> Result<Camera<'session, P>, Error>
+    where
+        P: CompileTimeProfile,
+    {
+        self.profile.ensure_compile_time::<P>()?;
+        Ok(Camera::from_core(self))
+    }
+
     /// Returns this view's fixed camera target.
     #[must_use]
     pub const fn target(&self) -> CameraId {
@@ -895,18 +820,6 @@ impl<'session> BlockingCameraCore<'session> {
         self.execute_with_selection(command, self.class)
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    pub fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.execute_with_selection(command, ClassSelection::Explicit(class))
-    }
-
     fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
@@ -929,18 +842,6 @@ impl<'session> BlockingCameraCore<'session> {
         Q: Inquiry + ?Sized,
     {
         self.inquire_with_selection(inquiry, self.class)
-    }
-
-    /// Submits a typed inquiry in an explicitly named scheduling lane.
-    pub fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.inquire_with_selection(inquiry, ClassSelection::Explicit(class))
     }
 
     fn inquire_with_selection<Q>(
@@ -973,19 +874,6 @@ impl<'session> BlockingCameraCore<'session> {
         O: OperationCommand<K> + ?Sized,
     {
         self.submit_with_selection::<K, O>(operation, self.class)
-    }
-
-    /// Admits a typed operation in an explicitly named scheduling lane.
-    pub fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.submit_with_selection::<K, O>(operation, ClassSelection::Explicit(class))
     }
 
     fn submit_with_selection<K, O>(
@@ -1121,6 +1009,8 @@ impl<'session> BlockingCameraCore<'session> {
 ///
 /// The profile parameter supplies compile-time capability gates; owner and
 /// transport state remain in the shared borrowed core.
+/// The view is `Send + Sync`; concurrent owner turns retain the session's
+/// fail-fast [`Error::TransportBusy`] behavior.
 #[must_use]
 pub struct Camera<'session, P: CompileTimeProfile> {
     core: BlockingCameraCore<'session>,
@@ -1187,6 +1077,17 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.submission_class()
     }
 
+    /// Derives a camera view whose ordinary work uses `class`.
+    ///
+    /// The original view is unchanged. Commands, inquiries, operations, and
+    /// noun methods submitted through the returned view all inherit this
+    /// class; intrinsically urgent stops remain urgent.
+    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
+        let mut core = self.core;
+        core.set_submission_class(Some(class));
+        Self::from_core(core)
+    }
+
     /// Sets the ordinary-work [`SubmissionClass`] every later submission from
     /// *this handle* uses, or clears it with `None`.
     ///
@@ -1245,23 +1146,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.execute(command)
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It applies to ordinary work; an intrinsically
-    /// [`crate::ControlClass::Urgent`] command remains urgent.
-    pub fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core.execute_with_submission_class(command, class)
-    }
-
     /// Sends an inquiry and decodes its response through the shared owner.
     ///
     /// This intentionally has no request-specific `P: Has*` bound. Noun and
@@ -1282,22 +1166,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.inquire(inquiry)
     }
 
-    /// Sends an inquiry in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It cannot weaken an intrinsic urgent safety class.
-    pub fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core.inquire_with_submission_class(inquiry, class)
-    }
-
     /// Submits a typed operation and returns its borrowed owner-backed handle.
     pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
     where
@@ -1305,26 +1173,6 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation)
-    }
-
-    /// Submits a typed operation in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. As with
-    /// [`execute_with_submission_class`](Self::execute_with_submission_class),
-    /// an intrinsically urgent stop remains urgent.
-    pub fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<K, O>(operation, class)
     }
 }
 
@@ -1398,7 +1246,12 @@ mod tests {
     }
 
     impl BlockingTransport for FailFirstZoomStopSend {
-        fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            kind: CommandKind,
+            timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -1409,11 +1262,7 @@ mod tests {
                     "injected zoom stop send failure".into(),
                 ));
             }
-            self.inner.send_with_kind(bytes, kind)
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.inner.recv_into(dst)
+            self.inner.send_with_timeout(bytes, kind, timeout)
         }
 
         fn recv_into_with_timeout(
@@ -1446,6 +1295,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
                     .minimum_inquiry_spacing(Duration::ZERO)
                     .minimum_command_spacing(Duration::ZERO)
                     .build()
@@ -1505,6 +1355,23 @@ mod tests {
             "both views wrote their zoom stop through the one owned transport"
         );
         session.shutdown().unwrap();
+    }
+
+    #[test]
+    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
+        let transport = ScriptedBlockingTransport::new([]);
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+
+        let session = Session::open(transport, config).expect("Sony session opens after RESET");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
+        session.shutdown().expect("session shutdown");
     }
 
     #[test]

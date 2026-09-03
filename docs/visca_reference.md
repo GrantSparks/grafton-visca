@@ -220,6 +220,23 @@ Common payload types:
 
 In Sony VISCA-over-IP, the VISCA device address is fixed as camera `1`, so normal commands use `81 ... FF`.
 
+Sony's sequence-number RESET is a control command with a one-byte `01`
+payload: `02 00 00 01 00 00 00 00 01`. The header sequence field is ignored,
+and successful processing resets the next VISCA sequence to zero. A control
+reply uses `02 01`; the documented success payload is `01`, while protocol
+errors use two bytes such as `0F 01` (sequence abnormality) or `0F 02` (message
+type abnormality). These payloads are not terminated VISCA frames and must not
+be used to complete or correlate a VISCA request. The library leaves RESET
+disabled on connect unless the caller opts in, and exposes received control
+codes through diagnostics.
+
+`DirectMenuControl` deliberately rejects the data pair `FF 81..88`. Other
+`FF` data values, including a final `FF`, remain byte-for-byte and receive a
+separate trailing terminator. An address-shaped byte immediately after a
+delimiter-valued data byte could instead be interpreted by a delimiter-scanning
+camera or intermediary as the start of a second addressed VISCA frame, so that
+specific pair is outside the safe typed-command grammar (#683, #727).
+
 ### 5.3 Sony UDP retransmission correction
 
 Earlier drafts and some secondary summaries say to retry Sony VISCA-over-IP with a new sequence number. Sony’s command manual instead describes retransmitting the timed-out message using the **same sequence number** so the controller can infer which message was lost and whether the camera already accepted the original command. This document adopts Sony’s same-sequence retransmission guidance.
@@ -242,9 +259,9 @@ Camera → Controller: 90 5y FF   # Completion, command finished
 
 For raw VISCA, do not send a second command for the same target while its
 first command is still unacknowledged. The one raw candidate spans `Sending`,
-`AwaitingAck`, `AwaitingCompletion`, and `AwaitingLateAck`. The
-`AwaitingCompletion` phase is the completion-only shape: it holds the target
-channel exclusively and never earns a socket. For an ACK-bearing command,
+`AwaitingAck`, and `AwaitingCompletion`. The `AwaitingCompletion` phase is the
+completion-only shape: it holds the target channel exclusively and never earns
+a socket. For an ACK-bearing command,
 once the ACK establishes the first command's socket, the scheduler may use the
 camera's remaining socket capacity while that command executes. Raw ACK and
 error routing never uses a
@@ -254,11 +271,12 @@ command it may route the legitimate per-target inquiry FIFO, while a
 command-plus-inquiry collision is ignored. An explicit socket routes only its
 exact target/socket owner, and a socketless error never targets `Executing`.
 A named ACK socket is exact evidence as well: if another request owns that
-socket, the uniquely identified candidate falls back to the target's other
-free socket (issues #620/#682). Only when every socket is occupied does the
-ACK remain inert with `SocketConflict`. A socketless ACK may select the first
-free registered socket. Sony-encapsulated commands may pipeline before ACK
-because their envelope sequence number provides exact correlation.
+socket on raw VISCA, the camera's new assignment supersedes the stale local
+owner (#721). The old request fails immediately and leaves an inert keyed
+`PreAck` hold; the new request owns the named socket. A socketless ACK may select the first free
+registered socket. Sony-encapsulated commands may pipeline before ACK because
+their envelope sequence number provides exact correlation; they retain the
+bounded #620/#682 other-free-socket compatibility fallback.
 
 The fixed response forms are length-exact: `z0 4y FF` ACK, `z0 5y FF`
 nonzero-socket completion, `z0 6y zz FF` error, and `z0 38 FF` network-change
@@ -484,19 +502,15 @@ Final path-specific preset treatment:
 For the current G2/G3 scope, R14 separately documents these command-input
 domains and the inquiry-output domains in section 7.10. The current `09 04 53`
 and `09 04 54` query rows return `0–5`; that narrower output range does not
-retract the separately documented `04 54` input range through `8`, and no
-set-to-query round-trip identity is promised. R1 is an archived inquiry source,
-not a setter source: it contains the `09 04 50`/`53`/`54` inquiries and records
-a legacy `09 04 54` result range of `0–8`.
+retract the separately documented `04 54` input range through `8`. R1 is an
+archived inquiry source, not a setter source: it contains the `09 04 50`/`53`/`54`
+inquiries and records a `09 04 54` result range of `0–8`.
 
-Typed session decoding makes that distinction profile-aware. Current
-`PtzOpticsG2`/`PtzOpticsG3` sessions reject `09 04 54` results `6–8`; only the
-exact registry-generated legacy `PtzOptics30X` profile accepts those inquiry
-values. Full profile equality is required, so a mutable `profile_id` cannot
-launder the legacy bound into a custom inventory. Direct structural response
-parsing remains domain-neutral, and the public typed `from_response` conversion
-accepts the value type's `0–8` domain because it has no selected profile; camera
-and session execution applies the source-backed profile limit [R1, R14, R15].
+Typed session and direct structural decoding accept that full public `0–8`
+domain on every supporting profile (#717). The profile marker still controls
+whether the inquiry is available, but whole-profile identity no longer changes
+the numeric range or rejects an otherwise well-formed setter readback [R1,
+R14, R15].
 
 ### 7.9 Flip, OSD, NDI, multicast, and UAC
 
@@ -578,8 +592,10 @@ command list instead documents a vendor-relative `7E 04 4B` Iris Up/Down family
 and `05 34` Auto Iris inquiry; it does not establish the shared `04 39`
 AE-mode command/inquiry family, standard Iris Direct command, or `09 04 4B`
 position inquiry. A generic VISCA opcode or encoder range alone does not
-establish those typed or targeted-inquiry guarantees for FR7 or the other Sony,
-EVI, or Nearus profiles.
+establish those typed or targeted-inquiry guarantees for FR7. BRC-H900 and
+BRC-300 use their own R11/R12 rows; Nearus follows the BRC-300 compatibility
+contract, Generic VISCA explicitly assumes the Sony-standard set, and EVI-H100
+retains its 1.2 compatibility breadth pending the direct R8 row audit.
 
 ### 7.11 PTZOptics block inquiries
 
@@ -760,6 +776,28 @@ The fixed typed serializers are model-specific and use this narrow matrix:
 For PTZOptics Gen-2, the checked sources do not establish the same
 automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
 
+### 9.4 Sony FR7 typed extension rows
+
+The following R7 rows are the narrow source basis for FR7-only or
+Sony-professional typed surfaces. `8x` is the VISCA camera address before Sony
+IP framing normalizes it to camera 1; application code does not build the
+eight-byte envelope itself.
+
+| Typed surface | Command or inquiry packet | R7 value domain |
+| --- | --- | --- |
+| Automatic ND | `8x 01 7E 04 53 0p FF` | `p = 2` on; `p = 3` off. |
+| ND preset inquiry | `8x 09 7E 01 53 FF` | Reply `y0 50 0p FF`; `p = 0` clear, `1..=3` preset 1–3. The legacy `09 04 66` register in §7.10 is picture-flip state, not this inquiry. |
+| Red tally | `8x 01 7E 01 0A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 01 0A FF`. |
+| Green tally | `8x 01 7E 04 1A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 04 1A FF`. |
+| Push AF / Push MF | `8x 01 7E 04 58 0p FF` | `p = 0` release; `p = 1` press. This is distinct from the red-tally `7E 01 0A` family. |
+| Pan/tilt speed-step range | `8x 01 06 45 pp FF` | `pp = 08` normal (24 steps); `pp = 18` extended (50 steps). `7E 04 1B` is FR7 preset-speed selection, not this control. |
+| Auto-tracking white balance | `8x 01 04 35 04 FF` | `04` selects ATW; inquiry `8x 09 04 35 FF` reports `04`. The `09 04 A9` AWB-sensitivity row in §7.10 is a separate PTZOptics register. |
+| Direct menu | `8x 01 7E 04 72 pp 0q FF` | `pp` selects the direct-menu control and `q = 0/1` is release/press. The typed raw-selector constructor also enforces the safe-frame delimiter boundary described in §5.2. |
+
+These rows do not grant FR7 the shared `04 39` exposure-mode or standard
+`04 4B` iris families; the profile boundary in §2.3 and Appendix A.9 still
+applies.
+
 ## 10. Resolved inconsistencies and final treatments
 
 | # | Issue | Final treatment | Confidence |
@@ -821,11 +859,12 @@ the owner alone knows which live operation owns a camera-assigned socket.
 ### 11.4 Command scheduling, sockets, and cancel
 
 VISCA cameras generally expose two command sockets. Maintain an owner-only
-per-camera scheduler. For raw VISCA it gates only the target's one
-unacknowledged command, then tracks the ACK-assigned sockets and frees each
-socket on Completion or an error. It must not use FIFO order to guess which
-raw command an ACK belongs to. Sony sequence numbers permit pre-ACK pipeline
-and exact reply correlation.
+per-camera scheduler. Raw VISCA normally gates the target's one unacknowledged
+command, then tracks the ACK-assigned sockets and frees each socket on
+Completion or an error. One intrinsically `Urgent` command may cross one open
+candidate for safety (#714); while both are open, ACK/error evidence binds to
+neither rather than using FIFO order or recency. Sony sequence numbers permit
+pre-ACK pipeline and exact reply correlation.
 
 | Action | Packet / behavior |
 |---|---|
@@ -843,21 +882,16 @@ every later noncancelled attempt phase: backoff, ready, send, ACK, execution,
 and reply.
 When that budget expires, the terminal result preserves the cause that
 authorized the prior retry rather than replacing it with an incidental timeout
-from a later phase. If an active raw retry reaches budget expiry while in
-`Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`, the default is a per-request
-`UnsequencedCommandUnconfirmed` result with its correlation quarantined; a
-ready/backoff raw retry may finish with its retained last error. The session is
-poisoned only when `strict_unconfirmed_poison` is enabled, which reports
-`StreamPoisoned`. Cancellation quarantine is separate and is never shortened
-by budget expiry.
+from a later phase. The architecture guide owns the detailed
+[raw unconfirmed-outcome rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 Empty UDP datagrams are discarded while receiving and do not reset or extend
 the one overall receive deadline; the async adapter yields cooperatively before
 polling again.
 
 | Transport | Recommended retry behavior |
 |---|---|
-| Raw UDP PTZOptics | Do not automatically replay a successfully sent command after an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`: without a sequence, retry is indistinguishable from a new physical action. A receive fault while awaiting ACK likewise never authorizes a replay, but by default leaves an *uncancelled* command in `AwaitingAck`; only a later ACK deadline without an ACK yields the per-request `UnsequencedCommandUnconfirmed` outcome and correlation quarantine. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. Prefer TCP `5678` for high-reliability control. |
-| Raw TCP PTZOptics | TCP handles byte delivery/order but does not prove camera execution. Serialize the one-command pre-ACK window per target and retain socket concurrency after ACK. Treat an ACK/completion/cancellation ambiguity or active retry-budget expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` as the default per-request `UnsequencedCommandUnconfirmed` outcome (the session survives), never a blind replay. A receive fault while awaiting ACK also forbids replay but leaves an *uncancelled* command in `AwaitingAck` by default; only its later ACK deadline without an ACK produces that outcome. `strict_unconfirmed_poison` poisons immediately on that fault only with no recorded cancel; a recorded cancel follows cancellation-driven late-ACK resolution and poisons only if its deadline remains unconfirmed. A conclusive camera rejection may be retried under policy. |
+| Raw UDP PTZOptics | Never replay a successfully sent command whose result is ambiguous. Follow the architecture guide's per-request quarantine rule; a conclusive camera rejection may still be retried. Prefer TCP `5678` for high-reliability control. |
+| Raw TCP PTZOptics | TCP preserves byte delivery/order but does not prove camera execution. Use the same canonical raw quarantine rule; retain socket concurrency after an ACK and never infer an ambiguous outcome from FIFO order. |
 | Sony encapsulated UDP | Use the Sony sequence field to correlate replies. This document adopts the Sony-manual correction in §5.3: timeout recovery should retransmit the timed-out message with the same sequence number, rather than blindly issuing a new logical command. |
 | Axis | Respect Axis profile ranges and handle fixed replies, especially for inquiries documented as fixed on/off. |
 
@@ -1013,7 +1047,7 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 
 - PTZOptics SuperJoy G1 User Manual, port assignments: https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf
 - PTZOptics firmware changelog, SOC `6.3.12`: https://ptzoptics.com/firmware-changelog/
-- Sony ILME-FR7 VISCA Command List, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME-FR7 VISCA Command List, Version 4.00, encapsulated VISCA-over-IP format: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 
 ## A.8 Current PTZOptics NDI page field-of-view inconsistencies
 
@@ -1043,12 +1077,32 @@ narrow exception does not generalize typed ND support to the other Sony, EVI,
 Nearus, or generic profiles, and it does not make the broader FR7 profile fully
 validated here.
 
+**Narrow shared exposure/iris exceptions:** R11 lines 706–717, 1003, and 1012
+establish BRC-H900 `04 39` exposure modes, standard iris controls, and matching
+inquiries. R12 lines 440–454 and 609–617 establish the same families for
+BRC-300; the Nearus compatibility profile follows that standard subset.
+Generic VISCA deliberately assumes this Sony-standard subset. EVI-H100 retains
+the same 1.2 compatibility breadth under #716 while a direct R8 line-item audit
+remains outstanding. These narrow grants do not validate unrelated model
+features or the distinct `09 04 2B` iris-status inquiry.
+
 **Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
 positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
 (`493D`); the negative endpoints (`F75A8` and `E796`) are right and down. The
 library's BRC-300 profile therefore uses a negative signed degree-to-unit scale
 for both axes while retaining the documented signed wire fields. This
 profile-specific polarity must not be generalized to other VISCA profiles.
+
+R12 also settles the position-frame layout independently of the common table
+in §7.6. Absolute position is
+`8x 01 06 02 VV 00 0Y 0Y 0Y 0Y 0Y 0Z 0Z 0Z 0Z FF`, and relative position
+changes only the opcode to `06 03`: there is one speed field `VV` (`01`–`18`),
+then a fixed `00`, five signed pan nibbles, and four signed tilt nibbles. It is
+not the standard two-speed `VV WW` form. The public request vocabulary retains
+separate `PanSpeed` and `TiltSpeed` values for cross-profile consistency, so
+the BRC-300 codec requires them to be equal rather than silently dropping one.
+Limit set/clear use the same five-pan/four-tilt coordinate widths and `W=01`
+for UpRight. Exact profile-path golden vectors pin all four layouts.
 
 **Why it remains open:** The uploaded unified guide explicitly says the non-PTZOptics and non-Axis sections were not re-validated in the prior patch set. This final document used Sony manuals only to resolve transport and opcode semantics, not to validate every model-family capability.
 
@@ -1062,7 +1116,7 @@ profile-specific polarity must not be generalized to other VISCA profiles.
 
 **Helpful sources:**
 
-- Sony ILME‑FR7 VISCA Command List: https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf
+- Sony ILME‑FR7 VISCA Command List, Version 4.00: https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf
 - Sony EVI-H100S/H100V Technical Manual: https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf
 - Axis VISCA Interface API Description: https://www.axis.com/dam/public/70/3d/31/visca-interface-api-description-en-US-266656.pdf
 - Uploaded Unified VISCA Protocol Implementation Guide: `visca_unified_reference(2).md`
@@ -1182,11 +1236,11 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 2.00 | https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, or a `09 04 4B` position inquiry. |
-| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, 240 ms post-preset caveat. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, shared `04 58` autofocus sensitivity, shared `04 50`/`04 53`/`04 54` noise reduction, or a `09 04 4B` position inquiry. |
+| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, and the 240 ms post-preset caveat. It remains the model authority for the EVI-H100 shared exposure/iris breadth restored by #716; the direct line-item audit is still pending because the linked technical-manual download was unavailable during that review. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
-| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 fixed `04 3A` spotlight commands; it does not establish the fixed `04 5A` automatic-slow-shutter family. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 fixed `04 5A` automatic-slow-shutter commands; its five-nibble signed pan/four-nibble signed tilt position commands, limits, inquiries, and endpoints; it does not establish the fixed `04 3A` spotlight family. |
+| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), fixed `04 5A` automatic-slow-shutter commands, and its `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
 
 ## C.4 Supplemental explanatory source
 

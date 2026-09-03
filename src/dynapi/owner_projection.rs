@@ -276,6 +276,17 @@ impl DynSessionCamera {
         self.core.submission_class()
     }
 
+    /// Derives a runtime-profile view whose ordinary work uses `class`.
+    ///
+    /// The original view is unchanged. Commands, inquiries, operations, and
+    /// dynamic noun methods submitted through the returned view all inherit
+    /// this class; intrinsically urgent stops remain urgent.
+    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
+        let mut selected = self.clone();
+        selected.set_submission_class(Some(class));
+        selected
+    }
+
     /// Sets the ordinary-work [`SubmissionClass`] every later submission from
     /// *this view* uses, or clears it with `None`.
     ///
@@ -302,46 +313,12 @@ impl DynSessionCamera {
         self.core.execute(command).await
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    ///
-    /// This is the erased projection of [`Camera::execute_with_submission_class`];
-    /// `class` replaces this view's default for ordinary work. An
-    /// intrinsically urgent command remains urgent.
-    pub async fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core
-            .execute_with_submission_class(command, class)
-            .await
-    }
-
     /// Sends a typed inquiry through the shared owner.
     pub async fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,
     {
         self.core.inquire(inquiry).await
-    }
-
-    /// Sends a typed inquiry in an explicitly named scheduling lane.
-    ///
-    /// This is the erased projection of [`Camera::inquire_with_submission_class`].
-    pub async fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core
-            .inquire_with_submission_class(inquiry, class)
-            .await
     }
 
     /// Submits any typed targeted request through the same preparation and
@@ -356,24 +333,6 @@ impl DynSessionCamera {
             .map(DynTargetedOperation::from_operation)
     }
 
-    /// Submits a typed targeted request in an explicitly named scheduling
-    /// lane.
-    ///
-    /// This is the erased projection of [`Camera::submit_with_submission_class`].
-    pub async fn submit_targeted_with_submission_class<O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<DynTargetedOperation, Error>
-    where
-        O: OperationCommand<Targeted> + Sync + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<Targeted, O>(operation, class)
-            .await
-            .map(DynTargetedOperation::from_operation)
-    }
-
     /// Submits any typed applied-only request through the same preparation and
     /// owner admission path as [`Camera::submit`].
     pub async fn submit_applied<O>(&self, operation: &O) -> Result<DynAppliedOperation, Error>
@@ -382,26 +341,6 @@ impl DynSessionCamera {
     {
         self.core
             .submit::<AppliedOnly, O>(operation)
-            .await
-            .map(DynAppliedOperation::from_operation)
-    }
-
-    /// Submits a typed applied-only request in an explicitly named scheduling
-    /// lane.
-    ///
-    /// This is the erased projection of
-    /// [`Camera::submit_with_submission_class`]. An intrinsically urgent stop
-    /// such as [`ZoomStop`](crate::request::builtin::ZoomStop) remains urgent.
-    pub async fn submit_applied_with_submission_class<O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<DynAppliedOperation, Error>
-    where
-        O: OperationCommand<AppliedOnly> + Sync + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<AppliedOnly, O>(operation, class)
             .await
             .map(DynAppliedOperation::from_operation)
     }

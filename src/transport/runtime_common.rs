@@ -102,7 +102,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
-                    config.validate_buffer_bounds()?;
+                    config.validate()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -247,7 +247,7 @@ macro_rules! declare_net_transport {
                     F: FnOnce(String, UdpSocketConfig) -> Fut,
                     Fut: std::future::Future<Output = Result<T, Error>>,
                 {
-                    config.validate_buffer_bounds()?;
+                    config.validate()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -318,7 +318,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
-                    config.validate_buffer_bounds()?;
+                    config.validate()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -463,7 +463,7 @@ macro_rules! declare_net_transport {
                     F: FnOnce(String, UdpSocketConfig) -> Fut,
                     Fut: std::future::Future<Output = Result<T, Error>>,
                 {
-                    config.validate_buffer_bounds()?;
+                    config.validate()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;

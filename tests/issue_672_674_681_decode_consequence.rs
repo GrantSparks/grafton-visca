@@ -63,7 +63,6 @@ impl StreamCamera {
             addressing,
             buffer_config: BufferConfig {
                 recv_buffer_size: 1024,
-                send_buffer_size: 128,
                 max_buffer_size: 8192,
             },
             ..TransportConfig::default()
@@ -83,13 +82,14 @@ impl HasTransportConfig for StreamCamera {
 }
 
 impl BlockingTransport for StreamCamera {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sent.lock().expect("sent lock").push(bytes.to_vec());
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(

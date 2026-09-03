@@ -25,12 +25,12 @@ fn pan_tilt(response: Response) -> (i32, i32) {
 }
 
 #[test]
-fn standard_visca_signed_centered_profile_decodes_eight_nibbles() {
+fn standard_visca_signed_centered_profile_decodes_both_signs() {
     assert_eq!(
         pan_tilt(parsed::<GenericVisca>(&[
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x01, 0x00, 0x0f, 0x0f, 0x0f, 0x00,
         ])),
-        (0, 0)
+        (0x10, -0x10)
     );
 }
 

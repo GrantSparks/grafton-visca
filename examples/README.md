@@ -61,19 +61,20 @@ If you're new to the library, start with these examples in order:
 - **[transports.rs](transports.rs)** - Check PTZOptics G2 TCP and UDP connectivity without changing camera state
 - **[transport_builder_demo.rs](transport_builder_demo.rs)** - Current `CameraConfig` transport policy setup
 - **[builder_api.rs](builder_api.rs)** - Attach a caller-owned transport with `Session::open`
-- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Sony encapsulated protocol with 8-byte header (advanced)
+- **[sony_encapsulation.rs](sony_encapsulation.rs)** - Profile-selected Sony encapsulated UDP inquiries; the application does not construct the header (advanced)
 - **[serial_async_demo.rs](serial_async_demo.rs)** - Tokio serial `CameraConfig`, checked camera ID, read-only inquiries, and explicit session close
 
 ### Advanced Patterns
 - **[runtime_agnostic.rs](runtime_agnostic.rs)** - Runnable custom `Executor` adapter exercising spawn, sleep, and timeout behavior
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
-- **[concurrent_control.rs](concurrent_control.rs)** - Concurrent async inquiries, safely ordered movement, and producer-consumer commands
+- **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
-- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()`: the supported `Cancellation`/`outcome` path and the G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery
-- **[custom_request.rs](custom_request.rs)** - A downstream custom `PlainCommand` and `OperationCommand` submitted via `execute`/`submit`, plus a runtime `ProfileSpec`
+- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates `NotSupported`/`CancelRejected` recovery
+- **[cancellation_blocking.rs](cancellation_blocking.rs)** - Hardware-free blocking confirmed cancellation on a cancel-capable Sony profile
+- **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
 - **[multi_camera.rs](multi_camera.rs)** - One session with two registered targets selected by `camera_for`, using explicit-timeout waits
-- **[recovery.rs](recovery.rs)** - Fresh-session recovery after `requires_new_session()`: re-callable transport factory, reused config, and re-query
+- **[recovery.rs](recovery.rs)** - Fresh-session recovery after transport death or an application-owned silent-peer threshold: `received_frames` heartbeat evidence, re-callable transport factory, reused config, re-query, and deliberate restoration
 
 ### Validation and Reference
 - **[typed_inquiry_demo.rs](typed_inquiry_demo.rs)** - Typed inquiry API walkthrough
@@ -85,13 +86,13 @@ If you're new to the library, start with these examples in order:
 ### Prerequisites
 
 1. Ensure you have a VISCA-compatible camera connected to your network
-2. Pass the camera address as documented by the example, or set its documented environment variable (default: `192.168.0.110`)
+2. Pass the camera address as documented by the example, or set its documented environment variable. Only examples whose source header says so default to `192.168.0.110`.
 3. Verify the port number; defaults vary by camera model:
    - PTZOptics cameras: TCP port `5678`, UDP port `1259`
    - Sony professional profiles: UDP port `52381`; TCP is not a supported standard construction path
    - The selected profile will provide the default port when you omit it
 
-Most user-facing examples accept a camera address as the first positional argument. Most also read `VISCA_CAMERA_ADDR`; `builder_api` uses `VISCA_CAMERA_UDP_ADDR`. Check the example header for the exact input.
+Most user-facing examples accept a camera address as the first positional argument and read `VISCA_CAMERA_ADDR`. Check each example header to learn whether that input is required or has a default.
 
 ### Basic Execution
 
@@ -102,14 +103,15 @@ cargo run --example quickstart -- 192.168.0.110 --move
 cargo run --example inquiry_quickstart -- 192.168.0.110
 cargo run --example operation_handles -- 192.168.0.110
 cargo run --example motion_safety -- 192.168.0.110
-cargo run --example custom_request                 # encoding + ProfileSpec only; no camera needed
-cargo run --example custom_request -- 192.168.0.110 # also submits the custom requests
+cargo run --example custom_request --features dyn-api                       # encoding + ProfileSpec only; no camera needed
+cargo run --example custom_request --features dyn-api -- 192.168.0.110:5678 # also submits through the runtime profile
 cargo run --example preset_demo -- 192.168.0.110 recall 1
 cargo run --example transports -- 192.168.0.110
 cargo run --example builder_api -- 192.168.0.110:1259
 cargo run --example type_safe_commands
 cargo run --example multi_camera                   # in-memory serial bus; no camera needed
 cargo run --example recovery                       # in-memory transport; no camera needed
+cargo run --example cancellation_blocking          # in-memory Sony transport; no camera needed
 cargo run --example transport_builder_demo -- 192.168.0.110
 cargo run --example transport_builder_demo -- 192.168.0.110 --udp
 ```
@@ -121,6 +123,7 @@ cargo run --example operation_handles_async --features runtime-tokio -- 192.168.
 cargo run --example concurrent_control --features runtime-tokio -- 192.168.0.110
 cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
 cargo run --example cancellation --features runtime-tokio -- 192.168.0.110
+cargo run --example cancellation --features runtime-tokio -- 192.168.0.110 --g2-unsupported
 cargo run --example dyn_quickstart --features runtime-tokio,dyn-api -- 192.168.0.110
 cargo run --example runtime_demo --features runtime-tokio -- 192.168.0.110
 cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
@@ -169,7 +172,7 @@ use grafton_visca::runtime::TokioRuntime;
 use grafton_visca::transport::{TcpKeepaliveConfig, TransportConfig};
 
 let blocking_session = grafton_visca::blocking::Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-let blocking_camera = blocking_session.camera::<PtzOpticsG2>()?;
+let blocking_camera = blocking_session.camera();
 let is_on = blocking_camera.power().state()?;
 blocking_session.close()?;
 
@@ -181,7 +184,7 @@ let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     })
     .open_async(runtime)
     .await?;
-let async_camera = async_session.camera::<PtzOpticsG2>()?;
+let async_camera = async_session.camera();
 let is_on = async_camera.power().state().await?;
 async_session.close().await?;
 ```

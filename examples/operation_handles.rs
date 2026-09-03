@@ -17,7 +17,7 @@ mod support;
 use std::{env, thread::sleep, time::Duration};
 
 use grafton_visca::{
-    blocking::{Camera, Connect, Session},
+    blocking::{Camera, Connect},
     camera::{profiles::PtzOpticsG2, IdleWait},
     command::PanTiltDirection,
     types::{PanSpeed, TiltSpeed},
@@ -33,7 +33,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
-    let result = movement(&session);
+    let camera = session.camera();
+    let result = movement(&camera);
     finish_session(result, session.close())?;
     Ok(())
 }
@@ -59,9 +60,7 @@ impl Drop for StopPanTiltOnExit<'_, '_> {
     }
 }
 
-fn movement(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG2>()?;
-
+fn movement(camera: &Camera<'_, PtzOpticsG2>) -> Result<(), Error> {
     // Targeted movement exposes profile-selected protocol settlement;
     // applied-only movement has no settled state and is observed only at protocol application. Both
     // waits consume the handle, so neither adds a stop of its own.
@@ -73,7 +72,7 @@ fn movement(session: &Session) -> Result<(), Error> {
     // below returned an error, `drive` would simply be dropped and pan/tilt
     // would keep moving. The guard is what bounds the motion to this scope.
     {
-        let _stop_on_exit = StopPanTiltOnExit { camera: &camera };
+        let _stop_on_exit = StopPanTiltOnExit { camera };
         let drive = camera.pan_tilt().move_direction(
             PanTiltDirection::Up,
             PanSpeed::new(6)?,

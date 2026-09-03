@@ -2,12 +2,11 @@
 //!
 //! `CameraConfig` is pure reusable data. It applies the profile's default
 //! port, validates transport compatibility, and then opens the owner-backed
-//! blocking `Session`.
+//! blocking `CameraSession`.
 
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    blocking::Session,
     camera::{profiles::PtzOpticsG2, CameraConfig},
     transport::{TcpKeepaliveConfig, TransportConfig},
 };
@@ -35,8 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     .transport_config(transport_config(kind));
 
-    let session: Session = config.open()?;
-    let camera = session.camera::<PtzOpticsG2>()?;
+    let session = config.open()?;
+    let camera = session.camera();
     let state = camera.power().state()?;
     println!("Power: {}", if state { "on" } else { "off" });
     session.close()?;

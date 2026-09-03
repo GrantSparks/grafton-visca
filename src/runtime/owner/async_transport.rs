@@ -6,10 +6,13 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
     protocol::framer::ProtocolFramer,
-    runtime::engine::{RawIncompletePrefix, RawPrefixEvidence, TransmissionMeta},
+    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::{envelope::FrameSequence, AsyncTransport, HasTransportConfig},
-    CameraId, Error, ViscaSocket,
+    CameraId, Error,
 };
+
+#[cfg(test)]
+use crate::{protocol::framer::RawIncompletePrefix, ViscaSocket};
 
 use super::{
     adapter::{
@@ -64,6 +67,7 @@ where
             &[(target, profile)],
             tuning,
             crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
         )
     }
 
@@ -75,6 +79,7 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
         // This check is deliberately before reading any startup-side transport
         // state or constructing the owner policy. Known standard transports
@@ -105,6 +110,7 @@ where
             transport.send_semantics(),
             tuning,
             admission_capacity,
+            strict_unconfirmed_poison,
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
@@ -130,12 +136,34 @@ where
         profiles: &[(CameraId, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
-        Self::new_with_targets(transport, profiles, tuning, admission_capacity)
+        Self::new_with_targets(
+            transport,
+            profiles,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )
     }
 
     pub(crate) fn policy(&self) -> &OwnerPolicy {
         &self.policy
+    }
+
+    /// Send Sony's sequence-number RESET before the owner actor starts.
+    pub(crate) async fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
+        let mut frame = bytes::BytesMut::new();
+        self.state.envelope.frame_sony_sequence_reset(&mut frame)?;
+        let datagram =
+            self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream;
+        self.transport.send(frame.as_ref()).await.map_err(|error| {
+            if datagram {
+                super::normalize_datagram_send_error(error)
+            } else {
+                error
+            }
+        })
     }
 }
 
@@ -284,31 +312,26 @@ where
         )
     }
 
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(
+            (self.policy.protocol.transport == crate::runtime::engine::TransportKind::Stream)
+                .then(|| self.state.framer.buffered_len()),
+        )
+    }
+
     fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
             return Ok(None);
         }
-        let Some(source) = self.state.framer.buffered_first_byte() else {
-            return Ok(None);
-        };
         if self.state.framer.buffered_first_raw_input_is_complete()? {
             return Ok(Some(RawPrefixEvidence::Complete));
         }
+        let Some((source, kind)) = self.state.framer.buffered_raw_incomplete_prefix()? else {
+            return Ok(None);
+        };
         let target = decode_response_target(self.state.routing, &[source])?.ok_or_else(|| {
             Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
         })?;
-        let bytes = self.state.framer.buffered_first_two_raw_input_bytes()?;
-        let kind = match bytes.get(1).copied() {
-            None => RawIncompletePrefix::SourceOnly,
-            // An ACK socket nibble is a preference for assigning a free
-            // socket, never evidence of who owns a named socket already.
-            Some(response) if response & 0xf0 == 0x40 => RawIncompletePrefix::Ack,
-            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
-            Some(0x60) => RawIncompletePrefix::SocketlessError,
-            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
-            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
-            Some(_) => RawIncompletePrefix::Noncorrelating,
-        };
         Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
     }
 
@@ -326,7 +349,7 @@ mod tests {
     use super::*;
     use crate::{
         profile::{OperationalTuning, ProfileSpec},
-        profiles::GenericVisca,
+        profiles::{GenericVisca, SonyFR7},
         transport::{
             buffer::BufferConfig, builder::TransportConfig, ReceiveOutcome, SendSemantics,
         },
@@ -430,6 +453,26 @@ mod tests {
             frames[0].response,
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
+    }
+
+    #[test]
+    fn startup_sony_sequence_reset_writes_the_control_frame() {
+        let transport = ScriptedTransport {
+            config: TransportConfig::default(),
+            sent: Vec::new(),
+            receives: std::collections::VecDeque::new(),
+            semantics: SendSemantics::Datagram,
+        };
+        let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
+        let mut adapter =
+            AsyncTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+
+        futures_lite::future::block_on(adapter.send_sony_sequence_reset()).unwrap();
+
+        assert_eq!(
+            adapter.transport.sent,
+            [vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
     }
 
     #[test]
@@ -642,9 +685,6 @@ mod tests {
                 std::io::ErrorKind::WouldBlock,
             ))),
             Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::TimedOut,
-            ))),
-            Error::Io(std::sync::Arc::new(std::io::Error::from(
                 std::io::ErrorKind::Interrupted,
             ))),
         ] {
@@ -669,20 +709,26 @@ mod tests {
     /// A read failure that is not an idle timeout still reaches the owner as a
     /// fault, which is what keeps #620's transient-retry semantics working.
     #[test]
-    fn a_real_read_failure_still_reaches_the_owner_as_a_fault() {
-        let transport = ScriptedTransport {
-            config: TransportConfig::default(),
-            sent: Vec::new(),
-            receives: [Err(Error::TransportError("ICMP port unreachable".into()))]
-                .into_iter()
-                .collect(),
-            semantics: SendSemantics::Datagram,
-        };
-        let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        assert!(matches!(received, AsyncReceive::Fault(_)));
+    fn real_read_failures_still_reach_the_owner_as_faults() {
+        for fault in [
+            Error::TransportError("ICMP port unreachable".into()),
+            Error::Io(std::sync::Arc::new(std::io::Error::from(
+                std::io::ErrorKind::TimedOut,
+            ))),
+        ] {
+            let transport = ScriptedTransport {
+                config: TransportConfig::default(),
+                sent: Vec::new(),
+                receives: [Err(fault)].into_iter().collect(),
+                semantics: SendSemantics::Datagram,
+            };
+            let mut adapter =
+                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let received =
+                futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            assert!(matches!(received, AsyncReceive::Fault(_)));
+        }
     }
 
     #[test]

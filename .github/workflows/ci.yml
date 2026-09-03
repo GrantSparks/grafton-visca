@@ -72,6 +72,8 @@ jobs:
             command: --workspace --all-targets
           - name: blocking-only
             command: --no-default-features --features blocking --all-targets
+          - name: blocking + dyn-api
+            command: --no-default-features --features blocking,dyn-api --all-targets
           - name: runtime-neutral async
             command: --no-default-features --features async --all-targets
           - name: Tokio
@@ -179,6 +181,8 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Check public Error variant production reachability
+        run: bash .github/scripts/test-error-variant-reachability.sh
       - name: Install serial transport dependencies
         run: |
           sudo apt-get update
@@ -202,10 +206,21 @@ jobs:
       - name: Build supported example surfaces
         run: |
           set -euo pipefail
+          cargo check --examples --no-default-features
           cargo check --examples --no-default-features --features blocking
+          cargo check --examples --no-default-features --features blocking,dyn-api
           cargo check --examples --no-default-features --features runtime-tokio
           cargo check --examples --no-default-features --features runtime-smol
           cargo check --examples --all-features
+      - name: Run hardware-free examples
+        run: |
+          set -euo pipefail
+          cargo run --example type_safe_commands --no-default-features
+          cargo run --example runtime_agnostic --no-default-features --features async
+          cargo run --example custom_request --no-default-features --features blocking,dyn-api
+          cargo run --example multi_camera --no-default-features --features blocking
+          cargo run --example recovery --no-default-features --features blocking
+          cargo run --example cancellation_blocking --no-default-features --features blocking
       - name: Build strict documentation and run doctests
         env:
           RUSTDOCFLAGS: "-D warnings"
@@ -220,6 +235,7 @@ jobs:
           # Default features compile the README quick start through the
           # cfg(doctest) README gate in src/lib.rs.
           cargo test --doc
+          cargo test --doc --no-default-features --features blocking,dyn-api
           cargo test --doc --all-features
 
   lint:
@@ -250,6 +266,10 @@ jobs:
       RUSTUP_TOOLCHAIN: "1.88.0"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
       - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
       - name: Prove MSRV selection ignores directory overrides
         shell: bash
@@ -276,6 +296,8 @@ jobs:
       - run: cargo +1.88.0 check --workspace --all-targets --no-default-features
       - run: cargo +1.88.0 check --lib --no-default-features --features async
       - run: cargo +1.88.0 check --lib --no-default-features --features runtime-tokio,dyn-api
+      - name: Check Tokio, dynamic, and serial examples at MSRV
+        run: cargo +1.88.0 check --examples --no-default-features --features blocking,runtime-tokio,dyn-api,transport-serial-tokio
       - name: Check re-exported range macro at MSRV with helpers off and on
         run: |
           set -euo pipefail
@@ -300,7 +322,7 @@ jobs:
       - run: bash .github/scripts/miri-tests.sh
 
   fuzz:
-    name: cargo-fuzz parser harness
+    name: cargo-fuzz protocol harnesses
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -317,18 +339,22 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install cargo-fuzz 0.12.0
         run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
-      - name: Check parser fuzz target
-        run: cargo +nightly-2026-08-26 fuzz check response_parser
-      # The corpus path is `cargo-fuzz`'s own default, named explicitly so the
-      # committed seeds are visibly part of the gate rather than an implicit
-      # convention. A 1000-execution budget starting from a cold corpus mostly
-      # re-derives frame structure; starting from `fuzz/corpus/response_parser`
-      # spends it past the frame header instead. See `fuzz/README.md` for the
-      # seed layout and for what to do with a crash artifact.
-      - name: Run bounded parser fuzz smoke test
+      - name: Check protocol fuzz targets
         run: |
-          cargo +nightly-2026-08-26 fuzz run response_parser \
-            "${GITHUB_WORKSPACE}/fuzz/corpus/response_parser" -- -runs=1000
+          for target in response_parser protocol_framer sony_envelope response_target; do
+            cargo +nightly-2026-08-26 fuzz check "${target}"
+          done
+      # Every target starts from its committed corpus. The response parser
+      # applies every seed pattern to all generated inquiry decoder kinds,
+      # while the structured targets build valid deep-path frames from their
+      # input so a short smoke run does not spend its budget rediscovering
+      # headers.
+      - name: Run bounded protocol fuzz smoke tests
+        run: |
+          for target in response_parser protocol_framer sony_envelope response_target; do
+            cargo +nightly-2026-08-26 fuzz run "${target}" \
+              "${GITHUB_WORKSPACE}/fuzz/corpus/${target}" -- -runs=1000
+          done
       # A crash reproducer is only useful if it leaves the runner. Upload it so
       # it can be committed into the corpus as a permanent regression seed.
       - name: Upload crash artifacts
@@ -345,7 +371,25 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # Change-record validation compares the PR head with its merge base
+          # and audits individual commit bodies.
+          fetch-depth: 0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - name: Check changelog and commit-history integrity
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ -n "${PR_BASE_SHA}" && -n "${PR_HEAD_SHA}" ]]; then
+            base="${PR_BASE_SHA}"
+            head="${PR_HEAD_SHA}"
+          else
+            base="$(git rev-parse HEAD^)"
+            head="HEAD"
+          fi
+          python3 .github/scripts/validate-change-record.py "${base}" "${head}"
+          bash .github/scripts/test-validate-change-record.sh
       - name: Check clean-checkout, hardware, and registry-payload gates
         run: |
           bash .github/scripts/test-validate-release.sh
@@ -367,6 +411,8 @@ jobs:
         with:
           shared-key: behavioral-parity-1x
       - name: Validate and run the 1.x behavioral corpus
+        env:
+          EXPECTED_BEHAVIOR_FAMILY_COUNT: "12"
         run: bash .github/scripts/validate-behavioral-parity.sh
 
   release-drift:

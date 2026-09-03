@@ -19,7 +19,7 @@ use grafton_visca::{
     capabilities::TypedSupportSurface,
     dynapi::{DynAppliedOperation, DynSessionCamera, DynTargetedOperation},
     runtime::TokioRuntime,
-    Connect, Error, Session,
+    Connect, Error,
 };
 
 use support::finish_session;
@@ -33,12 +33,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-    let result = dynamic_control(&session).await;
+    let result = dynamic_control(session.session()).await;
     finish_session(result, session.close().await)?;
     Ok(())
 }
 
-async fn dynamic_control(session: &Session) -> Result<(), Error> {
+async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> {
     // One dynamic view onto the session's sole registered target.
     let camera = DynSessionCamera::from_session(session)?;
 

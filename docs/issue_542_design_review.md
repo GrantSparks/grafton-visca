@@ -117,8 +117,8 @@ corrections.
 Several capabilities then had to be restored after parity review, including
 direction helpers, normalized zoom and ND-filter conveniences, menu toggling,
 horizontal-flip disable, independently gated 2D/3D noise-reduction inquiries
-and controls, serial single-camera constructors, live tuning, and submission
-priority.
+and controls, serial construction parity (later consolidated onto the
+multi-target `Session` path by #729), live tuning, and submission priority.
 
 The high-quality boundary is:
 
@@ -130,9 +130,10 @@ The high-quality boundary is:
   both modes, the engine owns lifecycle transitions for both modes, and the
   noun table generates all public facade variants. Profile-dependent response
   facts follow the same seam: preparation selects an immutable owned decoder,
-  so blocking, async, and dynamic facades cannot disagree. The legacy PTZOptics
-  3D noise-reduction inquiry bound is granted only after exact registry-profile
-  equality, never from the mutable `ProfileId` inventory claim alone.
+  so blocking, async, and dynamic facades cannot disagree. Numeric response
+  domains that already have a validated public value type remain
+  profile-neutral; in particular, every supporting PTZOptics profile decodes
+  the full `NoiseReduction3DLevel` domain (#717).
 - **Rewrite only where ownership semantics changed.** The sole-owner engine,
   bounded admission, typed settlement, multi-target registry, and recoverable
   cancellation could not be obtained safely by merely renaming the 1.x client
@@ -150,14 +151,14 @@ encoding.
 ## Decisions from this review
 
 1. `ControlClass::Urgent` remains request-owned safety metadata. Public
-   per-handle and per-call QoS uses `SubmissionClass::{Background, Normal,
-   User}`, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+   per-handle and derived-view QoS uses `SubmissionClass::{Background, Normal,
+   User}`, and the raw escape hatch's `raw::Policy` rejects
    `ControlClass::Urgent` at construction (#679). No public route — QoS override
    or raw policy — can create or demote urgent work. The raw hatch likewise
    rejects the owner-only socket-cancel and interface-clear wire shapes (#678),
    so no target-scoped `execute` can emit an owner-only primitive.
    **Extended (issue #700):** the raw hatch no longer assumes every command
-   follows the ACK-then-completion protocol. `raw::Policy`/`raw::Spec` carry a
+   follows the ACK-then-completion protocol. `raw::Policy` carries a
    `raw::RawReplyShape` axis (`AckThenCompletion` default, `CompletionOnly`,
    `NoReply`), lowered through `prepared.rs` into the engine's `RequestContext` as
    a protocol-policy fact — the engine never infers the shape from wire bytes. A
@@ -198,9 +199,12 @@ encoding.
 5. Recoverable cancellation refusal is approved and retained.
 6. Hardware verification remains a stable-release gate, not a prerequisite to
    calling the software work release-candidate complete.
-7. Raw VISCA does not use universal FIFO pre-ACK attribution. It keeps one
-   unacknowledged command candidate per target across `Sending`, `AwaitingAck`,
-   `AwaitingCompletion`, and `AwaitingLateAck`. `AwaitingCompletion` is the
+7. Raw VISCA does not use universal FIFO pre-ACK attribution. It normally keeps
+   one unacknowledged command candidate per target across `Sending`,
+   `AwaitingAck`, and `AwaitingCompletion`. One intrinsic `Urgent` command may
+   cross one existing candidate as the #714 safety-lane exception; while both
+   are open, unsequenced ACK/error evidence binds to neither.
+   `AwaitingCompletion` is the
    completion-only shape: it holds the target channel exclusively and never
    earns a socket. For an ACK-bearing command, socket-level concurrency reopens
    as soon as ACK establishes ownership. Raw ACK and error routing never uses
@@ -211,22 +215,24 @@ encoding.
    An explicit socket routes only its exact target/socket owner, and a
    socketless error never targets `Executing`. A named ACK socket is exact when
    that socket is free; if another request owns it — typically because a lost
-   completion made the camera reuse the socket — the ACK falls back to the
-   target's other free socket rather than being dropped (issues #620/#682),
-   because its candidate request was already uniquely identified before the
-   assignment and so cannot be mis-attributed. Only when no socket is free is
-   the ACK inert with `SocketConflict`; a socketless ACK likewise selects the
-   first free registered socket. Sony sequencing retains pre-ACK pipelining and
-   exact sequence correlation. Raw correlation holds follow the same evidence
-   boundary: cancellation and unconfirmed-correlation holds for an owned S1/S2
-   release only that exact target/socket, while pre-ACK or otherwise unowned
-   ambiguity remains unkeyed. These scopes remain distinct when simultaneous.
-   A terminal `NoReply`/`CompletionOnly` tombstone is instead a broad
-   target-response hold. A raw inquiry terminal hold blocks new same-target
-   response-bearing successor dispatch and filters stale unkeyed inquiry
-   data/reply and socketless-error evidence, while live attributable
-   ACK/completion (including a uniquely attributable socketless completion) and
-   exact named socket terminals remain eligible.
+   completion made the camera reuse the socket — the camera's new assignment
+   supersedes the stale local claim (#721). The old request immediately fails
+   unconfirmed and leaves an inert keyed `PreAck` hold; the new request owns the
+   named socket for completion and cancellation. A socketless ACK still selects
+   the first free registered socket. Sony sequencing retains pre-ACK pipelining,
+   exact sequence correlation, and the bounded #620/#682 other-free-socket
+   compatibility fallback. Raw correlation holds follow the same evidence
+   boundary: the one keyed table stores exact `Socket(S1|S2)`, `PreAck`,
+   `InquiryUnkeyed`, and `AllResponses` scopes, which remain distinct when
+   simultaneous and merge overlapping owners conservatively. A terminal
+   `NoReply`/`CompletionOnly` command leaves the broad `AllResponses` scope. A
+   matched raw inquiry reply creates no hold; an
+   uncertain timeout/error/retry release retains only the profile's short
+   reply-skew hold. That narrow scope blocks a new same-target inquiry and
+   filters stale unkeyed inquiry data/reply and socketless-error evidence, while
+   ACK-bearing commands (including `Urgent`), live attributable completion
+   (including a uniquely attributable socketless completion), and exact named
+   socket terminals remain eligible (#712).
 8. A successfully sent raw command is never automatically replayed after an
    ACK, completion, or cancellation ambiguity timeout, or an active retry-budget
    expiry in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing` — a
@@ -236,20 +242,20 @@ encoding.
    ACK, and only a later ACK deadline without an ACK enters the unconfirmed
    recovery below. The `strict_unconfirmed_poison` opt-in instead poisons the
    session on that receive fault only when no cancel intent is recorded; a
-   recorded cancel follows cancellation-driven late-ACK resolution and poisons
+   recorded cancel follows its live pre-ACK/cancellation resolution and poisons
    only if that deadline remains unconfirmed. It still never replays the
    command.
    **Ratified per-request default (issue #671, superseding the earlier
    whole-session poison rule and the #565/#566 narrowing):** each resulting
-   unconfirmed-recovery trigger — an ACK, completion, or cancellation ambiguity
-   timeout, or an active retry-budget expiry — fails only that one command with
-   `UnsequencedCommandUnconfirmed` — a
-   per-request outcome the session survives (its `requires_new_session()` is
-   `false`) — and quarantines the correlation still at stake (the owned socket,
-   or the command's place as the sole unacknowledged raw command) until the
-   ambiguity deadline, so a late response in that hold cannot bind to a later
-   command; the hold filters only the evidence within its own scope. The session
-   and every unrelated request keep running. Whole-session
+   unconfirmed-recovery trigger for an uncancelled request — an ACK or completion
+   timeout, or an active retry-budget expiry — immediately fails only that one
+   command with `UnsequencedCommandUnconfirmed`, a per-request outcome the
+   session survives (its `requires_new_session()` is `false`). The removed
+   request leaves only the applicable keyed hold until the ambiguity bound, so
+   a late response cannot bind to a later command or resurrect its old owner.
+   A request with active cancellation remains live through its own resolution
+   deadline and fails there if still unconfirmed. The session and every
+   unrelated request keep running. Whole-session
    poison is retained only behind the opt-in `strict_unconfirmed_poison`
    `OperationalTuning` mode (default off), which restores the pre-fix behavior
    and surfaces it as `StreamPoisoned` so a poisoned session still requires a
@@ -262,14 +268,19 @@ encoding.
    operation handle.
 10. Intrinsically urgent cancellation bypasses queued ordinary work but never
     bypasses physical command pacing.
-   **Ratified clarification for #673:** issue #542 §4's older blanket sentence
-   that blocking submission “never waits for ACK” is superseded in this local
-   review by one bounded exception: a blocking operation submission may drain
-   the sole raw ACK-capable predecessor so an urgent stop can perform its first
-   write. `CompletionOnly`, `NoReply`, and an #671 `AwaitingLateAck` quarantine
-   with `CancelState::None` are not ACK-capable; a cancellation-driven late-ACK
-   state remains eligible only when its ACK is still accepted. This documents a
-   local ratification, not a change to the GitHub issue body.
+   **Ratified clarification for #673/#714:** issue #542 §4's older blanket
+   sentence that blocking submission “never waits for ACK” is superseded by two
+   bounded decisions. An ordinary ACK-bearing operation may drain the sole live
+   raw ACK-capable predecessor under its own ACK budget (#673), including a live
+   `AwaitingAck` request extended by cancellation intent. A lost-ACK predecessor
+   is already terminal under #723; its inert `PreAck` hold instead gives ordinary
+   first dispatch a timed wait to the hold deadline, never generic contention or
+   late rescue. An intrinsically
+   `Urgent` stop bypasses that drain and the one-candidate gate, subject to
+   command pacing and socket capacity; if two candidates are open, ACK/error
+   evidence binds to neither (#714). `CompletionOnly` and `NoReply` are never
+   draining successors. The maintainer decision is
+   recorded on the [#673 issue trail](https://github.com/GrantSparks/grafton-visca/issues/673#issuecomment-5508129187).
 11. Fixed-format ACK, completion, error, and network-change frames require
     their exact protocol lengths; a known prefix with trailing bytes is
     malformed, not a valid response or an unknown extension. Fixed ACK,
@@ -328,20 +339,25 @@ encoding.
     1.x once implemented it.
 18. At a byte-stream correlation-expiry boundary, complete buffered frames are
     correlated before the due release; partial bytes are not decoded as frames.
-    Unless the due release also includes the broad target-response tombstone
-    from a `NoReply` or `CompletionOnly` terminal, a named completion/error
+    Unless the due release also includes the broad target-response
+    `AllResponses` hold from a `NoReply` or `CompletionOnly` terminal, a named
+    completion/error
     prefix may survive another socket's release only when it names a still-live
     non-releasing target/socket owner. Matching stale socket evidence may be
-    discarded and other-target serial input is retained. That broad tombstone
+    discarded and other-target serial input is retained. That broad hold
     instead discards every response-shaped partial prefix for its target,
     including source-only, ACK, socketless `0x50`/`0x60`, and named terminal
     prefixes; noncorrelating evidence and other-target serial input are
     preserved. Source-only, ACK (whose socket nibble is assignment preference
     rather than ownership), and socketless `0x50`/`0x60` prefixes remain
     ambiguous for narrower inquiry/pre-ACK/unkeyed or socket-scoped releases,
-    so input continues to drain first. If 64 bounded turns cannot resolve them,
-    the owner fails closed before successor dispatch rather than discard or
-    misbind them.
+    so input continues to drain first. The former 64-turn fail-closed rule had
+    no stable wall-clock duration and is superseded by #713: both owners use
+    one engine-owned grace interval, bounded by the read timeout and 100 ms. A
+    completing tail is processed under the old scope; an unresolved orphan
+    prefix is discarded and reported malformed at expiry without poisoning the
+    session. The historical decision and supersession are recorded on the
+    [#713 issue trail](https://github.com/GrantSparks/grafton-visca/issues/713#issuecomment-5508129430).
 
 ## Release-candidate boundary
 

@@ -290,7 +290,6 @@ mod async_standard {
             write_timeout: Duration::from_millis(23),
             buffer_config: BufferConfig {
                 recv_buffer_size: 11,
-                send_buffer_size: 13,
                 max_buffer_size: 17,
             },
             tcp_nodelay: Some(false),
@@ -317,7 +316,6 @@ mod async_standard {
             write_timeout: Duration::from_millis(41),
             buffer_config: BufferConfig {
                 recv_buffer_size: 43,
-                send_buffer_size: 47,
                 max_buffer_size: 53,
             },
             ttl: Some(59),
@@ -360,7 +358,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 0,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer must be non-zero",
@@ -368,7 +365,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 64,
-                    send_buffer_size: 64,
                     max_buffer_size: 0,
                 },
                 "transport maximum buffer must be non-zero",
@@ -376,7 +372,6 @@ mod async_standard {
             (
                 BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 "transport receive buffer cannot exceed maximum buffer",
@@ -405,45 +400,38 @@ mod async_standard {
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    async fn typed_builder_requires_a_port_unless_default_is_requested() {
+    async fn runtime_selected_network_transport_uses_profile_defaults() {
         let runtime = ProbeRuntime::new(
             grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
         );
         let calls = runtime.calls();
 
-        let error = Connect::builder()
-            .tcp("camera.local")
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect_err("bare TCP host without opt-in must be rejected");
-        assert!(matches!(error, Error::InvalidAddress { .. }));
-        assert!(calls.lock().expect("calls lock").is_empty());
-
-        let session = Connect::builder()
-            .tcp("camera.local")
-            .with_default_port()
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect("TCP default port opt-in");
+        let session = Connect::open::<PtzOpticsG2, _>(
+            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("runtime-selected TCP transport");
         assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
         session.shutdown().await.expect("shutdown");
 
-        let error = Connect::builder()
-            .udp("camera.local")
-            .open::<PtzOpticsG2, _>(runtime.clone())
-            .await
-            .expect_err("bare UDP host without opt-in must be rejected");
-        assert!(matches!(error, Error::InvalidAddress { .. }));
-        assert!(calls.lock().expect("calls lock").is_empty());
-
-        let session = Connect::builder()
-            .udp("camera.local")
-            .with_default_port()
-            .open::<PtzOpticsG2, _>(runtime)
-            .await
-            .expect("UDP default port opt-in");
+        let session = Connect::open::<PtzOpticsG2, _>(
+            grafton_visca::camera::TransportOptions::udp("camera.local"),
+            runtime.clone(),
+        )
+        .await
+        .expect("runtime-selected UDP transport");
         assert_one_call(&calls, Kind::Udp, "camera.local:1259");
         session.shutdown().await.expect("shutdown");
+
+        let error = Connect::open::<SonyFR7, _>(
+            grafton_visca::camera::TransportOptions::tcp("camera.local"),
+            runtime,
+        )
+        .await
+        .expect_err("runtime-selected transport still validates the profile");
+        assert!(matches!(error, Error::UnsupportedTransport { .. }));
+        assert!(calls.lock().expect("calls lock").is_empty());
     }
 
     #[cfg(feature = "transport-serial-tokio")]
@@ -455,7 +443,6 @@ mod async_standard {
                 .transport_config(TransportConfig {
                     buffer_config: BufferConfig {
                         recv_buffer_size: 65,
-                        send_buffer_size: 64,
                         max_buffer_size: 64,
                     },
                     ..TransportConfig::default()
@@ -499,16 +486,15 @@ mod blocking_standard {
     }
 
     impl BlockingTransport for ProbeTransport {
-        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.responses.push_back(vec![0x90, 0x41, 0xff]);
             self.responses.push_back(vec![0x90, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
         }
 
         fn recv_into_with_timeout(
@@ -516,7 +502,9 @@ mod blocking_standard {
             dst: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            self.recv_into(dst)
+            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            dst[..response.len()].copy_from_slice(&response);
+            Ok(response.len())
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -547,6 +535,44 @@ mod blocking_standard {
     }
 
     #[test]
+    fn custom_blocking_session_rejects_zero_io_timeouts_at_construction() {
+        for (transport_config, message) in [
+            (
+                TransportConfig {
+                    addressing: AddressingMode::Serial,
+                    read_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport read timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    addressing: AddressingMode::Serial,
+                    write_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            let transport = ProbeTransport {
+                config: transport_config,
+                responses: VecDeque::new(),
+            };
+            let config = SessionConfig::for_target(
+                CameraId::CAMERA_1,
+                grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
+            )
+            .expect("target config");
+            let error = Session::open(transport, config)
+                .expect_err("invalid custom transport config must fail at construction");
+            assert!(matches!(
+                error,
+                Error::InvalidRequest(actual) if actual.as_ref() == message
+            ));
+        }
+    }
+
+    #[test]
     fn standard_blocking_preflight_does_not_open_socket() {
         let error = CameraConfig::<PtzOpticsG2>::tcp("invalid:address:format")
             .open()
@@ -560,7 +586,6 @@ mod blocking_standard {
             .transport_config(TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()
@@ -582,7 +607,6 @@ mod blocking_standard {
                 .transport_config(TransportConfig {
                     buffer_config: BufferConfig {
                         recv_buffer_size: 65,
-                        send_buffer_size: 64,
                         max_buffer_size: 64,
                     },
                     ..TransportConfig::default()
@@ -600,7 +624,9 @@ mod blocking_standard {
 #[cfg(all(feature = "async", feature = "blocking", feature = "runtime-tokio"))]
 mod coexistence {
     #[allow(dead_code)]
-    async fn async_return_type() -> grafton_visca::Result<grafton_visca::Session> {
+    async fn async_return_type(
+    ) -> grafton_visca::Result<grafton_visca::CameraSession<grafton_visca::profiles::PtzOpticsG2>>
+    {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
         grafton_visca::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2, _>(
             "127.0.0.1:1259",
@@ -610,7 +636,9 @@ mod coexistence {
     }
 
     #[allow(dead_code)]
-    fn blocking_return_type() -> grafton_visca::Result<grafton_visca::blocking::Session> {
+    fn blocking_return_type() -> grafton_visca::Result<
+        grafton_visca::blocking::CameraSession<grafton_visca::profiles::PtzOpticsG2>,
+    > {
         grafton_visca::blocking::Connect::open_udp::<grafton_visca::profiles::PtzOpticsG2>(
             "127.0.0.1:1259",
         )

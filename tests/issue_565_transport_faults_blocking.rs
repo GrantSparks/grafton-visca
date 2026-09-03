@@ -30,11 +30,11 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    request::builtin::{FocusStop, ZoomStop},
+    request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
-    CameraId, CancellationOutcome, Error, OperationalTuning,
+    CameraId, CancellationOutcome, Error,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -141,7 +141,12 @@ impl HasTransportConfig for FaultTransport {
 }
 
 impl BlockingTransport for FaultTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sends = self.sends.saturating_add(1);
         let step = self
             .script
@@ -190,10 +195,6 @@ impl BlockingTransport for FaultTransport {
             OnSend::Fail(_) => unreachable!("failed sends return before replies are queued"),
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(
@@ -318,9 +319,10 @@ fn raw_receive_fault_fails_one_command_and_keeps_the_session() {
         "an unconfirmed raw command is never replayed after a receive fault"
     );
 
-    // The session survived the receive fault: later work still completes.
+    // The session survived the receive fault: later ordinary work waits out the
+    // inert keyed hold, then completes normally.
     camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&FocusDrive::Far)
         .expect("the session survives a transient receive fault")
         .applied()
         .expect("later work still completes");
@@ -329,7 +331,7 @@ fn raw_receive_fault_fails_one_command_and_keeps_the_session() {
 }
 
 /// Issue #671 strict opt-in, end to end: with
-/// `OperationalTuning::strict_unconfirmed_poison(true)`, the same receive fault
+/// `SessionConfig::with_strict_unconfirmed_poison(true)`, the same receive fault
 /// poisons the whole session, surfaced as `StreamPoisoned` (which requires a
 /// replacement session). This exercises the full tuning → adapter → engine
 /// plumbing of the opt-in through the real facade.
@@ -345,9 +347,7 @@ fn strict_opt_in_raw_receive_fault_poisons_the_session() {
         );
     let session = Session::open(
         transport,
-        session_config()
-            .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-            .expect("strict tuning is valid"),
+        session_config().with_strict_unconfirmed_poison(true),
     )
     .expect("owner session");
     let camera = session
@@ -613,7 +613,6 @@ fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket() {
 /// drop. The latch itself is pinned at engine level, where an `Input` sequence
 /// can actually produce that interleaving, by
 /// `runtime::engine::tests::ack_racing_its_own_write_result_is_latched_and_applied`,
-/// `racing_acks_are_never_attributed_while_two_commands_are_being_written` and
 /// `a_second_racing_ack_cannot_steal_the_latch_from_the_first` (#636).
 #[test]
 fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump() {

@@ -59,14 +59,14 @@ impl HasTransportConfig for ProbeTransport {
 }
 
 impl BlockingTransport for ProbeTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: std::time::Duration,
+    ) -> Result<(), Error> {
         self.counts.writes.fetch_add(1, Ordering::SeqCst);
         Ok(())
-    }
-
-    fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
-        self.counts.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(0)
     }
 
     fn recv_into_with_timeout(

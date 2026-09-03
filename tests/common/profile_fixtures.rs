@@ -184,16 +184,16 @@ synthetic_profile!(
     no_default
 );
 
-// Motion-owner tests intentionally chain successful Raw position inquiries
+// Motion-owner tests intentionally chain successful raw position inquiries
 // under exact one-second observer deadlines. Keep the production-style
-// correlation hold nonzero while making it small enough that the fixture's
-// next same-target inquiry can still begin within that caller-owned budget.
+// one-second pre-ACK ambiguity fact: matched inquiries no longer misuse it as
+// a post-success dispatch hold (#712).
 synthetic_profile_impl!(
     MotionOwnerCompileTimeProfile,
     "Motion Owner Compile-Time Profile",
     TypedSupportSet::EMPTY,
     no_default,
-    Duration::from_millis(1)
+    Duration::from_secs(1)
 );
 
 // No built-in profile declares motion sync (see the profile registry's

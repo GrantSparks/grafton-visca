@@ -1,27 +1,38 @@
 //! Caller-thread owner for the blocking mode.
 
 use std::{
-    cell::RefCell,
     collections::VecDeque,
     fmt,
     marker::PhantomData,
-    sync::Arc,
+    sync::{Arc, Mutex, TryLockError},
     time::{Duration, Instant},
 };
 
-use crate::{completion, AffectedAxes, CancellationOutcome, Error, ResponseDecoder};
+#[cfg(all(test, not(feature = "async")))]
+use std::cell::RefCell;
+
+use crate::{
+    completion, protocol::framer::RawIncompletePrefix, AffectedAxes, CancellationOutcome, Error,
+    ResponseDecoder,
+};
 
 use super::{
-    cancellation_receipt_for, normalize_cancellation_observation, normalize_command_outcome,
-    normalize_inquiry_outcome, prepend_effects, AppliedEffect, BlockingTransportAdapter,
-    CancellationCore, CompletionObserver, DiagnosticEvent, OwnerInputTurn, OwnerPolicy, OwnerState,
-    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
-    RuntimeRequest, ShutdownReason, TransmissionMeta, WaitSelection, WireWrite,
+    cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
+    normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
+    AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
+    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseTurn, ReceiptCore,
+    ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
+    RuntimeRequest, ShutdownReason, TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
+};
+
+#[cfg(all(test, not(feature = "async")))]
+use super::{
+    MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
+    TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 use crate::runtime::engine::{
-    DecodedFrame, Effect, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
-    RawCorrelationReleaseSet, RawIncompletePrefix, RawPrefixDisposition, RawPrefixEvidence,
-    TransportKind,
+    DecodedFrame, Effect, EngineTurn, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
+    RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -63,6 +74,15 @@ pub(crate) trait BlockingFrameDecoder {
         Ok(false)
     }
 
+    /// A monotonic measure of the first retained stream input. The default
+    /// supports the single-fragment test seam; production adapters return the
+    /// framer's exact buffered byte count. A successful discard must make this
+    /// measure smaller (or remove it), which lets the owner prove progress
+    /// without an arbitrary turn cap.
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.has_buffered_stream_input()?.then_some(1))
+    }
+
     /// Evidence visible in the first retained raw stream input. Complete
     /// frames stay on the normal decode path; incomplete prefixes are
     /// classified just far enough for the shared correlation engine to decide
@@ -92,6 +112,37 @@ pub(crate) trait BlockingFrameDecoder {
     /// fragment. Production decoders preserve all later target input.
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
         Ok(())
+    }
+}
+
+/// Monotonic time and caller-thread sleeping used by the blocking owner.
+///
+/// Production installs [`SystemBlockingClock`]. Keeping this behind one
+/// executor-free seam lets deterministic owner tests advance virtual time
+/// without teaching the protocol engine or the blocking facade about an async
+/// runtime (#723).
+trait BlockingClock:
+    fmt::Debug + Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe
+{
+    fn now(&self) -> Instant;
+
+    /// Block, or advance a deterministic clock, by `duration`. Implementations
+    /// must make monotonic progress before returning for a nonzero duration.
+    fn sleep(&self, duration: Duration);
+}
+
+type SharedBlockingClock = Arc<dyn BlockingClock>;
+
+#[derive(Debug, Default)]
+struct SystemBlockingClock;
+
+impl BlockingClock for SystemBlockingClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        std::thread::sleep(duration);
     }
 }
 
@@ -140,6 +191,7 @@ pub(crate) struct BlockingCancellationReceipt {
 #[cfg(all(test, not(feature = "async")))]
 pub(crate) struct BlockingSessionCore<'a> {
     parts: RefCell<BlockingSessionParts<'a>>,
+    clock: SharedBlockingClock,
 }
 
 #[cfg(all(test, not(feature = "async")))]
@@ -165,6 +217,7 @@ impl<'a> BlockingSessionCore<'a> {
         R: BlockingReadDriver,
         F: BlockingFrameDecoder,
     {
+        let clock = Arc::clone(&owner.clock);
         Self {
             parts: RefCell::new(BlockingSessionParts {
                 owner,
@@ -172,6 +225,7 @@ impl<'a> BlockingSessionCore<'a> {
                 reader,
                 decoder,
             }),
+            clock,
         }
     }
 
@@ -261,11 +315,11 @@ pub(crate) trait BlockingControlHost {
 #[cfg(all(test, not(feature = "async")))]
 impl BlockingControlHost for BlockingSessionCore<'_> {
     fn now(&self) -> Instant {
-        Instant::now()
+        self.clock.now()
     }
 
     fn sleep(&self, duration: Duration) {
-        std::thread::sleep(duration);
+        self.clock.sleep(duration);
     }
 
     fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
@@ -313,12 +367,14 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 /// Owning caller-thread host used by the minimal public blocking session.
 ///
 /// The transport adapter is split once at construction and all three views are
-/// retained inside this one `RefCell`.  Handles borrow this host immutably and
-/// each operation obtains one mutable host turn, so an owning session does not
-/// require a self-referential `BlockingSessionCore`.
+/// retained inside this one `Mutex`. Handles borrow this host immutably and
+/// each operation obtains one fail-fast mutable host turn, so an owning session
+/// does not require a self-referential `BlockingSessionCore` and can safely be
+/// shared between threads.
 pub(crate) struct BlockingSessionHost {
-    parts: RefCell<BlockingOwnedSessionParts>,
-    state_cache: Arc<[std::sync::Mutex<super::TargetStateCache>; 9]>,
+    parts: Mutex<BlockingOwnedSessionParts>,
+    clock: SharedBlockingClock,
+    state_cache: Arc<[Mutex<super::TargetStateCache>; 9]>,
     /// The owner's live operational tuning (#631). The blocking owner runs on
     /// the caller thread, so the update and every subsequent preparation are
     /// already ordered by the one owner turn each takes.
@@ -346,15 +402,17 @@ impl BlockingSessionHost {
         let policy = adapter.policy().clone();
         let (driver, reader, decoder) = adapter.into_parts();
         let owner = BlockingOwner::new(policy)?;
+        let clock = Arc::clone(&owner.clock);
         let state_cache = owner.state().state_cache_registry();
         let tuning = owner.state().live_tuning();
         Ok(Self {
-            parts: RefCell::new(BlockingOwnedSessionParts {
+            parts: Mutex::new(BlockingOwnedSessionParts {
                 owner,
                 driver: Box::new(driver),
                 reader: Box::new(reader),
                 decoder: Box::new(decoder),
             }),
+            clock,
             state_cache,
             tuning,
         })
@@ -369,10 +427,11 @@ impl BlockingSessionHost {
             &mut dyn BlockingFrameDecoder,
         ) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        let mut parts = self
-            .parts
-            .try_borrow_mut()
-            .map_err(|_| Error::TransportBusy)?;
+        let mut parts = match self.parts.try_lock() {
+            Ok(parts) => parts,
+            Err(TryLockError::WouldBlock) => return Err(Error::TransportBusy),
+            Err(TryLockError::Poisoned(_)) => return Err(poisoned_owner_turn()),
+        };
         let BlockingOwnedSessionParts {
             owner,
             driver,
@@ -393,8 +452,14 @@ impl BlockingSessionHost {
             ReceiptCore,
         ) -> Result<T, RejectedCancellation>,
     ) -> Result<T, RejectedCancellation> {
-        let Ok(mut parts) = self.parts.try_borrow_mut() else {
-            return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+        let mut parts = match self.parts.try_lock() {
+            Ok(parts) => parts,
+            Err(TryLockError::WouldBlock) => {
+                return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
+            }
+            Err(TryLockError::Poisoned(_)) => {
+                return Err(RejectedCancellation::kept(receipt, poisoned_owner_turn()));
+            }
         };
         let BlockingOwnedSessionParts { owner, driver, .. } = &mut *parts;
         operation(owner, driver.as_mut(), receipt)
@@ -434,17 +499,14 @@ impl BlockingSessionHost {
             // and the subsequent admission cannot race another submission.
             let target = prepared.target();
             owner.ensure_admission_capacity(target)?;
-            // Issue #673: before the first-write submit, drain the raw
-            // single-candidate pre-ACK gate if that alone is what blocks this
-            // target. Without it, an emergency `stop_all_motion`/`Urgent` stop —
-            // or another ACK-then-completion operation — submitted while a
-            // caller still holds an un-awaited raw operation handle would lose
-            // the first-dispatch race and be rejected `TransportBusy` with zero
-            // bytes on the wire while the camera keeps moving. CompletionOnly
-            // still needs target idleness after that ACK, so it never meets the
-            // architecture's sole-obstacle rule and is not pumped. The drain
-            // pumps the peer's ACK (bounded by this request's own ACK budget) so
-            // a command socket frees and the subsequent first write wins.
+            // Issue #673: before an ordinary first-write submit, drain the raw
+            // single-candidate pre-ACK gate if that alone blocks this target.
+            // The peer's ACK is pumped under this request's own ACK budget so a
+            // command socket frees and the subsequent first write wins.
+            // CompletionOnly still needs target idleness and never meets that
+            // sole-obstacle rule. Intrinsic Urgent operations also skip the
+            // drain: #714 lets their safety lane cross one positional candidate
+            // and makes any resulting two-candidate ACK bind to neither.
             if let Some(ack_budget) = prepared.preack_drain_hint() {
                 owner.drain_raw_preack_gate(driver, reader, decoder, target, ack_budget)?;
             }
@@ -491,17 +553,23 @@ impl BlockingSessionHost {
 
     /// Returns the caller-thread owner's monotonic clock instant.
     pub(crate) fn now(&self) -> Instant {
-        Instant::now()
+        self.clock.now()
     }
 
     /// Sleeps through the caller-thread owner's clock seam.
     pub(crate) fn sleep(&self, duration: Duration) {
-        std::thread::sleep(duration);
+        self.clock.sleep(duration);
     }
 
     /// Creates one observer deadline from the owner clock.
     pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
         observer_deadline(self.now(), timeout)
+    }
+}
+
+fn poisoned_owner_turn() -> Error {
+    Error::StreamPoisoned {
+        reason: "blocking owner panicked while holding its serialized turn".into(),
     }
 }
 
@@ -620,7 +688,7 @@ impl<'a> BlockingReceiptControl<'a> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.now(),
             #[cfg(all(test, not(feature = "async")))]
-            BlockingControlKind::Borrowed { .. } => Instant::now(),
+            BlockingControlKind::Borrowed { owner, .. } => owner.now(),
         }
     }
 
@@ -628,7 +696,7 @@ impl<'a> BlockingReceiptControl<'a> {
         match &self.kind {
             BlockingControlKind::Shared(host) => host.sleep(duration),
             #[cfg(all(test, not(feature = "async")))]
-            BlockingControlKind::Borrowed { .. } => std::thread::sleep(duration),
+            BlockingControlKind::Borrowed { owner, .. } => owner.sleep(duration),
         }
     }
 
@@ -1172,6 +1240,15 @@ impl PumpMode {
     const fn defers_due(self) -> bool {
         matches!(self, Self::FirstDispatchWait)
     }
+
+    /// Tail allowed when this mode completes a decoded-input turn.
+    const fn input_turn(self) -> EngineTurn {
+        match self {
+            Self::Normal => EngineTurn::COMPLETE,
+            Self::PreAckDrain => EngineTurn::DEADLINES_ONLY,
+            Self::FirstDispatchWait => EngineTurn::INPUT_ONLY,
+        }
+    }
 }
 
 /// Internal result of one receive/decode turn. Public pump seams retain their
@@ -1191,17 +1268,6 @@ struct PumpProgress {
 /// the deadline before its next explicit pump.  Keeping this exact projection
 /// latched makes every non-receive path suppress due work until a later pump
 /// has either consumed input or observed genuine post-boundary no-input.
-#[derive(Debug, Clone, Copy)]
-struct RawReleaseInputGate {
-    releases: RawCorrelationReleaseSet,
-    deferrals: usize,
-}
-
-/// A pathological nonblocking test adapter or an always-ready peer must not
-/// turn one raw tombstone boundary into unbounded caller-thread work. Normal
-/// blocking reads remain deadline-bounded; this cap is the second bound.
-const RAW_TOMBSTONE_PUMP_WORK_LIMIT: usize = 64;
-
 /// A past raw-release wake cannot be handed straight back to a blocking
 /// adapter: many correctly return `TimedOut` without touching the wire. Give
 /// the mandatory post-H probe a small positive ceiling so it performs one real
@@ -1270,6 +1336,7 @@ fn observer_deadline(now: Instant, timeout: Duration) -> Result<Instant, Error> 
 
 /// Sleeps until an owner deadline, tolerating an early platform wake without
 /// turning a no-data fake into a busy loop.
+#[cfg(all(test, not(feature = "async")))]
 fn sleep_until(deadline: Instant) {
     while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
         if remaining.is_zero() {
@@ -1313,25 +1380,57 @@ impl DriveReport {
 #[derive(Debug)]
 pub(crate) struct BlockingOwner {
     state: OwnerState,
+    clock: SharedBlockingClock,
     pumping: bool,
     /// A due raw release may not advance through a synchronous write, control,
     /// or scheduler turn before the next receive has established the exact
     /// input-first boundary.
-    raw_release_input_gate: Option<RawReleaseInputGate>,
+    raw_release: RawReleaseTurn,
     /// One consecutive run of transient receive faults. A persistent run is
     /// eventually a dead transport, not a condition a caller-thread pump can
     /// recover by retrying forever.
     faults: TransientFaultRun,
+    /// Consecutive receives that returned no bytes. This is paced separately
+    /// from faults so an eager timeout cannot hot-spin or spend retry budget.
+    idle_receives: IdleReceiveRun,
 }
 
 impl BlockingOwner {
     pub(crate) fn new(policy: OwnerPolicy) -> Result<Self, Error> {
+        Self::with_clock(policy, Arc::new(SystemBlockingClock))
+    }
+
+    /// Internal construction seam for deterministic caller-thread owner tests.
+    fn with_clock(policy: OwnerPolicy, clock: SharedBlockingClock) -> Result<Self, Error> {
         Ok(Self {
             state: OwnerState::new(policy)?,
+            clock,
             pumping: false,
-            raw_release_input_gate: None,
+            raw_release: RawReleaseTurn::default(),
             faults: TransientFaultRun::default(),
+            idle_receives: IdleReceiveRun::default(),
         })
+    }
+
+    fn now(&self) -> Instant {
+        self.clock.now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        if !duration.is_zero() {
+            self.clock.sleep(duration);
+        }
+    }
+
+    /// Sleeps until an owner deadline, tolerating an early platform wake
+    /// without turning a no-data driver into a busy loop.
+    fn sleep_until(&self, deadline: Instant) {
+        while let Some(remaining) = deadline.checked_duration_since(self.now()) {
+            if remaining.is_zero() {
+                break;
+            }
+            self.sleep(remaining);
+        }
     }
 
     pub(crate) const fn state(&self) -> &OwnerState {
@@ -1370,49 +1469,18 @@ impl BlockingOwner {
     /// successor dispatch.
     fn raw_release_gate_at(&mut self, now: Instant) -> Option<RawCorrelationReleaseSet> {
         let releases = self.state.raw_correlation_releases_due(now);
-        if let Some(gate) = self.raw_release_input_gate {
-            // A control turn may change the current engine projection while
-            // this exact older release still lacks a wire observation. Never
-            // replace it here: the pump will classify it first, then start a
-            // separate fresh probe for any newly visible distinct set.
-            return Some(gate.releases);
-        }
-        if releases.is_empty() {
-            return None;
-        }
-        self.raw_release_input_gate = Some(RawReleaseInputGate {
-            releases,
-            deferrals: 0,
-        });
-        Some(releases)
+        // A control turn may change the current engine projection while this
+        // exact older release still lacks a wire observation. The shared turn
+        // coordinator retains the first set until the pump classifies it.
+        self.raw_release.observe(releases)
     }
 
     fn raw_release_gate_pending(&self) -> bool {
-        self.raw_release_input_gate.is_some()
-    }
-
-    /// Counts bounded receive-first attempts only while one exact release set
-    /// remains unresolved.  A malformed datagram or a transient read fault is
-    /// not an empty-input proof, so it leaves this gate armed; after the fixed
-    /// bound the session fails closed rather than letting a successor bind
-    /// stale evidence.
-    fn defer_raw_release_gate<D: BlockingWireDriver + ?Sized>(
-        &mut self,
-        driver: &mut D,
-        reason: &'static str,
-    ) -> Result<(), Error> {
-        let Some(gate) = &mut self.raw_release_input_gate else {
-            return Ok(());
-        };
-        gate.deferrals = gate.deferrals.saturating_add(1);
-        if gate.deferrals < RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-            return Ok(());
-        }
-        Err(self.poison_raw_release_gate(driver, Error::InvalidState(reason.into())))
+        self.raw_release.is_pending()
     }
 
     fn clear_raw_release_gate(&mut self) {
-        self.raw_release_input_gate = None;
+        self.raw_release.complete();
     }
 
     // Builds the borrowed control used only by owner unit tests.
@@ -1512,25 +1580,22 @@ impl BlockingOwner {
     /// ACK-then-completion operation's first-write submit, when that gate alone
     /// blocks a new command on `target` (issue #673).
     ///
-    /// On a raw-VISCA target the engine keeps at most one *unacknowledged*
-    /// command in flight so a socketless ACK can never be misattributed to the
-    /// wrong request. While a caller holds an un-awaited operation handle whose
-    /// command is still awaiting its ACK, a second operation — including an
-    /// emergency `stop_all_motion`/`Urgent` stop — loses the first-dispatch
-    /// race and, under the `RequireFirstWrite` policy, would be rejected
-    /// [`Error::TransportBusy`] with no write even though a command socket is
-    /// free the instant that ACK lands. This pumps the owner (reading the
-    /// peer's ACK off the socket) until the gate clears, bounded by the
-    /// submitting request's own ACK budget, so the subsequent first write wins
-    /// and the returned handle still names a request whose first write
-    /// succeeded.
+    /// On a raw-VISCA target the engine normally keeps one *unacknowledged*
+    /// command in flight so a socketless ACK cannot be misattributed. While a
+    /// caller holds an un-awaited operation whose command is still awaiting its
+    /// ACK, a second ordinary operation would lose the first-dispatch race even
+    /// though a command socket is free the instant that ACK lands. This pumps
+    /// the owner until the gate clears, bounded by the submitting request's own
+    /// ACK budget, so the subsequent first write wins. An intrinsic `Urgent`
+    /// operation never enters this drain: #714 gives it an explicit
+    /// two-candidate safety lane whose ACK evidence fails closed.
     ///
     /// It is deliberately narrow. A completion-only successor still needs the
     /// target to be entirely idle after a predecessor ACK, so that ACK is not
     /// its sole obstacle and no pump is attempted. When the block is genuine
     /// socket-capacity contention — every command socket already occupied,
     /// independent of the pre-ACK gate —
-    /// [`OwnerState::raw_preack_gate_frees_socket_on_ack`] is `false`, no pump
+    /// [`OwnerState::raw_ack_input_may_enable_dispatch`] is `false`, no pump
     /// is attempted, and the fail-fast rejection the caller then receives from
     /// the first-write submit stands. If the pump ends the session (a close or
     /// poison observed while waiting), the session's own boundary verdict is
@@ -1549,10 +1614,10 @@ impl BlockingOwner {
         R: BlockingReadDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
     {
-        if !self.state.raw_preack_gate_frees_socket_on_ack(target) {
+        if !self.state.raw_ack_input_may_enable_dispatch(target) {
             return Ok(());
         }
-        let Some(deadline) = Instant::now().checked_add(ack_budget) else {
+        let Some(deadline) = self.now().checked_add(ack_budget) else {
             return Ok(());
         };
         self.enter()?;
@@ -1598,7 +1663,7 @@ impl BlockingOwner {
         // cannot spin; it exits when the pending ACK clears the gate, when the
         // budget elapses (the first write then fails fast), or when the pump
         // itself ends the session.
-        while self.state.raw_preack_gate_frees_socket_on_ack(target) && Instant::now() < deadline {
+        while self.state.raw_ack_input_may_enable_dispatch(target) && self.now() < deadline {
             self.pump_once_inner(
                 driver,
                 reader,
@@ -1607,7 +1672,15 @@ impl BlockingOwner {
                 PumpMode::PreAckDrain,
             )?;
         }
-        Ok(())
+        // An adapter may report idle before the requested receive deadline.
+        // The shared idle backoff then paces the next probe up to the earlier
+        // engine/caller deadline. If that sleep reaches `deadline`, the loop
+        // condition cannot take another receive turn to run its normal
+        // deadline tail. Service due work once without ordinary dispatch so an
+        // already-expired predecessor enters its bounded quarantine instead of
+        // making the immediately-following first-write admission misclassify
+        // the stale pre-ACK phase as generic `TransportBusy`.
+        self.service_due_without_dispatch(driver)
     }
 
     /// Class-specific typed admission seam retaining operation semantics.
@@ -1913,8 +1986,11 @@ impl BlockingOwner {
         dispatch_at: Instant,
         observer_deadline: Option<Instant>,
     ) -> Instant {
-        min_deadline(self.state.next_wake_without_dispatch(), observer_deadline)
-            .map_or(dispatch_at, |earlier| dispatch_at.min(earlier))
+        min_deadline(
+            self.state.next_wake_for(EngineTurn::DEADLINES_ONLY),
+            observer_deadline,
+        )
+        .map_or(dispatch_at, |earlier| dispatch_at.min(earlier))
     }
 
     /// Test-only fallback for the owner seams that have no reader/decoder.
@@ -1980,7 +2056,7 @@ impl BlockingOwner {
         observer_deadline: Option<Instant>,
     ) -> Result<(), Error> {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
-        sleep_until(deadline);
+        self.sleep_until(deadline);
         self.service_due_without_dispatch(driver)
     }
 
@@ -2001,7 +2077,6 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
     {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
-        let mut turns = 0_usize;
         loop {
             let progress = self
                 .pump_once_inner(
@@ -2012,22 +2087,21 @@ impl BlockingOwner {
                     PumpMode::FirstDispatchWait,
                 )
                 .map_err(|error| self.boundary_error_or(error))?;
-            turns = turns.saturating_add(1);
-            let now = Instant::now();
+            let now = self.now();
             // `pump_once_inner` owns both complete-frame replay and retained
             // prefix classification.  A gate still pending means the most
             // recent read was an early idle, a transient fault, or unresolved
             // stream evidence; never turn that into due work merely because a
             // caller-side sleep reached H.
             if self.raw_release_gate_pending() || self.raw_release_gate_at(now).is_some() {
-                if turns >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-                    return Err(self.poison_raw_release_gate(
-                        driver,
-                        Error::InvalidState(
-                            "blocking raw release receive work cap exhausted before input-first fence"
-                                .into(),
-                        ),
-                    ));
+                if let Some(await_until) = self
+                    .raw_release
+                    .await_until()
+                    .filter(|await_until| *await_until > now)
+                {
+                    self.sleep_until(
+                        observer_deadline.map_or(await_until, |observer| observer.min(await_until)),
+                    );
                 }
                 continue;
             }
@@ -2036,26 +2110,17 @@ impl BlockingOwner {
                 break;
             }
             if progress.decoded_frames > 0 {
-                // A peer that keeps yielding complete stale frames cannot
-                // monopolize the caller thread until H. The same fixed cap
-                // applies before and after the deadline, and it is scoped to
-                // this one raw correlation wait.
-                if turns >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-                    return Err(self.poison_raw_release_gate(
-                        driver,
-                        Error::InvalidState(
-                            "blocking raw release receive work cap exhausted while complete input remained pending"
-                                .into(),
-                        ),
-                    ));
-                }
+                // Continue consuming complete input under the old scope until
+                // the fixed wall-clock hold ends. A count-based work cap made
+                // legitimate other-target traffic poison a chatty serial
+                // session before that deadline (#725).
                 continue;
             }
             // A reader may return an idle result before its requested deadline
             // (for example because transport read_timeout is smaller). Sleep
             // only to pace the next *fresh* receive; that earlier idle is not
             // a boundary fence.
-            sleep_until(deadline);
+            self.sleep_until(deadline);
         }
         self.service_due_without_dispatch(driver)
     }
@@ -2069,13 +2134,12 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
         decoder: &mut F,
-        releases: RawCorrelationReleaseSet,
-    ) -> Result<RawPrefixDisposition, Error>
+        now: Instant,
+    ) -> Result<RawReleaseGateAction, Error>
     where
         D: BlockingWireDriver + ?Sized,
         F: BlockingFrameDecoder + ?Sized,
     {
-        let mut discarded = 0_usize;
         loop {
             let buffered = decoder
                 .has_buffered_stream_input()
@@ -2094,7 +2158,7 @@ impl BlockingOwner {
                 }
                 // Every matching stale fragment has been removed. It is safe
                 // to release due work before consuming an as-yet-unread tail.
-                return Ok(RawPrefixDisposition::ReleasePreserving);
+                return Ok(self.state.resolve_raw_release_gate(now, None));
             }
             let evidence = evidence.ok_or_else(|| {
                 self.poison_tombstone_decoder(
@@ -2105,23 +2169,40 @@ impl BlockingOwner {
                     ),
                 )
             })?;
-            match self.state.raw_prefix_disposition(releases, evidence) {
-                RawPrefixDisposition::Discard => {
-                    if discarded >= RAW_TOMBSTONE_PUMP_WORK_LIMIT {
+            match self.state.resolve_raw_release_gate(now, Some(evidence)) {
+                RawReleaseGateAction::DiscardFirst => {
+                    let before = decoder
+                        .buffered_stream_input_len()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?
+                        .ok_or_else(|| {
+                            self.poison_tombstone_decoder(
+                                driver,
+                                Error::InvalidState(
+                                    "blocking stream decoder reported buffered input without a progress measure"
+                                        .into(),
+                                ),
+                            )
+                        })?;
+                    decoder
+                        .discard_buffered_stream_input()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
+                    let after = decoder
+                        .buffered_stream_input_len()
+                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
+                    if after.is_some_and(|after| after >= before) {
                         return Err(self.poison_tombstone_decoder(
                             driver,
                             Error::InvalidState(
-                                "blocking raw correlation release framing work cap exhausted"
+                                "blocking raw stream decoder did not consume the discarded prefix"
                                     .into(),
                             ),
                         ));
                     }
-                    decoder
-                        .discard_buffered_stream_input()
-                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
-                    discarded = discarded.saturating_add(1);
+                    let _ = self
+                        .state
+                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                 }
-                disposition => return Ok(disposition),
+                action => return Ok(action),
             }
         }
     }
@@ -2147,10 +2228,10 @@ impl BlockingOwner {
         error: Error,
     ) -> Error {
         let effects = self.input_for_mode(
-            Input::Poison {
+            Input::Shutdown(ShutdownReason::FramingFailure {
                 reason: error.to_string().into_boxed_str(),
-            },
-            Instant::now(),
+            }),
+            self.now(),
             PumpMode::FirstDispatchWait,
         );
         let _ = self.drive_for_mode(driver, effects, PumpMode::FirstDispatchWait);
@@ -2164,10 +2245,10 @@ impl BlockingOwner {
         &mut self,
         driver: &mut D,
     ) -> Result<(), Error> {
-        let now = Instant::now();
+        let now = self.now();
         if self
             .state
-            .next_wake_without_dispatch()
+            .next_wake_for(EngineTurn::DEADLINES_ONLY)
             .is_some_and(|wake| wake <= now)
         {
             // A pacing sleep has no wire authority.  If a raw release became
@@ -2204,7 +2285,7 @@ impl BlockingOwner {
         // Match the async owner boundary: once the caller-owned observer
         // deadline has elapsed, reject before staging admission or writing a
         // new inquiry.
-        if observer_deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+        if observer_deadline.is_some_and(|deadline| self.now() >= deadline) {
             return Err(Error::Timeout);
         }
         self.enter()?;
@@ -2260,9 +2341,11 @@ impl BlockingOwner {
                 "staged blocking admission did not produce an admit input".into(),
             ));
         };
-        let effects = self
-            .state
-            .admit_without_due(ticket, request, Instant::now());
+        let effects = self.state.input_with_turn(
+            Input::Admit { ticket, request },
+            self.now(),
+            EngineTurn::INPUT_ONLY,
+        );
         let mut report = self.drive_without_due(driver, effects);
         let id = admission.recv().map_err(|_| Error::RuntimeShutdown)??;
 
@@ -2275,21 +2358,17 @@ impl BlockingOwner {
             if let Some(error) = buffered_submission_error(&completion) {
                 return Err(error);
             }
-            let now = Instant::now();
+            let now = self.now();
             if observer_deadline.is_some_and(|deadline| now >= deadline) {
-                if matches!(submit_policy, SubmitPolicy::RequireFirstWrite) {
-                    // A public operation handle cannot be lost behind an
-                    // expired caller bound. Unlike QueueAllowed settlement
-                    // inquiries, it has no receipt to keep observing, so
-                    // terminalize its still-unwritten entry and release the
-                    // admission permit through the engine's one authority.
-                    let rejection = self.state.reject_unwritten_without_due(id, Error::Timeout);
-                    let _ = self.drive_without_due(driver, rejection);
-                    return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
-                }
-                return Err(Error::Timeout);
+                // No submission class returns a receipt after its caller
+                // deadline. Terminalize the still-unwritten entry before
+                // returning so QueueAllowed work cannot survive as an orphan
+                // and write in a later owner turn (#723).
+                let rejection = self.state.reject_unwritten(id, Error::Timeout);
+                let _ = self.drive_without_due(driver, rejection);
+                return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
             }
-            // `first_dispatch_without_due` deliberately does not advance a
+            // `first_dispatch` deliberately does not advance a
             // tombstone.  It can nevertheless dispatch an *unrelated* ready
             // target, so do not enter it while a prior synchronous write or
             // control turn has crossed any raw-release boundary.  The pumped
@@ -2303,13 +2382,13 @@ impl BlockingOwner {
                     now,
                     observer_deadline,
                 ) {
-                    let rejection = self.state.reject_unwritten_without_due(id, error.clone());
+                    let rejection = self.state.reject_unwritten(id, error.clone());
                     let _ = self.drive_without_due(driver, rejection);
                     return Err(buffered_submission_error(&completion).unwrap_or(error));
                 }
                 continue;
             }
-            match self.state.first_dispatch_without_due(id, now) {
+            match self.state.first_dispatch(id, now) {
                 FirstDispatch::Effects(effects) => {
                     let advanced = self.drive_without_due(driver, effects.into());
                     report.writes.extend(advanced.writes);
@@ -2332,7 +2411,7 @@ impl BlockingOwner {
                         // submission policy. Terminalize the exact ready
                         // entry through the engine so its queue ticket and
                         // admission permit cannot outlive the returned error.
-                        let rejection = self.state.reject_unwritten_without_due(id, error.clone());
+                        let rejection = self.state.reject_unwritten(id, error.clone());
                         let _ = self.drive_without_due(driver, rejection);
                         return Err(buffered_submission_error(&completion).unwrap_or(error));
                     }
@@ -2354,9 +2433,7 @@ impl BlockingOwner {
                             // permit are released, then observe the exact
                             // rejection through the temporary completion
                             // observer. No peer is pumped or waited on.
-                            let rejection = self
-                                .state
-                                .reject_unwritten_without_due(id, Error::TransportBusy);
+                            let rejection = self.state.reject_unwritten(id, Error::TransportBusy);
                             let _ = self.drive_without_due(driver, rejection);
                             return Err(buffered_submission_error(&completion).unwrap_or_else(
                                 || {
@@ -2495,10 +2572,17 @@ impl BlockingOwner {
         // A blocking write/control turn may already have crossed H.  Arm the
         // gate before this read, but only a result sampled at/after H can
         // release it; an adapter is allowed to time out before owner_deadline.
-        let receive_started_at = Instant::now();
+        let receive_started_at = self.now();
         let raw_gate_before_receive = self.raw_release_gate_at(receive_started_at).is_some();
         let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
-        if raw_gate_before_receive
+        let raw_release_wait = self.raw_release.await_until();
+        if raw_gate_before_receive && raw_release_wait.is_some_and(|wait| wait > receive_started_at)
+        {
+            // The engine has retained an ambiguous prefix under the old scope.
+            // Give its tail one real, shared grace interval instead of handing
+            // the already-due protocol wake back to the reader (#713).
+            owner_deadline = min_deadline(raw_release_wait, observer_deadline);
+        } else if raw_gate_before_receive
             && owner_deadline.is_some_and(|deadline| deadline <= receive_started_at)
         {
             // `BlockingTransportReader` quite correctly returns TimedOut
@@ -2524,26 +2608,32 @@ impl BlockingOwner {
             Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
             other => other,
         };
-        let (received, received_at, no_input) = match read {
+        let (received, received_at, no_input, idle_pause) = match read {
             Ok(BlockingReceive::TimedOut) => {
                 // A no-data return becomes a fence only after the stream
                 // framer has also shown that no partial bytes are retained.
-                (0, Instant::now(), true)
+                (0, self.now(), true, Some(self.idle_receives.record()))
             }
             Ok(BlockingReceive::Bytes(0)) => {
+                let reason = "blocking transport returned zero bytes (EOF)";
                 let effects = self.input_for_mode(
-                    Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
-                    Instant::now(),
+                    Input::Shutdown(ShutdownReason::TransportClosed {
+                        reason: Some(reason.into()),
+                    }),
+                    self.now(),
                     mode,
                 );
                 let _ = self.drive_for_mode(driver, effects, mode);
-                return Err(Error::ConnectionClosed { reason: None });
+                return Err(Error::ConnectionClosed {
+                    reason: Some(reason.into()),
+                });
             }
             Ok(BlockingReceive::Bytes(received)) => {
                 // Any successful read breaks a transient-fault run, even when
                 // the bytes only complete a later frame.
                 self.faults.reset();
-                (received, Instant::now(), false)
+                self.idle_receives.reset();
+                (received, self.now(), false, None)
             }
             Err(Error::ResponseTooLarge { .. })
                 if self.state.policy().protocol.transport == TransportKind::Datagram =>
@@ -2555,21 +2645,22 @@ impl BlockingOwner {
                 // framing; treat it exactly like a malformed atomic datagram,
                 // keep the session running, and let a later packet decode.
                 self.faults.reset();
+                self.idle_receives.reset();
                 let _ = self
                     .state
                     .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                // A malformed/oversized datagram was consumed; it cannot
-                // certify that a due raw release saw no input.
-                if self.raw_release_gate_at(Instant::now()).is_some() {
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release remained unresolved after oversized datagram",
-                    )?;
+                // The malformed datagram is one complete, consumed transport
+                // boundary. At a due raw release it is therefore the required
+                // receive-first turn; discard it and release without counting
+                // toward a synthetic work cap (#725).
+                let received_at = self.now();
+                if self.raw_release_gate_at(received_at).is_some() {
+                    self.advance_after_raw_release_input(driver, received_at, mode)?;
                 }
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
             Err(error) if super::receive_fault_is_transient(&error) => {
-                let received_at = Instant::now();
+                let received_at = self.now();
                 let raw_gate = self.raw_release_gate_at(received_at).is_some();
                 let (length, span) = self.faults.record(received_at);
                 if TransientFaultRun::is_permanent(length, span) {
@@ -2579,12 +2670,12 @@ impl BlockingOwner {
                     // receives the session boundary error, retaining both the
                     // run count and the underlying transport cause.
                     let effects = self.input_for_mode(
-                        Input::Close {
+                        Input::Shutdown(ShutdownReason::TransportClosed {
                             reason: Some(
                                 format!("{length} consecutive receive faults: {error}")
                                     .into_boxed_str(),
                             ),
-                        },
+                        }),
                         received_at,
                         mode,
                     );
@@ -2610,15 +2701,11 @@ impl BlockingOwner {
                 if let Some(error) = report.boundary_error() {
                     return Err(error);
                 }
-                if raw_gate {
-                    // A genuine transient fault is not an idle fence: stale
-                    // input may still be ready behind it.
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted after transient faults",
-                    )?;
-                }
-                pause_after_transient_receive_fault(length, owner_deadline);
+                // A genuine transient fault is not an idle fence: stale input
+                // may still be ready behind it. Keep the release gate armed;
+                // the shared escalating pause and sustained-fault boundary
+                // provide wall-clock liveness without a poll-count poison.
+                self.pause_after_transient_receive_fault(length, owner_deadline);
                 return Ok(PumpProgress { decoded_frames: 0 });
             }
             Err(error) => {
@@ -2627,10 +2714,10 @@ impl BlockingOwner {
                 // poison means. Framing failures below still poison a
                 // stream, exactly as the async owner does.
                 let effects = self.input_for_mode(
-                    Input::Close {
-                        reason: Some(error.to_string().into_boxed_str()),
-                    },
-                    Instant::now(),
+                    Input::Shutdown(ShutdownReason::TransportClosed {
+                        reason: super::transport_close_reason(&error),
+                    }),
+                    self.now(),
                     mode,
                 );
                 let _ = self.drive_for_mode(driver, effects, mode);
@@ -2670,10 +2757,10 @@ impl BlockingOwner {
                     Err(error) => {
                         if is_stream {
                             let effects = self.input_for_mode(
-                                Input::Poison {
+                                Input::Shutdown(ShutdownReason::FramingFailure {
                                     reason: error.to_string().into_boxed_str(),
-                                },
-                                Instant::now(),
+                                }),
+                                self.now(),
                                 mode,
                             );
                             let _ = self.drive_for_mode(driver, effects, mode);
@@ -2686,10 +2773,7 @@ impl BlockingOwner {
                             .state
                             .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                         if raw_gate {
-                            self.defer_raw_release_gate(
-                            driver,
-                            "blocking raw release receive work cap exhausted after malformed datagram",
-                        )?;
+                            self.advance_after_raw_release_input(driver, received_at, mode)?;
                         }
                         return Ok(PumpProgress {
                             decoded_frames: driven,
@@ -2709,10 +2793,10 @@ impl BlockingOwner {
                 if let Err(error) = self.state.validate_frame_batch(&frames) {
                     if is_stream {
                         let effects = self.input_for_mode(
-                            Input::Poison {
+                            Input::Shutdown(ShutdownReason::FramingFailure {
                                 reason: error.to_string().into_boxed_str(),
-                            },
-                            Instant::now(),
+                            }),
+                            self.now(),
                             mode,
                         );
                         let _ = self.drive_for_mode(driver, effects, mode);
@@ -2722,10 +2806,7 @@ impl BlockingOwner {
                         .state
                         .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
                     if raw_gate {
-                        self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted after invalid datagram batch",
-                    )?;
+                        self.advance_after_raw_release_input(driver, received_at, mode)?;
                     }
                     return Ok(PumpProgress {
                         decoded_frames: driven,
@@ -2757,7 +2838,7 @@ impl BlockingOwner {
             // has no retained bytes.  Complete frames were applied above in
             // source order; a partial prefix is delegated to the engine's
             // exact raw scope classifier before the release tail runs.
-            let Some(gate_releases) = self.raw_release_input_gate.map(|gate| gate.releases) else {
+            let Some(gate_releases) = self.raw_release.latched() else {
                 return Err(self.poison_raw_release_gate(
                     driver,
                     Error::InvalidState(
@@ -2766,17 +2847,17 @@ impl BlockingOwner {
                     ),
                 ));
             };
-            let disposition = if is_stream
+            let gate_action = if is_stream
                 && decoder
                     .has_buffered_stream_input()
                     .map_err(|error| self.poison_tombstone_decoder(driver, error))?
             {
-                self.resolve_due_raw_prefixes(driver, decoder, gate_releases)?
+                self.resolve_due_raw_prefixes(driver, decoder, received_at)?
             } else {
-                RawPrefixDisposition::ReleasePreserving
+                self.state.resolve_raw_release_gate(received_at, None)
             };
-            match disposition {
-                RawPrefixDisposition::Discard => {
+            match gate_action {
+                RawReleaseGateAction::DiscardFirst => {
                     return Err(self.poison_raw_release_gate(
                         driver,
                         Error::InvalidState(
@@ -2784,16 +2865,14 @@ impl BlockingOwner {
                         ),
                     ));
                 }
-                RawPrefixDisposition::Defer => {
-                    self.defer_raw_release_gate(
-                        driver,
-                        "blocking raw release receive work cap exhausted while input remained ambiguous",
-                    )?;
+                RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                    self.raw_release.wait_for_input_until(deadline);
+                    self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                     return Ok(PumpProgress {
                         decoded_frames: driven,
                     });
                 }
-                RawPrefixDisposition::NoRelease | RawPrefixDisposition::ReleasePreserving => {}
+                RawReleaseGateAction::Advance => {}
             }
 
             // The old scope has now had a real input turn. If a non-receive
@@ -2802,35 +2881,19 @@ impl BlockingOwner {
             // for the replacement before releasing either through due work.
             let current_releases = self.state.raw_correlation_releases_due(received_at);
             if !current_releases.is_empty() && current_releases != gate_releases {
-                self.raw_release_input_gate = Some(RawReleaseInputGate {
-                    releases: current_releases,
-                    deferrals: 0,
-                });
+                self.raw_release.replace(current_releases);
+                self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                 return Ok(PumpProgress {
                     decoded_frames: driven,
                 });
             }
 
-            // A valid decoded frame, a positively classified stream prefix,
-            // or true no-input with no retained stream bytes earns the one due
-            // tail.  Non-frame datagram input (including an empty/malformed
-            // packet) must take another receive turn; it is not an H fence.
-            // An atomic datagram that fails framing/validation returned above
-            // through the bounded deferral path; it cannot piggyback on an
-            // unrelated valid frame. A discarded *stream* delimiter is
-            // different: the framer has consumed and classified that exact
-            // fragment, while any response-shaped retained prefix was already
-            // handled by `raw_prefix_disposition` above. It is therefore safe
-            // to release after stream-only discard processing.
-            let safe_to_release = driven > 0 || no_input || is_stream;
-            if safe_to_release {
-                self.advance_after_raw_release_input(driver, received_at, mode)?;
-            } else {
-                self.defer_raw_release_gate(
-                    driver,
-                    "blocking raw release remained unresolved after non-frame datagram input",
-                )?;
-            }
+            // The post-boundary read is now fully classified. Stream prefixes
+            // were preserved, awaited, or discarded above; datagrams are
+            // atomic and any non-frame packet has already been consumed. That
+            // real input turn earns the one due tail without a turn counter.
+            self.advance_after_raw_release_input(driver, received_at, mode)?;
+            self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
             return Ok(PumpProgress {
                 decoded_frames: driven,
             });
@@ -2851,16 +2914,42 @@ impl BlockingOwner {
                 return Err(error);
             }
         }
+        self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
         Ok(PumpProgress {
             decoded_frames: driven,
         })
+    }
+
+    fn pause_after_idle_receive(
+        &self,
+        pause: Option<Duration>,
+        mode: PumpMode,
+        observer_deadline: Option<Instant>,
+    ) {
+        let Some(pause) = pause else {
+            return;
+        };
+        let now = self.now();
+        let pause = clamp_receive_pause(
+            pause,
+            min_deadline(self.next_wake_for_mode(mode), observer_deadline),
+            now,
+        );
+        if let Some(deadline) = now.checked_add(pause) {
+            self.sleep_until(deadline);
+        }
+    }
+
+    fn pause_after_transient_receive_fault(&self, run: u32, owner_deadline: Option<Instant>) {
+        let pause = clamp_receive_pause(transient_receive_pause(run), owner_deadline, self.now());
+        self.sleep(pause);
     }
 
     fn next_wake_for_mode(&self, mode: PumpMode) -> Option<Instant> {
         if mode.allows_ordinary_dispatch() {
             self.state.next_wake()
         } else {
-            self.state.next_wake_without_dispatch()
+            self.state.next_wake_for(EngineTurn::DEADLINES_ONLY)
         }
     }
 
@@ -2889,7 +2978,7 @@ impl BlockingOwner {
         // Cancellation is externally ordered state, not a receive proof.  If
         // a raw correlation deadline is visible, preserve it for the next
         // pump instead of letting this control turn release a successor.
-        let effects = self.input_for_mode(Input::Cancel { id }, Instant::now(), PumpMode::Normal);
+        let effects = self.input_for_mode(Input::Cancel { id }, self.now(), PumpMode::Normal);
         let _ = self.drive(driver, effects);
         let acknowledged = registration
             .acknowledgement
@@ -2969,7 +3058,7 @@ impl BlockingOwner {
         self.enter()?;
         let effects = self
             .state
-            .input(Input::Shutdown(ShutdownReason::Explicit), Instant::now());
+            .input(Input::Shutdown(ShutdownReason::Explicit), self.now());
         let _ = self.drive(driver, effects);
         self.leave();
         Ok(())
@@ -2999,10 +3088,14 @@ impl BlockingOwner {
                 // is the linearization point: defer due work if that deadline
                 // is now visible, so stale input accumulated during the write
                 // gets one receive turn before any successor can be staged.
-                let finished_at = Instant::now();
+                let finished_at = self.now();
                 let produced = if self.raw_release_gate_at(finished_at).is_some() {
-                    self.state
-                        .finish_write_without_due(&staged, write_result, finished_at)
+                    self.state.finish_write_turn(
+                        &staged,
+                        write_result,
+                        finished_at,
+                        EngineTurn::INPUT_ONLY,
+                    )
                 } else {
                     self.state.finish_write(&staged, write_result, finished_at)
                 };
@@ -3028,9 +3121,12 @@ impl BlockingOwner {
                 report
                     .writes
                     .push((staged.request, write_result.clone().map(|_| ())));
-                let produced =
-                    self.state
-                        .finish_write_without_due(&staged, write_result, Instant::now());
+                let produced = self.state.finish_write_turn(
+                    &staged,
+                    write_result,
+                    self.now(),
+                    EngineTurn::INPUT_ONLY,
+                );
                 prepend_effects(&mut effects, produced);
             }
         }
@@ -3050,19 +3146,10 @@ impl BlockingOwner {
         if self.raw_release_gate_at(now).is_some() {
             let turn = self.state.begin_input_turn(now);
             let mut effects = self.state.input_in_turn(&turn, input);
-            effects.extend(self.state.engine.finish_input_turn_without_due(turn.0));
+            effects.extend(self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY));
             return effects;
         }
-        match mode {
-            PumpMode::Normal => self.state.input(input, now),
-            PumpMode::PreAckDrain => self.state.engine.handle_without_dispatch(input, now).into(),
-            PumpMode::FirstDispatchWait => {
-                let turn = self.state.begin_input_turn(now);
-                let mut effects = self.state.input_in_turn(&turn, input);
-                effects.extend(self.state.engine.finish_input_turn_without_due(turn.0));
-                effects
-            }
-        }
+        self.state.input_with_turn(input, now, mode.input_turn())
     }
 
     fn advance_for_mode(&mut self, now: Instant, mode: PumpMode) -> VecDeque<Effect> {
@@ -3076,7 +3163,7 @@ impl BlockingOwner {
         if mode.allows_ordinary_dispatch() {
             self.state.advance(now)
         } else {
-            self.state.engine.advance_without_dispatch(now).into()
+            self.state.advance_turn(now, EngineTurn::DEADLINES_ONLY)
         }
     }
 
@@ -3094,7 +3181,7 @@ impl BlockingOwner {
         let effects = if mode.allows_ordinary_dispatch() {
             self.state.advance(now)
         } else {
-            self.state.engine.advance_without_dispatch(now).into()
+            self.state.advance_turn(now, EngineTurn::DEADLINES_ONLY)
         };
         self.clear_raw_release_gate();
         let report = self.drive_for_mode(driver, effects, mode);
@@ -3109,21 +3196,9 @@ impl BlockingOwner {
         turn: OwnerInputTurn,
         mode: PumpMode,
     ) -> VecDeque<Effect> {
-        match mode {
-            PumpMode::Normal => self.state.finish_input_turn(turn),
-            PumpMode::PreAckDrain => self
-                .state
-                .engine
-                .finish_input_turn_without_dispatch(turn.0)
-                .into(),
-            // The enclosing raw-tombstone wait runs the due pass only after it
-            // has inspected and, if necessary, cleared retained framing.
-            PumpMode::FirstDispatchWait => self
-                .state
-                .engine
-                .finish_input_turn_without_due(turn.0)
-                .into(),
-        }
+        // The enclosing raw-tombstone wait runs the due pass only after it has
+        // inspected and, if necessary, cleared retained framing.
+        self.state.finish_input_turn(turn, mode.input_turn())
     }
 
     fn drive_for_mode<D: BlockingWireDriver + ?Sized>(
@@ -3215,94 +3290,6 @@ impl BlockingOwner {
     }
 }
 
-/// Pause applied after the first transient receive fault so a transport that
-/// fails immediately cannot spin a caller's pump loop. 1.x used the same
-/// bound.
-const TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(10);
-
-/// Ceiling on the escalating transient-fault pause.
-const MAXIMUM_TRANSIENT_RECEIVE_PAUSE: Duration = Duration::from_millis(250);
-
-/// Consecutive transient receive faults, with no successful read between them,
-/// after which the session ends with the underlying transport error.
-const TRANSIENT_RECEIVE_FAULT_LIMIT: u32 = 12;
-
-/// Minimum wall-clock length of a fault run before it can end the session.
-const TRANSIENT_RECEIVE_FAULT_SPAN: Duration = Duration::from_secs(1);
-
-/// A gap this long between two transient faults proves the transport recovered
-/// in between, so the run starts over rather than accumulating over hours.
-const TRANSIENT_RECEIVE_FAULT_RESET: Duration = Duration::from_secs(5);
-
-/// Escalating pause for the `run`-th consecutive transient receive fault.
-fn transient_receive_pause(run: u32) -> Duration {
-    let doublings = run.saturating_sub(1).min(6);
-    TRANSIENT_RECEIVE_PAUSE
-        .saturating_mul(1u32 << doublings)
-        .min(MAXIMUM_TRANSIENT_RECEIVE_PAUSE)
-}
-
-/// Clamp a transient pause so it cannot delay an owner wake or caller deadline.
-fn clamp_transient_pause(
-    pause: Duration,
-    owner_deadline: Option<Instant>,
-    now: Instant,
-) -> Duration {
-    owner_deadline.map_or(pause, |deadline| {
-        pause.min(deadline.saturating_duration_since(now))
-    })
-}
-
-fn pause_after_transient_receive_fault(run: u32, owner_deadline: Option<Instant>) {
-    let pause = clamp_transient_pause(transient_receive_pause(run), owner_deadline, Instant::now());
-    if !pause.is_zero() {
-        std::thread::sleep(pause);
-    }
-}
-
-/// One run of consecutive transient receive faults.
-#[derive(Debug, Default)]
-struct TransientFaultRun {
-    length: u32,
-    first_at: Option<Instant>,
-    last_at: Option<Instant>,
-}
-
-impl TransientFaultRun {
-    /// Record one transient fault and report the run it belongs to.
-    fn record(&mut self, at: Instant) -> (u32, Duration) {
-        let continues = self
-            .last_at
-            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
-        if continues {
-            self.length = self.length.saturating_add(1);
-        } else {
-            self.length = 1;
-            self.first_at = Some(at);
-        }
-        self.last_at = Some(at);
-        let span = self
-            .first_at
-            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
-        (self.length, span)
-    }
-
-    /// A successful byte-bearing read proves the transport is answering again,
-    /// so the next fault starts a fresh run.  An idle timeout consumed no bytes
-    /// and does not reset the run.
-    fn reset(&mut self) {
-        self.length = 0;
-        self.first_at = None;
-        self.last_at = None;
-    }
-
-    /// Whether this run is long enough, and old enough, to be called permanent.
-    const fn is_permanent(length: u32, span: Duration) -> bool {
-        length >= TRANSIENT_RECEIVE_FAULT_LIMIT
-            && span.as_nanos() >= TRANSIENT_RECEIVE_FAULT_SPAN.as_nanos()
-    }
-}
-
 fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.min(right)),
@@ -3320,16 +3307,16 @@ mod tests {
         rc::Rc,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Arc,
+            Arc, Mutex,
         },
         time::{Duration, Instant},
     };
 
     use super::*;
     use crate::runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, SessionState, TargetPolicy,
-        TimeoutPolicy,
+        CancelState, CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage,
+        EnvelopeKind, Phase, ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, SessionState,
+        TargetPolicy, TimeoutPolicy,
     };
     use crate::{
         command::CommandKind,
@@ -3361,16 +3348,14 @@ mod tests {
     }
 
     impl BlockingTransport for CountingTransport {
-        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.counts.writes.fetch_add(1, Ordering::SeqCst);
             Ok(())
-        }
-
-        fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
-            self.counts.receives.fetch_add(1, Ordering::SeqCst);
-            Err(Error::InvalidState(
-                "unexpected receive in capacity test".into(),
-            ))
         }
 
         fn recv_into_with_timeout(
@@ -3399,6 +3384,8 @@ mod tests {
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
                 inquiry_cooldown: Duration::ZERO,
+                raw_inquiry_release_hold: Duration::from_secs(1),
+                raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
             CameraId::CAMERA_1,
@@ -3419,6 +3406,8 @@ mod tests {
             command_spacing: Duration::ZERO,
             inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
+            raw_inquiry_release_hold: Duration::from_secs(1),
+            raw_release_grace: Duration::from_millis(100),
             strict_unconfirmed_poison: false,
         };
         let mut targets = [None; 9];
@@ -3470,7 +3459,7 @@ mod tests {
 
     /// Blocks exactly the second write, which is the unrelated target-C write
     /// in the raw-release regression below.  The test samples a real owner
-    /// deadline; without the guarded `finish_write_without_due` call, its
+    /// deadline; without the guarded input-only write-result turn, its
     /// return immediately advances A's tombstone and writes queued B.
     #[derive(Debug)]
     struct ReleaseCrossingDriver {
@@ -3543,6 +3532,51 @@ mod tests {
             _frame_limit: usize,
         ) -> Result<Vec<DecodedFrame>, Error> {
             Ok(Vec::new())
+        }
+    }
+
+    #[derive(Clone, Debug)]
+    struct ManualBlockingClock {
+        state: Arc<Mutex<ManualBlockingClockState>>,
+    }
+
+    #[derive(Debug)]
+    struct ManualBlockingClockState {
+        now: Instant,
+        sleeps: Vec<Duration>,
+    }
+
+    impl ManualBlockingClock {
+        fn new(now: Instant) -> Self {
+            Self {
+                state: Arc::new(Mutex::new(ManualBlockingClockState {
+                    now,
+                    sleeps: Vec::new(),
+                })),
+            }
+        }
+
+        fn current(&self) -> Instant {
+            self.state.lock().expect("manual clock lock").now
+        }
+
+        fn sleeps(&self) -> Vec<Duration> {
+            self.state.lock().expect("manual clock lock").sleeps.clone()
+        }
+    }
+
+    impl BlockingClock for ManualBlockingClock {
+        fn now(&self) -> Instant {
+            self.current()
+        }
+
+        fn sleep(&self, duration: Duration) {
+            let mut state = self.state.lock().expect("manual clock lock");
+            state.now = state
+                .now
+                .checked_add(duration)
+                .expect("manual clock remains representable");
+            state.sleeps.push(duration);
         }
     }
 
@@ -3860,9 +3894,11 @@ mod tests {
         let Input::Admit { ticket, request } = input else {
             unreachable!("staged admission must retain its ticket");
         };
-        let effects = owner
-            .state_mut()
-            .admit_without_due(ticket, request, Instant::now());
+        let effects = owner.state_mut().input_with_turn(
+            Input::Admit { ticket, request },
+            Instant::now(),
+            EngineTurn::INPUT_ONLY,
+        );
         let report = owner.drive_without_due(driver, effects);
         assert!(report.writes.is_empty(), "staging itself cannot dispatch");
         admission
@@ -4015,9 +4051,7 @@ mod tests {
             )
             .expect("fresh H receive consumes stale A evidence");
         assert_eq!(reader.calls, 2, "post-H stale input was consumed");
-        let FirstDispatch::Effects(effects) = owner
-            .state_mut()
-            .first_dispatch_without_due(b, Instant::now())
+        let FirstDispatch::Effects(effects) = owner.state_mut().first_dispatch(b, Instant::now())
         else {
             unreachable!("B becomes dispatchable only after the stale frame was read");
         };
@@ -4026,7 +4060,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_release_malformed_datagrams_exhaust_the_same_64_turn_cap() {
+    fn raw_release_discards_malformed_datagram_without_poison() {
         let mut owner = BlockingOwner::new(raw_two_target_owner_policy(TransportKind::Datagram))
             .expect("two-target owner");
         let mut driver = ReleaseCrossingDriver {
@@ -4039,7 +4073,7 @@ mod tests {
                 raw_request(CameraId::CAMERA_1, ReplyShape::NoReply, Duration::ZERO),
             )
             .expect("A local write");
-        let _b = stage_ready_without_dispatch(
+        let b = stage_ready_without_dispatch(
             &mut owner,
             &mut driver,
             raw_request(
@@ -4049,34 +4083,19 @@ mod tests {
             ),
         );
         let mut reader = FaultReader {
-            reads: std::iter::repeat_n(
-                Ok(BlockingReceive::Bytes(1)),
-                RAW_TOMBSTONE_PUMP_WORK_LIMIT,
-            )
-            .collect(),
+            reads: VecDeque::from([Ok(BlockingReceive::Bytes(1))]),
         };
         let mut decoder = MalformedDatagramDecoder;
-        for _ in 1..RAW_TOMBSTONE_PUMP_WORK_LIMIT {
-            assert_eq!(
-                owner
-                    .pump_once(&mut driver, &mut reader, &mut decoder)
-                    .expect("a malformed datagram remains unfenced before the cap"),
-                0
-            );
-        }
-        let error = owner
-            .pump_once(&mut driver, &mut reader, &mut decoder)
-            .expect_err("the 64th malformed datagram fails closed");
-        assert!(matches!(error, Error::StreamPoisoned { .. }));
         assert_eq!(
-            driver.writes.len(),
-            1,
-            "B never writes through malformed input"
+            owner
+                .pump_once(&mut driver, &mut reader, &mut decoder)
+                .expect("the atomic malformed datagram is discarded"),
+            0
         );
-        assert!(
-            reader.reads.is_empty(),
-            "the exact bounded receive budget was consumed"
-        );
+        assert!(reader.reads.is_empty());
+        assert_eq!(driver.writes.len(), 2, "B writes after the consumed fence");
+        assert!(owner.state().boundary_error().is_none());
+        let _ = b;
     }
 
     #[test]
@@ -4105,9 +4124,7 @@ mod tests {
             &mut driver,
             raw_request(CameraId::CAMERA_2, ReplyShape::NoReply, Duration::ZERO),
         );
-        let FirstDispatch::Effects(effects) = owner
-            .state_mut()
-            .first_dispatch_without_due(c, Instant::now())
+        let FirstDispatch::Effects(effects) = owner.state_mut().first_dispatch(c, Instant::now())
         else {
             unreachable!("unrelated C is eligible through the no-due seam");
         };
@@ -4132,7 +4149,7 @@ mod tests {
             .pump_once(&mut driver, &mut reader, &mut decoder)
             .expect("first scope probe remains nonterminal");
         assert_eq!(
-            owner.raw_release_input_gate.map(|gate| gate.releases),
+            owner.raw_release.latched(),
             Some(both_scopes),
             "the replacement scope is latched for its own fresh input turn"
         );
@@ -4404,6 +4421,7 @@ mod tests {
             &[(CameraId::CAMERA_1, &profile)],
             OperationalTuning::new(),
             std::num::NonZeroUsize::new(1).expect("non-zero capacity"),
+            false,
         )
         .expect("blocking adapter");
         let host = BlockingSessionHost::from_adapter(adapter).expect("blocking host");
@@ -4421,7 +4439,7 @@ mod tests {
         assert!(host
             .with_parts(|owner, _, _, _| Ok(owner
                 .state()
-                .raw_preack_gate_frees_socket_on_ack(CameraId::CAMERA_1)))
+                .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1)))
             .expect("inspect pre-ACK gate"));
         let before = host.metrics().expect("metrics before rejection");
         assert_eq!(before.active, 1);
@@ -4506,6 +4524,261 @@ mod tests {
     }
 
     #[test]
+    fn injected_blocking_clock_paces_idle_reads_and_resets_by_bytes() {
+        let start = Instant::now();
+        let clock = ManualBlockingClock::new(start);
+        let mut owner = BlockingOwner::with_clock(raw_owner_policy(), Arc::new(clock.clone()))
+            .expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::TimedOut),
+                Ok(BlockingReceive::Bytes(1)),
+            ]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        for _ in 0..3 {
+            assert_eq!(
+                owner
+                    .pump_once(&mut driver, &mut reader, &mut decoder)
+                    .expect("an idle receive is not a boundary"),
+                0
+            );
+        }
+        assert_eq!(
+            clock.current(),
+            start + Duration::from_millis(70),
+            "three immediately idle reads advance the injected clock by 10/20/40 ms"
+        );
+        assert_eq!(
+            clock.sleeps(),
+            vec![
+                Duration::from_millis(10),
+                Duration::from_millis(20),
+                Duration::from_millis(40),
+            ]
+        );
+        assert_eq!(owner.idle_receives.length(), 3);
+
+        owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect("a byte-bearing read keeps the session running");
+        assert_eq!(owner.idle_receives.length(), 0);
+        assert_eq!(clock.current(), start + Duration::from_millis(70));
+    }
+
+    #[test]
+    fn preack_drain_runs_due_tail_when_idle_pacing_reaches_its_budget() {
+        const ACK_BUDGET: Duration = Duration::from_millis(50);
+
+        let mut policy = raw_owner_policy();
+        policy.targets[usize::from(CameraId::CAMERA_1.id())]
+            .as_mut()
+            .expect("camera one is registered")
+            .command_sockets = 2;
+        policy.baseline.command_sockets[usize::from(CameraId::CAMERA_1.id())] = Some(2);
+        let mut owner = BlockingOwner::new(policy).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut predecessor = raw_request(
+            CameraId::CAMERA_1,
+            ReplyShape::AckThenCompletion,
+            Duration::from_secs(1),
+        );
+        let RuntimeRequest::Command { context, .. } = &mut predecessor else {
+            unreachable!("raw_request constructs a command");
+        };
+        context.timeout.ack = ACK_BUDGET;
+        let predecessor = owner
+            .submit(&mut driver, predecessor)
+            .expect("predecessor reaches the wire");
+        let ack_deadline = owner
+            .state()
+            .request_state(predecessor.id())
+            .and_then(|(phase, cancellation)| match (phase, cancellation) {
+                (Phase::AwaitingAck { deadline, .. }, CancelState::None) => Some(deadline),
+                _ => None,
+            })
+            .expect("predecessor awaits its ACK");
+        assert!(owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+
+        // Every read reports idle immediately. Shared 10/20/40 ms pacing is
+        // clamped to the ACK deadline, so the final pump returns exactly as
+        // the outer drain budget expires and the loop cannot run another tail.
+        // At that boundary the predecessor receives its terminal and leaves an
+        // inert hold; a later submission-side drain must not service input for
+        // a request which no longer exists.
+        let mut reader = FaultReader {
+            reads: std::iter::repeat_n(Ok(BlockingReceive::TimedOut), 8).collect(),
+        };
+        let mut decoder = EmptyDecoder;
+        owner
+            .drain_raw_preack_gate_inner(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                ack_deadline,
+            )
+            .expect("expired pre-ACK work is serviced without dispatch");
+
+        assert!(matches!(
+            predecessor.terminal(),
+            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
+        ));
+        assert!(owner.state().request_state(predecessor.id()).is_none());
+        assert!(!owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+    }
+
+    #[test]
+    fn preack_drain_transient_fault_does_not_dispatch_an_ordinary_peer() {
+        let mut policy = raw_two_target_owner_policy(TransportKind::Datagram);
+        policy.targets[usize::from(CameraId::CAMERA_1.id())]
+            .as_mut()
+            .expect("camera one is registered")
+            .command_sockets = 2;
+        policy.baseline.command_sockets[usize::from(CameraId::CAMERA_1.id())] = Some(2);
+        let mut owner = BlockingOwner::new(policy).expect("two-target owner");
+        let mut driver = ReleaseCrossingDriver {
+            release_after: Instant::now(),
+            writes: Vec::new(),
+        };
+        let predecessor = owner
+            .submit(
+                &mut driver,
+                raw_request(
+                    CameraId::CAMERA_1,
+                    ReplyShape::AckThenCompletion,
+                    Duration::from_secs(1),
+                ),
+            )
+            .expect("predecessor reaches the wire");
+        let queued_peer = stage_ready_without_dispatch(
+            &mut owner,
+            &mut driver,
+            raw_request(
+                CameraId::CAMERA_2,
+                ReplyShape::AckThenCompletion,
+                Duration::from_secs(1),
+            ),
+        );
+        let submitting_successor = stage_ready_without_dispatch(
+            &mut owner,
+            &mut driver,
+            raw_request(
+                CameraId::CAMERA_1,
+                ReplyShape::AckThenCompletion,
+                Duration::from_secs(1),
+            ),
+        );
+        assert_eq!(driver.writes.len(), 1);
+        assert!(owner
+            .state()
+            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
+
+        let mut reader = FaultReader {
+            reads: VecDeque::from([
+                Err(Error::TransportError("transient receive fault".into())),
+                Ok(BlockingReceive::Bytes(1)),
+            ]),
+        };
+        let mut decoder = OneBatchDecoder::new(vec![DecodedFrame {
+            target: CameraId::CAMERA_1,
+            sequence: None,
+            response: DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        }]);
+
+        owner
+            .drain_raw_preack_gate_inner(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                CameraId::CAMERA_1,
+                Instant::now() + Duration::from_secs(1),
+            )
+            .expect("fault and ACK are handled inside the no-dispatch drain");
+
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "neither the transient-fault turn nor the ACK turn dispatches the queued peer"
+        );
+        assert!(matches!(
+            owner.state().request_state(predecessor.id()),
+            Some((
+                Phase::Executing {
+                    socket: ViscaSocket::S1,
+                    ..
+                },
+                CancelState::None
+            ))
+        ));
+        assert!(owner.state().request_state(queued_peer).is_some());
+        assert!(owner.state().request_state(submitting_successor).is_some());
+
+        let effects = owner.state_mut().advance(Instant::now());
+        let report = owner.drive(&mut driver, effects);
+        assert!(report.boundary_error().is_none());
+        assert_eq!(
+            driver.writes.len(),
+            3,
+            "normal scheduling retains both ready requests"
+        );
+        assert_eq!(driver.writes[1][0], CameraId::CAMERA_2.to_address_byte());
+        assert_eq!(driver.writes[2][0], CameraId::CAMERA_1.to_address_byte());
+    }
+
+    #[test]
+    fn zero_byte_datagram_receive_closes_with_a_cause() {
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Ok(BlockingReceive::Bytes(0))]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("zero bytes is EOF even for a custom datagram transport");
+        assert!(matches!(
+            error,
+            Error::ConnectionClosed { reason: Some(reason) }
+                if reason.contains("zero bytes") && reason.contains("EOF")
+        ));
+        assert!(matches!(owner.state().state(), SessionState::Closed));
+    }
+
+    #[test]
+    fn invalid_input_receive_fault_closes_immediately() {
+        let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
+        let mut driver = FaultDriver;
+        let mut reader = FaultReader {
+            reads: VecDeque::from([Err(Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::InvalidInput,
+            ))))]),
+        };
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .pump_once(&mut driver, &mut reader, &mut decoder)
+            .expect_err("invalid transport input is a fatal contract error");
+        assert!(matches!(
+            error,
+            Error::ConnectionClosed { reason: Some(reason) } if !reason.is_empty()
+        ));
+        assert_eq!(owner.faults.length, 0, "no transient run was started");
+        assert!(matches!(owner.state().state(), SessionState::Closed));
+    }
+
+    #[test]
     fn idle_reads_do_not_break_a_transient_fault_run() {
         let now = Instant::now();
         let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
@@ -4580,7 +4853,7 @@ mod tests {
 
     #[test]
     fn transient_fault_pause_escalates_and_stays_deadline_clamped() {
-        assert_eq!(transient_receive_pause(1), Duration::from_millis(10));
+        assert_eq!(transient_receive_pause(1), TRANSIENT_RECEIVE_PAUSE);
         assert_eq!(transient_receive_pause(2), Duration::from_millis(20));
         assert_eq!(transient_receive_pause(3), Duration::from_millis(40));
         assert_eq!(
@@ -4591,7 +4864,7 @@ mod tests {
 
         let now = Instant::now();
         assert_eq!(
-            clamp_transient_pause(
+            clamp_receive_pause(
                 MAXIMUM_TRANSIENT_RECEIVE_PAUSE,
                 Some(now + Duration::from_millis(3)),
                 now,

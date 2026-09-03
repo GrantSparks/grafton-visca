@@ -30,10 +30,8 @@ pub struct RuntimeShutterSpeed {
 ///
 /// # Example
 /// ```ignore
-/// let camera = Connect::builder()
-///     .tcp("192.168.0.10")
-///     .with_default_port()
-///     .open::<PtzOpticsG2>()?;
+/// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.10")?;
+/// let camera = session.camera();
 ///
 /// let caps = camera.capabilities();
 ///
@@ -1141,7 +1139,7 @@ mod tests {
         assert!(!caps.has_one_push_focus);
         assert!(!caps.has_focus_zone);
         assert!(!caps.has_focus_zone_inquiry);
-        assert!(caps.has_af_sensitivity);
+        assert!(!caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
         assert!(caps.has_rgb_gain);
         assert_eq!(caps.red_gain_range, Some(0..=0xFF));
@@ -1202,7 +1200,7 @@ mod tests {
         assert!(!fr7.supports_typed(TypedSupportSurface::UsbAudio));
         assert!(!fr7.supports_typed(TypedSupportSurface::BrightnessControl));
         assert!(!fr7.supports_typed(TypedSupportSurface::PictureEffect));
-        assert!(fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+        assert!(!fr7.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
         assert!(fr7.supports_typed(TypedSupportSurface::SonySpotlight));
         assert!(!fr7.supports_typed(TypedSupportSurface::SonyAutoSlowShutter));
         assert!(!fr7.supports_typed(TypedSupportSurface::ExposureMode));
@@ -1244,19 +1242,20 @@ mod tests {
     }
 
     #[test]
-    fn shared_exposure_mode_support_is_not_inferred_from_discovery_inventory() {
+    fn shared_exposure_mode_support_exactly_matches_discovery_inventory() {
         for caps in [
             Capabilities::from_profile::<PtzOpticsG2>(),
             Capabilities::from_profile::<PtzOpticsG3>(),
             Capabilities::from_profile::<PtzOptics30X>(),
+            Capabilities::from_profile::<SonyBRCH900>(),
+            Capabilities::from_profile::<SonyEVIH100>(),
+            Capabilities::from_profile::<SonyBRC300>(),
+            Capabilities::from_profile::<NearusBRC300>(),
+            Capabilities::from_profile::<GenericVisca>(),
         ] {
             assert!(!caps.exposure_modes.is_empty());
             assert!(caps.supports_typed(TypedSupportSurface::ExposureMode));
         }
-
-        let generic = Capabilities::from_profile::<GenericVisca>();
-        assert!(!generic.exposure_modes.is_empty());
-        assert!(!generic.supports_typed(TypedSupportSurface::ExposureMode));
 
         let fr7 = Capabilities::from_profile::<SonyFR7>();
         assert!(fr7.exposure_modes.is_empty());

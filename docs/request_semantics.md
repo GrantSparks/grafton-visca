@@ -18,8 +18,8 @@ The rule is intentionally narrow:
 
 Custom wire frames use the single canonical raw namespace. The four request
 classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
-`raw::AppliedOnly`; their explicit policy values use `raw::Policy` or
-`raw::Spec`. Each class has one primary `new` constructor and one
+`raw::AppliedOnly`; their explicit policy values use `raw::Policy`. Each class
+has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
 use `from_fn` or `with_context`, and request values expose `bytes()` and their
 semantic accessors (`route()` or `affected_axes()`).
@@ -101,7 +101,7 @@ primitive.
 
 A raw command declares the reply protocol the camera will use, so the owner does
 not assume every command follows the ACK-then-completion shape. The axis is
-`raw::RawReplyShape`, carried on `raw::Policy`/`raw::Spec` and set with
+`raw::RawReplyShape`, carried on `raw::Policy` and set with
 `Policy::with_reply_shape`:
 
 - `AckThenCompletion` (the default) — the command is acknowledged, assigned a
@@ -132,14 +132,10 @@ not assume every command follows the ACK-then-completion shape. The axis is
 
 The shape is a command axis only. An inquiry always awaits its reply, so
 `raw::Inquiry` and shared inquiry preparation reject any non-default shape rather
-than silently ignoring it. When a command's completion cannot be confirmed (no completion within
-the deadline), the default per-request recovery applies (issue #671): that one
-request fails `UnsequencedCommandUnconfirmed` while its slot is quarantined
-against a late reply, and the session keeps running; the strict
-`strict_unconfirmed_poison` opt-in poisons the session instead. A receive fault
-has that immediate strict effect only before cancel intent is recorded; a
-recorded cancel uses cancellation-driven late-ACK resolution and poisons only
-if its deadline is unconfirmed.
+than silently ignoring it. Unconfirmed completion, quarantine, and the strict
+opt-in follow the canonical
+[raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery);
+this page does not define a second recovery policy.
 
 Reply shape is for *legitimate* custom completion-only or fire-and-forget vendor
 frames. It never re-admits the owner-only wire primitives above: a socket cancel

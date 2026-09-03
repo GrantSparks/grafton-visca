@@ -95,9 +95,6 @@ pub(crate) enum BuiltinInquiryProfileDecoder {
     Default,
     /// Decode pan/tilt position through the camera profile's coordinate system.
     PanTiltPosition,
-    /// Enforce the source-backed 3D noise-reduction inquiry range for the
-    /// exact built-in profile selected by the session.
-    NoiseReduction3D,
 }
 
 /// Profile gate required before a camera-facing accessor is implemented.
@@ -178,9 +175,6 @@ macro_rules! builtin_inquiry_profile_decoder {
     (pan_tilt_position) => {
         BuiltinInquiryProfileDecoder::PanTiltPosition
     };
-    (noise_reduction_3d) => {
-        BuiltinInquiryProfileDecoder::NoiseReduction3D
-    };
 }
 
 #[cfg(test)]
@@ -229,11 +223,6 @@ macro_rules! builtin_profile_request_validation {
             }
         }
     };
-    ([noise_reduction_3d], $struct:ident) => {
-        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> crate::Result<()> {
-            validate_builtin_inquiry_profile(stringify!($struct), profile)
-        }
-    };
 }
 
 macro_rules! builtin_profile_decoder_method {
@@ -261,34 +250,6 @@ macro_rules! builtin_profile_decoder_method {
             crate::ResponseDecoder::with_context(profile.pan_tilt_coordinates(), decode)
         }
     };
-    ([noise_reduction_3d], $response_ty:ty, $struct:ident) => {
-        fn decoder_for_profile(
-            &self,
-            profile: &crate::ProfileSpec,
-        ) -> crate::ResponseDecoder<Self::Response> {
-            fn decode(legacy_30x: &bool, payload: &[u8]) -> Result<$response_ty, crate::Error> {
-                let response =
-                    crate::command::parse_inquiry_payload(payload, &InquiryKind::NoiseReduction3D)?;
-                let level = <$struct as ResponseParser>::from_response(response)?;
-                if *legacy_30x || level.value() <= 5 {
-                    Ok(level)
-                } else {
-                    Err(Error::InvalidResponse {
-                        expected: Cow::Borrowed(
-                            "3D noise-reduction inquiry level in 0..=5 for this profile",
-                        ),
-                        actual: vec![level.value()],
-                    })
-                }
-            }
-
-            // `profile_id` is a public inventory claim, not an authority token.
-            // The registry seam compares every profile fact, so only the exact
-            // source-backed legacy profile receives the wider inquiry domain.
-            let legacy_30x = crate::profiles::ProfileId::PtzOptics30X.matches_profile_spec(profile);
-            crate::ResponseDecoder::with_context(legacy_30x, decode)
-        }
-    };
 }
 
 fn validate_builtin_inquiry_surface(
@@ -314,7 +275,13 @@ fn validate_builtin_inquiry_surface(
     if source_backed && capabilities.supports_typed(surface) {
         Ok(())
     } else {
-        Err(Error::FeatureNotSupported { feature: inquiry })
+        Err(Error::FeatureNotSupported {
+            feature: if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
+                crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
+            } else {
+                inquiry
+            },
+        })
     }
 }
 
@@ -380,15 +347,6 @@ macro_rules! define_builtin_inquiry_profile_validation {
             $profile: &crate::ProfileSpec,
         ) -> crate::Result<()> {
             match inquiry {
-                // An exposure domain can retain model-specific shutter, gain,
-                // or vendor controls without documenting the shared `04 39`
-                // AE-mode command and inquiry family. Keep its inquiry on the
-                // same source-backed inventory that admits mode changes.
-                "ExposureModeInquiry" if $profile.capabilities().exposure_modes.is_empty() => {
-                    Err(crate::Error::FeatureNotSupported {
-                        feature: "inquiry ExposureModeInquiry",
-                    })
-                }
                 $($arms)*
                 _ => Ok(()),
             }
@@ -603,7 +561,6 @@ macro_rules! define_inquiry_kind_enum {
         /// Used to indicate what kind of data parser should expect in the response
         /// payload.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[allow(missing_docs)]
         pub enum InquiryKind {
             $($variants)*
         }
@@ -620,6 +577,7 @@ macro_rules! define_inquiry_kind_enum {
         define_inquiry_kind_enum!(
             @decode [
                 $($variants)*
+                #[doc = concat!("Decode-only response kind for `", stringify!($decode_kind), "`.")]
                 $decode_kind,
             ]
             $($rest)*
@@ -685,7 +643,6 @@ macro_rules! define_inquiry_data_enum {
         /// associated data.  These are returned wrapped in
         /// [`Response::Inquiry(...)`](Response::Inquiry).
         #[derive(Debug, Copy, Clone)]
-        #[allow(missing_docs)]
         pub enum InquiryData {
             $($variants)*
         }
@@ -702,6 +659,7 @@ macro_rules! define_inquiry_data_enum {
         define_inquiry_data_enum!(
             @decode [
                 $($variants)*
+                #[doc = concat!("Decoded data for the decode-only `", stringify!($decode_kind), "` response.")]
                 $decode_kind $decode_body_shape,
             ]
             $($rest)*
@@ -867,25 +825,6 @@ macro_rules! define_inquiry_profile_dispatch {
             const $bytes_const:ident = [$($byte:expr),+ $(,)?];
             kind: $kind:ident $body:tt;
             decode: |$payload:ident| $decode_body:block;
-            profile_decode: noise_reduction_3d;
-            response: $response:ident;
-            query: $query:expr;
-            vendor_specific: $vendor_specific:expr;
-            rationale: $rationale:expr;
-            typed: $typed:tt;
-        }
-        $($rest:tt)*
-    ) => {
-        // `dispatch_for` returns structural `Response` data. The session-owned
-        // typed decoder applies the selected profile's numeric reply domain.
-        define_inquiry_profile_dispatch!(@query $dispatch_payload [$($arms)*] $($rest)*);
-    };
-    (@query $dispatch_payload:ident [$($arms:tt)*]
-        $(#[$meta:meta])*
-        $struct:ident => {
-            const $bytes_const:ident = [$($byte:expr),+ $(,)?];
-            kind: $kind:ident $body:tt;
-            decode: |$payload:ident| $decode_body:block;
             response: $response:ident;
             query: $query:expr;
             vendor_specific: $vendor_specific:expr;
@@ -1030,6 +969,15 @@ macro_rules! define_builtin_inquiries {
                 )*
             }
         }
+
+        /// Generated inquiry-kind inventory used by the downstream fuzz
+        /// harness. Keeping it beside the defining table makes newly added
+        /// decoders enter the fuzz matrix automatically.
+        #[cfg(all(feature = "test-utils", any(test, feature = "blocking")))]
+        pub(crate) const FUZZ_INQUIRY_KINDS: &[InquiryKind] = &[
+            $(InquiryKind::$kind,)*
+            $(InquiryKind::$decode_kind,)*
+        ];
 
         define_inquiry_data_enum! {
             queryable {
@@ -1258,6 +1206,19 @@ macro_rules! define_builtin_inquiries {
                 }
             }
 
+            #[cfg(feature = "test-utils")]
+            #[test]
+            fn fuzz_inventory_tracks_every_generated_decoder_kind() {
+                assert_eq!(FUZZ_INQUIRY_KINDS.len(), BUILTIN_INQUIRIES.len());
+
+                let distinct = FUZZ_INQUIRY_KINDS
+                    .iter()
+                    .map(core::mem::discriminant)
+                    .collect::<std::collections::HashSet<_>>();
+                assert_eq!(distinct.len(), 73);
+                assert_eq!(BUILTIN_INQUIRIES.len(), 74);
+            }
+
             #[test]
             fn decode_only_entries_do_not_have_command_bytes() {
                 for meta in BUILTIN_INQUIRIES {
@@ -1358,10 +1319,6 @@ macro_rules! define_builtin_inquiries {
                         BuiltinInquiryProfileDecoder::PanTiltPosition => {
                             saw_profile_decoder = true;
                             assert_eq!(meta.kind, InquiryKind::PanTiltPosition);
-                        }
-                        BuiltinInquiryProfileDecoder::NoiseReduction3D => {
-                            saw_profile_decoder = true;
-                            assert_eq!(meta.kind, InquiryKind::NoiseReduction3D);
                         }
                     }
                 }
@@ -1685,8 +1642,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw_value = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let value = raw_value as i8 - 7;
+                let value = decode_centered_level(raw_value, 7, "exposure_compensation")?;
                 Ok(Response::Inquiry(InquiryData::ExposureCompensation { value }))
             };
             response: true;
@@ -2083,11 +2039,9 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the 3D noise reduction level.
         ///
-        /// [`ResponseParser::from_response`] is intentionally profile-neutral
-        /// and accepts the public value type's `0..=8` domain. Camera/session
-        /// execution applies the selected profile's source-backed reply range:
-        /// `0..=5` for current PTZOptics G2/G3 and `0..=8` only for the exact
-        /// legacy [`crate::profiles::PtzOptics30X`] profile.
+        /// Every decoder accepts the public value type's `0..=8` domain. This
+        /// keeps well-formed readback values symmetric with the separately
+        /// documented `04 54` setter domain across PTZOptics profiles (#717).
         NoiseReduction3DInquiry => {
             const NOISE_REDUCTION_3D = [0x81, 0x09, 0x04, 0x54];
             kind: NoiseReduction3D {
@@ -2099,7 +2053,6 @@ macro_rules! builtin_inquiry_table {
                 let level = payload.as_slice()[0];
                 Ok(Response::Inquiry(InquiryData::NoiseReduction3D { level }))
             };
-            profile_decode: noise_reduction_3d;
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
@@ -2562,8 +2515,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let level = raw as i8 - 10;
+                let level = decode_centered_level(raw, 10, "red_tuning")?;
                 Ok(Response::Inquiry(InquiryData::RedTuning { level }))
             };
             response: true;
@@ -2588,8 +2540,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                #[allow(clippy::cast_possible_wrap)]
-                let level = raw as i8 - 10;
+                let level = decode_centered_level(raw, 10, "blue_tuning")?;
                 Ok(Response::Inquiry(InquiryData::BlueTuning { level }))
             };
             response: true;
@@ -2783,7 +2734,7 @@ macro_rules! builtin_inquiry_table {
 
         /// Inquiry command to get the ND filter preset setting.
         NdFilterPresetInquiry => {
-            const ND_FILTER_PRESET = [0x81, 0x09, 0x04, 0x66];
+            const ND_FILTER_PRESET = [0x81, 0x09, 0x7E, 0x01, 0x53];
             kind: NdFilterPreset {
                 /// Current ND filter preset number.
                 preset: NdFilterPreset,
@@ -2801,8 +2752,8 @@ macro_rules! builtin_inquiry_table {
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
-            vendor_specific: false;
-            rationale: None;
+            vendor_specific: true;
+            rationale: Some("Sony FR7 NDPresetInq; the legacy 09 04 66 register is picture-flip state, not an FR7 ND-filter preset.");
             typed: (NdFilterPreset, { preset } => Ok(preset));
         }
 
@@ -3303,6 +3254,31 @@ fn require_nonempty(payload: &Payload<'_>) -> Result<(), Error> {
     Ok(())
 }
 
+/// Decode an unsigned wire level whose midpoint represents logical zero.
+fn decode_centered_level(raw: u8, center: u8, parameter: &'static str) -> Result<i8, Error> {
+    let maximum = center.saturating_mul(2);
+    if raw > maximum {
+        return Err(Error::InvalidParameter {
+            parameter,
+            value: Cow::Owned(format!("{raw:02X}")),
+            reason: Cow::Owned(format!(
+                "encoded value must be between 00 and {maximum:02X}"
+            )),
+        });
+    }
+    let raw = i8::try_from(raw).map_err(|_| Error::InvalidParameter {
+        parameter,
+        value: Cow::Owned(format!("{raw:02X}")),
+        reason: Cow::Borrowed("encoded value does not fit the signed decoder"),
+    })?;
+    let center = i8::try_from(center).map_err(|_| Error::InvalidParameter {
+        parameter,
+        value: Cow::Owned(format!("{center:02X}")),
+        reason: Cow::Borrowed("decoder midpoint does not fit the signed decoder"),
+    })?;
+    Ok(raw - center)
+}
+
 /// Decode the combined horizontal/vertical flip-state response shared by the
 /// two public inquiry names for `CAM_FlipInq`.
 fn decode_flip_state(payload: Payload<'_>) -> Result<Response, Error> {
@@ -3394,6 +3370,24 @@ fn decode_pan_tilt_position_with_codec(
 mod wire_decoder_regression_tests {
     use super::*;
     use crate::command::parse_inquiry_payload;
+
+    #[test]
+    fn centered_level_decoders_reject_out_of_range_nibbles_without_panicking() {
+        for (kind, parameter) in [
+            (InquiryKind::ExposureCompensation, "exposure_compensation"),
+            (InquiryKind::RedTuning, "red_tuning"),
+            (InquiryKind::BlueTuning, "blue_tuning"),
+        ] {
+            let response = parse_inquiry_payload(&[0x00, 0x00, 0x08, 0x04], &kind);
+            assert!(matches!(
+                response,
+                Err(Error::InvalidParameter {
+                    parameter: actual,
+                    ..
+                }) if actual == parameter
+            ));
+        }
+    }
 
     #[test]
     fn autofocus_sensitivity_uses_documented_wire_values() {

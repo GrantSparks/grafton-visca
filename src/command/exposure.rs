@@ -14,6 +14,10 @@ use crate::{
     visca_command,
 };
 
+/// Shared diagnostic vocabulary for the standard `04 39` command/inquiry
+/// family. Both direct requests and generated noun accessors use this label.
+pub(crate) const SHARED_EXPOSURE_MODE_FEATURE: &str = "shared exposure-mode family";
+
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -263,11 +267,6 @@ pub enum Brightness {
     Down,
     /// Set brightness to specific level.
     SetLevel(BrightnessLevel),
-    /// Set brightness directly (Bright Direct mode).
-    ///
-    /// This profile-gated operation is exposed only where the built-in
-    /// registry has source-backed brightness support.
-    Direct(BrightnessLevel),
 }
 
 impl WireEncode for Brightness {
@@ -294,15 +293,6 @@ impl WireEncode for Brightness {
                     .build_into(buffer)
             }
             Self::SetLevel(level) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(level.value());
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Direct(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
@@ -960,74 +950,6 @@ mod tests {
         Bright,
         test_bright_set_level_11,
         Brightness::SetLevel(BrightnessLevel::new(0x11).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x01,
-            0x01,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_00,
-        Brightness::Direct(BrightnessLevel::new(0x00).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_08,
-        Brightness::Direct(BrightnessLevel::new(0x08).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x00,
-            0x08,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_10,
-        Brightness::Direct(BrightnessLevel::new(0x10).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x01,
-            0x00,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_11,
-        Brightness::Direct(BrightnessLevel::new(0x11).unwrap()),
         &[
             0x81,
             0x01,

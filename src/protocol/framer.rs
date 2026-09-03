@@ -8,7 +8,7 @@
 
 use bytes::{Bytes, BytesMut};
 
-use crate::{command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, Error};
+use crate::{command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, Error, ViscaSocket};
 
 #[cfg(test)]
 use crate::protocol::sony::PayloadType;
@@ -33,6 +33,27 @@ pub enum FramingMode {
     /// received bytes and otherwise scans for a raw VISCA terminator.
     #[cfg(test)]
     AutoDetect,
+}
+
+/// The protocol identity visible in an incomplete raw response prefix.
+///
+/// Classification belongs beside the byte-stream framer so every owner gives
+/// the engine identical evidence at a correlation-release boundary (#723).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawIncompletePrefix {
+    /// The source byte (`0x9y..=0xFy`) arrived with no response-class byte.
+    SourceOnly,
+    /// `0x4y`: an ACK's nibble is an assignment preference, not an owner.
+    Ack,
+    /// `0x50`: socketless completion evidence.
+    SocketlessCompletion,
+    /// `0x60`: socketless error evidence.
+    SocketlessError,
+    /// `0x5y`/`0x6y` for one exact numbered socket.
+    NamedCompletionOrError(ViscaSocket),
+    /// Bytes cannot correlate to a raw request and therefore cannot revive or
+    /// bind a successor.
+    Noncorrelating,
 }
 
 /// A zero-copy, protocol-aware VISCA/Sony frame decoder.
@@ -246,8 +267,8 @@ impl ProtocolFramer {
     }
 
     /// Returns the number of bytes currently buffered but not yet parsed into complete frames.
-    #[cfg(test)]
-    pub fn buffered_len(&self) -> usize {
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) fn buffered_len(&self) -> usize {
         self.buf.len()
     }
 
@@ -262,15 +283,6 @@ impl ProtocolFramer {
     /// stream partial-frame state across reads.
     pub fn has_buffered_data(&self) -> bool {
         !self.buf.is_empty()
-    }
-
-    /// The first byte of input retained by the framer.
-    ///
-    /// Raw multi-target owners use the response source byte to keep a partial
-    /// frame for one camera when another camera's correlation hold expires.
-    #[cfg(feature = "async")]
-    pub(crate) fn buffered_first_byte(&self) -> Option<u8> {
-        self.buf.first().copied()
     }
 
     /// Whether the first retained raw input already has its frame terminator.
@@ -306,6 +318,32 @@ impl ProtocolFramer {
             .position(|&byte| byte == VISCA_TERMINATOR)
             .map_or(self.buf.len(), |terminator| terminator + 1);
         Ok(&self.buf[..first_input_len.min(2)])
+    }
+
+    /// Classify the first retained incomplete raw input once for both owner
+    /// shells, returning its source byte with the response-class evidence.
+    ///
+    /// Callers check [`Self::buffered_first_raw_input_is_complete`] first. An
+    /// empty buffer has no evidence and returns `None`.
+    pub(crate) fn buffered_raw_incomplete_prefix(
+        &self,
+    ) -> Result<Option<(u8, RawIncompletePrefix)>, Error> {
+        let prefix = self.buffered_first_two_raw_input_bytes()?;
+        let Some(&source) = prefix.first() else {
+            return Ok(None);
+        };
+        let kind = match prefix.get(1).copied() {
+            None => RawIncompletePrefix::SourceOnly,
+            // An ACK socket nibble is a preference for assigning a free
+            // socket, never evidence of who owns a named socket already.
+            Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
+            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
+            Some(0x60) => RawIncompletePrefix::SocketlessError,
+            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            Some(_) => RawIncompletePrefix::Noncorrelating,
+        };
+        Ok(Some((source, kind)))
     }
 
     /// Discard exactly the first retained raw frame, or the sole incomplete
@@ -504,6 +542,37 @@ mod tests {
             [0x90, 0x51]
         );
         assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+    }
+
+    #[test]
+    fn raw_incomplete_prefix_classifier_is_owner_independent() {
+        let cases: &[(&[u8], RawIncompletePrefix)] = &[
+            (&[0x90], RawIncompletePrefix::SourceOnly),
+            (&[0x90, 0x41], RawIncompletePrefix::Ack),
+            (&[0x90, 0x4f], RawIncompletePrefix::Ack),
+            (&[0x90, 0x50], RawIncompletePrefix::SocketlessCompletion),
+            (&[0x90, 0x60], RawIncompletePrefix::SocketlessError),
+            (
+                &[0x90, 0x51],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            ),
+            (
+                &[0x90, 0x62],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            ),
+            (&[0x90, 0x7f], RawIncompletePrefix::Noncorrelating),
+        ];
+
+        for &(bytes, expected) in cases {
+            let mut framer =
+                ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+            framer.push_slice(bytes).unwrap();
+            assert_eq!(
+                framer.buffered_raw_incomplete_prefix().unwrap(),
+                Some((0x90, expected)),
+                "bytes {bytes:02x?}",
+            );
+        }
     }
 
     #[test]
@@ -904,19 +973,19 @@ mod tests {
 
         let command_header = SonyHeader {
             payload_type: PayloadType::ControlCommand,
-            payload_length: 3,
+            payload_length: 1,
             sequence_number: 0x11223344,
         };
         let reply_header = SonyHeader {
             payload_type: PayloadType::ControlReply,
-            payload_length: 3,
+            payload_length: 2,
             sequence_number: 0x55667788,
         };
 
         let mut command = Vec::from(command_header.encode());
-        command.extend_from_slice(&[0x90, 0x50, VISCA_TERMINATOR]);
+        command.extend_from_slice(&[0x01]);
         let mut reply = Vec::from(reply_header.encode());
-        reply.extend_from_slice(&[0x90, 0x51, VISCA_TERMINATOR]);
+        reply.extend_from_slice(&[0x0F, 0x01]);
 
         let mut data = command.clone();
         data.extend_from_slice(&reply);

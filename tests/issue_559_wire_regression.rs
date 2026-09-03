@@ -75,16 +75,15 @@ fn rejects_trailing_payload<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) 
 }
 
 #[test]
-fn brightness_direct_paths_and_inquiry_match_the_04_4d_family() {
+fn brightness_set_and_inquiry_match_the_04_4d_family() {
     let level = BrightnessLevel::new(0x11).expect("brightness level is valid");
     let direct = [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF];
 
     assert_eq!(wire(&Brightness::SetLevel(level)), direct);
-    assert_eq!(wire(&Brightness::Direct(level)), direct);
     let mut camera_2_buffer = [0_u8; Brightness::MAX_SIZE];
-    let camera_2_written = Brightness::Direct(level)
+    let camera_2_written = Brightness::SetLevel(level)
         .write_into(CameraId::CAMERA_2, &mut camera_2_buffer)
-        .expect("camera 2 brightness direct must encode");
+        .expect("camera 2 brightness set must encode");
     assert_eq!(
         &camera_2_buffer[..camera_2_written],
         &[0x82, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF]
@@ -304,43 +303,6 @@ fn direct_noise_reduction_requests_reject_an_inquiry_only_runtime_profile() {
             "the control surface, not the independent inquiry surface, must gate requests"
         );
     }
-}
-
-#[test]
-fn a_mutable_profile_id_cannot_launder_the_legacy_nr3d_reply_domain() {
-    let source = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("legacy 30X profile");
-    let coordinates = source
-        .pan_tilt_coordinates()
-        .expect("legacy 30X pan/tilt conversion");
-    let mut capabilities = source.capabilities().clone();
-    assert_eq!(
-        capabilities.profile_id,
-        Some(grafton_visca::profiles::ProfileId::PtzOptics30X)
-    );
-    capabilities.model_name = "forged legacy NR domain".into();
-
-    let error = ProfileSpec::builder(capabilities)
-        .pan_tilt_coordinates(
-            coordinates.coordinate_system(),
-            coordinates.pan_degrees_to_units(),
-            coordinates.tilt_degrees_to_units(),
-        )
-        .pan_tilt_wire_codec(coordinates.wire_codec())
-        .transports(source.transports())
-        .envelope(source.envelope())
-        .timing(source.timing())
-        .maximum_command_sockets(source.maximum_command_sockets())
-        .supports_operation_complete(source.supports_operation_complete())
-        .supports_command_cancel(source.supports_command_cancel())
-        .preset_recall_axes(source.preset_recall_axes())
-        .position_inquiries(source.position_inquiries())
-        .build()
-        .expect_err("a built-in identity claim must require every registry profile fact");
-    assert!(matches!(
-        error,
-        Error::InvalidRequest(message)
-            if message == "built-in profile identity does not match runtime profile facts"
-    ));
 }
 
 #[test]

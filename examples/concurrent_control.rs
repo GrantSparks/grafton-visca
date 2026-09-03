@@ -15,7 +15,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     camera::{profiles::PtzOpticsG2, IdleWait},
     runtime::TokioRuntime,
-    AffectedAxes, Camera, Connect, Error, Session,
+    AffectedAxes, Camera, Connect, Error,
 };
 
 use support::finish_session;
@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|| "192.168.0.110".to_owned());
     let runtime = TokioRuntime::from_current()?;
     let session = Connect::open_tcp::<PtzOpticsG2, _>(&address, runtime).await?;
-    let result = concurrent_work(&session).await;
+    let result = concurrent_work(session.camera()).await;
     finish_session(result, session.close().await)?;
     Ok(())
 }
@@ -40,10 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// stop's. It covers the body's `Ok` and `Err` returns. A panic inside the
 /// body, or a caller dropping this future before it completes, would not reach
 /// the stop — a synchronous `Drop` guard is what covers those.
-async fn concurrent_work(session: &Session) -> Result<(), Error> {
-    let camera = session.camera::<PtzOpticsG2>()?;
-    let result = read_and_move(&camera).await;
-    let stopped = stop_zoom(&camera).await;
+async fn concurrent_work(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
+    let result = read_and_move(camera).await;
+    let stopped = stop_zoom(camera).await;
     result.and(stopped)
 }
 

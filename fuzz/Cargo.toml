@@ -8,12 +8,33 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-grafton-visca = { path = "..", default-features = false }
+grafton-visca = { path = "..", default-features = false, features = ["blocking", "test-utils"] }
 libfuzzer-sys = "0.4"
 
 [[bin]]
 name = "response_parser"
 path = "fuzz_targets/response_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "protocol_framer"
+path = "fuzz_targets/protocol_framer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sony_envelope"
+path = "fuzz_targets/sony_envelope.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "response_target"
+path = "fuzz_targets/response_target.rs"
 test = false
 doc = false
 bench = false

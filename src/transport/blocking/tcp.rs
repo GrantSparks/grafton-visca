@@ -1,7 +1,7 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use std::{
-    io::{BufReader, Read, Write},
+    io::{self, BufReader, Read, Write},
     net::TcpStream,
     time::{Duration, Instant},
 };
@@ -17,6 +17,29 @@ use crate::{
     },
     Error,
 };
+
+/// Whether this error is the timeout installed for one bounded read.
+///
+/// Unix reports an expired `SO_RCVTIMEO` as `EAGAIN` / `WouldBlock`, while
+/// `ETIMEDOUT` can instead be the connection-level result of exhausted TCP
+/// keepalives. Preserve that distinction so the owner can end a dead session
+/// promptly (#719). Other platforms may use `TimedOut` for the configured read
+/// deadline itself, so retain the portable historical mapping there.
+fn configured_read_deadline_expired(error: &io::Error) -> bool {
+    match error.kind() {
+        io::ErrorKind::WouldBlock => true,
+        io::ErrorKind::TimedOut => cfg!(not(unix)),
+        _ => false,
+    }
+}
+
+/// Whether one write failed because the scoped per-call timeout elapsed.
+fn configured_write_deadline_expired(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+    )
+}
 
 /// TCP transport for blocking VISCA communication.
 ///
@@ -70,7 +93,7 @@ impl Tcp {
     /// This method provides full control over connection and socket parameters.
     /// The address must include an explicit port.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        config.validate_buffer_bounds()?;
+        config.validate()?;
         let canonical_addr = canonicalize_endpoint(address, None)?;
         let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
@@ -125,25 +148,48 @@ impl HasTransportConfig for Tcp {
 }
 
 impl BlockingTransport for Tcp {
-    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
-        // Send directly - retry logic is handled at the runtime/scheduler level
-        self.writer.write_all(data)?;
-        self.writer.flush()?;
-        Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        // Read directly into the provided buffer
-        match self.reader.read(dst) {
-            Ok(0) => {
-                // Connection closed
-                Err(Error::ConnectionClosed {
-                    reason: Some("peer closed connection".into()),
-                })
+    fn send_with_timeout(
+        &mut self,
+        data: &[u8],
+        _kind: CommandKind,
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        let original_timeout = self.writer.write_timeout()?;
+        let started = Instant::now();
+        let mut written = 0;
+        let result = loop {
+            if written == data.len() {
+                break Ok(());
             }
-            Ok(n) => Ok(n),
-            Err(e) => Err(e.into()),
-        }
+
+            // `write_all` may grant every partial write a fresh socket timeout.
+            // Re-sample one fixed operation budget before each syscall instead.
+            let remaining = timeout.saturating_sub(started.elapsed());
+            if remaining.is_zero() {
+                break Err(Error::Timeout);
+            }
+            if let Err(error) = self.writer.set_write_timeout(Some(remaining)) {
+                break Err(error.into());
+            }
+
+            match self.writer.write(&data[written..]) {
+                Ok(0) => {
+                    break Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "TCP write made no progress",
+                    )
+                    .into());
+                }
+                Ok(count) => written += count,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) if configured_write_deadline_expired(&error) => {
+                    break Err(Error::Timeout);
+                }
+                Err(error) => break Err(error.into()),
+            }
+        };
+        self.writer.set_write_timeout(original_timeout)?;
+        result
     }
 
     fn recv_into_with_timeout(
@@ -166,12 +212,7 @@ impl BlockingTransport for Tcp {
                 })
             }
             Ok(n) => Ok(n),
-            Err(io_err)
-                if io_err.kind() == std::io::ErrorKind::TimedOut
-                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                Err(Error::Timeout)
-            }
+            Err(io_err) if configured_read_deadline_expired(&io_err) => Err(Error::Timeout),
             Err(io_err) => Err(io_err.into()),
         };
 
@@ -199,11 +240,22 @@ mod tests {
     use super::*;
     use crate::transport::BufferConfig;
 
+    #[test]
+    fn configured_read_deadline_keeps_unix_connection_timeout_distinct() {
+        assert!(configured_read_deadline_expired(&io::Error::from(
+            ErrorKind::WouldBlock
+        )));
+        assert_eq!(
+            configured_read_deadline_expired(&io::Error::from(ErrorKind::TimedOut)),
+            cfg!(not(unix)),
+            "Unix ETIMEDOUT must reach the owner as keepalive/session failure"
+        );
+    }
+
     fn invalid_buffer_config() -> TransportConfig {
         TransportConfig {
             buffer_config: BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             },
             ..TransportConfig::default()
@@ -219,7 +271,7 @@ mod tests {
             .expect("make listener nonblocking");
         let address = listener.local_addr().expect("listener address");
 
-        let accept_thread = thread::spawn(move || -> Result<bool, std::io::Error> {
+        let accept_thread = thread::spawn(move || -> Result<bool, io::Error> {
             let deadline = Instant::now() + Duration::from_millis(100);
             loop {
                 match listener.accept() {

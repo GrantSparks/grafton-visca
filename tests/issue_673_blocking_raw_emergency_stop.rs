@@ -1,18 +1,19 @@
 //! Issue #673: a blocking emergency stop must reach the wire on a raw profile
 //! even while the caller still holds an un-awaited operation handle.
 //!
-//! On raw VISCA the engine keeps at most one *unacknowledged* command in flight
-//! (the single-candidate gate), so a socketless ACK can never be misattributed.
+//! On raw VISCA the engine normally keeps one *unacknowledged* command in flight
+//! (the single-candidate gate), so a socketless ACK is never guessed.
 //! Before the fix, a second operation submitted while a first raw command was
 //! still awaiting its ACK lost the first-dispatch race and — under the
 //! operation handle's `RequireFirstWrite` contract — was rejected
 //! `Error::TransportBusy` with **zero** bytes on the wire, so
 //! `motion().stop_all_motion()` and typed `Urgent` stops (`ZoomStop`,
 //! `FocusStop`, `PanTiltStop`) could not reach a moving camera. The blocking
-//! owner now drains that pre-ACK gate by pumping the peer's ACK (bounded by the
-//! submitting request's own ACK budget), so a command socket frees and the
-//! stop's first write wins — while genuine socket-capacity contention still
-//! fails fast, as it must.
+//! owner drains that pre-ACK gate for ordinary ACK-bearing work. Issue #714
+//! gives intrinsic `Urgent` stops a different safety contract: they bypass the
+//! drain and write within physical pacing; if two raw candidates are then open,
+//! an ACK binds to neither. Genuine socket-capacity contention still fails
+//! fast, as it must.
 
 #![cfg(feature = "blocking")]
 
@@ -22,7 +23,7 @@ mod profile_fixtures;
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use grafton_visca::{
@@ -31,7 +32,7 @@ use grafton_visca::{
     completion::{AppliedOnly, Targeted},
     profile::ProfileSpec,
     raw::{self, RawReplyShape},
-    request::builtin::{FocusStop, ZoomDrive, ZoomStop},
+    request::builtin::{FocusStop, ZoomDrive},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     AffectedAxes, ControlClass, Error, RetryClass, TimeoutClass,
 };
@@ -84,16 +85,17 @@ impl HasTransportConfig for RawProbeTransport {
 }
 
 impl BlockingTransport for RawProbeTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         *self.writes.lock().expect("write count lock") += 1;
         for read in self.per_send.pop_front().unwrap_or_default() {
             self.reads.push_back(read);
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(
@@ -192,9 +194,16 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
         "the stop's first write wins once the drive's ACK frees a socket"
     );
 
-    // The session is still fully usable: the stop settles on its own frames.
-    stop.applied()
-        .expect("the stop settles on the live session");
+    // Both ACKs were observed while two positional candidates were open, so
+    // neither may be guessed. The physical stop still reached the camera.
+    assert!(matches!(
+        stop.applied(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert!(matches!(
+        _drive.applied(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
 
     session.shutdown().expect("owner shutdown");
 }
@@ -218,11 +227,13 @@ fn two_unawaited_operation_handles_both_win_their_first_write() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
+    let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
     let second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&second_request)
         .expect("second submission wins its first write via the pump");
     assert_eq!(
         write_count(&writes),
@@ -288,15 +299,17 @@ fn completion_only_raw_operations_do_not_drain_an_unacknowledged_peer() {
 }
 
 /// The issue's exact scenario: `motion().stop_all_motion()` reaches the wire
-/// while a drive handle is live. It submits and settles pan/tilt, zoom, and
-/// focus stops in turn; the first drains the drive's ACK.
+/// while a drive handle is live. It submits pan/tilt, zoom, and focus stops in
+/// turn; the first crosses the drive candidate, so its ACK outcome is
+/// deliberately unconfirmed while the later stops still settle.
 #[test]
 fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
     let (session, writes) = session(vec![
-        // send #1 (drive): its ACK, drained by the pan/tilt stop.
+        // send #1 (drive): its ACK remains queued until after the pan/tilt stop
+        // crosses the candidate gate.
         vec![ACK_SOCKET_ONE.to_vec()],
-        // send #2/#3/#4 (the three stops): each settles on socket two, which is
-        // free while the drive holds socket one.
+        // send #2 (pan/tilt): its ACK is ambiguous with the drive. After both
+        // requests time out, send #3/#4 settle normally.
         vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
         vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
         vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
@@ -310,15 +323,107 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
         .expect("drive submitted");
     assert_eq!(write_count(&writes), 1, "the drive is on the wire");
 
-    camera
-        .motion()
-        .stop_all_motion()
-        .expect("stop_all_motion reaches the wire and settles behind the live drive handle");
+    assert!(matches!(
+        camera.motion().stop_all_motion(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
     assert_eq!(
         write_count(&writes),
         4,
         "the drive plus the three stop commands are all on the wire"
     );
+
+    session.shutdown().expect("owner shutdown");
+}
+
+/// #714: after the predecessor's ACK deadline, its raw ambiguity quarantine is
+/// a bounded wait, not generic contention. The blocking first-write contract
+/// waits through that release and returns a live handle instead of refusing it
+/// with `TransportBusy`.
+#[test]
+fn ordinary_submit_waits_for_lost_ack_quarantine_instead_of_transport_busy() {
+    let (session, writes) = session(vec![
+        vec![],
+        vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
+    ]);
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let predecessor = camera
+        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .expect("predecessor reaches the wire");
+    let ordinary = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let submitted_at = Instant::now();
+    let successor = camera
+        .submit::<AppliedOnly, _>(&ordinary)
+        .expect("ordinary successor waits for the lost-ACK quarantine");
+    let elapsed = submitted_at.elapsed();
+
+    assert!(
+        elapsed >= Duration::from_millis(900),
+        "ordinary successor escaped before the ambiguity release: {elapsed:?}"
+    );
+    assert!(
+        elapsed < Duration::from_secs(2),
+        "bounded lost-ACK wait overran its release: {elapsed:?}"
+    );
+    assert_eq!(write_count(&writes), 2);
+    assert!(matches!(
+        predecessor.applied(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
+    successor
+        .applied()
+        .expect("successor settles after its delayed first write");
+
+    session.shutdown().expect("owner shutdown");
+}
+
+/// #714: an intrinsic Urgent stop never enters the blocking #673 pre-ACK
+/// drain. It writes within physical pacing even with a lost predecessor ACK;
+/// ACKs observed while both positional candidates are open bind to neither.
+#[test]
+fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
+    let (session, writes, reads) = session_with_counters(vec![
+        vec![],
+        vec![
+            ACK_SOCKET_ONE.to_vec(),
+            ACK_SOCKET_TWO.to_vec(),
+            COMPLETE_SOCKET_TWO.to_vec(),
+        ],
+    ]);
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let predecessor = camera
+        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .expect("predecessor reaches the wire");
+    let submitted_at = Instant::now();
+    let urgent = camera
+        .submit::<AppliedOnly, _>(&FocusStop)
+        .expect("urgent stop reaches the wire without an ACK drain");
+    let elapsed = submitted_at.elapsed();
+
+    assert!(
+        elapsed < Duration::from_millis(50),
+        "urgent first write exceeded its pacing bound: {elapsed:?}"
+    );
+    assert_eq!(write_count(&writes), 2);
+    assert_eq!(
+        read_count(&reads),
+        0,
+        "urgent submission must bypass the pre-ACK peer drain"
+    );
+    assert!(matches!(
+        urgent.applied(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert!(matches!(
+        predecessor.applied(),
+        Err(Error::UnsequencedCommandUnconfirmed)
+    ));
 
     session.shutdown().expect("owner shutdown");
 }
@@ -340,11 +445,14 @@ fn genuine_socket_capacity_contention_still_fails_fast() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
+    let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let third_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let _first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
     let _second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&second_request)
         .expect("second submission drains the first ACK and takes the other socket");
     assert_eq!(write_count(&writes), 2, "both sockets are now occupied");
 
@@ -352,7 +460,7 @@ fn genuine_socket_capacity_contention_still_fails_fast() {
     // command from awaiting-ACK to executing without releasing a socket. The
     // third submit must fail fast, immediately, with no third write.
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
+        .submit::<AppliedOnly, _>(&third_request)
         .expect_err("a third command under genuine contention must fail fast");
     assert!(
         matches!(error, Error::TransportBusy),

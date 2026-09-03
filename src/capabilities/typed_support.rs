@@ -6,249 +6,112 @@
 
 use std::fmt;
 
-/// Optional typed API surface backed by a profile support marker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "serde", serde(rename_all = "kebab-case"))]
-#[non_exhaustive]
-pub enum TypedSupportSurface {
-    /// Direct absolute zoom positioning.
-    DirectZoom,
-    /// VISCA digital zoom enable/disable command.
-    DigitalZoomToggle,
-    /// Absolute zoom positions in the optical-plus-digital range.
-    DigitalZoomRange,
-    /// Standard iris reset/up/down/direct controls and the `09 04 4B`
-    /// iris-position inquiry.
-    IrisControl,
-    /// Standard one-push auto focus trigger.
-    OnePushFocus,
-    /// PTZOptics snap focus command.
-    PtzOpticsSnapFocus,
-    /// Focus lock command.
-    FocusLock,
-    /// Sony push auto focus command.
-    PushAutoFocus,
-    /// Focus-zone selection command.
-    FocusZone,
-    /// Auto-focus sensitivity control and inquiry.
-    AutoFocusSensitivity,
-    /// Focus near-limit inquiry.
-    FocusNearLimitInquiry,
-    /// Backlight compensation control and inquiry.
-    BacklightCompensation,
-    /// Wide dynamic range control and inquiry.
-    WideDynamicRange,
-    /// Exposure compensation controls and inquiries.
-    ExposureCompensation,
-    /// Exposure brightness controls and inquiry.
-    BrightnessControl,
-    /// One-push white balance mode and trigger.
-    OnePushWhiteBalance,
-    /// Auto-tracking white balance mode.
-    AutoTrackingWhiteBalance,
-    /// Auto white-balance sensitivity control.
-    AutoWhiteBalanceSensitivity,
-    /// Color temperature controls and inquiry.
-    ColorTemperature,
-    /// Red/blue gain controls and inquiries.
-    RgbGain,
-    /// Red/blue tuning controls and inquiries.
-    RgbTuning,
-    /// Vertical image flip control and inquiry.
-    ImageFlip,
-    /// Horizontal image mirror control.
-    ImageMirror,
-    /// Combined image flip mode command.
-    CombinedImageFlip,
-    /// Contrast control and inquiry.
-    ContrastControl,
-    /// Sharpness control and inquiry.
-    SharpnessControl,
-    /// Saturation control and inquiry.
-    SaturationControl,
-    /// Hue control and inquiry.
-    HueControl,
-    /// Luminance control and inquiry.
-    LuminanceControl,
-    /// Gamma control and inquiry.
-    GammaControl,
-    /// 2D noise-reduction mode and level inquiries.
-    NoiseReduction2D,
-    /// 3D noise-reduction level inquiry.
-    NoiseReduction3D,
-    /// Picture-effect control and inquiry.
-    PictureEffect,
-    /// Tally light controls and inquiries.
-    Tally,
-    /// Direct menu controls.
-    DirectMenu,
-    /// ND filter controls and inquiries.
-    NdFilter,
-    /// Variable speed mode controls.
-    VariableSpeed,
-    /// Motion Sync controls and inquiries.
-    MotionSync,
-    /// Focus-zone inquiry.
-    ///
-    /// This is distinct from [`Self::FocusZone`], whose support covers the
-    /// selection command. Some profiles document the command but not the
-    /// matching status response.
-    FocusZoneInquiry,
-    /// USB audio control and inquiry.
-    UsbAudio,
-    /// PTZOptics anti-flicker control and inquiry.
-    PtzOpticsAntiFlicker,
-    /// PTZOptics persistent-settings save command.
-    PtzOpticsSettingsSave,
-    /// PTZOptics preset-recall speed control.
-    PtzOpticsPresetRecallSpeed,
-    /// Sony VISCA spotlight controls.
-    SonySpotlight,
-    /// Sony VISCA automatic slow-shutter controls.
-    SonyAutoSlowShutter,
-    /// PTZOptics multicast-streaming controls.
-    PtzOpticsMulticastStreaming,
-    /// PTZOptics NDI-quality control.
-    PtzOpticsNdiQuality,
-    /// Shared VISCA exposure-mode control and inquiry.
-    ExposureMode,
-    /// Standard `09 04 2B` iris auto/manual status inquiry.
-    ///
-    /// This remains distinct from [`Self::IrisControl`] because position and
-    /// status inquiries are independently documented profile surfaces.
-    IrisControlInquiry,
-    /// 2D noise-reduction mode and level controls.
-    ///
-    /// This is deliberately independent from [`Self::NoiseReduction2D`],
-    /// whose source-backed permission covers only inquiries.
-    NoiseReduction2DControl,
-    /// 3D noise-reduction level controls.
-    ///
-    /// This is deliberately independent from [`Self::NoiseReduction3D`],
-    /// whose source-backed permission covers only inquiries.
-    NoiseReduction3DControl,
+macro_rules! define_typed_support_marker {
+    (
+        DirectMenu,
+        $marker:ident,
+        $marker_doc:literal,
+        $diagnostic:literal
+    ) => {};
+    (
+        $surface:ident,
+        $marker:ident,
+        $marker_doc:literal,
+        $diagnostic:literal
+    ) => {
+        #[doc = $marker_doc]
+        #[diagnostic::on_unimplemented(
+            message = $diagnostic,
+            label = "profile does not implement the required typed-support marker",
+            note = "see the generated marker tables in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support"
+        )]
+        pub trait $marker {}
+    };
 }
 
-impl TypedSupportSurface {
-    /// All known typed support surfaces.
-    pub const ALL: [Self; 51] = [
-        Self::DirectZoom,
-        Self::DigitalZoomToggle,
-        Self::DigitalZoomRange,
-        Self::IrisControl,
-        Self::OnePushFocus,
-        Self::PtzOpticsSnapFocus,
-        Self::FocusLock,
-        Self::PushAutoFocus,
-        Self::FocusZone,
-        Self::AutoFocusSensitivity,
-        Self::FocusNearLimitInquiry,
-        Self::BacklightCompensation,
-        Self::WideDynamicRange,
-        Self::ExposureCompensation,
-        Self::BrightnessControl,
-        Self::OnePushWhiteBalance,
-        Self::AutoTrackingWhiteBalance,
-        Self::AutoWhiteBalanceSensitivity,
-        Self::ColorTemperature,
-        Self::RgbGain,
-        Self::RgbTuning,
-        Self::ImageFlip,
-        Self::ImageMirror,
-        Self::CombinedImageFlip,
-        Self::ContrastControl,
-        Self::SharpnessControl,
-        Self::SaturationControl,
-        Self::HueControl,
-        Self::LuminanceControl,
-        Self::GammaControl,
-        Self::NoiseReduction2D,
-        Self::NoiseReduction3D,
-        Self::PictureEffect,
-        Self::Tally,
-        Self::DirectMenu,
-        Self::NdFilter,
-        Self::VariableSpeed,
-        Self::MotionSync,
-        Self::FocusZoneInquiry,
-        Self::UsbAudio,
-        Self::PtzOpticsAntiFlicker,
-        Self::PtzOpticsSettingsSave,
-        Self::PtzOpticsPresetRecallSpeed,
-        Self::SonySpotlight,
-        Self::SonyAutoSlowShutter,
-        Self::PtzOpticsMulticastStreaming,
-        Self::PtzOpticsNdiQuality,
-        Self::ExposureMode,
-        Self::IrisControlInquiry,
-        Self::NoiseReduction2DControl,
-        Self::NoiseReduction3DControl,
-    ];
+macro_rules! define_typed_support_surfaces {
+    (
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    bit: $bit:literal,
+                    wire: $wire:literal,
+                    area: $area:literal,
+                    api: $api:literal,
+                    surface_doc: $surface_doc:literal,
+                    marker_doc: $marker_doc:literal,
+                    diagnostic: $diagnostic:literal,
+                },
+            )*
+        ]
+    ) => {
+        const TYPED_SUPPORT_SURFACE_COUNT: usize = [$($wire),*].len();
 
-    const fn bit(self) -> u64 {
-        1 << match self {
-            Self::DirectZoom => 0,
-            Self::DigitalZoomToggle => 1,
-            Self::DigitalZoomRange => 2,
-            Self::IrisControl => 3,
-            Self::OnePushFocus => 4,
-            Self::PtzOpticsSnapFocus => 5,
-            Self::FocusLock => 6,
-            Self::PushAutoFocus => 7,
-            Self::FocusZone => 8,
-            Self::AutoFocusSensitivity => 9,
-            Self::FocusNearLimitInquiry => 10,
-            Self::BacklightCompensation => 11,
-            Self::WideDynamicRange => 12,
-            Self::ExposureCompensation => 13,
-            Self::BrightnessControl => 14,
-            Self::OnePushWhiteBalance => 15,
-            Self::AutoTrackingWhiteBalance => 16,
-            Self::AutoWhiteBalanceSensitivity => 17,
-            Self::ColorTemperature => 18,
-            Self::RgbGain => 19,
-            Self::RgbTuning => 20,
-            Self::ImageFlip => 21,
-            Self::ImageMirror => 22,
-            Self::CombinedImageFlip => 23,
-            Self::ContrastControl => 24,
-            Self::SharpnessControl => 25,
-            Self::SaturationControl => 26,
-            Self::HueControl => 27,
-            Self::LuminanceControl => 28,
-            Self::GammaControl => 29,
-            // Bit 30 remains reserved for the removed aggregate NR surface,
-            // preserving persisted support-set encodings for every survivor.
-            Self::NoiseReduction2D => 31,
-            Self::NoiseReduction3D => 32,
-            Self::PictureEffect => 33,
-            Self::Tally => 34,
-            Self::DirectMenu => 35,
-            Self::NdFilter => 36,
-            Self::VariableSpeed => 37,
-            Self::MotionSync => 38,
-            Self::FocusZoneInquiry => 39,
-            Self::UsbAudio => 40,
-            Self::PtzOpticsAntiFlicker => 41,
-            Self::PtzOpticsSettingsSave => 42,
-            Self::PtzOpticsPresetRecallSpeed => 43,
-            Self::SonySpotlight => 44,
-            Self::SonyAutoSlowShutter => 45,
-            Self::PtzOpticsMulticastStreaming => 46,
-            Self::PtzOpticsNdiQuality => 47,
-            // Appended after all existing persisted support-set bits.
-            Self::ExposureMode => 48,
-            // Appended after all existing persisted support-set bits.
-            Self::IrisControlInquiry => 49,
-            // Appended after all existing persisted support-set bits.
-            Self::NoiseReduction2DControl => 50,
-            // Appended after all existing persisted support-set bits.
-            Self::NoiseReduction3DControl => 51,
+        /// Optional typed API surface backed by a profile support marker.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+        #[non_exhaustive]
+        pub enum TypedSupportSurface {
+            $(
+                #[doc = $surface_doc]
+                #[cfg_attr(feature = "serde", serde(rename = $wire))]
+                $surface,
+            )*
         }
-    }
+
+        impl TypedSupportSurface {
+            /// All known typed support surfaces in their canonical serde order.
+            pub const ALL: [Self; TYPED_SUPPORT_SURFACE_COUNT] = [
+                $(Self::$surface,)*
+            ];
+
+            const fn bit(self) -> u64 {
+                1 << match self {
+                    $(Self::$surface => $bit,)*
+                }
+            }
+
+            /// Returns the marker-trait spelling paired with this surface.
+            #[cfg(test)]
+            pub(crate) const fn marker_trait_name(self) -> &'static str {
+                match self {
+                    $(Self::$surface => stringify!($marker),)*
+                }
+            }
+
+            /// Returns the contributor-guide area for this surface.
+            #[cfg(test)]
+            pub(crate) const fn documentation_area(self) -> &'static str {
+                match self {
+                    $(Self::$surface => $area,)*
+                }
+            }
+
+            /// Returns the contributor-guide API description for this surface.
+            #[cfg(test)]
+            pub(crate) const fn documentation_api(self) -> &'static str {
+                match self {
+                    $(Self::$surface => $api,)*
+                }
+            }
+
+            /// Returns the stable serde spelling for this surface.
+            #[cfg(test)]
+            pub(crate) const fn wire_name(self) -> &'static str {
+                match self {
+                    $(Self::$surface => $wire,)*
+                }
+            }
+        }
+
+        $(define_typed_support_marker!($surface, $marker, $marker_doc, $diagnostic);)*
+    };
 }
+
+super::typed_support_registry::typed_support_registry!(define_typed_support_surfaces);
 
 /// Compact set of typed API surfaces supported by a profile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -437,27 +300,26 @@ mod tests {
     }
 
     #[test]
-    fn appended_noise_reduction_control_bits_preserve_existing_encodings() {
-        assert_eq!(
-            TypedSupportSet::from_surface(TypedSupportSurface::PtzOpticsNdiQuality).0,
-            1 << 47
-        );
-        assert_eq!(
-            TypedSupportSet::from_surface(TypedSupportSurface::ExposureMode).0,
-            1 << 48
-        );
-        assert_eq!(
-            TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry).0,
-            1 << 49
-        );
-        assert_eq!(
-            TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction2DControl).0,
-            1 << 50
-        );
-        assert_eq!(
-            TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction3DControl).0,
-            1 << 51
-        );
+    fn generated_private_bits_are_unique_and_dense() {
+        for (index, surface) in TypedSupportSurface::ALL.into_iter().enumerate() {
+            assert_eq!(
+                TypedSupportSet::from_surface(surface).0,
+                1_u64 << index,
+                "{surface:?} must use the generated bit matching its canonical position"
+            );
+        }
+    }
+
+    #[test]
+    fn generated_wire_names_are_unique_and_nonempty() {
+        let mut names = std::collections::BTreeSet::new();
+        for surface in TypedSupportSurface::ALL {
+            assert!(!surface.wire_name().is_empty());
+            assert!(
+                names.insert(surface.wire_name()),
+                "duplicate typed-support wire name for {surface:?}"
+            );
+        }
     }
 
     #[cfg(feature = "serde")]
@@ -592,6 +454,7 @@ mod tests {
         assert_eq!(TypedSupportSurface::ALL.len(), 51);
         assert_eq!(WIRE_SURFACES.len(), 51);
         for (wire_name, surface) in WIRE_SURFACES {
+            assert_eq!(surface.wire_name(), wire_name);
             let singleton_json = serde_json::to_string(&[wire_name])?;
             let decoded: TypedSupportSet = serde_json::from_str(&singleton_json)?;
             let expected = TypedSupportSet::from_surface(surface);

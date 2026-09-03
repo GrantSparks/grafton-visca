@@ -67,11 +67,18 @@ In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 
 ## Dynamic controls
 
-The dynamic surface is `DynSessionCamera` plus the object-safe
+The native blocking runtime-profile surface is `BlockingDynSessionCamera`.
+It erases the compile-time profile marker while retaining typed request values,
+synchronous results, blocking lifecycle handles, motion observation, state
+cache, and submission-class controls. The `dyn-api` feature does not imply
+`async`, so this projection adds no futures, executor, or async-runtime
+dependency.
+
+The async dynamic surface is `DynSessionCamera` plus the object-safe
 `DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
 and `DynMotion`. It also exposes `DynTargetedOperation`,
 `DynAppliedOperation`, and `DynCancellation`. Its checked inventory covers
-147 target-facing command methods and 62 typed inquiry methods, with the same
+146 target-facing command methods and 62 typed inquiry methods, with the same
 semantic classes as the static surface. Dynamic projection erases profile and
 request types only; it does not introduce another runtime, owner, cancellation,
 deadline, outcome, or settling policy. Because it carries no compile-time
@@ -86,9 +93,11 @@ the erased and static command/inquiry gate sets equal so the two cannot drift.
 The supported paths are:
 
 - `Connect` convenience construction for blocking TCP/UDP/serial and async
-  TCP/UDP/Tokio-serial, including its typed connection builders.
-- `CameraConfig` construction for the same supported profile/transport pairs,
-  with runtime-selected Tokio or smol async execution.
+  TCP/UDP/Tokio-serial. TCP/UDP return `CameraSession<P>`; serial returns the
+  multi-target `Session`. `Connect::open(TransportOptions)` is the
+  runtime-selected network form.
+- `CameraConfig` as the sole configurable standard-transport form, with
+  runtime-selected Tokio or smol async execution.
 - `blocking::Session::open` or async `Session::open` construction from a
   caller-owned transport and shared `SessionConfig`.
 - `Session` camera views and the explicit `raw` request escape hatches.
@@ -117,8 +126,9 @@ and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
 on the profile-bound `Camera` view (async `Camera<P>` or blocking
 `Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
-`submit` for typed operations, each with a `_with_submission_class` twin that
-names its ordinary-work `SubmissionClass`. A `CameraSession<P>` is the
+`submit` for typed operations. `with_submission_class` derives one camera view
+whose complete request/noun surface uses the selected ordinary-work
+`SubmissionClass`. A `CameraSession<P>` is the
 single-camera owner wrapper; its `camera()` method hands out that actual
 profile-bound `Camera` surface, while its submission-class helpers forward the
 default to that camera rather than defining a separate request API. Callers

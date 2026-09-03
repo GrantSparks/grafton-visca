@@ -54,7 +54,7 @@ fn test_error_retryability_consistency() {
 
     // These errors should always be retryable
     let retryable_errors = [
-        Error::CameraBusy,
+        Error::TransportBusy,
         Error::CommandPending,
         Error::CommandBufferFull,
         Error::Timeout,

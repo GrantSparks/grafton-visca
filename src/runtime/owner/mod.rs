@@ -13,6 +13,7 @@ mod async_transport;
 mod blocking;
 #[cfg(feature = "blocking")]
 mod blocking_transport;
+mod turn;
 
 #[cfg(feature = "async")]
 #[allow(unused_imports)]
@@ -29,8 +30,26 @@ pub(crate) use blocking_transport::*;
 
 #[allow(unused_imports)]
 pub(crate) use adapter::{
-    owner_policy_for_targets_with_tuning, profile_supports_transport, validate_profile_transport,
-    OwnerEnvelope, RoutingState, TargetRegistry,
+    decode_response_target, owner_policy_for_targets_with_tuning, profile_supports_transport,
+    validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
+};
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+use turn::{
+    clamp_receive_pause, transient_receive_pause, IdleReceiveRun, RawReleaseTurn, TransientFaultRun,
+};
+
+#[cfg(any(
+    all(test, feature = "blocking", not(feature = "async")),
+    all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+use turn::{
+    MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
+    TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
 
 use std::{
@@ -51,14 +70,14 @@ use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, Vis
 use super::engine::{
     AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Phase,
-    ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
-    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
-    TransmissionMeta,
+    DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
+    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use super::engine::{RawCorrelationReleaseSet, RawPrefixDisposition, RawPrefixEvidence};
+use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
 
 #[cfg(any(feature = "blocking", test))]
 use super::engine::FirstDispatch;
@@ -307,6 +326,8 @@ pub(crate) struct OwnerMetrics {
     pub(crate) busy_errors: u64,
     pub(crate) protocol_errors: u64,
     pub(crate) retries_scheduled: u64,
+    /// Valid decoded VISCA response frames observed from the peer.
+    pub(crate) received_frames: u64,
     pub(crate) ignored_unmatched_sequenced_replies: u64,
     /// Delimited frames a byte stream discarded as malformed while staying
     /// Running (#672). 1.x logged and continued on the same frames; this counter
@@ -350,6 +371,9 @@ pub(crate) enum ResponseDiagnostic {
     Error {
         socket: Option<ViscaSocket>,
         code: u8,
+    },
+    SonyControl {
+        code: u16,
     },
     NetworkChange,
     Unknown,
@@ -1359,16 +1383,6 @@ impl OwnerState {
     /// session facades perform those profile-safety checks before the update
     /// reaches this point.
     pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
-        // The engine's strict raw-command recovery policy is selected at
-        // construction and deliberately has no engine retune operation. Do
-        // not let an internal caller accidentally install a live value that
-        // claims a policy the engine cannot have adopted.
-        tuning.validate_runtime_reconfiguration()?;
-        let tuning = if self.policy.protocol.strict_unconfirmed_poison {
-            tuning.strict_unconfirmed_poison(true)
-        } else {
-            tuning
-        };
         let baseline = self.policy.baseline;
         let command_spacing = tuning
             .command_spacing_override()
@@ -1497,24 +1511,19 @@ impl OwnerState {
         self.engine.raw_correlation_releases_due(now)
     }
 
-    /// Delegates retained raw-prefix handling to the engine, which is the
-    /// sole authority for raw correlation policy.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn raw_prefix_disposition(
-        &self,
-        releases: RawCorrelationReleaseSet,
-        evidence: RawPrefixEvidence,
-    ) -> RawPrefixDisposition {
-        self.engine.raw_prefix_disposition(releases, evidence)
+    pub(crate) fn resolve_raw_release_gate(
+        &mut self,
+        now: Instant,
+        evidence: Option<RawPrefixEvidence>,
+    ) -> RawReleaseGateAction {
+        self.engine.resolve_raw_release_gate(now, evidence)
     }
 
-    /// The next engine wake that remains relevant while the blocking owner
-    /// suppresses ordinary ready dispatch (issue #673).  Protocol deadlines
-    /// and pending cancellation pacing still wake the owner; unrelated ready
-    /// work does not.
+    /// The next engine wake relevant to the selected turn boundary.
     #[cfg(feature = "blocking")]
-    pub(crate) fn next_wake_without_dispatch(&self) -> Option<Instant> {
-        self.engine.next_wake_without_dispatch()
+    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
+        self.engine.next_wake_for(turn)
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
@@ -1523,22 +1532,19 @@ impl OwnerState {
     }
 
     #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn admit_without_due(
+    pub(crate) fn input_with_turn(
         &mut self,
-        ticket: AdmissionTicket,
-        request: RuntimeRequest,
+        input: Input,
         now: Instant,
+        turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.engine.admit_without_due(ticket, request, now).into()
+        self.observe_input(&input);
+        self.engine.handle_turn(input, now, turn).into()
     }
 
     #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn first_dispatch_without_due(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-    ) -> FirstDispatch {
-        self.engine.first_dispatch_without_due(id, now)
+    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
+        self.engine.first_dispatch(id, now)
     }
 
     /// Terminalizes an admitted, still-unwritten request through the engine's
@@ -1546,20 +1552,17 @@ impl OwnerState {
     /// when socket capacity is unavailable, so the temporary observer receives
     /// the rejection and its shared admission permit is released immediately.
     #[cfg(feature = "blocking")]
-    pub(crate) fn reject_unwritten_without_due(
-        &mut self,
-        id: RequestId,
-        error: Error,
-    ) -> VecDeque<Effect> {
-        self.engine.reject_unwritten_without_due(id, error).into()
+    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> VecDeque<Effect> {
+        self.engine.reject_unwritten(id, error).into()
     }
 
     /// Whether the raw single-candidate pre-ACK gate alone blocks a new command
     /// on `target`, so pumping the pending ACK would free a socket for it
-    /// (issue #673). See [`super::engine::ProtocolEngine::raw_preack_gate_frees_socket_on_ack`].
+    /// (issue #673). See
+    /// [`super::engine::ProtocolEngine::raw_ack_input_may_enable_dispatch`].
     #[cfg(feature = "blocking")]
-    pub(crate) fn raw_preack_gate_frees_socket_on_ack(&self, target: CameraId) -> bool {
-        self.engine.raw_preack_gate_frees_socket_on_ack(target)
+    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
+        self.engine.raw_ack_input_may_enable_dispatch(target)
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1578,22 +1581,17 @@ impl OwnerState {
         self.engine.handle_in_turn(&turn.0, input).into()
     }
 
-    pub(crate) fn finish_input_turn(&mut self, turn: OwnerInputTurn) -> VecDeque<Effect> {
-        self.engine.finish_input_turn(turn.0).into()
-    }
-
-    /// End a decoded-input turn while retained stream input still has priority
-    /// over scheduler deadlines.
-    #[cfg(feature = "async")]
-    pub(crate) fn finish_input_turn_without_due(
+    pub(crate) fn finish_input_turn(
         &mut self,
         turn: OwnerInputTurn,
+        engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.engine.finish_input_turn_without_due(turn.0).into()
+        self.engine.finish_input_turn(turn.0, engine_turn).into()
     }
 
     fn observe_input(&mut self, input: &Input) {
         if let Input::Frame(frame) = input {
+            self.metrics.received_frames = self.metrics.received_frames.saturating_add(1);
             // Error frames are counted as the owner decodes them, so a camera
             // answering requests the engine can no longer correlate — the exact
             // case a field debugging session is trying to see — still shows up.
@@ -1619,34 +1617,37 @@ impl OwnerState {
         self.engine.advance(now).into()
     }
 
+    #[cfg(feature = "blocking")]
+    pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> VecDeque<Effect> {
+        self.engine.advance_turn(now, turn).into()
+    }
+
     pub(crate) fn finish_write(
         &mut self,
         staged: &StagedWrite,
         result: Result<TransmissionMeta, Error>,
         now: Instant,
     ) -> VecDeque<Effect> {
+        self.finish_write_turn(staged, result, now, EngineTurn::COMPLETE)
+    }
+
+    pub(crate) fn finish_write_turn(
+        &mut self,
+        staged: &StagedWrite,
+        result: Result<TransmissionMeta, Error>,
+        now: Instant,
+        turn: EngineTurn,
+    ) -> VecDeque<Effect> {
         self.observe_write(staged, &result);
         self.engine
-            .handle(
+            .handle_turn(
                 Input::TransmissionFinished {
                     transmission: staged.transmission,
                     result,
                 },
                 now,
+                turn,
             )
-            .into()
-    }
-
-    #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn finish_write_without_due(
-        &mut self,
-        staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
-        now: Instant,
-    ) -> VecDeque<Effect> {
-        self.observe_write(staged, &result);
-        self.engine
-            .finish_write_without_due(staged.transmission, result, now)
             .into()
     }
 
@@ -2285,6 +2286,7 @@ fn response_diagnostic(response: &DecodedResponse) -> ResponseDiagnostic {
             socket: *socket,
             code: *code,
         },
+        DecodedResponse::SonyControl { code } => ResponseDiagnostic::SonyControl { code: *code },
         DecodedResponse::NetworkChange => ResponseDiagnostic::NetworkChange,
         DecodedResponse::Unknown => ResponseDiagnostic::Unknown,
     }
@@ -2311,12 +2313,6 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
 
 fn boundary_error_for_input(input: &Input) -> Option<Error> {
     match input {
-        Input::Close { reason } => Some(Error::ConnectionClosed {
-            reason: reason.as_ref().map(|value| value.to_string().into()),
-        }),
-        Input::Poison { reason } => Some(Error::StreamPoisoned {
-            reason: reason.to_string().into(),
-        }),
         Input::Shutdown(reason) => Some(match reason {
             ShutdownReason::Explicit => Error::RuntimeShutdown,
             ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {
@@ -2347,20 +2343,43 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// for its ACK, burning whole retry budgets in milliseconds, and on the async
 /// owner it would spin the actor's transient-fault arm (#625, #637).
 ///
-/// Both owners therefore normalize these to "this read produced no frames" and
-/// keep pumping, which is what the blocking adapter has always done for
-/// [`Error::Timeout`].
+/// Both owners therefore normalize an explicit [`Error::Timeout`] and the
+/// non-fatal raw `WouldBlock` / `Interrupted` spellings to "this read produced
+/// no frames" and keep pumping. A raw `io::ErrorKind::TimedOut` is different:
+/// on a connected TCP socket it is the first error Linux commonly reports when
+/// keepalive exhausts, so it remains a fatal receive fault rather than being
+/// mistaken for an application-owned idle timer (#719).
 pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
     match error {
         Error::Timeout => true,
         Error::Io(io) => matches!(
             io.kind(),
-            std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::WouldBlock
-                | std::io::ErrorKind::Interrupted
+            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
         ),
         Error::WithContext { source, .. } => receive_reported_no_data(source),
         _ => false,
+    }
+}
+
+/// Retains a fatal receive cause without nesting the public
+/// `Connection closed:` display prefix inside a new `ConnectionClosed`.
+///
+/// Custom transports are allowed to report [`Error::ConnectionClosed`]
+/// directly. Both owners still normalize that event through their common
+/// shutdown input, so unwrap an existing close reason before constructing the
+/// canonical boundary error. Context wrappers are retained without restoring
+/// the redundant variant prefix (#729).
+pub(crate) fn transport_close_reason(error: &Error) -> Option<Box<str>> {
+    match error {
+        Error::ConnectionClosed { reason } => reason.as_deref().map(Box::<str>::from),
+        Error::WithContext { context, source } => {
+            let reason = match transport_close_reason(source) {
+                Some(source) => format!("{context}: {source}"),
+                None => context.to_string(),
+            };
+            Some(reason.into_boxed_str())
+        }
+        _ => Some(error.to_string().into_boxed_str()),
     }
 }
 
@@ -2406,11 +2425,13 @@ pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
         // that this connection itself is dead.
         Error::Io(io) => !matches!(
             io.kind(),
-            std::io::ErrorKind::ConnectionReset
+            std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::ConnectionReset
                 | std::io::ErrorKind::ConnectionAborted
                 | std::io::ErrorKind::BrokenPipe
                 | std::io::ErrorKind::UnexpectedEof
                 | std::io::ErrorKind::NotConnected
+                | std::io::ErrorKind::InvalidInput
         ),
         Error::WithContext { source, .. } => receive_fault_is_transient(source),
         _ => true,

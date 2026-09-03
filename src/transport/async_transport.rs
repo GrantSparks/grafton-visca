@@ -144,14 +144,16 @@ pub trait AsyncTransport: Send {
     ///   arrived. This is the recommended shape for a transport that must not
     ///   block indefinitely. The runtime treats it as "no data": the session
     ///   lives, framing state is untouched, and no request's retry budget is
-    ///   spent. The raw I/O spellings [`std::io::ErrorKind::TimedOut`],
-    ///   [`std::io::ErrorKind::WouldBlock`] and
+    ///   spent. The raw I/O spellings [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
-    ///   normalized to the same meaning.
+    ///   normalized to the same meaning. Use `Error::Timeout`, not a raw
+    ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
+    ///   a connected TCP socket can report the latter when OS keepalive
+    ///   exhausts, and the runtime treats that as session death.
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
-    ///   `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`
-    ///   or `NotConnected`. The runtime ends the session as
+    ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
+    ///   `UnexpectedEof` or `NotConnected`. The runtime ends the session as
     ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
     ///   its reason. A failed read consumed nothing, so it is not a stream
     ///   framing poison; [`Error::StreamPoisoned`] is reserved for an

@@ -23,14 +23,14 @@
 use std::thread;
 use std::time::Duration;
 
-use grafton_visca::blocking::{Connect, Session};
+use grafton_visca::blocking::{CameraSession, Connect};
 use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::types::{ContrastLevel, GammaLevel, LuminanceLevel};
 
 /// Delay between set and readback to allow camera processing.
 const SETTLE_DELAY: Duration = Duration::from_millis(500);
 
-fn connect() -> Option<Session> {
+fn connect() -> Option<CameraSession<PtzOpticsG2>> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
     let addr = format!("{ip}:5678");
     eprintln!("Connecting to camera at {addr}...");
@@ -44,7 +44,7 @@ fn test_gamma_round_trip() {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session.camera();
 
     // Step 1: Read current gamma
     let original = camera
@@ -106,7 +106,7 @@ fn test_contrast_round_trip() {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session.camera();
 
     let original = camera
         .image()
@@ -162,7 +162,7 @@ fn test_luminance_round_trip() {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session.camera();
 
     let original = camera
         .image()
@@ -222,7 +222,7 @@ fn test_all_image_processing_round_trips() {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
-    let camera = session.camera::<PtzOpticsG2>().expect("camera view");
+    let camera = session.camera();
 
     let mut passed = 0u32;
     let mut failed = 0u32;

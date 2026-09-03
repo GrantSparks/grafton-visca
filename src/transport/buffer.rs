@@ -33,9 +33,6 @@ pub struct BufferConfig {
     /// Initial buffer capacity for receive operations.
     pub recv_buffer_size: usize,
 
-    /// Initial buffer capacity for send operations.
-    pub send_buffer_size: usize,
-
     /// Maximum buffer size to prevent unbounded growth.
     pub max_buffer_size: usize,
 }
@@ -44,7 +41,6 @@ impl Default for BufferConfig {
     fn default() -> Self {
         Self {
             recv_buffer_size: DEFAULT_BUFFER_SIZE,
-            send_buffer_size: DEFAULT_BUFFER_SIZE,
             max_buffer_size: 8192, // 8KB max
         }
     }
@@ -55,7 +51,6 @@ impl BufferConfig {
     pub fn for_udp() -> Self {
         Self {
             recv_buffer_size: UDP_BUFFER_SIZE,
-            send_buffer_size: UDP_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -64,7 +59,6 @@ impl BufferConfig {
     pub fn for_sony_ip() -> Self {
         Self {
             recv_buffer_size: SONY_BUFFER_SIZE,
-            send_buffer_size: SONY_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -73,7 +67,6 @@ impl BufferConfig {
     pub fn for_raw_ip() -> Self {
         Self {
             recv_buffer_size: RAW_IP_BUFFER_SIZE,
-            send_buffer_size: RAW_IP_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -82,7 +75,6 @@ impl BufferConfig {
     pub fn for_serial() -> Self {
         Self {
             recv_buffer_size: SERIAL_BUFFER_SIZE,
-            send_buffer_size: SERIAL_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -109,14 +101,6 @@ impl BufferManager {
     #[cfg(all(feature = "blocking", test))]
     pub fn alloc_recv_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.recv_buffer_size)
-    }
-
-    /// Allocate a new send buffer.
-    /// Available for all transport configurations that need BytesMut.
-    /// Some transports don't need send buffers (they send data directly).
-    #[cfg(all(feature = "blocking", test))]
-    pub fn alloc_send_buffer(&self) -> BytesMut {
-        BytesMut::with_capacity(self.config.send_buffer_size)
     }
 
     /// Resize a buffer if needed, respecting max size limits.
@@ -149,7 +133,6 @@ mod tests {
     fn test_buffer_config_defaults() {
         let config = BufferConfig::default();
         assert_eq!(config.recv_buffer_size, DEFAULT_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, DEFAULT_BUFFER_SIZE);
         assert_eq!(config.max_buffer_size, 8192);
     }
 
@@ -157,14 +140,12 @@ mod tests {
     fn test_buffer_config_for_udp() {
         let config = BufferConfig::for_udp();
         assert_eq!(config.recv_buffer_size, UDP_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, UDP_BUFFER_SIZE);
     }
 
     #[test]
     fn test_buffer_config_for_sony_ip() {
         let config = BufferConfig::for_sony_ip();
         assert_eq!(config.recv_buffer_size, SONY_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, SONY_BUFFER_SIZE);
     }
 
     // These tests rely on BytesMut and blocking-only allocation helpers
@@ -175,9 +156,6 @@ mod tests {
 
         let recv_buf = manager.alloc_recv_buffer();
         assert_eq!(recv_buf.capacity(), DEFAULT_BUFFER_SIZE);
-
-        let send_buf = manager.alloc_send_buffer();
-        assert_eq!(send_buf.capacity(), DEFAULT_BUFFER_SIZE);
     }
 
     #[cfg(feature = "blocking")]

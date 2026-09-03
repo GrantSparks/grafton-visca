@@ -639,7 +639,8 @@ markdown_placeholder_forms=(
     '<del>Pending</del>'
     '\*Pending\*'
 )
-zero_width_pending=$'P\u200bending'
+zero_width=$(printf '\342\200\213')
+zero_width_pending="P${zero_width}ending"
 markdown_placeholder_forms+=("${zero_width_pending}")
 test "${#markdown_placeholder_forms[@]}" -eq 33
 
@@ -1006,7 +1007,6 @@ expect_extra_pass_claim_failure gate-placeholder-evidence "Status+Evidence table
 # The identity cell is provenance too: an unnamed future row or sign-off gate
 # cannot make a stable Pass claim, including when Markdown formatting hides a
 # placeholder.
-zero_width=$'\u200b'
 expect_extra_pass_claim_failure future-blank-id "ID is <empty>" "${future_header}" \
     "| | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
 expect_extra_pass_claim_failure future-placeholder-id "ID is N/A" "${future_header}" \

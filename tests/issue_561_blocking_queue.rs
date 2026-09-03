@@ -73,7 +73,12 @@ impl HasTransportConfig for TwoSocketTransport {
 }
 
 impl BlockingTransport for TwoSocketTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.writes
             .lock()
             .expect("writes lock")
@@ -90,10 +95,6 @@ impl BlockingTransport for TwoSocketTransport {
             self.responses.push_back(completion);
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(
@@ -236,7 +237,12 @@ impl HasTransportConfig for FirstWriteFailureTransport {
 }
 
 impl BlockingTransport for FirstWriteFailureTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sends = self.sends.saturating_add(1);
         self.probe
             .attempts
@@ -253,10 +259,6 @@ impl BlockingTransport for FirstWriteFailureTransport {
             .push(bytes.to_vec());
         self.queue_reply();
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(
@@ -334,7 +336,12 @@ impl HasTransportConfig for PacingTransport {
 }
 
 impl BlockingTransport for PacingTransport {
-    fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         let now = Instant::now();
         self.probe
             .attempts
@@ -352,10 +359,6 @@ impl BlockingTransport for PacingTransport {
         self.next_eligible = Some(now + self.minimum_spacing);
         self.queue_reply(bytes);
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_secs(1))
     }
 
     fn recv_into_with_timeout(

@@ -81,7 +81,12 @@ mod blocking_recovery {
     }
 
     impl BlockingTransport for StreamProbe {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             if self.writes_before_failure == 0 {
                 return Err(Error::Io(Arc::new(io::Error::new(
                     io::ErrorKind::BrokenPipe,
@@ -94,10 +99,6 @@ mod blocking_recovery {
             self.responses.push_back(vec![source, 0x41, 0xff]);
             self.responses.push_back(vec![source, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(dst, Duration::from_millis(1))
         }
 
         fn recv_into_with_timeout(

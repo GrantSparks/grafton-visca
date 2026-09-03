@@ -304,7 +304,7 @@ mod tokio_impl {
             F: FnOnce(tokio::runtime::Handle, String, UdpSocketConfig) -> Fut,
             Fut: Future<Output = Result<T, Error>>,
         {
-            cfg.validate_buffer_bounds()?;
+            cfg.validate()?;
             let address = canonicalize_endpoint(addr, None)?;
             setup(
                 self.executor.handle().clone(),
@@ -368,7 +368,7 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            cfg.validate_buffer_bounds()?;
+            cfg.validate()?;
             // Run the connector on this runtime's handle rather than the
             // ambient task's Tokio context. The resulting stream is then
             // owned by the actor this same runtime spawns.
@@ -430,7 +430,6 @@ mod tokio_impl {
             TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()
@@ -506,7 +505,6 @@ mod tokio_impl {
             .if_clear_on_connect(false)
             .buffer_config(BufferConfig {
                 recv_buffer_size: 65,
-                send_buffer_size: 64,
                 max_buffer_size: 64,
             });
 
@@ -689,7 +687,7 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            cfg.validate_buffer_bounds()?;
+            cfg.validate()?;
             // Timeout is enforced at the connector layer (single source of truth)
             TcpTransport::connect_with_config(addr, cfg).await
         }
@@ -699,7 +697,7 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            cfg.validate_buffer_bounds()?;
+            cfg.validate()?;
             // Timeout is enforced at the connector layer (single source of truth)
             UdpTransport::connect_with_config(addr, cfg).await
         }
@@ -714,7 +712,6 @@ mod smol_impl {
             TransportConfig {
                 buffer_config: BufferConfig {
                     recv_buffer_size: 65,
-                    send_buffer_size: 64,
                     max_buffer_size: 64,
                 },
                 ..TransportConfig::default()

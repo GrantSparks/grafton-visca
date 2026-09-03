@@ -4,6 +4,25 @@
 supported destination for applications migrating from pre-2.0 vocabulary; the
 historical names are not part of the 2.0 contract.
 
+## First compile break: control calls return operation handles
+
+Movement and other lifecycle-bearing control methods no longer return a bare
+`Result<()>`. They return a `#[must_use] Result<Operation<K>>` on the blocking
+facade, or an async future yielding that result. The handle is the authority to
+observe application, wait for profile-selected settlement, cancel, or detach.
+
+| 1.x pattern | 2.0 pattern |
+| --- | --- |
+| `camera.pan_tilt_home().await?;` | `camera.pan_tilt().home().await?.applied().await?;` |
+| `camera.zoom_stop()?;` | `camera.zoom().stop()?.applied()?;` |
+| Fire a command and later cancel by command/socket ID | Keep the returned `Operation<K>` and call `cancel()` on that handle. |
+| Ignore a successful control return | Bind the handle and explicitly call `applied()`, `settled()`, `cancel()`, or `detach()`; `#[must_use]` makes an accidental drop visible. |
+
+This applies across pan/tilt, zoom, focus, presets, iris, and ND-filter
+operations—not only normalized zoom. A completed VISCA command is not always a
+physical-rest observation; choose `settled()` only when the profile supplies
+the required position inquiry and that distinction matters.
+
 ## Construction and feature selection
 
 | 1.x category | 2.0 destination |
@@ -15,10 +34,12 @@ historical names are not part of the 2.0 contract.
 | Legacy `Connect`/`CameraConfig` single-target shortcuts | Keep the convenience path, but use `SessionConfig` when configuration must be cloned, reused, or shared across targets. |
 | Direct `Camera::new_*`, `open_*` compatibility constructors | `Connect`/`CameraConfig` for standard transports; `Session::open` for a caller-owned transport. |
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
-| `CameraVariant` and root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. |
+| Root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. (`CameraVariant` had already been removed before the 1.x oracle used for this guide.) |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
-| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect`, `CameraConfig`, or `Connect::builder()` for standard transports; `Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
-| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; reach for `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config)` only when you drive the transport yourself. |
+| `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
+| Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
+| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). |
+| Preview-only `BufferConfig::send_buffer_size` / `NetTransportBuilder::send_buffer_size` | Removed before rc.1 because neither affected production allocation. Owner transmit buffers are fixed and reused at protocol-bounded capacity; configure only receive/framing memory with `recv_buffer_size` and `max_buffer_size`. |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are
@@ -44,6 +65,7 @@ by `cfg(mode-async)` on the exported items rather than by a check.
 | `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime |
 | blocking XOR async, enforced by `cfg` | `blocking` and `async` are independent and **co-enableable** in one build |
 | `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ pure engine/domain layers only |
+| `transport-serial` did not select an explicit blocking feature | `transport-serial` now enables `blocking`; use `transport-serial-tokio` for async Tokio serial |
 
 So one 2.0 build can expose both `grafton_visca::Camera` (async) and
 `grafton_visca::blocking::Camera`. If you relied on 1.x's implicit-blocking
@@ -70,16 +92,16 @@ Nothing about the deprecation is salvageable as a mechanical rename — the
 constructors, the ownership model, and the noun surface all changed — so
 migrate from wherever you are now:
 
-* `BlockingClient` for one camera → `blocking::Connect::open_tcp_camera::<P>`
-  or `open_udp_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_camera`), and, under `transport-serial`,
-  `blocking::Connect::open_serial_camera::<P>` (configured form:
-  `blocking::CameraConfig::<P>::open_serial_camera`). All return
+* `BlockingClient` for one network camera →
+  `blocking::Connect::open_tcp::<P>` or `open_udp::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open`). These return
   `blocking::CameraSession<P>`; `session.camera()` is the noun view and takes
   no turbofish.
-* `BlockingClient` for several cameras → `blocking::Connect::open_tcp` /
-  `open_udp`, which return `blocking::Session`, then
-  `session.camera_for::<P>(target)` per target.
+* `BlockingClient` for cameras on a serial bus → under `transport-serial`,
+  `blocking::Connect::open_serial::<P>` (configured form:
+  `blocking::CameraConfig::<P>::open_serial`). These return
+  `blocking::Session`; select each registered address with
+  `session.camera_for::<P>(target)`.
 * A caller-owned transport → `blocking::Session::open(transport, config)`, or
   `blocking::CameraSession::open(transport, &CameraConfig::<P>::new())` for the
   single-camera bind.
@@ -101,16 +123,100 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `DynSessionCameraControl` plus `DynSessionCameraNouns`. |
 | `DynPanTiltControl`, `DynZoomControl`, `DynFocusControl`, `DynPresetsControl`, and `DynMotionControl` | `DynPanTilt`, `DynZoom`, `DynFocus`, `DynPresets`, and `DynMotion`. The final dynamic surface also has `DynPower`, `DynSystem`, `DynExposure`, `DynWhiteBalance`, `DynImage`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`, and `DynAdvanced`. |
-| `IntoDynCamera` and wrapper-specific dynamic constructors | `DynSessionCamera::from_session` or `from_session_target`. |
+| `IntoDynCamera` and wrapper-specific dynamic constructors | Async: `Session::camera_dyn` / `camera_dyn_for`, or `DynSessionCamera::from_session` / `from_session_target`. Blocking runtime profiles: the same session selectors, returning `BlockingDynSessionCamera`. |
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
-| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | The `menu()` noun: `menu().display(true)` / `menu().display(false)` for explicit open/close, `menu().status()` to read whether it is open, and `menu().navigate(...)` / `menu().select()` for cursor control. There is no single toggle; choose the state explicitly. |
+| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
 | Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | Same names on `zoom()`: `zoom().set_normalized(UnitInterval)` and `zoom().set_normalized_in_domain(UnitInterval, ZoomDomain)`. They are now **targeted operations** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 
 Dynamic views remain async and object-safe. They erase profile/request types but
 share the static session's owner, timeout, pacing, cancellation, and state
 cache. There is no dynamic policy layer that can bypass static preparation.
+
+### Pan/tilt widths and explicit profile gates
+
+Raw pan/tilt coordinates are `i32` in 2.0 so the BRC-300's documented signed
+20-bit pan field can be represented without truncation. This changes
+`PanTiltPosition`, `PanTiltPositionRaw`, the pan/tilt field of
+`MovementTolerance`, inquiry payloads, `PanTiltExt::{validate_pan,validate_tilt}`,
+`ProfileSpecBuilder::pan_tilt`, `Capabilities::{pan_range,tilt_range}`, and
+`PanTilt::{PAN_RANGE,TILT_RANGE}` (including every built-in profile constant).
+Code that persisted `i16` remains value-compatible after an explicit widening;
+generic signatures and custom profile implementations must change their type to
+`i32`. Use checked narrowing only when talking to a standard 16-bit profile.
+`Error::CameraMoving` does not need a width migration because that unused
+variant is removed in 2.0 (#722).
+
+Each profile also selects a `PanTiltWireCodec`. Do not assume that every
+VISCA-compatible model uses the common two-speed/four-plus-four-nibble layout;
+the profile owns coordinate widths, signedness, axis polarity, and framing.
+
+Optional typed controls now name the exact evidence boundary:
+
+| 1.x/broad assumption | 2.0 bound or action |
+| --- | --- |
+| Exposure-mode methods were available through broad exposure support | Add `HasExposureMode`; `SonyFR7` intentionally does not implement it because its documented family is different. |
+| `iris_control()` followed the standard iris-control marker | Add `HasIrisControlInquiry`. No built-in profile opts into the ambiguous `09 04 2B` status inquiry; standard iris position/control remains under `HasIrisControl` where documented. |
+| One focus-zone marker covered command and inquiry | The inquiry requires `HasFocusZoneInquiry`. Only `PtzOpticsG2` and the legacy `PtzOptics30X` profile carry it; `PtzOpticsG3` and `SonyFR7` no longer compile for this unsourced inquiry. |
+| Aggregate noise-reduction support implied setters and inquiries | Use `HasNoiseReduction2D` / `HasNoiseReduction3D` for inquiries and the matching `*Control` markers for setters, as detailed below. |
+| PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
+| Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
+| USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
+| `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
+| `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
+
+### Wire corrections and removed ambiguous inquiries
+
+2.0 deliberately does not preserve several incorrect 1.x byte sequences. The
+complete audited delta is recorded in the
+[CHANGELOG wire-corrections table](../CHANGELOG.md#changed); the migrations a
+caller can observe directly are:
+
+| 1.x assumption | 2.0 destination |
+| --- | --- |
+| Autofocus sensitivity Low/Normal/High encoded as `00/01/02` | The sourced wire values are `03/02/01`. Keep semantic enum values in application state rather than treating an integer cast as a stable wire code. |
+| Bright Direct used `04 0D`, and the 2.0 preview exposed byte-identical `Brightness::SetLevel` / `Brightness::Direct` variants | Use only `Brightness::SetLevel` or the noun method `brightness_set`. They encode the sourced direct register `04 4D`; `Brightness::Direct` and `brightness_direct` are removed, while `04 0D` remains only the reset/up/down family. |
+| UpRight limit corner was `03` | It is `01` in limit set and clear frames. |
+| Focus-zone inquiry was `09 04 3C` | It now matches the focus-zone register at `09 04 AA`. |
+| Picture-effect inquiry was `09 04 32` | It is `09 04 63`. |
+| USB-audio inquiry was `09 04 7A`, and on was decoded as `03` | It is the vendor frame `2A 02 A0 04`; `02` means on and `03` means off. |
+| A final data byte of `FF` doubled as the terminator | Preset 255 and Direct Menu values ending in `FF` now contain both the data byte and a separate terminating `FF`. Direct Menu rejects `FF` followed by an address byte because that sequence would begin a second frame. |
+| `TiltSpeed` stopped at `0x14` for every camera | The value type admits through `0x18`; the selected profile still rejects values above its own limit. PTZOptics remains capped at `0x14`, while BRC-300 position framing allows one `VV` through `0x18`. |
+| 2D/3D noise-reduction level zero was invalid | Zero is the sourced off value. The admitted domains are `0..=5` for 2D and `0..=8` for 3D, subject to profile support. |
+| Sony device-setting/control payload types were `01 02`, `01 20`, `01 21` | The R7 header types are `01 20`, `02 00`, `02 01`. This affects custom-envelope code that inspected raw Sony headers. |
+
+If an application persisted `AutoFocusSensitivity as u8`, migrate stored
+values before constructing the 2.0 enum:
+
+| Stored 1.x integer | Semantic setting | 2.0 wire value |
+| ---: | --- | ---: |
+| `0` | Low | `3` |
+| `1` | Normal | `2` |
+| `2` | High | `1` |
+
+Serde's named `low` / `normal` / `high` forms do not need translation. Do not
+feed an old integer directly to the 2.0 wire decoder: old `1` meant Normal but
+now decodes as High, and old `2` meant High but now decodes as Normal.
+
+The BRC-300 profile keeps its R12-specific position grammar:
+`8x 01 06 02/03 VV 00 0Y 0Y 0Y 0Y 0Y 0Z 0Z 0Z 0Z FF`. It is not the common
+two-speed `VV WW` layout. Since the public request still accepts separate pan
+and tilt speed wrappers, pass equal values for BRC-300 absolute/relative
+positions; unequal values are rejected rather than silently discarding one.
+
+The source audit also removed public names whose registers or meanings were
+not established:
+
+| Removed 1.x API | 2.0 migration |
+| --- | --- |
+| `ResolutionInquiry`, `ResolutionMode`, `image().resolution()` | No typed replacement. The claimed `09 04 63` register is the sourced Picture Effect inquiry. Use a model-specific `raw::Inquiry` only when that camera's documentation establishes a resolution query. |
+| `BlackWhiteInquiry`, `BlackWhiteModeInquiry`, `BlackWhiteMode`, `image().black_white*` | Use `image().picture_effect()` when BlackAndWhite/Off is what the profile documents. Otherwise use a model-specific raw inquiry with evidence. |
+| `NrLevelInquiry`, `NrModeInquiry`, `NrSpeedInquiry`, `NoiseReductionLevel`, `NoiseReductionMode`, `NoiseReductionSpeed` and aggregate NR accessors | Use the dimension-specific 2D-mode, 2D-level, and 3D-level API described below. |
+| `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}` | Built-ins expose only sourced `Off` and `BlackAndWhite` names. Use `PictureEffectMode::Unknown(raw)` only when the selected model's documentation establishes that raw value. |
+
+These are breaking source and wire corrections, not aliases: code that names a
+removed item must choose the model-specific behavior it intended.
 
 ### Noise-reduction controls and independent gates
 
@@ -183,7 +289,7 @@ ND-filter position inquiries.
 | Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::Plain` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
 | Caller-selected lifecycle IDs, retry class, target, or settlement metadata | Owner-derived preparation metadata. Callers select a request, a timeout, and a scheduling class; they do not select protocol identity or queue positions. |
-| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `*_with_submission_class` / `set_submission_class` surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
+| `runtime::Priority` and the `*_priority` camera methods | `SubmissionClass` and the `with_submission_class` / `set_submission_class` camera-view surface. `ControlClass::Urgent` is now intrinsic safety metadata, not caller QoS. See [Submission priority](#submission-priority). |
 
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
@@ -214,29 +320,33 @@ can move ordinary traffic among the lower three lanes but cannot cross that
 safety boundary. On the blocking facade this holds even on a raw profile while a
 caller still holds an un-awaited operation handle: the emergency stop's first
 write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
-gate, because the owner pumps the pending ACK to free a command socket first
-(#673). Only genuine socket-capacity contention — every command socket occupied
-by a distinct in-flight command — still fails a blocking operation submit fast
-with `TransportBusy`.
+gate. Ordinary ACK-bearing work still uses the bounded #673 ACK drain, but an
+intrinsically `Urgent` stop bypasses that drain and may create one explicit
+two-candidate safety-lane state (#714). An ACK observed while both raw
+candidates are open binds to neither; either operation may therefore report
+`UnsequencedCommandUnconfirmed` even though the stop bytes reached the camera.
+Only genuine socket-capacity contention — every command socket occupied by a
+distinct in-flight command — still fails a blocking operation submit fast with
+`TransportBusy`.
 
 | 1.x call | 2.0 call |
 | --- | --- |
 | `camera.set_command_priority(Priority::Low)` | `camera.set_submission_class(Some(SubmissionClass::Background))` |
 | `camera.command_priority()` | `camera.submission_class()` — returns `Option<SubmissionClass>`, where `None` means "use each request's intrinsic class" |
-| `camera.execute_with_priority(cmd, Priority::High)` | `camera.execute_with_submission_class(&cmd, SubmissionClass::User)` |
+| `camera.execute_with_priority(cmd, Priority::High)` | `camera.with_submission_class(SubmissionClass::User).execute(&cmd)` |
 | `camera.execute_with_priority(stop, Priority::Critical)` | Submit the typed stop normally; it is intrinsically `ControlClass::Urgent`. |
-| — (no 1.x equivalent) | `camera.inquire_with_submission_class(&inquiry, class)` and `camera.submit_with_submission_class::<K, _>(&operation, class)` |
+| — (no 1.x equivalent) | `camera.with_submission_class(class)` derives a view whose `execute`, `inquire`, `submit`, and noun methods all use that ordinary-work class. |
 | `BlockingClient` priority methods | The same names on `blocking::Camera`; `blocking::CameraSession` exposes forwarding default helpers and returns that `Camera` from `camera()` |
-| — (no 1.x equivalent) | `DynSessionCamera::execute_with_submission_class`, `inquire_with_submission_class`, `submit_targeted_with_submission_class`, `submit_applied_with_submission_class`, and `set_submission_class` |
+| — (no 1.x equivalent) | `with_submission_class` and `set_submission_class` are identical on typed, dynamic async, and native blocking dynamic camera views. |
 
 Three behavioural differences are worth reading before porting:
 
 - **No public QoS override can weaken an urgent request.** A handle set to
-  `Background`, and even a per-submission
-  `SubmissionClass::Background`, still submits `PanTiltStop`, `ZoomStop`,
+  `Background`, and a view derived with
+  `with_submission_class(SubmissionClass::Background)`, still submits `PanTiltStop`, `ZoomStop`,
   `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
-  `Urgent` variant, and the raw escape hatch's `raw::Policy` / `raw::Spec` reject
+  `Urgent` variant, and the raw escape hatch's `raw::Policy` rejects
   `ControlClass::Urgent` at construction (a raw caller who needs preemption
   issues the typed stop instead). The urgent lane is reachable only by the
   crate's own stops and owner-issued cancellation.
@@ -430,6 +540,37 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
 | 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
 
+### Removed compatibility and helper vocabulary
+
+Several 1.x names described implementation machinery rather than a stable
+camera operation. They have no name-preserving alias in 2.0:
+
+| 1.x API | 2.0 destination |
+| --- | --- |
+| `mode::{Mode, Blocking, Async}` and the public `mode` module | Select the `blocking` and/or `async` Cargo feature and use `blocking::Camera<P>` or async `Camera<P>`. The two facades can coexist; mode is no longer a camera type parameter. |
+| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<'session, Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
+| Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
+| `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
+| `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
+| `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Raw values still carry explicit timeout, retry, control, and reply-shape policy. |
+| `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<completion::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnly`, then call `submit::<completion::AppliedOnly, _>`. |
+| `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder and `InquiryRoute`; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
+| `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
+| Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
+| `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
+| `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure is normalized to `RuntimeShutdown`; actual session death is `ConnectionClosed` or `StreamPoisoned`. Prefer `requires_new_session()` for the recovery decision. |
+| `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout`; VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
+
+Retained public protocol values also changed shape:
+
+| 1.x/earlier RC call | 2.0 call |
+| --- | --- |
+| `DirectMenuControl::new(control1, control2)` returning the value directly | `DirectMenuControl::new(control1, control2)?`; the constructor rejects a data `FF` followed by an address byte because that would begin a second VISCA frame. |
+| `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. |
+| Earlier 2.0 RC matching on `FrameSequence::Lower16(value)` | Match `FrameSequence::MaybeTruncated(value)`. A zero upper half does not prove truncation; the new name preserves that uncertainty while `value()` still returns the numeric value. |
+| Tuple construction or one-field matching of `ZoomTarget(position)` | `ZoomTarget::new(position)` for a raw target, or `ZoomTarget::from_normalized(value, domain, profile)?` when normalization provenance must survive until profile validation. |
+| `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
+
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
 registry. `test-utils` is for deterministic tests, not production construction.
@@ -506,13 +647,12 @@ your own deadline) rather than from tuning.
 
 Two differences matter in practice.
 
-**The runtime-mutable fields are replaced whole, not merged.** Any mutable field
-left unset returns to the profile default rather than keeping a value an earlier
-call installed. Build the complete set of mutable `OperationalTuning` overrides
-each time. `strict_unconfirmed_poison` is the construction-only exception: an
-explicit `true` or `false` is rejected by `set_tuning`, while leaving it unset
-retains the session's construction-time policy and reports that retained value
-through `Session::tuning`.
+**Runtime tuning is replaced whole, not merged.** Any field left unset returns
+to the profile default rather than keeping a value an earlier call installed.
+Build the complete `OperationalTuning` value each time. Construction-only raw
+recovery policy no longer masquerades as one of those mutable fields: configure
+it with `SessionConfig::with_strict_unconfirmed_poison` (or the matching
+`CameraConfig` builder) before opening. `Session::tuning` reports tuning only.
 
 **In-flight work is not re-timed.** 1.2.0 recomputed deadlines on every
 housekeeping pass, so widening `ack_timeout` also rescued a command that was
@@ -565,18 +705,60 @@ expect every cache entry to start `Unknown`. Re-query camera state explicitly;
 the owner never automatically resubmits commands. Old handles must report the
 old owner's terminal/closed outcome and cannot be rebound to the new owner.
 
-Classify the terminal condition with `Error::requires_new_session()` rather than
-matching `ErrorKind::IoClosed` or individual variants. Transport close, explicit
-shutdown, and poison are deliberately distinct errors that share one kind, so
-the kind alone cannot tell a field disconnect apart from a shutdown this
-application requested:
+Classify positive session-death evidence with `Error::requires_new_session()`
+rather than matching `ErrorKind::IoClosed` or individual variants. Transport
+close, explicit shutdown, and poison are deliberately distinct errors that
+share one kind, so the kind alone cannot tell a field disconnect apart from a
+shutdown this application requested. Correlation uncertainty now has the
+dedicated `ErrorKind::Unconfirmed`; it is still not permission to replay. The
+canonical event × envelope × transport table lives in the
+[`error` module](../src/error.rs); this shorter recovery view highlights the
+outcomes most likely to cause an incorrect reconnect or retry loop:
 
-| Terminal condition | Error | `requires_new_session()` |
-| --- | --- | --- |
-| The peer closed the connection | `ConnectionClosed` | `true` |
-| The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable raw command | `StreamPoisoned` | `true` |
-| A sent raw command's outcome cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity, including an ACK deadline that expires after a receive fault while awaiting ACK, or active retry-budget expiry in `Sending`/`AwaitingAck`/`AwaitingCompletion`/`Executing`) | `UnsequencedCommandUnconfirmed` | `false` |
-| The application shut the session down | `RuntimeShutdown` | `false` |
+| Condition | Error | `requires_new_session()` | What to do |
+| --- | --- | --- | --- |
+| The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
+| The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
+| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (`is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
+| A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
+| The blocking owner is re-entered or a new operation-handle request cannot win its immediate first-dispatch boundary (socket capacity or an earlier normative scheduler winner) | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
+| The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
+
+`received_frames` is positive evidence, not an automatic failure detector. An
+increase proves that a valid VISCA response arrived. No increase proves only
+silence during the sampled interval; the application owns the number of
+unanswered heartbeats or wall-clock duration that triggers replacement. The
+library sends no background heartbeat.
+
+**Behavior change (issue #713).** A partial raw response straddling a
+correlation-release boundary no longer consumes an implementation-specific
+poll-count budget or poisons merely because its tail is late. Both facades wait
+for the same engine-owned grace (at most 100 ms and never longer than the
+configured read timeout), then discard and diagnose an orphaned prefix while
+leaving the session usable. `StreamPoisoned` remains reserved for an
+unrecoverable stream position, such as overflow or a failed discard.
+
+**Behavior change (issue #712).** A matched raw inquiry reply now releases its
+single-flight lane immediately; it no longer installs the profile's one-second
+pre-ACK ambiguity hold or delays an urgent stop. Only inquiry timeout, terminal
+error, or retry release can retain a late reply. That remaining hold uses the
+new `ProfileTiming::raw_inquiry_reply_skew` fact (required by
+`ProfileTimingBuilder`, defaulted by compile-time profiles to no more than their
+minimum inquiry spacing) and blocks only another inquiry for the same target.
+ACK-bearing commands remain eligible. An inquiry also no longer starts the
+urgent command-spacing clock, while consecutive commands and cancellations
+still honor physical command pacing.
+
+**Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
+quarantined only to its known ambiguity deadline. Ordinary blocking operation
+submission now waits through that bounded correlation release and writes at the
+deadline instead of returning `TransportBusy`; async submission remains queued
+to the same release. An intrinsically `Urgent` stop takes the safety-lane
+exception immediately (subject to command pacing and actual socket capacity)
+and skips the blocking pre-ACK drain. While the predecessor and stop are both
+open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
+later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
+the reply, not evidence that the urgent stop failed to reach the camera.
 
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
@@ -591,8 +773,9 @@ command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to
 already have acted on the camera) and keep using the session for unrelated work.
 A raw caller should therefore keep the session alive and reconcile before any
 deliberate resubmission. If you preferred the old hard-fail behavior, opt into
-`OperationalTuning::strict_unconfirmed_poison(true)`, which poisons the session
-and reports `StreamPoisoned` (`true`) exactly as before.
+`SessionConfig::with_strict_unconfirmed_poison(true)` (or the matching
+`CameraConfig` builder), which poisons the session and reports
+`StreamPoisoned` (`true`) exactly as before.
 
 **Behavior change (issue #675).** `read_timeout` and `write_timeout` now take
 effect on async sessions. In an earlier 2.0 preview both knobs were silently

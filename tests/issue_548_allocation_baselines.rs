@@ -354,6 +354,7 @@ fn observing_the_metrics_snapshot_does_not_allocate() {
                 observed.busy_errors,
                 observed.protocol_errors,
                 observed.retries_scheduled,
+                observed.received_frames,
                 observed.ignored_unmatched_sequenced_replies,
             ));
         }

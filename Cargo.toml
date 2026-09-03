@@ -84,8 +84,10 @@ serde = ["dep:serde", "dep:serde_json"]
 schemars = ["serde", "dep:schemars"]
 ts-rs = ["serde", "dep:ts-rs"]
 
-# Dynamic trait object API with per-operation timeout support
-dyn-api = ["async"]
+# Runtime-profile camera projections. The blocking projection is native and
+# adds no executor or futures dependency; enabling `async` additionally exposes
+# the object-safe async noun/custom-operation surface.
+dyn-api = []
 
 # Internal features
 #
@@ -223,6 +225,10 @@ name = "cancellation"
 required-features = ["runtime-tokio"]
 
 [[example]]
+name = "cancellation_blocking"
+required-features = ["blocking"]
+
+[[example]]
 name = "motion_safety"
 required-features = ["blocking"]
 
@@ -232,7 +238,7 @@ required-features = ["runtime-tokio", "dyn-api"]
 
 [[example]]
 name = "custom_request"
-required-features = ["blocking"]
+required-features = ["blocking", "dyn-api"]
 
 [[example]]
 name = "multi_camera"

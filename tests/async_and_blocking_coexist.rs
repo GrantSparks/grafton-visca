@@ -157,14 +157,15 @@ mod runtime_coexistence {
     }
 
     impl BlockingTransport for BlockingProbe {
-        fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.responses.push_back(vec![0x90, 0x41, 0xff]);
             self.responses.push_back(vec![0x90, 0x51, 0xff]);
             Ok(())
-        }
-
-        fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.receive(dst)
         }
 
         fn recv_into_with_timeout(
@@ -322,20 +323,15 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
         }
 
         impl BlockingTransport for BlockingProbe {
-            fn send_with_kind(
+            fn send_with_timeout(
                 &mut self,
                 _bytes: &[u8],
                 _kind: grafton_visca::command::CommandKind,
+                _timeout: Duration,
             ) -> Result<(), Error> {
                 self.responses.push_back(vec![0x90, 0x41, 0xff]);
                 self.responses.push_back(vec![0x90, 0x51, 0xff]);
                 Ok(())
-            }
-
-            fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-                let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-                dst[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
             }
 
             fn recv_into_with_timeout(
@@ -343,7 +339,9 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
                 dst: &mut [u8],
                 _timeout: Duration,
             ) -> Result<usize, Error> {
-                self.recv_into(dst)
+                let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+                dst[..response.len()].copy_from_slice(&response);
+                Ok(response.len())
             }
 
             fn send_semantics(&self) -> SendSemantics {

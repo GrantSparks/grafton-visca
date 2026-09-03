@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
 
     let result = {
-        let camera = session.camera::<PtzOpticsG2>()?;
+        let camera = session.camera();
         let power = camera.power().state()?;
         let zoom = camera.zoom().position()?;
         println!("Power: {}", if power { "on" } else { "off" });

@@ -32,7 +32,7 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    request::builtin::{FocusStop, ZoomStop},
+    request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{
         AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
@@ -362,9 +362,10 @@ async fn raw_receive_fault_fails_one_command_and_keeps_the_session<E: Executor>(
         "an unconfirmed raw command is never replayed after a receive fault"
     );
 
-    // The session survived the receive fault: later work still completes.
+    // The session survived the receive fault: later ordinary work waits out the
+    // inert keyed hold, then completes normally.
     camera
-        .submit::<AppliedOnly, _>(&FocusStop)
+        .submit::<AppliedOnly, _>(&FocusDrive::Far)
         .await
         .expect("the session survives a transient receive fault")
         .applied()
@@ -686,7 +687,6 @@ async fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket<E: Ex
 /// drop. The latch itself is pinned at engine level, where an `Input` sequence
 /// can actually produce that interleaving, by
 /// `runtime::engine::tests::ack_racing_its_own_write_result_is_latched_and_applied`,
-/// `racing_acks_are_never_attributed_while_two_commands_are_being_written` and
 /// `a_second_racing_ack_cannot_steal_the_latch_from_the_first` (#636).
 async fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump<E: Executor>(executor: E) {
     let transport = FaultTransport::new(

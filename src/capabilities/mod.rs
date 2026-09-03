@@ -15,6 +15,7 @@ pub mod power;
 pub mod presets;
 pub mod tally;
 mod typed_support;
+pub(crate) mod typed_support_registry;
 pub mod variable_speed;
 pub mod white_balance;
 pub mod zoom;
@@ -22,28 +23,51 @@ pub mod zoom;
 // Core profile metadata trait
 mod profile_metadata;
 pub use profile_metadata::{
-    HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
-    HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
-    HasContrastControl, HasDigitalZoomRange, HasDigitalZoomToggle, HasDirectZoom, HasExposure,
-    HasExposureCompensation, HasExposureMode, HasFocus, HasFocusLock, HasFocusNearLimitInquiry,
-    HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
-    HasImageMirror, HasImageProcessing, HasIrisControl, HasIrisControlInquiry, HasLuminanceControl,
-    HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl,
-    HasNoiseReduction3D, HasNoiseReduction3DControl, HasOnePushFocus, HasOnePushWhiteBalance,
-    HasPanTilt, HasPictureEffect, HasPower, HasPresets, HasPtzOpticsAntiFlicker,
-    HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
-    HasPtzOpticsSettingsSave, HasPtzOpticsSnapFocus, HasPushAutoFocus, HasRgbGain, HasRgbTuning,
-    HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally,
-    HasUsbAudio, HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom, InquirySupport,
-    ProfileMetadata, SupportsSerial, SupportsTcp, SupportsUdp,
+    HasExposure, HasFocus, HasImageProcessing, HasMenuControl, HasPanTilt, HasPower, HasPresets,
+    HasWhiteBalance, HasZoom, InquirySupport, ProfileMetadata, SupportsSerial, SupportsTcp,
+    SupportsUdp,
 };
+
 pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
+
+macro_rules! export_typed_support_marker_entry {
+    (DirectMenu, $marker:ident) => {
+        pub use menu_control::$marker;
+    };
+    ($surface:ident, $marker:ident) => {
+        pub use typed_support::$marker;
+    };
+}
+
+macro_rules! export_typed_support_markers {
+    (
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    bit: $bit:literal,
+                    wire: $wire:literal,
+                    area: $area:literal,
+                    api: $api:literal,
+                    surface_doc: $surface_doc:literal,
+                    marker_doc: $marker_doc:literal,
+                    diagnostic: $diagnostic:literal,
+                },
+            )*
+        ]
+    ) => {
+        $(export_typed_support_marker_entry!($surface, $marker);)*
+    };
+}
+
+typed_support_registry::typed_support_registry!(export_typed_support_markers);
 
 // Re-export all capability traits
 pub use exposure::Exposure;
 pub use focus::Focus;
 pub use image_processing::ImageProcessing;
-pub use menu_control::{HasDirectMenuControl, MenuCapability};
+pub use menu_control::MenuCapability;
 pub use motion_sync::MotionSyncMetadata;
 pub use nd_filter::{NdFilterMetadata, NdFilterMetadataExt, NdFilterMode};
 pub use pan_tilt::{PanTilt, PanTiltWireCodec};

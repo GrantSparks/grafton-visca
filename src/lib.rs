@@ -159,8 +159,9 @@
 //!   socket or conclusively resolved before its ambiguity deadline. This is
 //!   [`Error::CancellationUnconfirmed`], never `Cancelled`. Its per-request
 //!   sibling [`Error::UnsequencedCommandUnconfirmed`] is the default outcome
-//!   when a *sent* raw command loses its ACK or completion correlation with no
-//!   cancel involved: it fails that one command on a still-live session
+//!   when a *sent* unsequenced command on a raw-VISCA envelope loses its ACK or
+//!   completion correlation with no cancel involved: it fails that one command
+//!   on a still-live session
 //!   ([`requires_new_session`](Error::requires_new_session) is `false`) and
 //!   quarantines the correlation until the ambiguity deadline so a late reply
 //!   cannot misbind (issue #671).
@@ -180,10 +181,11 @@
 //!   unrecoverable framing loss). A poisoned session is terminal, reports
 //!   [`Error::StreamPoisoned`]
 //!   ([`requires_new_session`](Error::requires_new_session) is `true`), and
-//!   shares no state with any session built afterward. By default a raw command
-//!   that merely loses its ACK/completion does *not* poison (see *cancellation
-//!   unconfirmed* above); the whole-session poison is restored only behind the
-//!   opt-in `strict_unconfirmed_poison` tuning.
+//!   shares no state with any session built afterward. By default an
+//!   unsequenced command on a raw-VISCA envelope that merely loses its
+//!   ACK/completion does *not* poison (see *cancellation unconfirmed* above);
+//!   the whole-session poison is restored only behind the opt-in
+//!   [`SessionConfig::with_strict_unconfirmed_poison`] policy.
 //!
 //! Recovery from a poisoned or closed session builds a fresh session from the
 //! reused configuration, starts with an unknown state cache, re-queries camera
@@ -201,7 +203,7 @@
 //!
 //! // A session owns the transport; the camera is a view onto its one owner.
 //! let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//! let camera = session.camera::<PtzOpticsG2>()?;
+//! let camera = session.camera();
 //!
 //! // `home` is targeted: `settled` waits past applied for protocol settlement.
 //! camera.pan_tilt().home()?.settled()?;
@@ -242,16 +244,16 @@
 //! typed stops and cancels are [`ControlClass::Urgent`] so an emergency stop
 //! preempts queued work with no extra ceremony. `SubmissionClass` deliberately
 //! has no urgent variant: caller QoS cannot create or demote the safety lane.
-//! Two routes select ordinary submission QoS:
+//! Two camera-view routes select ordinary submission QoS:
 //!
 //! - Per handle: `set_submission_class(Some(class))` on a camera view, its
 //!   single-camera session, or the dynamic projection. Every later submission
 //!   from *that handle* uses `class`, including the ones its noun accessors
 //!   make. An urgent request ignores it.
-//! - Per submission: `execute_with_submission_class`, `inquire_with_submission_class`, and
-//!   `submit_with_submission_class` (`submit_targeted_with_submission_class` /
-//!   `submit_applied_with_submission_class` on the dynamic projection). These replace both
-//!   the handle default for one submission. An urgent request still ignores it.
+//! - Derived view: `with_submission_class(class)` returns another camera view
+//!   whose commands, inquiries, operations, and noun methods all use `class`.
+//!   The source view is unchanged, and an urgent request still ignores the
+//!   selected ordinary class.
 //!
 //! ```ignore
 //! use grafton_visca::SubmissionClass;
@@ -263,8 +265,11 @@
 //! poller.pan_tilt().stop().await?;              // still urgent
 //!
 //! // Raise one ordinary command for direct user interaction without changing
-//! // the handle. `Urgent` is intentionally not caller-selectable.
-//! camera.execute_with_submission_class(&command, SubmissionClass::User).await?;
+//! // the source handle. `Urgent` is intentionally not caller-selectable.
+//! camera
+//!     .with_submission_class(SubmissionClass::User)
+//!     .execute(&command)
+//!     .await?;
 //! ```
 //!
 //! [Submission priority]: #submission-priority
@@ -376,7 +381,7 @@
 //!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?.settled()?;
 //!     session.close()
 //! }
@@ -391,7 +396,7 @@
 //!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, command::FocusLock};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.focus().set_lock(FocusLock::On)?;
 //!     camera.focus().set_lock(FocusLock::Off)?;
 //!     session.close()
@@ -413,7 +418,7 @@
 //!
 //!     // Create one owner-backed session using the convenience Connect helper
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!
 //!     // Quick starts are read-only by default.
 //!     let is_on = camera.power().state()?;
@@ -433,7 +438,7 @@
 //!     // Create one owner-backed session using Connect with a runtime
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!
 //!     let is_on = camera.power().state().await?;
 //!     let zoom = camera.zoom().position().await?;
@@ -461,7 +466,7 @@
 //!         let runtime = SmolRuntime::new();
 //!         let session =
 //!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!         let camera = session.camera::<PtzOpticsG2>()?;
+//!         let camera = session.camera();
 //!
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
@@ -490,7 +495,7 @@
 //!             });
 //!
 //!         let session = config.open_async(SmolRuntime::new()).await?;
-//!         let camera = session.camera::<PtzOpticsG2>()?;
+//!         let camera = session.camera();
 //!
 //!         let is_on = camera.power().state().await?;
 //!         println!("Power: {is_on}");
@@ -513,7 +518,7 @@
 //!     use std::time::Duration;
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     camera.pan_tilt().home()?.settled_with_timeout(Duration::from_secs(20))?;
 //!     camera.zoom().stop()?.applied_with_timeout(Duration::from_secs(2))?;
 //!     session.close()
@@ -541,12 +546,12 @@
 //!     use grafton_visca::prelude::blocking::*;
 //!
 //!     let sony = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
-//!     sony.camera::<SonyFR7>()?
+//!     sony.camera()
 //!         .nd_filter()
 //!         .set_mode(NdFilterMode::Preset)?;
 //!
 //!     let g2 = Connect::open_tcp::<PtzOpticsG2>("192.168.0.111")?;
-//!     let g2_camera = g2.camera::<PtzOpticsG2>()?;
+//!     let g2_camera = g2.camera();
 //!     // g2_camera.nd_filter().set_mode(NdFilterMode::Preset)?;
 //!     // ^ Compile error: G2 has no ND filter capability
 //!     let _ = g2_camera;
@@ -590,16 +595,16 @@
 //! }
 //!
 //! impl BlockingTransport for MyTransport {
-//!     fn send_with_kind(&mut self, bytes: &[u8], kind: CommandKind) -> Result<(), Error> {
-//!         // Write the framed bytes; `kind` selects command vs inquiry framing.
-//!         let _ = (bytes, kind);
+//!     fn send_with_timeout(
+//!         &mut self,
+//!         bytes: &[u8],
+//!         kind: CommandKind,
+//!         timeout: Duration,
+//!     ) -> Result<(), Error> {
+//!         // Complete the framed write within `timeout`; `kind` selects
+//!         // command vs inquiry framing.
+//!         let _ = (bytes, kind, timeout);
 //!         Ok(())
-//!     }
-//!
-//!     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-//!         // Read into the caller's buffer. `Ok(0)` reports EOF.
-//!         let _ = dst;
-//!         Ok(0)
 //!     }
 //!
 //!     fn recv_into_with_timeout(
@@ -682,8 +687,8 @@
 //! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
-//! Pass the runtime explicitly through `Connect` or `CameraConfig`; both return
-//! the canonical owner-backed `Session`:
+//! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard
+//! network construction returns the canonical owner-backed `CameraSession<P>`:
 //!
 //! ```rust
 //! # #[cfg(feature = "runtime-tokio")]
@@ -695,7 +700,7 @@
 //!
 //!     let runtime = TokioRuntime::from_current()?;
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
 //! }
@@ -709,7 +714,7 @@
 //!
 //!     let runtime = SmolRuntime::new();
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
-//!     let camera = session.camera::<PtzOpticsG2>()?;
+//!     let camera = session.camera();
 //!     let _ = camera;
 //!     session.close().await
 //! }
@@ -1083,11 +1088,7 @@ pub use async_session::{Camera, CameraSession, Session};
 #[cfg(feature = "async")]
 pub mod session {
     //! Profile-generic async session facade.
-    #[cfg(feature = "transport-serial-tokio")]
-    pub use crate::camera::SerialConnectBuilder;
-    pub use crate::camera::{
-        CameraConfig, Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder,
-    };
+    pub use crate::camera::{CameraConfig, Connect};
     pub use crate::{
         async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
     };
@@ -1100,12 +1101,8 @@ pub mod session {
 
 // Final construction names are available at the crate root in canonical
 // async builds.
-#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
-pub use crate::camera::SerialConnectBuilder;
 #[cfg(feature = "async")]
-pub use crate::camera::{CameraConfig, Connect, ConnectBuilder};
-#[cfg(feature = "async")]
-pub use crate::camera::{TcpConnectBuilder, UdpConnectBuilder};
+pub use crate::camera::{CameraConfig, Connect};
 
 #[cfg(feature = "blocking")]
 /// Synchronous lifecycle handles for blocking sessions.
@@ -1152,11 +1149,13 @@ pub mod units;
 
 mod visca_socket;
 
-/// Owner-backed dynamic noun and custom-operation projections.
+/// Owner-backed runtime-profile camera projections.
 ///
-/// Enable this module with the `dyn-api` feature. Dynamic views erase the
-/// closed static request/profile types while retaining the canonical session
-/// owner and operation lifecycle.
+/// Enable this module with the `dyn-api` feature. With `blocking`, it provides
+/// a native runtime-profile camera without futures or an executor. With
+/// `async`, it additionally provides object-safe noun/custom-operation views
+/// and erased operation handles. Every projection retains the canonical
+/// session owner and operation lifecycle.
 #[cfg(feature = "dyn-api")]
 pub mod dynapi;
 
@@ -1172,6 +1171,14 @@ pub mod profiles {
     };
     pub use crate::capabilities::InquirySupport;
 }
+
+/// Detailed owner, protocol-engine, scheduling, and lifecycle architecture.
+///
+/// This renders the repository's current-state architecture guide on docs.rs,
+/// including the engine transition table and operational invariants that are
+/// otherwise implemented by private owner types.
+#[doc = include_str!("../docs/architecture_2_0.md")]
+pub mod architecture {}
 
 /// Compile gate for the Rust snippets in `README.md`.
 ///
@@ -1210,3 +1217,7 @@ mod migration_guide_snippets {}
 #[cfg(all(doctest, feature = "blocking"))]
 #[doc = include_str!("../docs/usage_2_0.md")]
 mod usage_guide_snippets {}
+
+// Exhaustive literal-byte inventory tied to the built-in semantic ledger.
+#[cfg(test)]
+mod issue_715_wire_golden;

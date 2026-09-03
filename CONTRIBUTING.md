@@ -340,6 +340,28 @@ issue number, plus a migration-guide row wherever a 1.x or prior user would feel
 it. Rewriting the original entry in place, or filing the reversal under the same
 issue number, hides the reversal from the record and is not allowed.
 
+The `release-validation` CI job enforces four parts of this record mechanically:
+
+- Text outside the top `## [Unreleased]` body is byte-for-byte immutable
+  relative to the pull request's merge base. Correct an old statement with a
+  dated superseding entry under Unreleased; do not edit the released entry.
+- A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
+  same pull request.
+- Every top-level Unreleased bullet carrying the exact `**BREAKING**` label must
+  include an issue reference in the form `(#NNN)`.
+- Every new commit that touches `src/` must have a non-empty explanatory body,
+  not only a subject. The policy-boundary files under `.github/` bootstrap the
+  repaired historical text and grandfather the already-audited PR #559 commit
+  ledger; they must not be advanced to excuse later changes.
+
+From a full-history checkout, run the validator and its four deliberate-failure
+fixtures with:
+
+```bash
+python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
+bash .github/scripts/test-validate-change-record.sh
+```
+
 For historical 1.x behavior decisions, add or update a direct v2 regression or
 wire/decode golden in the production owner, engine, or parser path and update
 `docs/behavioral_parity_1x.md` when the decision is useful to future
@@ -360,7 +382,9 @@ audited traceability, not a protocol semantic model, so review the pinned test's
 assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
 substitute. A new behavior needs direct review in the implementation, tests,
 and changelog; update the corpus and its validator-pinned family and target sets
-together when it changes the covered 1.x contract.
+together when it changes the covered 1.x contract. CI independently pins the
+expected family count and publishes the required-family, manifest-row, and
+mapped-v2-test-row counts in its job summary.
 
 ### Code Documentation
 
@@ -379,7 +403,7 @@ together when it changes the covered 1.x contract.
 /// ```no_run
 /// # use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
 /// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
-/// let camera = session.camera::<PtzOpticsG2>()?;
+/// let camera = session.camera();
 /// camera.pan_tilt().home()?.settled()?;
 /// session.close()?;
 /// # Ok::<(), grafton_visca::Error>(())

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -220,9 +221,21 @@ PINNED_V2_TARGETS: dict[str, tuple[str, str, str, str]] = {
         "trace",
     ),
     "v2-wire-golden": (
+        "src/issue_715_wire_golden.rs",
+        "wire_ledger_matches_literal_golden_inventory",
+        "issue_715_wire_golden::wire_ledger_matches_literal_golden_inventory",
+        "wire",
+    ),
+    "v2-brc300-wire-golden": (
         "tests/issue_633_golden_wire_bytes.rs",
-        "cardinal_pan_tilt_directions_match_golden_frames",
-        "cardinal_pan_tilt_directions_match_golden_frames",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+        "wire",
+    ),
+    "v2-sony-payload-golden": (
+        "src/protocol/sony.rs",
+        "tests::test_all_payload_types_round_trip",
+        "protocol::sony::tests::test_all_payload_types_round_trip",
         "wire",
     ),
     "v2-inquiry-golden": (
@@ -316,7 +329,18 @@ PINNED_COMMANDS: dict[str, tuple[str, ...]] = {
     "test-cancel-blocking": (
         "cargo", "test", "--test", "issue_612_cancel_recovery_blocking",
     ),
-    "test-wire": ("cargo", "test", "--test", "issue_633_golden_wire_bytes"),
+    "lib-wire-golden": (
+        "cargo", "test", "--lib",
+        "issue_715_wire_golden::wire_ledger_matches_literal_golden_inventory",
+    ),
+    "test-brc300-wire": (
+        "cargo", "test", "--test", "issue_633_golden_wire_bytes",
+        "sony_brc300_profile_uses_documented_position_and_limit_frames",
+    ),
+    "lib-sony-payload": (
+        "cargo", "test", "--lib",
+        "protocol::sony::tests::test_all_payload_types_round_trip",
+    ),
     "test-inquiry-golden": (
         "cargo", "test", "--test", "inquiry_golden_tests_simple",
     ),
@@ -358,7 +382,9 @@ PINNED_V2_CONTEXT: dict[str, tuple[str, str, str]] = {
         "raw", "NonDefaultCompileTimeProfile", "tokio-scripted",
     ),
     "v2-raw-lifecycle-trace": ("neutral", "n/a", "test-trace"),
-    "v2-wire-golden": ("neutral", "n/a", "test-wire"),
+    "v2-wire-golden": ("neutral", "n/a", "lib-wire-golden"),
+    "v2-brc300-wire-golden": ("sony", "SonyBRC300", "test-brc300-wire"),
+    "v2-sony-payload-golden": ("sony", "n/a", "lib-sony-payload"),
     "v2-inquiry-golden": ("neutral", "n/a", "test-inquiry-golden"),
     "v2-inquiry-decoding": ("neutral", "n/a", "test-inquiry-decode"),
     "v2-cancel-blocking": ("raw", "PtzOpticsG2", "test-cancel-blocking"),
@@ -1161,6 +1187,39 @@ def validate_manifest(root: Path, manifest_path: Path, run_tests: bool) -> tuple
     return len(behaviors), len(v2_tests)
 
 
+def validate_workflow_family_count(actual: int) -> None:
+    """Check CI's independent family-count pin when the workflow supplies it."""
+    raw = os.environ.get("EXPECTED_BEHAVIOR_FAMILY_COUNT")
+    if raw is None:
+        return
+    if not re.fullmatch(r"[1-9][0-9]*", raw):
+        raise ValidationError(
+            "EXPECTED_BEHAVIOR_FAMILY_COUNT must be a positive decimal integer"
+        )
+    expected = int(raw)
+    if actual != expected:
+        raise ValidationError(
+            "workflow family-count pin does not match the validated corpus: "
+            f"expected {expected}, found {actual}"
+        )
+
+
+def append_github_job_summary(behavior_rows: int, v2_test_rows: int) -> None:
+    """Publish successful corpus cardinalities when running in GitHub Actions."""
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+    with Path(summary_path).open("a", encoding="utf-8") as summary:
+        summary.write("### 1.x behavioral parity\n\n")
+        summary.write("| Verified corpus item | Count |\n")
+        summary.write("| --- | ---: |\n")
+        summary.write(
+            f"| Required behavior families | {len(EXPECTED_REQUIRED_FAMILIES)} |\n"
+        )
+        summary.write(f"| Manifest behavior rows | {behavior_rows} |\n")
+        summary.write(f"| Mapped v2 test rows | {v2_test_rows} |\n\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -1185,6 +1244,8 @@ def main() -> int:
         if not manifest_path.is_absolute():
             manifest_path = (root / manifest_path).resolve()
         behaviors, v2_tests = validate_manifest(root, manifest_path, not args.skip_tests)
+        validate_workflow_family_count(behaviors)
+        append_github_job_summary(behaviors, v2_tests)
     except ValidationError as exc:
         print(f"behavioral parity validation failed: {exc}", file=sys.stderr)
         return 1

@@ -116,9 +116,7 @@ async fn live_invalid_update_is_rejected_without_changing_tuning<E: Executor>(ex
 }
 
 async fn invalid_updates_after_poison_return_retained_terminal_cause<E: Executor>(executor: E) {
-    let config = raw_config()
-        .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-        .expect("strict tuning is valid");
+    let config = raw_config().with_strict_unconfirmed_poison(true);
     let session = Session::open(PoisonOnReadTransport::new(), config, executor)
         .await
         .expect("owner session");
@@ -135,7 +133,7 @@ async fn invalid_updates_after_poison_return_retained_terminal_cause<E: Executor
     assert!(matches!(error, Error::StreamPoisoned { .. }));
 
     let error = session
-        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(false))
+        .set_tuning(OperationalTuning::new())
         .await
         .expect_err("a strict override cannot mask an existing poison");
     assert!(
@@ -162,7 +160,7 @@ async fn invalid_updates_after_shutdown_return_retained_terminal_cause<E: Execut
     session.close().await.expect("clean owner shutdown");
 
     let error = closed_handle
-        .set_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
+        .set_tuning(OperationalTuning::new())
         .await
         .expect_err("a strict override cannot mask a completed shutdown");
     assert!(

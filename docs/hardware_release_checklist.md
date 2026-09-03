@@ -62,15 +62,35 @@ than treating a neighboring model or firmware as equivalent.
 
 | ID | Profile family / firmware revision | Required checks | Owner | Status | Firmware / bench | Evidence artifact / notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| FW-01 | `GenericVisca` / exact revision | Profile facts, read-only inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-02 | `PtzOpticsG2` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-03 | `PtzOpticsG3` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-04 | `PtzOptics30X` / exact revision | Profile limits, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-05 | `SonyEVIH100` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-06 | `SonyBRC300` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-07 | `NearusBRC300` / exact revision | Raw framing, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-08 | `SonyFR7` / exact revision | Sony envelope, sequence correlation, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
-| FW-09 | `SonyBRCH900` / exact revision | Sony envelope, sequence correlation, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-01 | `GenericVisca` / exact revision | Profile facts, shared `04 39` exposure and `04 4B` iris control/inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-02 | `PtzOpticsG2` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-03 | `PtzOpticsG3` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-04 | `PtzOptics30X` / exact revision | Profile limits, shared exposure/iris, movement, inquiries, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-05 | `SonyEVIH100` / exact revision | Raw framing, shared exposure/iris (including the pending R8 line-item audit), profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-06 | `SonyBRC300` / exact revision | Raw framing, shared exposure/iris, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-07 | `NearusBRC300` / exact revision | Raw framing, BRC-300-compatible shared exposure/iris, profile limits, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-08 | `SonyFR7` / exact revision | Sony envelope, sequence correlation, reject shared exposure/iris before write, validate vendor-relative iris via raw escape hatch, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+| FW-09 | `SonyBRCH900` / exact revision | Sony envelope, sequence correlation, shared exposure/iris, safe stop | Profile QA | Pending (Not run) | Pending | Pending |
+
+## Wire-correction verification
+
+These rows correspond one-for-one with the source-backed wire families changed
+from the pinned 1.2 oracle in #715. The exhaustive software golden inventory is
+necessary evidence, but does not complete a hardware row.
+
+| ID | Profile / changed family | Required checks | Owner | Status | Firmware / bench | Evidence artifact / notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| WC-01 | PTZOptics legacy profile / autofocus sensitivity | Send Low, Normal, High; capture `04 58 03/02/01`; inquire each value and verify semantic round trip | Protocol QA | Pending (Not run) | Pending | Pending — command/reply capture |
+| WC-02 | `SonyEVIH100` and one supporting PTZOptics profile / Bright Direct | Capture `04 4D` for two distinct direct values and confirm the camera changes/reads back brightness; verify reset/up/down remain `04 0D` | Protocol QA | Pending (Not run) | Pending | Pending — R8/R1 comparison and capture |
+| WC-03 | One standard VISCA profile and `SonyBRC300` / pan-tilt limit corner | Set and clear both corners; capture `W=00` DownLeft and `W=01` UpRight, then safely exercise the limits | Motion QA | Pending (Not run) | Pending | Pending — safe-bench video plus capture |
+| WC-04 | Supporting PTZOptics legacy profile / focus zone inquiry | Send `09 04 AA`; select Top/Center/Bottom and confirm each returned value | Protocol QA | Pending (Not run) | Pending | Pending — command/reply capture |
+| WC-05 | Supporting PTZOptics profile / picture effect | Send/inquire Off and BlackAndWhite with `04/09 04 63`; confirm `09 04 63` is not interpreted as resolution | Image QA | Pending (Not run) | Pending | Pending — image evidence plus capture |
+| WC-06 | Supporting PTZOptics legacy profile / USB audio | Capture command/inquiry family `2A 02 A0 04`; verify reply `02` means on and `03` means off | Protocol QA | Pending (Not run) | Pending | Pending — USB audio observation plus capture |
+| WC-07 | Profiles supporting preset 255 and Direct Menu / terminal data `FF` | Send preset set/recall/reset 255 and Direct Menu values ending in `FF`; prove the final data byte and separate terminator are both present; prove `FF 81` is rejected before I/O | Protocol QA | Pending (Not run) | Pending | Pending — exact frame and zero-I/O rejection trace |
+| WC-08 | `SonyBRC300` plus PTZOptics control / extended tilt-speed domain | Exercise BRC-300 `VV=15` and `VV=18`; confirm PTZOptics still rejects tilt speed above `14` before I/O | Motion QA | Pending (Not run) | Pending | Pending — safe-bench capture and zero-I/O trace |
+| WC-09 | `PtzOpticsG2`, `PtzOpticsG3`, and legacy `PtzOptics30X` / NR zero | Send 2D and 3D level `0`; confirm it disables NR, then set nonzero endpoints and query the documented output range | Image QA | Pending (Not run) | Pending | Pending — before/after image and command/reply capture |
+| WC-10 | `SonyFR7` Sony envelope / payload-type table | Capture or inject device-setting, control-command, and control-reply headers and verify `01 20`, `02 00`, and `02 01`; reject the former 1.x values | Protocol QA | Pending (Not run) | Pending | Pending — Sony-header packet capture |
+| WC-11 | `SonyBRC300` / position grammar | Capture absolute and relative commands with equal `VV`; verify fixed `00`, five signed pan nibbles, four signed tilt nibbles, documented polarity/endpoints, and local rejection of unequal pan/tilt speeds | Motion QA | Pending (Not run) | Pending | Pending — R12 pp. 12/22 comparison, safe-bench video, and capture |
 
 ## Cancellation, retry, and recovery
 
@@ -87,9 +107,9 @@ camera and recording the result.
 | CR-04 | Blocking serial profiles | Raw ambiguity/no-replay boundary, timeout, cancellation boundary, shared spacing, explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
 | CR-05 | Tokio serial profile paths | Raw ambiguity/no-replay boundary, timeout, cancellation boundary, shared spacing, explicit STOP | Lifecycle QA | Pending (Not run) | Pending | Pending |
 | CR-06 | Every applicable profile | `UnsequencedCommandUnconfirmed` is per-request by default (#671) — the session keeps running, reconcile the one command, no automatic replay; a fresh replacement session is required only after transport close or under the `strict_unconfirmed_poison` opt-in; cache starts unknown | Recovery QA | Pending (Not run) | Pending | Pending |
-| CR-07 | PTZOptics NDI TCP (and any TCP profile) (#544) | Whether an idle control session is closed by the camera with default keepalive on (idle 10 s / interval 10 s); the idle interval before the close measured from the last VISCA operation; whether an application heartbeat inquiry below that interval prevents it; that the close surfaces as `ConnectionClosed`/`requires_new_session()` and drives a clean supervisor rebuild | Recovery QA | Pending (Not run) | Pending | Pending — packet capture with FIN/RST direction, idle interval, heartbeat on/off |
-| RT-01 | Raw TCP profiles | One-command pre-ACK gate per target, post-ACK socket concurrency, exact fixed-frame lengths, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
-| RT-02 | Raw UDP profiles | One-command pre-ACK gate per target, post-ACK socket concurrency, exact fixed-frame lengths, empty-datagram discard under one deadline with async cooperative yield, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
+| CR-07 | PTZOptics NDI TCP (and any TCP profile) (#544, #719) | Whether an idle control session is closed by the camera with default keepalive on (idle 10 s / interval 10 s; OS probe count applies); the idle interval before the close measured from the last VISCA operation; whether an application heartbeat inquiry below that interval prevents it; silent-open behavior and `received_frames` around the heartbeat; that FIN/RST or keepalive `TimedOut` surfaces as `ConnectionClosed`/`requires_new_session()` and drives a clean supervisor rebuild | Recovery QA | Pending (Not run) | Pending | Pending — packet capture with FIN/RST direction, idle interval, heartbeat on/off, and a black-holed peer through keepalive exhaustion |
+| RT-01 | Raw TCP profiles | Ordinary one-command pre-ACK gate per target, lost-ACK ordinary release at the ambiguity deadline, `Urgent` stop write through one open candidate with ambiguous ACK binding neither (#714), post-ACK socket concurrency, exact fixed-frame lengths, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
+| RT-02 | Raw UDP profiles | Ordinary one-command pre-ACK gate per target, lost-ACK ordinary release at the ambiguity deadline, `Urgent` stop write through one open candidate with ambiguous ACK binding neither (#714), post-ACK socket concurrency, exact fixed-frame lengths, empty-datagram discard under one deadline with async cooperative yield, no replay on ambiguity or active retry-budget expiry, conclusive-rejection retry, total retry budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
 | RT-03 | Sony UDP profiles | Pre-ACK pipeline, exact sequence correlation, same-sequence ACK/completion retry, active retry-budget expiry handling, retry limit/backoff and total budget/cause | Runtime QA | Pending (Not run) | Pending | Pending |
 | RT-04 | Serial profiles | Read/write timeout, raw ambiguity/no-replay boundary including active retry-budget expiry, retry limit/backoff and total budget/cause, buffer sizing | Runtime QA | Pending (Not run) | Pending | Pending |
 
@@ -111,6 +131,7 @@ they do not authorize sending to broadcast as a session target.
 | Gate | Owner | Status | Evidence / blocker |
 | --- | --- | --- | --- |
 | Every applicable `PT-*` and `FW-*` row has an exact firmware revision | Release owner | Pending (Not run) | Pending |
+| Every `WC-*` wire-correction row has a command/reply capture or an explicit blocker | Release owner | Pending (Not run) | Pending |
 | Every cancellation/retry row has a transcript and sanitized diagnostics | Lifecycle QA | Pending (Not run) | Pending |
 | Every multi-camera row has target-attribution evidence | Multi-camera QA | Pending (Not run) | Pending |
 | No open safety issue or unexplained physical behavior | Release owner | Pending (Not run) | Pending |

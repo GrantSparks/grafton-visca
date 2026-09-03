@@ -35,6 +35,8 @@ pub struct SessionConfig {
     targets: [Option<Arc<ProfileSpec>>; MAX_REGISTERED_TARGETS],
     tuning: OperationalTuning,
     admission_capacity: NonZeroUsize,
+    sony_sequence_reset_on_connect: bool,
+    strict_unconfirmed_poison: bool,
 }
 
 impl SessionConfig {
@@ -168,6 +170,45 @@ impl SessionConfig {
         self
     }
 
+    /// Opt in to sending Sony's sequence-number RESET control command before
+    /// the owner starts accepting requests.
+    ///
+    /// This is disabled by default because opening a session otherwise performs
+    /// no protocol write. Enabling it requires every registered profile to use
+    /// the Sony encapsulated envelope; incompatible configurations fail before
+    /// transport I/O.
+    #[must_use]
+    pub const fn with_sony_sequence_reset_on_connect(mut self, enabled: bool) -> Self {
+        self.sony_sequence_reset_on_connect = enabled;
+        self
+    }
+
+    /// Returns whether session startup sends Sony's sequence-number RESET.
+    #[must_use]
+    pub const fn sony_sequence_reset_on_connect(&self) -> bool {
+        self.sony_sequence_reset_on_connect
+    }
+
+    /// Selects strict whole-session poisoning for unconfirmable raw commands.
+    ///
+    /// The default (`false`) fails only the affected command with
+    /// [`Error::UnsequencedCommandUnconfirmed`] and quarantines its raw-VISCA
+    /// correlation while the session and unrelated requests remain usable.
+    /// Setting `true` instead makes that uncertainty terminal and reports
+    /// [`Error::StreamPoisoned`]. The policy is fixed when the session opens
+    /// and has no effect on Sony's sequence-correlated envelope.
+    #[must_use]
+    pub const fn with_strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
+        self.strict_unconfirmed_poison = enabled;
+        self
+    }
+
+    /// Returns whether unconfirmable raw commands poison the whole session.
+    #[must_use]
+    pub const fn strict_unconfirmed_poison(&self) -> bool {
+        self.strict_unconfirmed_poison
+    }
+
     /// Checks operational tuning against every registered profile.
     ///
     /// This is the same check [`Self::with_tuning`] performs, exposed for the
@@ -203,6 +244,15 @@ impl SessionConfig {
                 "session admission capacity must be less than usize::MAX".into(),
             ));
         }
+        if self.sony_sequence_reset_on_connect
+            && self.targets.iter().flatten().any(|profile| {
+                profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
+            })
+        {
+            return Err(Error::InvalidRequest(
+                "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
+            ));
+        }
         for profile in self.targets.iter().flatten() {
             crate::runtime::owner::validate_profile_transport(profile, kind)?;
             profile.validate_tuning(self.tuning)?;
@@ -232,7 +282,8 @@ impl SessionConfig {
         Self::slot_checked(target).and_then(|slot| self.targets[slot].clone())
     }
 
-    /// Returns one registered profile only when it exactly matches `P`.
+    /// Returns one registered profile only when its capabilities, coordinate
+    /// codec, and envelope match `P`.
     ///
     /// This is the shared pure projection boundary used by both execution
     /// facades. It performs no owner, transport, or protocol work.
@@ -270,6 +321,8 @@ impl SessionConfig {
             targets,
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
+            sony_sequence_reset_on_connect: false,
+            strict_unconfirmed_poison: false,
         }
     }
 
@@ -297,6 +350,43 @@ impl Default for SessionConfig {
             targets: std::array::from_fn(|_| None),
             tuning: OperationalTuning::new(),
             admission_capacity: DEFAULT_ADMISSION_CAPACITY,
+            sony_sequence_reset_on_connect: false,
+            strict_unconfirmed_poison: false,
         }
+    }
+}
+
+#[cfg(all(test, feature = "blocking"))]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::profiles::{GenericVisca, SonyFR7};
+
+    #[test]
+    fn sony_sequence_reset_is_opt_in_and_requires_the_sony_envelope() {
+        let raw = SessionConfig::from_compile_time::<GenericVisca>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+        assert!(matches!(
+            raw.validate_for_transport(None),
+            Err(Error::InvalidRequest(_))
+        ));
+
+        let sony = SessionConfig::from_compile_time::<SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+        assert!(sony.sony_sequence_reset_on_connect());
+        sony.validate_for_transport(None).unwrap();
+    }
+
+    #[test]
+    fn strict_unconfirmed_poison_is_explicit_immutable_session_policy() {
+        let default = SessionConfig::from_compile_time::<GenericVisca>().unwrap();
+        assert!(!default.strict_unconfirmed_poison());
+
+        let strict = default.with_strict_unconfirmed_poison(true);
+        assert!(strict.strict_unconfirmed_poison());
+        assert_eq!(strict.tuning(), OperationalTuning::new());
+        strict.validate_for_transport(None).unwrap();
     }
 }

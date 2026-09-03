@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""Validate changelog and commit-history integrity for a pull-request range."""
+
+from __future__ import annotations
+
+import difflib
+import pathlib
+import re
+import subprocess
+import sys
+
+
+CHANGELOG = "CHANGELOG.md"
+API_SNAPSHOT_GLOB = "api/2.0.0-rc.1/*.txt"
+BODY_POLICY_BOUNDARY = ".github/change-record-body-policy-boundary"
+HISTORY_POLICY_BOUNDARY = ".github/change-record-history-policy-boundary"
+
+
+class ValidationError(RuntimeError):
+    """A malformed repository/range that cannot be validated safely."""
+
+
+def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        ["git", *args],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if check and result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValidationError(f"git {' '.join(args)} failed: {detail}")
+    return result
+
+
+def git_file(revision: str, path: str, *, required: bool = True) -> str | None:
+    result = git("show", f"{revision}:{path}", check=False)
+    if result.returncode == 0:
+        return result.stdout
+    if required:
+        detail = result.stderr.strip() or "path does not exist"
+        raise ValidationError(f"cannot read {path} at {revision}: {detail}")
+    return None
+
+
+def split_unreleased(text: str, revision: str) -> tuple[str, str, int]:
+    heading = re.compile(r"(?m)^## \[Unreleased\][ \t]*(?:\r?\n|$)")
+    matches = list(heading.finditer(text))
+    if len(matches) != 1:
+        raise ValidationError(
+            f"{CHANGELOG} at {revision} must contain exactly one "
+            "'## [Unreleased]' heading"
+        )
+
+    body_start = matches[0].end()
+    next_heading = re.search(r"(?m)^## [^\r\n]+(?:\r?\n|$)", text[body_start:])
+    body_end = (
+        body_start + next_heading.start() if next_heading is not None else len(text)
+    )
+
+    # Everything except the body of the top Unreleased section is immutable.
+    immutable = text[:body_start] + "\0UNRELEASED-BODY\0" + text[body_end:]
+    return immutable, text[body_start:body_end], body_start
+
+
+def changed_paths(start: str, end: str, pathspec: str) -> list[str]:
+    result = git(
+        "diff",
+        "--name-only",
+        "--diff-filter=ACDMRTUXB",
+        start,
+        end,
+        "--",
+        pathspec,
+    )
+    return [line for line in result.stdout.splitlines() if line]
+
+
+def path_changed(start: str, end: str, path: str) -> bool:
+    result = git("diff", "--quiet", start, end, "--", path, check=False)
+    if result.returncode not in (0, 1):
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValidationError(f"cannot compare {path}: {detail}")
+    return result.returncode == 1
+
+
+def is_ancestor(ancestor: str, descendant: str) -> bool:
+    result = git("merge-base", "--is-ancestor", ancestor, descendant, check=False)
+    if result.returncode not in (0, 1):
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise ValidationError(
+            f"cannot test ancestry of {ancestor} and {descendant}: {detail}"
+        )
+    return result.returncode == 0
+
+
+def policy_start(merge_base: str, head: str, marker_path: str, policy: str) -> str:
+    marker = git_file(head, marker_path, required=False)
+    if marker is None:
+        return merge_base
+
+    boundary = marker.strip()
+    if re.fullmatch(r"[0-9a-f]{40}", boundary) is None:
+        raise ValidationError(
+            f"{marker_path} at {head} must contain one full lowercase commit ID"
+        )
+
+    object_check = git("cat-file", "-e", f"{boundary}^{{commit}}", check=False)
+    if object_check.returncode != 0:
+        raise ValidationError(
+            f"{policy} policy boundary {boundary} is unavailable; use a full-history checkout"
+        )
+
+    # A boundary bootstraps a policy once. Once a PR base contains that
+    # boundary, its own merge base wins and every new change remains in scope.
+    if is_ancestor(merge_base, boundary) and is_ancestor(boundary, head):
+        return boundary
+    return merge_base
+
+
+def breaking_bullet_errors(changelog: str, body: str, offset: int) -> list[str]:
+    errors: list[str] = []
+    starts = list(re.finditer(r"(?m)^- [^\n]*\*\*BREAKING\*\*", body))
+    boundary_pattern = re.compile(r"(?m)^(?:- |#{2,6} )")
+
+    for start in starts:
+        following = boundary_pattern.search(body, start.end())
+        end = following.start() if following is not None else len(body)
+        bullet = body[start.start() : end]
+        if re.search(r"\(#[1-9][0-9]*\)", bullet) is None:
+            line = changelog.count("\n", 0, offset + start.start()) + 1
+            errors.append(
+                f"{CHANGELOG}:{line}: `**BREAKING**` bullet is missing an issue "
+                "reference in the form `(#NNN)`"
+            )
+    return errors
+
+
+def commit_body_errors(start: str, head: str) -> list[str]:
+    errors: list[str] = []
+    commits = git("rev-list", "--reverse", f"{start}..{head}").stdout.splitlines()
+    for commit in commits:
+        touched = git(
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "-m",
+            commit,
+            "--",
+            "src/",
+        ).stdout.splitlines()
+        if not touched:
+            continue
+        body = git("show", "-s", "--format=%b", commit).stdout
+        if not body.strip():
+            subject = git("show", "-s", "--format=%s", commit).stdout.strip()
+            errors.append(
+                f"commit {commit[:12]} ({subject}) touches src/ but has an empty commit body"
+            )
+    return errors
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) not in (2, 3):
+        print(
+            "usage: validate-change-record.py <base-revision> [head-revision]",
+            file=sys.stderr,
+        )
+        return 2
+
+    base = argv[1]
+    head = argv[2] if len(argv) == 3 else "HEAD"
+
+    try:
+        merge_base = git("merge-base", base, head).stdout.strip()
+        if not merge_base:
+            raise ValidationError(f"{base} and {head} have no merge base")
+
+        history_start = policy_start(
+            merge_base, head, HISTORY_POLICY_BOUNDARY, "changelog-history"
+        )
+        base_changelog = git_file(history_start, CHANGELOG)
+        head_changelog = git_file(head, CHANGELOG)
+        assert base_changelog is not None
+        assert head_changelog is not None
+
+        base_immutable, _, _ = split_unreleased(base_changelog, history_start)
+        head_immutable, unreleased, unreleased_offset = split_unreleased(
+            head_changelog, head
+        )
+
+        errors: list[str] = []
+        if base_immutable != head_immutable:
+            diff = list(
+                difflib.unified_diff(
+                    base_immutable.splitlines(),
+                    head_immutable.splitlines(),
+                    fromfile=f"{CHANGELOG}@{history_start[:12]} outside Unreleased",
+                    tofile=f"{CHANGELOG}@{head[:12]} outside Unreleased",
+                    lineterm="",
+                )
+            )
+            preview = "\n".join(diff[:12])
+            errors.append(
+                f"{CHANGELOG} content outside [Unreleased] is immutable; restore released "
+                f"history and add a superseding Unreleased entry\n{preview}"
+            )
+
+        snapshots = changed_paths(merge_base, head, API_SNAPSHOT_GLOB)
+        if snapshots and not path_changed(merge_base, head, CHANGELOG):
+            errors.append(
+                "public API snapshot changes require a CHANGELOG.md hunk in the same "
+                f"change ({', '.join(snapshots)})"
+            )
+
+        errors.extend(
+            breaking_bullet_errors(head_changelog, unreleased, unreleased_offset)
+        )
+        errors.extend(
+            commit_body_errors(
+                policy_start(merge_base, head, BODY_POLICY_BOUNDARY, "commit-body"),
+                head,
+            )
+        )
+    except ValidationError as error:
+        print(f"change-record validation error: {error}", file=sys.stderr)
+        return 2
+
+    if errors:
+        for error in errors:
+            print(f"change-record violation: {error}", file=sys.stderr)
+        return 1
+
+    print(
+        "change-record validation passed: released changelog history is immutable, "
+        "API snapshots are recorded, breaking bullets are referenced, and src/ "
+        "commits have bodies"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))

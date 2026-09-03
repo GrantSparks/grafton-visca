@@ -79,6 +79,16 @@ pub struct BasicResponse<'a> {
 /// * `Some(BasicResponse)` if the frame is valid
 /// * `None` if the frame is malformed
 pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
+    let source = CameraId::from_reply_address(*frame.first()?)?;
+    decode_basic_for_source(frame, source)
+}
+
+/// Decode a response after the transport boundary has strictly established
+/// its source and routing target.
+///
+/// Keeping source validation outside this helper lets the owner classify a
+/// serial frame once, without rewriting it into a camera-1 scratch buffer.
+pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<BasicResponse<'_>> {
     // Minimum valid response is 3 bytes (e.g., 90 38 FF)
     if frame.len() < 3 {
         return None;
@@ -88,9 +98,6 @@ pub fn decode_basic(frame: &[u8]) -> Option<BasicResponse<'_>> {
     if frame[frame.len() - 1] != VISCA_TERMINATOR {
         return None;
     }
-
-    // Check first byte: only a reply address (0x9y..=0xFy) can start a response.
-    let source = CameraId::from_reply_address(frame[0])?;
 
     // Parse based on second byte
     match frame[1] {

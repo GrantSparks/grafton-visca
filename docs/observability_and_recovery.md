@@ -23,6 +23,7 @@ without granting control over the protocol engine.
 | `busy_errors` | Error frames saying the camera cannot accept the request now. |
 | `protocol_errors` | Every other error frame, excluding the cancellation reply. |
 | `retries_scheduled` | Requests re-queued for another attempt, for any reason. |
+| `received_frames` | Valid decoded VISCA response frames received from the camera; compare snapshots around an application heartbeat for positive liveness evidence. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
 | `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
@@ -117,8 +118,9 @@ terminal error rather than silently succeeding (#690).
 
 ## StateCache
 
-Each `Camera<P>` and `DynSessionCamera` returns a cheap read-only `StateCache`
-view for exactly one target. `StateEntry` is `#[non_exhaustive]`, so a match
+Each `Camera<P>`, `BlockingDynSessionCamera`, and `DynSessionCamera` returns a
+cheap read-only `StateCache` view for exactly one target. `StateEntry` is
+`#[non_exhaustive]`, so a match
 over it needs a wildcard arm:
 
 ```rust,ignore
@@ -157,27 +159,12 @@ it is the camera's verdict on the command.
 For Sony-encapsulated traffic, a lost ACK or post-ACK completion timeout may be
 retried with the same sequence number, preserving the logical request's
 identity. Raw VISCA has no such key. After a raw command was successfully sent,
-an ACK timeout, completion timeout, unresolved cancellation, or active
-retry-budget expiry while an attempt is in `Sending`, `AwaitingAck`,
-`AwaitingCompletion`, or `Executing` leaves both its physical outcome and any
-later reply ownership uncertain. The engine never replays it (that would risk a
-duplicate relative move or preset). By default (issue #671) it fails only that
-one command with `Error::UnsequencedCommandUnconfirmed` — a per-request outcome
-the session survives — and holds the correlation still at stake (its owned
-socket, or its place as the sole unacknowledged command) quarantined until the
-ambiguity deadline, so a late ACK or completion is ignored rather than bound to
-a later command. A transient raw receive fault while the command awaits its ACK
-does not itself produce that outcome: it leaves the command awaiting ACK, so a
-subsequent ACK may still establish ownership; only a later ACK deadline without
-an ACK enters this unconfirmed recovery. The session and every unrelated request
-keep running; the caller reconciles that one command's camera effect rather than
-replacing the session. Deployments that would rather hard-fail an entire session
-than risk a subtle correlation error can opt into
-`OperationalTuning::strict_unconfirmed_poison`, which restores the whole-session
-poison (surfaced as `Error::StreamPoisoned`, which requires a replacement
-session). This rule deliberately covers non-idempotent relative motion and
-presets rather than asking a retry class to guess whether a particular payload
-is harmless.
+an ACK/completion/cancellation result that cannot be correlated is never replayed
+blindly. By default only that request fails and the evidence still at stake is
+quarantined; callers reconcile its camera effect while the session continues.
+The exact phases, quarantine scopes, transient-fault behavior, and
+`strict_unconfirmed_poison` alternative are defined once in
+[Raw unconfirmed outcomes and strict recovery](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 
 Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
 inquiry per target, so a reply, terminal error/timeout, or retry release/requeue
@@ -258,34 +245,31 @@ Not every transport failure ends a session. A receive that fails without
 proving the connection is gone — the classic case is a UDP `recv` reporting
 ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retry
 a sequenced Sony command still waiting for its ACK under that command's bounded
-policy. A raw command waiting for its ACK has no sequence to replay, but a
-transient receive fault consumes nothing and cannot desynchronize raw framing,
-so by default (issue #671) the owner does not terminalize an *uncancelled*
-command on the fault at all: it is left to ride to its own ACK deadline, where
-— if no ACK arrives — it fails per-request and quarantines its slot rather than
-poisoning the session. The strict `strict_unconfirmed_poison` opt-in instead
-ends the whole session (surfaced as `StreamPoisoned`) on that fault only with no
-recorded cancel. If cancel intent was already recorded, the command stays on
-the cancellation-driven late-ACK path; its ACK may still assign a socket and
-issue the cancel, and strict mode poisons only if that resolution deadline
-remains unconfirmed. Neither path ever replays the command.
+policy. A raw command has no sequence to replay; its complete transient-fault
+decision is the architecture guide's
+[raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 When no such raw command is awaiting ACK, a read that proves the connection is
-gone (`ConnectionClosed`, or an `Io` failure whose kind is `ConnectionReset`,
-`ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or `NotConnected`) ends the
-session. The owner normalizes that fatal receive closure to
+gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
+`ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
+`NotConnected`), or an `Io(InvalidInput)` reports a live transport contract
+failure, the session ends. A raw OS `TimedOut` is included because a
+connected TCP socket commonly reports it when keepalive has exhausted; it is
+not the spelling for an application-owned idle timer. The owner normalizes
+that fatal receive closure to
 `Error::ConnectionClosed` and retains the original transport error's text in
 the closure reason; it does not expose the raw `Io` value as the session-death
 verdict or call it stream poison. A failed read consumes nothing and so cannot
 desynchronize framing.
 
 A read that reports *no data* is a third case and not a fault at all.
-`Error::Timeout`, and the raw `Io` spellings `TimedOut`, `WouldBlock` and
-`Interrupted`, mean an idle read timeout expired with nothing to show for it.
+`Error::Timeout`, and the raw `Io` spellings `WouldBlock` and `Interrupted`,
+mean an idle read timeout expired with nothing to show for it.
 Both owners treat that as "this read produced no frames": the session lives,
 framing state is untouched, and no request's retry budget is spent. A transport
 with an internal read timeout — the shape `BlockingTransport::recv_into_with_timeout`
-documents, and the natural way to write a custom async transport — therefore
-costs nothing. UDP adapters additionally discard valid zero-length datagrams
+documents, and the natural way to write a custom async transport — must return
+`Error::Timeout` rather than forwarding `io::ErrorKind::TimedOut`. UDP adapters
+additionally discard valid zero-length datagrams
 inside the adapter and keep receiving; they never translate a datagram with no
 payload into the `Ok(0)` value reserved for stream EOF. A timed blocking
 receive retains one overall deadline while discarding such datagrams; an empty
@@ -293,21 +277,13 @@ datagram cannot reset or extend that deadline. The async UDP adapter yields
 cooperatively after an empty datagram before polling again, so a stream of empty
 packets cannot starve owner controls.
 
-The async owner does not rely on the transport to have its own timer (#675). It
-bounds every read with the session's `read_timeout` and every write with
-`write_timeout`: a read that outlasts its budget is treated as the same idle
-no-data receive described above (nothing consumed, no request penalized), and a
-write that outlasts its budget is abandoned as a send failure under the
-transport's semantics — a stream write poisons, a datagram write fails only its
-own request — so a stalled peer can never park the actor and block `close()`.
-A run of immediately-returning no-data reads is paced by the same escalating,
-next-wake-clamped pause the transient-fault path uses (recording no fault and
-spending no retry budget), so a transport that reports "no data" without blocking
-cannot hot-spin the actor. Symmetrically, a *babbling* peer — one that returns a
-valid frame on every poll — cannot starve owner controls either: a fairness
-ceiling forces the boundary sources (shutdown, cancellation, admission, control,
-timer) to be polled after a bounded run of consecutive receive-first wins, so
-valid input is never processed at the cost of an unkillable, unusable session.
+The async owner enforces `read_timeout` and `write_timeout` even when a custom
+transport has no timer. The blocking owner passes the configured bound to its
+only read/write trait operations, which implementations must honor, and rejects
+zero bounds before owner construction. Both owners pace immediately idle
+reads. The exact stream/datagram failure split, pacing, and source-fairness rules live in
+[Transport I/O deadlines and idle pacing](architecture_2_0.md#transport-io-deadlines-and-idle-pacing)
+and the preceding arbitration section.
 
 A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
@@ -348,30 +324,56 @@ reached the wire, so a partial write must be assumed and the byte-stream
 position treated as unknowable. The exact transport cause is carried in the
 `StreamPoisoned` reason.
 
-## Idle disconnects and connection liveness
+## Silent peers and connection liveness
 
-A long-lived TCP control link that sits idle can be closed by the camera even
-though the network is healthy and the same camera answers a vendor app. The
-close surfaces here as `Error::ConnectionClosed`
+A long-lived TCP control link can fail in two materially different ways. The
+camera or network may close it, or the socket may stay open while the camera
+stops answering VISCA. A close surfaces here as `Error::ConnectionClosed`
 (`requires_new_session() == true`) with the reason `peer closed connection`,
 and — because a dead session retains its original terminal cause (#680) — every
 later command, inquiry, cancellation, or control call on that session keeps
 reporting the same peer-closure cause rather than a generic channel error. This
 is the failure a long-running supervisor must expect during quiet periods.
 
-There are two independent layers of liveness, and it is worth being precise
-about which one a given close belongs to:
+Silence does **not** produce that verdict. A default built-in inquiry retries
+within its bounded policy and ordinarily reports `Error::Timeout` at the
+ten-second total retry-budget floor (roughly 10.05 seconds when the first
+backoff is included). That error is retryable and
+`requires_new_session() == false`: it proves only that this request received no
+answer. A response-bearing command on a raw-VISCA envelope can instead end as
+`UnsequencedCommandUnconfirmed` once its ACK/completion and ambiguity windows
+expire. That result has the dedicated `ErrorKind::Unconfirmed` and returns
+`requires_new_session() == false`, because the session remains usable by
+default and only that command's outcome is unknown. Neither result authorizes
+an infinite retry loop or a blind replay.
+
+`MetricsSnapshot::received_frames` is the positive liveness signal. It counts
+every valid decoded VISCA response, including an error or an unmatched
+sequenced reply. Sample it before and after an application heartbeat. An
+increase proves the peer produced a valid response frame; no increase is not
+proof of transport death, so the application must define how many unanswered
+heartbeats or how much wall time constitutes a silent peer. Once that policy is
+met, deliberately close and replace the session even though the final timeout's
+`requires_new_session()` value is false.
+
+There are two independent layers of connection liveness, and it is worth being
+precise about which one a failure belongs to:
 
 - **OS-level TCP keepalive.** Enabled by default on every TCP transport
   (blocking, Tokio, and smol) via `TransportConfig::tcp_keepalive`, whose
   default `TcpKeepaliveConfig` starts probing after ten seconds idle and repeats
-  every ten seconds. Tune it with the blocking builder's `tcp_keepalive(...)` /
+  every ten seconds. The crate does not override the OS probe count; on Linux's
+  usual count of nine, a black-holed peer is therefore detected after roughly
+  100 seconds, not after the first ten-second idle period. Tune it with the
+  blocking builder's `tcp_keepalive(...)` /
   `disable_tcp_keepalive()`, or by setting `TransportConfig::tcp_keepalive`
   before handing the config to a runtime connector or `CameraConfig`. Keepalive
   probes detect a peer that has gone away and keep NAT/firewall path state warm
   across an idle gap. They are **OS-level packets, not VISCA traffic**, so their
   presence does not tell the camera's firmware that the *application* session is
-  still in use.
+  still in use. When the OS finally reports `io::ErrorKind::TimedOut`, both
+  owners now classify that first keepalive-exhaustion error as terminal and
+  normalize it to `ConnectionClosed`; it is not swallowed as another idle read.
 - **Application-level VISCA activity.** Some camera firmwares close an idle
   control session on their own timer, counting only VISCA requests as activity.
   Keepalive cannot prevent that close, because to the firmware the session has
@@ -383,19 +385,27 @@ The library never sends VISCA on its own — there are no per-camera background
 workers (see [`architecture_2_0.md`](architecture_2_0.md)) — so if a camera
 enforces an application idle timeout there are two application-side levers:
 
-1. **Prevent it with an application heartbeat.** While the session would
+1. **Detect or prevent it with an application heartbeat.** While the session would
    otherwise be idle, periodically issue a cheap inquiry (for example a power
    or version inquiry) at an interval comfortably below the camera's idle
-   timeout. The inquiry both resets the firmware's activity timer and gives the
-   application an early, explicit `requires_new_session()` signal if the link
-   has already died:
+   timeout. The inquiry resets the firmware's activity timer when the firmware
+   is responsive. Its error alone does not guarantee an early
+   `requires_new_session()` signal for a silent open socket; compare the frame
+   counter and apply a bounded application policy:
 
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
+   let before = session.metrics()?.received_frames;
    match session.camera::<PtzOpticsG2>()?.power().state() {
-       Ok(_) => { /* session still live; keep waiting for real work */ }
+       Ok(_) if session.metrics()?.received_frames > before => {
+           /* positive liveness; keep waiting for real work */
+       }
        Err(error) if error.requires_new_session() => rebuild(&config)?,
+       Err(Error::Timeout) if session.metrics()?.received_frames == before => {
+           record_unanswered_heartbeat(); // rebuild when your threshold is met
+       }
        Err(error) => return Err(error),
+       Ok(_) => record_unanswered_heartbeat(),
    }
    ```
 
@@ -404,8 +414,8 @@ enforces an application idle timeout there are two application-side levers:
    fresh-session steps below. A supervisor keeps the reusable `SessionConfig`
    and a re-callable transport factory outside the session, classifies each
    failure with `requires_new_session()`, and on `true` opens a fresh session,
-   re-queries state, and resumes — exactly the shape `examples/recovery.rs`
-   demonstrates.
+   re-queries state, and resumes. `examples/recovery.rs` demonstrates both the
+   absent-frame silence decision and positive liveness after the rebuild.
 
 Which cameras enforce an application idle timeout, what that interval is, and
 whether a heartbeat prevents the close are firmware-specific and belong to
@@ -421,10 +431,11 @@ restart in place:
 
 0. Classify the failure with `Error::requires_new_session()`. It returns `true`
    for transport-level session death (`ConnectionClosed` or `StreamPoisoned`)
-   and `false` for the deliberate `RuntimeShutdown` and the default
-   per-request `UnsequencedCommandUnconfirmed` result, which all share
-   `ErrorKind::IoClosed`. Do not match the kind or individual variants to make
-   this decision. Fatal receive closure is normalized to `ConnectionClosed`
+   and `false` for deliberate `RuntimeShutdown` and the default per-request
+   `UnsequencedCommandUnconfirmed` result. The latter now has
+   `ErrorKind::Unconfirmed`; the terminal errors still share
+   `ErrorKind::IoClosed`, so use the predicate for the reconnect decision.
+   Fatal receive closure is normalized to `ConnectionClosed`
    with the original cause text; `StreamPoisoned` is reserved for an
    unknowable stream framing or write position. Note that
    `UnsequencedCommandUnconfirmed` returns `false` (issue #671): by default it is
@@ -451,7 +462,7 @@ values from the poisoned owner.
 ## Memory bounds
 
 The current owner policy is intentionally explicit. The first nine rows are
-fixed; the remaining three are caller-tunable bounds:
+fixed; the remaining four are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
 | --- | ---: | --- |
@@ -465,8 +476,9 @@ fixed; the remaining three are caller-tunable bounds:
 | Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
 | Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) | yes — `SessionConfig::with_admission_capacity()` |
-| Received payload bytes | see below | yes — `BufferConfig::recv_buffer_size` |
-| Reusable framing bytes | 8192 | yes — `BufferConfig::max_buffer_size` |
+| Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
+| Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
+| Retained incomplete framing bytes | 8192 by default | yes — `BufferConfig::max_buffer_size` |
 
 Admission capacity is fixed when the session opens and bounds each admitted
 boundary plus its pending/active owner lifecycle entry until safe terminal
@@ -474,8 +486,11 @@ removal, including ambiguity quarantine. It defaults to 64; callers may choose
 any non-zero value below `usize::MAX` with
 `SessionConfig::with_admission_capacity()`.
 
-The two transport-buffer rows are set from `TransportConfig::buffer_config`
-every time a session is built, so the receive row has no single number. Reach them with
+The three transport-buffer rows are set from `TransportConfig::buffer_config`
+every time a production session is built, so the first two have no single
+number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
+the production adapter replaces both values before allocating owner buffers.
+Reach the public configuration with
 `CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
 for a standard transport, with the blocking `NetTransportBuilder`'s
 `recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
@@ -490,11 +505,12 @@ defaults are:
 | `BufferConfig::for_raw_ip()` | 256 | the built-in TCP transports |
 | `BufferConfig::for_serial()` | 256 | the built-in serial transports |
 
-Every one of these keeps `max_buffer_size` at 8192, which is where the framing
-row's number comes from. A caller that raises `recv_buffer_size` raises the
-owner's per-session receive allocation by exactly that amount; raising
-`max_buffer_size` raises the ceiling on retained incomplete framing bytes.
-`recv_buffer_size` is also the framer's maximum accepted frame size, so
+Every one of these keeps `max_buffer_size` at 8192, which is where the retained
+incomplete-byte row's default comes from. A caller that raises
+`recv_buffer_size` raises the owner's per-session transport-read scratch
+allocation by exactly that amount; raising `max_buffer_size` raises the ceiling
+on retained incomplete framing bytes. `recv_buffer_size` is independently the
+framer's maximum accepted single-frame size, so
 lowering it below a profile's largest reply turns that reply into
 `Error::ResponseTooLarge`. For UDP it is also the maximum accepted datagram
 size: an over-size datagram is rejected before framing rather than silently

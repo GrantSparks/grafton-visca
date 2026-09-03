@@ -26,7 +26,7 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::ZoomStop,
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    DiagnosticEvent, Error, ErrorKind, OperationalTuning, SessionStatus,
+    DiagnosticEvent, Error, ErrorKind, SessionStatus,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
@@ -58,7 +58,12 @@ impl HasTransportConfig for PoisonOnReadTransport {
 }
 
 impl BlockingTransport for PoisonOnReadTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.sends = self.sends.saturating_add(1);
         if self.sends == 1 {
             self.reads
@@ -67,10 +72,6 @@ impl BlockingTransport for PoisonOnReadTransport {
                 )))));
         }
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(
@@ -93,8 +94,7 @@ fn strict_session() -> Session {
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("raw runtime profile"),
     )
-    .with_tuning(OperationalTuning::new().strict_unconfirmed_poison(true))
-    .expect("strict tuning is valid");
+    .with_strict_unconfirmed_poison(true);
     Session::open(PoisonOnReadTransport::new(), config).expect("owner session")
 }
 
@@ -226,14 +226,15 @@ impl HasTransportConfig for HealthyTransport {
 }
 
 impl BlockingTransport for HealthyTransport {
-    fn send_with_kind(&mut self, _bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        _bytes: &[u8],
+        _kind: CommandKind,
+        _timeout: Duration,
+    ) -> Result<(), Error> {
         self.reads.push_back(vec![0x90, 0x41, 0xff]);
         self.reads.push_back(vec![0x90, 0x51, 0xff]);
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.recv_into_with_timeout(dst, Duration::from_millis(1))
     }
 
     fn recv_into_with_timeout(

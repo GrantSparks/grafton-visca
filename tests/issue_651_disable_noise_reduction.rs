@@ -39,7 +39,7 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         camera::TransportKind,
-        capabilities::{HasImageProcessing, HasNoiseReduction3D},
+        capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
         command::{CommandKind, NoiseReduction2DMode},
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
@@ -90,7 +90,12 @@ mod blocking_surface {
     }
 
     impl BlockingTransport for RecordingTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -99,14 +104,13 @@ mod blocking_surface {
                 self.responses
                     .push_back(vec![0x90, 0x50, self.inquiry_level, 0xFF]);
             } else {
+                if let [0x81, 0x01, 0x04, 0x54, level, 0xFF] = bytes {
+                    self.inquiry_level = *level;
+                }
                 self.responses.push_back(vec![0x90, 0x41, 0xFF]);
                 self.responses.push_back(vec![0x90, 0x51, 0xFF]);
             }
             Ok(())
-        }
-
-        fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(destination, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -130,20 +134,24 @@ mod blocking_surface {
         writes.remove(0)
     }
 
-    fn inquire_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
     where
-        P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction3D,
+        P: CompileTimeProfile
+            + HasImageProcessing
+            + HasNoiseReduction3D
+            + HasNoiseReduction3DControl,
     {
         let session = Session::open(
-            RecordingTransport::with_inquiry_level(level),
+            RecordingTransport::with_inquiry_level(0),
             SessionConfig::new(ProfileSpec::from_compile_time::<P>().expect("built-in profile")),
         )
         .expect("session");
-        let result = session
-            .camera::<P>()
-            .expect("matching camera profile")
+        let camera = session.camera::<P>().expect("matching camera profile");
+        let value = NoiseReduction3DLevel::new(level).expect("level is in the public domain");
+        let result = camera
             .image()
-            .noise_reduction_3d();
+            .set_noise_reduction_3d(value)
+            .and_then(|_| camera.image().noise_reduction_3d());
         session.shutdown().expect("shutdown");
         result
     }
@@ -182,32 +190,19 @@ mod blocking_surface {
     }
 
     #[test]
-    fn blocking_session_enforces_the_selected_profiles_nr3d_reply_domain() {
-        for result in [
-            inquire_3d::<PtzOpticsG2>(0x05),
-            inquire_3d::<PtzOpticsG3>(0x05),
-        ] {
-            assert_eq!(result.expect("current documented inquiry level").value(), 5);
-        }
-        for level in [0x06, 0x07, 0x08] {
+    fn blocking_session_decodes_every_admissible_nr3d_readback() {
+        for level in 0x00..=0x08 {
             for result in [
-                inquire_3d::<PtzOpticsG2>(level),
-                inquire_3d::<PtzOpticsG3>(level),
+                round_trip_3d::<PtzOpticsG2>(level),
+                round_trip_3d::<PtzOpticsG3>(level),
+                round_trip_3d::<PtzOptics30X>(level),
             ] {
-                assert!(matches!(
-                    result,
-                    Err(Error::InvalidResponse { expected, actual })
-                        if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
-                            && actual == [level]
-                ));
+                assert_eq!(
+                    result.expect("every admissible 3D NR setter value decodes on readback"),
+                    NoiseReduction3DLevel::new(level).expect("level is in the public domain")
+                );
             }
         }
-        assert_eq!(
-            inquire_3d::<PtzOptics30X>(0x08)
-                .expect("documented legacy 30X inquiry level")
-                .value(),
-            8,
-        );
     }
 }
 
@@ -219,7 +214,7 @@ mod async_surface {
     };
 
     use grafton_visca::{
-        capabilities::{HasImageProcessing, HasNoiseReduction3D},
+        capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
         command::NoiseReduction2DMode,
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
@@ -276,6 +271,9 @@ mod async_surface {
                 .lock()
                 .expect("writes lock")
                 .push(bytes.to_vec());
+            if let [0x81, 0x01, 0x04, 0x54, level, 0xFF] = bytes {
+                self.inquiry_level = *level;
+            }
             let reply_tx = self.reply_tx.clone();
             let inquiry_level = self.inquiry_level;
             let is_nr3d_inquiry = bytes == [0x81, 0x09, 0x04, 0x54, 0xFF];
@@ -343,21 +341,24 @@ mod async_surface {
         writes.remove(0)
     }
 
-    async fn inquire_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    async fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
     where
-        P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction3D,
+        P: CompileTimeProfile
+            + HasImageProcessing
+            + HasNoiseReduction3D
+            + HasNoiseReduction3DControl,
     {
         let session = open_with_profile(
-            RecordingTransport::with_inquiry_level(level),
+            RecordingTransport::with_inquiry_level(0),
             ProfileSpec::from_compile_time::<P>().expect("built-in profile"),
         )
         .await;
-        let result = session
-            .camera::<P>()
-            .expect("matching camera profile")
-            .image()
-            .noise_reduction_3d()
-            .await;
+        let camera = session.camera::<P>().expect("matching camera profile");
+        let value = NoiseReduction3DLevel::new(level).expect("level is in the public domain");
+        let result = match camera.image().set_noise_reduction_3d(value).await {
+            Ok(_) => camera.image().noise_reduction_3d().await,
+            Err(error) => Err(error),
+        };
         session.shutdown().await.expect("shutdown");
         result
     }
@@ -403,33 +404,19 @@ mod async_surface {
     }
 
     #[tokio::test]
-    async fn async_session_enforces_the_selected_profiles_nr3d_reply_domain() {
-        for result in [
-            inquire_3d::<PtzOpticsG2>(0x05).await,
-            inquire_3d::<PtzOpticsG3>(0x05).await,
-        ] {
-            assert_eq!(result.expect("current documented inquiry level").value(), 5);
-        }
-        for level in [0x06, 0x07, 0x08] {
+    async fn async_session_decodes_every_admissible_nr3d_readback() {
+        for level in 0x00..=0x08 {
             for result in [
-                inquire_3d::<PtzOpticsG2>(level).await,
-                inquire_3d::<PtzOpticsG3>(level).await,
+                round_trip_3d::<PtzOpticsG2>(level).await,
+                round_trip_3d::<PtzOpticsG3>(level).await,
+                round_trip_3d::<PtzOptics30X>(level).await,
             ] {
-                assert!(matches!(
-                    result,
-                    Err(Error::InvalidResponse { expected, actual })
-                        if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
-                            && actual == [level]
-                ));
+                assert_eq!(
+                    result.expect("every admissible 3D NR setter value decodes on readback"),
+                    NoiseReduction3DLevel::new(level).expect("level is in the public domain")
+                );
             }
         }
-        assert_eq!(
-            inquire_3d::<PtzOptics30X>(0x08)
-                .await
-                .expect("documented legacy 30X inquiry level")
-                .value(),
-            8,
-        );
     }
 }
 
@@ -585,7 +572,7 @@ mod dyn_surface {
     }
 
     #[tokio::test]
-    async fn dynamic_session_does_not_grant_the_legacy_reply_domain_to_a_mutated_profile() {
+    async fn dynamic_runtime_profile_uses_the_same_full_nr3d_reply_domain() {
         let session = open_with_profile(
             RecordingTransport::with_inquiry_level(0x08),
             inquiry_only_noise_reduction_profile(),
@@ -594,17 +581,12 @@ mod dyn_surface {
         let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
-        let error = nouns
+        let level = nouns
             .image()
             .noise_reduction_3d()
             .await
-            .expect_err("a mutable runtime inventory must not inherit legacy 30X reply bounds");
-        assert!(matches!(
-            error,
-            Error::InvalidResponse { expected, actual }
-                if expected == "3D noise-reduction inquiry level in 0..=5 for this profile"
-                    && actual == [0x08]
-        ));
+            .expect("runtime profiles decode the full public 3D NR domain");
+        assert_eq!(level, NoiseReduction3DLevel::MAX);
 
         session.shutdown().await.expect("shutdown");
     }

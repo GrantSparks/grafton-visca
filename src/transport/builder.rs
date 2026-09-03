@@ -39,7 +39,7 @@
 //! # }
 //! ```
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::{transport::buffer::BufferConfig, Error};
 
@@ -148,12 +148,29 @@ impl Default for TransportConfig {
 }
 
 impl TransportConfig {
-    /// Validate buffer bounds that must hold before a transport is opened.
+    /// Validate I/O bounds that must hold before a transport is opened.
     ///
     /// The owner validates the same invariant when admitting a caller-owned
     /// transport. Standard construction also needs it here, before a network
     /// connector or serial-device initializer can perform I/O.
-    pub(crate) fn validate_buffer_bounds(&self) -> crate::Result<()> {
+    pub(crate) fn validate(&self) -> crate::Result<()> {
+        let now = Instant::now();
+        for (name, timeout) in [
+            ("connect", self.connect_timeout),
+            ("read", self.read_timeout),
+            ("write", self.write_timeout),
+        ] {
+            if timeout.is_zero() {
+                return Err(Error::InvalidRequest(
+                    format!("transport {name} timeout must be non-zero").into(),
+                ));
+            }
+            if now.checked_add(timeout).is_none() {
+                return Err(Error::InvalidRequest(
+                    format!("transport {name} timeout exceeds the monotonic clock range").into(),
+                ));
+            }
+        }
         if self.buffer_config.recv_buffer_size == 0 {
             return Err(Error::InvalidRequest(
                 "transport receive buffer must be non-zero".into(),
@@ -329,12 +346,6 @@ impl NetTransportBuilder {
         self
     }
 
-    /// Set the send buffer size.
-    pub fn send_buffer_size(mut self, size: usize) -> Self {
-        self.config.buffer_config.send_buffer_size = size;
-        self
-    }
-
     /// Set the maximum buffer size to prevent unbounded growth.
     pub fn max_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.max_buffer_size = size;
@@ -413,8 +424,8 @@ impl NetTransportBuilder {
 
         // Direct connectors repeat this check for callers that do not use the
         // builder. Do it here as well so every builder path rejects invalid
-        // buffer bounds before handing control to a connector.
-        self.config.validate_buffer_bounds()?;
+        // I/O bounds before handing control to a connector.
+        self.config.validate()?;
 
         match self.protocol {
             Protocol::Tcp => {
@@ -499,6 +510,59 @@ mod tests {
         assert_eq!(builder.config.connect_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.read_timeout, Duration::from_secs(3));
         assert_eq!(builder.config.write_timeout, Duration::from_secs(3));
+    }
+
+    #[test]
+    fn transport_config_rejects_invalid_timeouts() {
+        for (config, message) in [
+            (
+                TransportConfig {
+                    connect_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport connect timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    read_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport read timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    write_timeout: Duration::ZERO,
+                    ..TransportConfig::default()
+                },
+                "transport write timeout must be non-zero",
+            ),
+            (
+                TransportConfig {
+                    connect_timeout: Duration::MAX,
+                    ..TransportConfig::default()
+                },
+                "transport connect timeout exceeds the monotonic clock range",
+            ),
+            (
+                TransportConfig {
+                    read_timeout: Duration::MAX,
+                    ..TransportConfig::default()
+                },
+                "transport read timeout exceeds the monotonic clock range",
+            ),
+            (
+                TransportConfig {
+                    write_timeout: Duration::MAX,
+                    ..TransportConfig::default()
+                },
+                "transport write timeout exceeds the monotonic clock range",
+            ),
+        ] {
+            assert!(matches!(
+                config.validate(),
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
+        }
     }
 
     #[test]

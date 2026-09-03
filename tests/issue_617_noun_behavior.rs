@@ -147,7 +147,12 @@ mod blocking_surface {
     }
 
     impl BlockingTransport for ProbeTransport {
-        fn send_with_kind(&mut self, bytes: &[u8], _kind: CommandKind) -> Result<(), Error> {
+        fn send_with_timeout(
+            &mut self,
+            bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
             let (sequence, payload) = visca_payload(bytes);
             self.writes
                 .lock()
@@ -169,10 +174,6 @@ mod blocking_surface {
                     .push_back(envelope(sequence, vec![0x90, 0x51, 0xff]));
             }
             Ok(())
-        }
-
-        fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
-            self.recv_into_with_timeout(destination, Duration::from_secs(1))
         }
 
         fn recv_into_with_timeout(
@@ -377,7 +378,7 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "selected exposure mode"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -399,7 +400,7 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "inquiry ExposureModeInquiry"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -786,7 +787,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "selected exposure mode"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(
@@ -814,7 +815,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "inquiry ExposureModeInquiry"
+                feature: "shared exposure-mode family"
             }
         ));
         assert!(

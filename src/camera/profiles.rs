@@ -53,6 +53,14 @@ mod profile_constants {
         ExposureMode::Bright,
     ];
 
+    /// Shared modes listed by the BRC-H900 command and inquiry tables (R11).
+    pub const BRC_H900_EXPOSURE_MODES: &[ExposureMode] = &[
+        ExposureMode::Auto,
+        ExposureMode::Manual,
+        ExposureMode::Shutter,
+        ExposureMode::Iris,
+    ];
+
     /// Profiles with no source-backed support for the shared `04 39` AE-mode
     /// command and inquiry family.
     pub const NO_SHARED_EXPOSURE_MODES: &[ExposureMode] = &[];

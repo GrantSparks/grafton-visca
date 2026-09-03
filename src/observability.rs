@@ -72,6 +72,13 @@ pub struct MetricsSnapshot {
     /// Counted wherever the scheduler emits a retry, whatever motivated it: a
     /// busy camera, an expired deadline, or a transient receive fault.
     pub retries_scheduled: u64,
+    /// Valid decoded VISCA response frames received from the camera.
+    ///
+    /// This is a positive liveness signal: compare snapshots around an
+    /// application heartbeat to tell whether any valid peer response arrived.
+    /// A timeout does not increment it, and a value that does not advance is
+    /// not by itself proof that the transport is closed.
+    pub received_frames: u64,
     /// Sequenced replies discarded because their sequence matched no request.
     ///
     /// Expected for stale or duplicated datagrams; a rising count means the
@@ -156,10 +163,8 @@ pub enum DiagnosticPhase {
     AwaitingReply,
     /// Waiting before a retry.
     Backoff,
-    /// Resolving a cancellation.
+    /// Resolving an emitted cancellation on an owned command socket.
     AwaitingCancellationResolution,
-    /// Resolving an acknowledgement after an ambiguous cancellation.
-    AwaitingLateAck,
 }
 
 /// Sanitized response category from one received frame.
@@ -174,6 +179,11 @@ pub enum DiagnosticResponse {
     InquiryReply,
     /// A protocol error response was received.
     Error,
+    /// A Sony transport-control reply was received.
+    SonyControl {
+        /// The one- or two-byte control reply code, stored in network order.
+        code: u16,
+    },
     /// A network-change response was received.
     NetworkChange,
     /// A response could not be classified.
@@ -433,7 +443,6 @@ impl DiagnosticEvent {
             Phase::AwaitingCancellationResolution { .. } => {
                 DiagnosticPhase::AwaitingCancellationResolution
             }
-            Phase::AwaitingLateAck { .. } => DiagnosticPhase::AwaitingLateAck,
         };
         let session = |value: SessionState| match value {
             SessionState::Running => SessionStatus::Running,
@@ -450,6 +459,7 @@ impl DiagnosticEvent {
             ResponseDiagnostic::Completion(_) => DiagnosticResponse::Completion,
             ResponseDiagnostic::InquiryReply => DiagnosticResponse::InquiryReply,
             ResponseDiagnostic::Error { .. } => DiagnosticResponse::Error,
+            ResponseDiagnostic::SonyControl { code } => DiagnosticResponse::SonyControl { code },
             ResponseDiagnostic::NetworkChange => DiagnosticResponse::NetworkChange,
             ResponseDiagnostic::Unknown => DiagnosticResponse::Unknown,
         };
@@ -632,6 +642,7 @@ pub(crate) fn metrics_snapshot(
         busy_errors: metrics.busy_errors,
         protocol_errors: metrics.protocol_errors,
         retries_scheduled: metrics.retries_scheduled,
+        received_frames: metrics.received_frames,
         ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
         ignored_malformed_frames: metrics.ignored_malformed_frames,
         dropped_diagnostics: metrics.dropped_diagnostics,

@@ -1,3 +1,36 @@
+//! Error classification and recovery decisions.
+//!
+//! `Error::kind()` is a coarse reporting category, `is_retryable()` describes
+//! whether a new bounded attempt can be reasonable, and
+//! `requires_new_session()` answers only whether this error positively proves
+//! that the current session is unusable. None of those predicates is a
+//! perpetual retry policy. In particular, a camera can keep a socket open while
+//! producing no VISCA frames; use
+//! [`MetricsSnapshot::received_frames`](crate::MetricsSnapshot::received_frames)
+//! around an application heartbeat and impose an application-owned silence
+//! threshold.
+//!
+//! ## Owner failure matrix
+//!
+//! This is the canonical event × envelope × transport mapping. "Any" includes
+//! both blocking and async owners; execution mode does not change a verdict.
+//!
+//! | Event | Envelope | Transport | Public outcome | `requires_new_session()` | Application response |
+//! | --- | --- | --- | --- | --- | --- |
+//! | Observer or inquiry/response deadline expires without correlation ambiguity | Any | Any | [`Error::Timeout`] | `false` | Bound any new logical attempt. A timeout alone is not liveness proof. |
+//! | A sent command's ACK/completion becomes unconfirmable under the default policy | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
+//! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
+//! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
+//! | Request or cancellation send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
+//! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
+//! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
+//! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
+//! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
+//! | Blocking owner re-entry, or an operation-handle submission that cannot win its immediate first-dispatch boundary | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
+//! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. |
+//! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
+//! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
+
 use thiserror::Error as ThisError;
 
 use std::{borrow::Cow, convert::Infallible, io, sync::Arc, time::Duration};
@@ -32,6 +65,13 @@ pub enum ErrorKind {
     /// Operation was cancelled by user request.
     Cancelled,
 
+    /// A transmitted command or cancellation has an unknowable outcome.
+    ///
+    /// The affected request is finished, but the session remains usable by
+    /// default. Reconcile camera state before deciding whether to submit the
+    /// logical operation again.
+    Unconfirmed,
+
     /// Camera's command buffer is full (retryable).
     BufferFull,
 
@@ -62,7 +102,7 @@ pub enum ErrorKind {
     /// Invalid parameter or out of range value.
     InvalidParameter,
 
-    /// Camera is busy processing another command.
+    /// The camera or local owner is temporarily unable to accept more work.
     Busy,
 
     /// Other unspecified error.
@@ -81,11 +121,11 @@ pub enum ErrorKind {
 ///
 /// ## Retryable Errors
 /// These errors indicate temporary conditions that may succeed on retry:
-/// - `CameraBusy` - Camera is processing another command
 /// - `CommandPending` - Command acknowledged but not yet complete
-/// - `CameraMoving` - Camera is still moving to a position
-/// - `CommandTimeout` - Operation exceeded timeout (may succeed with longer timeout)
 /// - `CommandBufferFull` - Camera's command buffer is full (always retry)
+/// - `NoSocket` - The addressed command socket is no longer available
+/// - `RuntimeQueueFull` - The local admission queue is full
+/// - `TransportBusy` - The blocking facade is already borrowing the transport
 /// - `Timeout` - General timeout condition
 ///
 /// Use [`Error::is_retryable()`] to check if an error can be retried, and
@@ -97,7 +137,7 @@ pub enum ErrorKind {
 /// - `CommandNotExecutable` - Command invalid in current state
 /// - `InvalidParameter` - Parameter value is invalid
 /// - `FeatureNotSupported` - Camera model doesn't support this feature
-/// - `PresetNotFound` - Requested preset doesn't exist
+/// - `InvalidPreset` - Requested preset is outside the profile's supported range
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
@@ -106,9 +146,10 @@ pub enum ErrorKind {
 /// [`Error::ConnectionClosed`] (with the transport cause retained in its
 /// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
-/// transport death from deliberate shutdown. A per-request raw correlation
-/// failure is different: [`Error::UnsequencedCommandUnconfirmed`] is false by
-/// default, so it does not by itself make the session unusable.
+/// transport death from deliberate shutdown. A per-request correlation failure
+/// for an unsequenced command on a raw-VISCA envelope is different:
+/// [`Error::UnsequencedCommandUnconfirmed`] has
+/// [`ErrorKind::Unconfirmed`] and does not by itself make the session unusable.
 ///
 /// # VISCA Error Codes
 ///
@@ -166,37 +207,11 @@ pub enum Error {
         reason: Option<Cow<'static, str>>,
     },
 
-    /// Command execution exceeded the configured timeout.
-    #[error("Command timeout after {duration:?} for command: {command}")]
-    CommandTimeout {
-        /// Duration of the timeout.
-        duration: Duration,
-        /// Description of the command that timed out.
-        command: Cow<'static, str>,
-    },
-
-    /// Camera is busy executing another command and cannot accept new commands.
-    #[error("Camera is busy executing another command")]
-    CameraBusy,
-
     /// Command has been acknowledged but is still pending completion.
     /// This is returned when an ACK is received, indicating the command
     /// was queued but not yet executed.
     #[error("Command acknowledged and pending completion")]
     CommandPending,
-
-    /// Camera is still performing a mechanical movement operation.
-    #[error("Camera is still moving, position: pan={pan}, tilt={tilt}")]
-    CameraMoving {
-        /// Current pan position.
-        pan: i32,
-        /// Current tilt position.
-        tilt: i32,
-    },
-
-    /// Camera has not been properly initialized or powered on.
-    #[error("Camera not initialized")]
-    CameraNotReady,
 
     /// Response from camera doesn't match the expected format.
     #[error("Invalid response: expected {expected}, got {actual:?}")]
@@ -205,20 +220,6 @@ pub enum Error {
         expected: Cow<'static, str>,
         /// Actual bytes received.
         actual: Vec<u8>,
-    },
-
-    /// Camera explicitly rejected the command.
-    #[error("Command rejected by camera: {reason}")]
-    CommandRejected {
-        /// Reason for rejection.
-        reason: Cow<'static, str>,
-    },
-
-    /// Requested preset position does not exist.
-    #[error("Preset {id} not found")]
-    PresetNotFound {
-        /// ID of the missing preset.
-        id: u8,
     },
 
     /// Camera model doesn't support the requested feature.
@@ -356,15 +357,16 @@ pub enum Error {
     #[error("Invalid state: {0}")]
     InvalidState(Cow<'static, str>),
 
-    /// Transport is busy and cannot be borrowed for a new operation.
-    /// This occurs when multiple operations try to use the transport concurrently
-    /// in blocking mode.
+    /// The blocking owner cannot enter this turn without violating exclusive
+    /// ownership.
+    ///
+    /// This has two meanings: a blocking call re-entered an owner turn already
+    /// in progress, or a newly submitted operation-handle request could not win
+    /// its immediate first-dispatch boundary. The latter includes socket
+    /// capacity and an earlier normative scheduler winner. It is never a
+    /// peer-disconnect verdict and is not emitted by the async facade.
     #[error("Transport is busy with another operation")]
     TransportBusy,
-
-    /// No response received from camera.
-    #[error("No response received from camera")]
-    NoResponse,
 
     /// Runtime has been shutdown.
     #[error("Runtime has been shutdown")]
@@ -376,21 +378,25 @@ pub enum Error {
     #[error("Cancellation could not be confirmed")]
     CancellationUnconfirmed,
 
-    /// A raw/unsequenced command was successfully sent, but its ACK or
-    /// completion outcome became unknowable — a lost ACK/completion datagram, an
-    /// expired cancellation-ambiguity window, or a spent retry budget while an
-    /// attempt was in `Sending`, `AwaitingAck`, `AwaitingCompletion`, or `Executing`.
+    /// An unsequenced command on a raw-VISCA envelope was successfully sent,
+    /// but its ACK or completion outcome became unknowable — a lost
+    /// ACK/completion datagram, an expired cancellation-ambiguity window, or a
+    /// spent retry budget while an attempt was in `Sending`, `AwaitingAck`,
+    /// `AwaitingCompletion`, or `Executing`.
     ///
     /// By default this is a **per-request** outcome the session survives (issue
     /// #671): the engine fails only this command and quarantines its correlation
     /// slot — its owned socket, or its place as the sole unacknowledged raw
     /// command — until the ambiguity deadline, so a late reply cannot bind to a
-    /// later command. It is never replayed automatically, because a raw command
-    /// may already have reached the camera, and it is therefore *not* proof of
-    /// session death: [`Self::requires_new_session`] is `false`. Reconcile the
-    /// affected camera state before deciding whether to resubmit. The strict
-    /// `strict_unconfirmed_poison` opt-in instead poisons the whole session,
-    /// which is surfaced as [`Self::StreamPoisoned`].
+    /// later command. It is never replayed automatically, because an
+    /// unsequenced raw-VISCA command may already have reached the camera, and it
+    /// is therefore *not* proof of session death:
+    /// [`Self::requires_new_session`] is `false`. Reconcile the affected camera
+    /// state before deciding whether to resubmit. The strict
+    /// [`SessionConfig::with_strict_unconfirmed_poison`] opt-in instead poisons
+    /// the whole session, which is surfaced as [`Self::StreamPoisoned`].
+    ///
+    /// [`SessionConfig::with_strict_unconfirmed_poison`]: crate::SessionConfig::with_strict_unconfirmed_poison
     #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
 
@@ -431,25 +437,13 @@ pub enum Error {
     /// Create a new transport connection, re-query/reconcile device state, and
     /// only then deliberately resubmit work whose desired effect is still
     /// needed. Never blindly replay a command whose completion is uncertain:
-    /// a raw command may already have reached the camera before its outcome was
-    /// lost, and the replacement session cannot prove otherwise.
+    /// an unsequenced command on a raw-VISCA envelope may already have reached
+    /// the camera before its outcome was lost, and the replacement session
+    /// cannot prove otherwise.
     #[error("Stream transport poisoned: {reason}")]
     StreamPoisoned {
         /// Description of why the transport was poisoned.
         reason: Cow<'static, str>,
-    },
-
-    /// Validation error from capability traits.
-    #[error("Validation error: {0}")]
-    ValidationError(#[from] crate::capabilities::ValidationError),
-
-    /// Unknown inquiry response type.
-    #[error("Unknown inquiry response type '{response_type}' with data: {data:?}")]
-    UnknownResponseKind {
-        /// The response type that was not recognized.
-        response_type: Cow<'static, str>,
-        /// The raw response data.
-        data: Vec<u8>,
     },
 
     /// No decoder found for the specified inquiry kind.
@@ -533,9 +527,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         match self {
             // Timeout: transient timing failures
-            Self::Timeout | Self::CommandTimeout { .. } | Self::MaxRetriesExceeded => {
-                ErrorKind::Timeout
-            }
+            Self::Timeout | Self::MaxRetriesExceeded => ErrorKind::Timeout,
 
             // Cancelled: explicit cancellation
             Self::CommandCanceled => ErrorKind::Cancelled,
@@ -546,18 +538,18 @@ impl Error {
             }
 
             // NotExecutable: command invalid in current state
-            Self::CommandNotExecutable
-            | Self::CameraNotReady
-            | Self::CommandRejected { .. }
-            | Self::InvalidState(..) => ErrorKind::NotExecutable,
+            Self::CommandNotExecutable | Self::InvalidState(..) => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
             Self::ConnectionClosed { .. }
-            | Self::NoResponse
             | Self::TransportError(..)
             | Self::RuntimeShutdown
-            | Self::StreamPoisoned { .. }
-            | Self::UnsequencedCommandUnconfirmed => ErrorKind::IoClosed,
+            | Self::StreamPoisoned { .. } => ErrorKind::IoClosed,
+
+            // Unconfirmed: one transmitted operation has an unknowable result
+            Self::CancellationUnconfirmed | Self::UnsequencedCommandUnconfirmed => {
+                ErrorKind::Unconfirmed
+            }
 
             // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -570,7 +562,6 @@ impl Error {
             | Self::MessageLengthError
             | Self::InvalidResponse { .. }
             | Self::Unknown(..)
-            | Self::UnknownResponseKind { .. }
             | Self::DecoderNotFound { .. }
             | Self::ResponseTooLarge { .. } => ErrorKind::Protocol,
 
@@ -584,23 +575,18 @@ impl Error {
             | Self::InvalidPreset { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::SyntaxError
-            | Self::PresetNotFound { .. }
             | Self::InvalidRequest(..)
             | Self::BufferTooSmall { .. }
-            | Self::ValidationError(..)
             | Self::InvalidCameraId { .. }
             | Self::InquiryNotCancelable { .. }
             | Self::InvalidAddress { .. } => ErrorKind::InvalidParameter,
             Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
             // Busy: transient contention
-            Self::CameraBusy
-            | Self::CameraMoving { .. }
-            | Self::TransportBusy
-            | Self::CommandPending => ErrorKind::Busy,
+            Self::TransportBusy | Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::CancellationUnconfirmed | Self::RuntimeIdentityExhausted => ErrorKind::Other,
+            Self::RuntimeIdentityExhausted => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } => source.kind(),
@@ -635,7 +621,7 @@ impl Error {
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. Fatal receive closure is always normalized to
     ///   `ConnectionClosed`, with the underlying cause in its reason. An
-    ///   unconfirmed raw command is not in this set by default: its
+    ///   unconfirmed unsequenced raw-VISCA command is not in this set by default: its
     ///   [`Error::UnsequencedCommandUnconfirmed`] result is per-request and
     ///   leaves the session running.
     /// - `false` — the condition does not prove the session is unusable. A
@@ -658,7 +644,8 @@ impl Error {
     /// starts `Unknown` and nothing is resubmitted automatically, so re-query
     /// supported camera state before applying desired state. Do not blindly
     /// replay a command whose completion is uncertain: it may have reached the
-    /// camera before the connection failed or raw correlation was poisoned.
+    /// camera before the connection failed or unsequenced raw-VISCA
+    /// correlation was poisoned.
     ///
     /// [`SessionConfig`]: crate::SessionConfig
     ///
@@ -702,14 +689,8 @@ impl Error {
             // session death separately as `StreamPoisoned`. A live session must
             // never hand out a replacement-session verdict.
             Self::ConnectionFailed { .. }
-            | Self::CommandTimeout { .. }
-            | Self::CameraBusy
             | Self::CommandPending
-            | Self::CameraMoving { .. }
-            | Self::CameraNotReady
             | Self::InvalidResponse { .. }
-            | Self::CommandRejected { .. }
-            | Self::PresetNotFound { .. }
             | Self::FeatureNotSupported { .. }
             | Self::Io(..)
             | Self::SyntaxError
@@ -734,13 +715,10 @@ impl Error {
             | Self::NotSupported
             | Self::InvalidState(..)
             | Self::TransportBusy
-            | Self::NoResponse
             | Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
-            | Self::ValidationError(..)
-            | Self::UnknownResponseKind { .. }
             | Self::DecoderNotFound { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
@@ -782,17 +760,17 @@ impl Error {
     ///
     /// Returns `true` for errors that represent temporary conditions
     /// that may succeed if the operation is retried. This includes:
-    /// - Camera busy states (`CameraBusy`, `CommandBufferFull`)
+    /// - Camera capacity states (`CommandBufferFull`, `NoSocket`)
     /// - Queue capacity (`RuntimeQueueFull`)
-    /// - Pending operations (`CommandPending`, `CameraMoving`)
-    /// - Timeout conditions (`CommandTimeout`, `Timeout`)
+    /// - Pending operations (`CommandPending`, `TransportBusy`)
+    /// - Timeout conditions (`Timeout` and timed-out I/O)
     ///
     /// # Example
     ///
     /// ```rust
     /// use grafton_visca::Error;
     ///
-    /// let error = Error::CameraBusy;
+    /// let error = Error::CommandBufferFull;
     /// if error.is_retryable() {
     ///     println!("This error can be retried");
     /// }
@@ -819,11 +797,10 @@ impl Error {
     /// suggested delay.
     ///
     /// The suggested delays are based on typical camera response times:
-    /// - `CameraBusy`: 200ms (camera is processing)
     /// - `CommandPending`: 50ms (command acknowledged, waiting for completion)
-    /// - `CameraMoving`: 500ms (mechanical movement in progress)
-    /// - `CommandTimeout`: 1s (previous timeout, try with longer duration)
+    /// - `TransportBusy`: 50ms (blocking transport borrow is occupied)
     /// - `CommandBufferFull`: 200ms (wait for buffer space)
+    /// - `NoSocket`: 200ms (wait for camera socket state to advance)
     /// - `Timeout`: 2s (general timeout, allow more time)
     ///
     /// # Example
@@ -832,7 +809,7 @@ impl Error {
     /// use grafton_visca::Error;
     /// use std::time::Duration;
     ///
-    /// let error = Error::CameraBusy;
+    /// let error = Error::CommandBufferFull;
     /// if let Some(delay) = error.suggested_retry_delay() {
     ///     assert_eq!(delay, Duration::from_millis(200));
     ///     std::thread::sleep(delay);
@@ -842,10 +819,7 @@ impl Error {
     #[must_use]
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
-            Self::CameraBusy => Some(Duration::from_millis(200)),
             Self::CommandPending => Some(Duration::from_millis(50)),
-            Self::CameraMoving { .. } => Some(Duration::from_millis(500)),
-            Self::CommandTimeout { .. } => Some(Duration::from_secs(1)),
             Self::TransportBusy => Some(Duration::from_millis(50)),
             Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
                 Some(Duration::from_millis(200))
@@ -877,7 +851,7 @@ impl Error {
     /// ```rust
     /// use grafton_visca::Error;
     ///
-    /// let error = Error::CameraBusy;
+    /// let error = Error::CommandBufferFull;
     /// let contextual_error = error.with_context("Failed to recall preset 5");
     ///
     /// // Original error properties are preserved
@@ -887,7 +861,7 @@ impl Error {
     /// // But the error message now includes context
     /// assert_eq!(
     ///     contextual_error.to_string(),
-    ///     "Failed to recall preset 5: Camera is busy executing another command"
+    ///     "Failed to recall preset 5: Command buffer is full"
     /// );
     /// ```
     #[must_use]
@@ -910,12 +884,12 @@ impl Error {
     /// use grafton_visca::Error;
     ///
     /// let preset_id = 5;
-    /// let error = Error::CameraBusy;
+    /// let error = Error::CommandBufferFull;
     /// let contextual_error = error.context(format!("Failed to recall preset {}", preset_id));
     ///
     /// assert_eq!(
     ///     contextual_error.to_string(),
-    ///     "Failed to recall preset 5: Camera is busy executing another command"
+    ///     "Failed to recall preset 5: Command buffer is full"
     /// );
     /// ```
     #[must_use]
@@ -1037,7 +1011,6 @@ mod tests {
                 Error::CommandBufferFull => "CommandBufferFull",
                 Error::CommandCanceled => "CommandCanceled",
                 Error::NoSocket => "NoSocket",
-                Error::CameraBusy => "CameraBusy",
                 Error::CommandNotExecutable => "CommandNotExecutable",
                 _ => "Unknown",
             };
@@ -1112,15 +1085,9 @@ mod tests {
 
     #[test]
     fn test_is_retryable() {
-        assert!(Error::CameraBusy.is_retryable());
-        assert!(Error::CameraMoving { pan: 100, tilt: 50 }.is_retryable());
-        assert!(Error::CommandTimeout {
-            duration: Duration::from_secs(5),
-            command: Cow::Borrowed("test")
-        }
-        .is_retryable());
         assert!(Error::CommandBufferFull.is_retryable());
         assert!(Error::Timeout.is_retryable());
+        assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
 
         // Issue #501: TransportBusy is transient and should be retryable
         assert!(Error::TransportBusy.is_retryable());
@@ -1140,30 +1107,18 @@ mod tests {
             reason: Cow::Borrowed("test reason"),
         }
         .is_retryable());
-        assert!(!Error::PresetNotFound { id: 1 }.is_retryable());
+        assert!(!Error::InvalidPreset { preset: 9, max: 8 }.is_retryable());
     }
 
     #[test]
     fn test_suggested_retry_delay() {
         assert_eq!(
-            Error::CameraBusy.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-        assert_eq!(
-            Error::CameraMoving { pan: 100, tilt: 50 }.suggested_retry_delay(),
-            Some(Duration::from_millis(500))
-        );
-        assert_eq!(
-            Error::CommandTimeout {
-                duration: Duration::from_secs(5),
-                command: Cow::Borrowed("test")
-            }
-            .suggested_retry_delay(),
-            Some(Duration::from_secs(1))
-        );
-        assert_eq!(
             Error::CommandBufferFull.suggested_retry_delay(),
             Some(Duration::from_millis(200))
+        );
+        assert_eq!(
+            Error::CommandPending.suggested_retry_delay(),
+            Some(Duration::from_millis(50))
         );
         assert_eq!(
             Error::Timeout.suggested_retry_delay(),
@@ -1207,31 +1162,10 @@ mod tests {
                 Some(Duration::from_secs(2)),
             ),
             (
-                "command timeout",
-                Error::CommandTimeout {
-                    duration: Duration::from_secs(1),
-                    command: Cow::Borrowed("test"),
-                },
-                ErrorKind::Timeout,
-                Some(Duration::from_secs(1)),
-            ),
-            (
-                "camera busy",
-                Error::CameraBusy,
-                ErrorKind::Busy,
-                Some(Duration::from_millis(200)),
-            ),
-            (
                 "pending command",
                 Error::CommandPending,
                 ErrorKind::Busy,
                 Some(Duration::from_millis(50)),
-            ),
-            (
-                "camera moving",
-                Error::CameraMoving { pan: 0, tilt: 0 },
-                ErrorKind::Busy,
-                Some(Duration::from_millis(500)),
             ),
             (
                 "transport busy",
@@ -1327,9 +1261,15 @@ mod tests {
                 None,
             ),
             (
-                "unconfirmed raw command",
+                "unconfirmed unsequenced raw-VISCA command",
                 Error::UnsequencedCommandUnconfirmed,
-                ErrorKind::IoClosed,
+                ErrorKind::Unconfirmed,
+                None,
+            ),
+            (
+                "unconfirmed cancellation",
+                Error::CancellationUnconfirmed,
+                ErrorKind::Unconfirmed,
                 None,
             ),
             (
@@ -1345,8 +1285,8 @@ mod tests {
                 None,
             ),
             (
-                "missing preset",
-                Error::PresetNotFound { id: 1 },
+                "invalid preset",
+                Error::InvalidPreset { preset: 9, max: 8 },
                 ErrorKind::InvalidParameter,
                 None,
             ),
@@ -1390,14 +1330,6 @@ mod tests {
 
         // Timeout
         assert_eq!(Error::Timeout.kind(), ErrorKind::Timeout);
-        assert_eq!(
-            Error::CommandTimeout {
-                duration: Duration::from_secs(1),
-                command: Cow::Borrowed("test")
-            }
-            .kind(),
-            ErrorKind::Timeout
-        );
         assert_eq!(Error::MaxRetriesExceeded.kind(), ErrorKind::Timeout);
 
         // Cancelled
@@ -1413,7 +1345,6 @@ mod tests {
 
         // NotExecutable
         assert_eq!(Error::CommandNotExecutable.kind(), ErrorKind::NotExecutable);
-        assert_eq!(Error::CameraNotReady.kind(), ErrorKind::NotExecutable);
         assert_eq!(
             Error::InvalidState(Cow::Borrowed("test")).kind(),
             ErrorKind::NotExecutable
@@ -1425,28 +1356,25 @@ mod tests {
             ErrorKind::IoClosed
         );
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
+        // Unconfirmed
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),
-            ErrorKind::IoClosed
+            ErrorKind::Unconfirmed
+        );
+        assert_eq!(
+            Error::CancellationUnconfirmed.kind(),
+            ErrorKind::Unconfirmed
         );
 
         // Protocol
         assert_eq!(Error::Unknown(0xFF).kind(), ErrorKind::Protocol);
-        assert_eq!(
-            Error::UnknownResponseKind {
-                response_type: Cow::Borrowed("test"),
-                data: vec![0x00],
-            }
-            .kind(),
-            ErrorKind::Protocol
-        );
 
         // Unsupported
         assert_eq!(Error::MissingRuntime.kind(), ErrorKind::Unsupported);
 
         // InvalidParameter
         assert_eq!(
-            Error::PresetNotFound { id: 1 }.kind(),
+            Error::InvalidPreset { preset: 9, max: 8 }.kind(),
             ErrorKind::InvalidParameter
         );
         assert_eq!(
@@ -1462,12 +1390,10 @@ mod tests {
         );
 
         // Busy
-        assert_eq!(Error::CameraBusy.kind(), ErrorKind::Busy);
         assert_eq!(Error::TransportBusy.kind(), ErrorKind::Busy);
         assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
 
         // Other
-        assert_eq!(Error::CancellationUnconfirmed.kind(), ErrorKind::Other);
         assert_eq!(Error::RuntimeIdentityExhausted.kind(), ErrorKind::Other);
 
         // Io: inspect inner io::ErrorKind
@@ -1520,13 +1446,11 @@ mod tests {
         assert!(dropped.requires_new_session());
         assert!(poisoned.requires_new_session());
         assert!(!shutdown.requires_new_session());
-        // Issue #671: `UnsequencedCommandUnconfirmed` shares the `IoClosed` kind
-        // yet is, by default, a per-request outcome the session survives, so it
-        // must not require a new session. It is the strongest case that the
-        // verdict cannot be derived from the kind.
+        // Issue #726 gives recoverable correlation ambiguity its own category;
+        // it must neither masquerade as a closed connection nor require one.
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),
-            ErrorKind::IoClosed
+            ErrorKind::Unconfirmed
         );
         assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
     }
@@ -1551,14 +1475,13 @@ mod tests {
         for error in [
             Error::RuntimeShutdown,
             Error::Timeout,
-            Error::CameraBusy,
             Error::CommandBufferFull,
+            Error::CommandPending,
             Error::RuntimeQueueFull { capacity: 8 },
             Error::CommandCanceled,
             Error::CommandNotExecutable,
             Error::SyntaxError,
             Error::NoSocket,
-            Error::NoResponse,
             Error::TransportBusy,
             Error::MaxRetriesExceeded,
             Error::CancellationUnconfirmed,
@@ -1610,9 +1533,9 @@ mod tests {
     #[test]
     fn test_error_implements_clone() {
         // Test that Error implements Clone for various variants
-        let error1 = Error::CameraBusy;
+        let error1 = Error::CommandPending;
         let error2 = error1.clone();
-        assert!(matches!(error2, Error::CameraBusy));
+        assert!(matches!(error2, Error::CommandPending));
 
         let error3 = Error::ConnectionFailed {
             addr: Cow::Borrowed("192.168.1.100:5678"),
@@ -1643,7 +1566,7 @@ mod tests {
     #[test]
     fn test_with_context_preserves_retry_intelligence() {
         // Test that with_context preserves is_retryable
-        let error = Error::CameraBusy;
+        let error = Error::CommandBufferFull;
         let contextual = error.with_context("Failed to power on camera");
         assert!(contextual.is_retryable());
         assert_eq!(
@@ -1660,28 +1583,28 @@ mod tests {
 
     #[test]
     fn test_with_context_message_format() {
-        let error = Error::CameraBusy;
+        let error = Error::CommandBufferFull;
         let contextual = error.with_context("Failed to recall preset 5");
         assert_eq!(
             contextual.to_string(),
-            "Failed to recall preset 5: Camera is busy executing another command"
+            "Failed to recall preset 5: Command buffer is full"
         );
     }
 
     #[test]
     fn test_context_method() {
         let preset_id = 5;
-        let error = Error::CameraBusy;
+        let error = Error::CommandBufferFull;
         let contextual = error.context(format!("Failed to recall preset {}", preset_id));
         assert_eq!(
             contextual.to_string(),
-            "Failed to recall preset 5: Camera is busy executing another command"
+            "Failed to recall preset 5: Command buffer is full"
         );
     }
 
     #[test]
     fn test_with_context_preserves_error_kind() {
-        let error = Error::CameraBusy;
+        let error = Error::TransportBusy;
         let contextual = error.with_context("Operation failed");
         assert_eq!(contextual.kind(), ErrorKind::Busy);
 
@@ -1697,7 +1620,7 @@ mod tests {
     #[test]
     fn test_nested_context() {
         // Test that context can be added to already-contextualized errors
-        let error = Error::CameraBusy;
+        let error = Error::CommandBufferFull;
         let contextual1 = error.with_context("Inner context");
         let contextual2 = contextual1.with_context("Outer context");
 
@@ -1711,7 +1634,7 @@ mod tests {
         // Message format
         assert_eq!(
             contextual2.to_string(),
-            "Outer context: Inner context: Camera is busy executing another command"
+            "Outer context: Inner context: Command buffer is full"
         );
     }
 
@@ -1719,19 +1642,13 @@ mod tests {
     fn test_with_context_all_retryable_types() {
         // Test all retryable error types preserve their retry metadata
         let retryable_errors = vec![
-            (Error::CameraBusy, Duration::from_millis(200)),
-            (
-                Error::CameraMoving { pan: 0, tilt: 0 },
-                Duration::from_millis(500),
-            ),
-            (
-                Error::CommandTimeout {
-                    duration: Duration::from_secs(1),
-                    command: Cow::Borrowed("test"),
-                },
-                Duration::from_secs(1),
-            ),
             (Error::CommandBufferFull, Duration::from_millis(200)),
+            (Error::NoSocket, Duration::from_millis(200)),
+            (
+                Error::RuntimeQueueFull { capacity: 8 },
+                Duration::from_millis(200),
+            ),
+            (Error::TransportBusy, Duration::from_millis(50)),
             (Error::CommandPending, Duration::from_millis(50)),
             (Error::Timeout, Duration::from_secs(2)),
         ];

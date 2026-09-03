@@ -73,15 +73,21 @@ impl Session {
         config.validate_for_transport(transport.standard_transport_kind())?;
         let tuning = config.tuning();
         let profiles = config.profile_registry();
-        let adapter = AsyncTransportAdapter::new_with_profile_registry(
+        let mut adapter = AsyncTransportAdapter::new_with_profile_registry(
             transport,
             &profiles,
             tuning,
             config.admission_capacity(),
+            config.strict_unconfirmed_poison(),
         )?;
         let policy = adapter.policy().clone();
 
         let executor: Arc<E> = executor.into();
+        if config.sony_sequence_reset_on_connect() {
+            executor
+                .timeout(policy.write_timeout, adapter.send_sony_sequence_reset())
+                .await??;
+        }
         let (owner, actor) = AsyncOwnerActor::new(policy, (*executor).clone())?;
         // This is the only task spawned by this facade. The owner handle is
         // cloneable; all public camera views share its one serialized actor.
@@ -123,6 +129,18 @@ impl Session {
         }))
     }
 
+    /// Returns the runtime-profile camera view for the sole registered target.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn(&self) -> Result<crate::dynapi::DynSessionCamera> {
+        crate::dynapi::DynSessionCamera::from_session(self)
+    }
+
+    /// Returns a target-specific runtime-profile camera view.
+    #[cfg(feature = "dyn-api")]
+    pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
+        crate::dynapi::DynSessionCamera::from_session_target(self, target)
+    }
+
     /// Builds an erased owner view for the dynamic API. This deliberately does
     /// not perform compile-time profile matching: dynamic callers use the
     /// stored validated [`ProfileSpec`] at each operation boundary.
@@ -133,7 +151,8 @@ impl Session {
                 Error::InvalidState("session has no registered target".into())
             } else {
                 Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_for".into(),
+                    "session has multiple registered targets; select one with camera_dyn_for"
+                        .into(),
                 )
             }
         })?;
@@ -186,12 +205,10 @@ impl Session {
     /// housekeeping pass and therefore also covered work in flight. To widen a
     /// deadline for a command that is already running, cancel it and resubmit.
     ///
-    /// The update is not a merge for runtime-mutable values: a field left unset
-    /// returns to its profile default rather than keeping the value a previous
-    /// call installed. [`OperationalTuning::strict_unconfirmed_poison`] is a
-    /// construction-only recovery policy, so setting it here is rejected; an
-    /// update that leaves it unset retains a construction-time strict opt-in in
-    /// [`Self::tuning`].
+    /// The update is not a merge: a field left unset returns to its profile
+    /// default rather than keeping the value a previous call installed.
+    /// Construction-only recovery policy lives on [`SessionConfig`], outside
+    /// `OperationalTuning`, and is therefore unaffected by this call.
     ///
     /// The update travels through the owner's control boundary and the owner is
     /// its only writer, so two session clones reconfiguring concurrently
@@ -202,9 +219,8 @@ impl Session {
     ///
     /// Rejects tuning that construction would reject for a registered profile:
     /// values that weaken pacing minima, raise a socket limit, undercut a
-    /// deadline, or specify incoherent retry timing. It also rejects an
-    /// explicit construction-only strict recovery setting, leaving the
-    /// session's current tuning untouched. Returns the session's terminal error
+    /// deadline, or specify incoherent retry timing, leaving the session's
+    /// current tuning untouched. Returns the session's terminal error
     /// if the owner has shut down; a retained terminal error takes precedence
     /// over validation of the proposed update.
     pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
@@ -480,18 +496,6 @@ impl AsyncCameraCore {
         self.execute_with_selection(command, self.class).await
     }
 
-    pub(crate) async fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.execute_with_selection(command, ClassSelection::Explicit(class))
-            .await
-    }
-
     async fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<()>
     where
         C: PlainCommand + ?Sized,
@@ -512,18 +516,6 @@ impl AsyncCameraCore {
         Q: Inquiry + ?Sized,
     {
         self.inquire_with_selection(inquiry, self.class).await
-    }
-
-    pub(crate) async fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.inquire_with_selection(inquiry, ClassSelection::Explicit(class))
-            .await
     }
 
     async fn inquire_with_selection<Q>(
@@ -551,19 +543,6 @@ impl AsyncCameraCore {
         O: OperationCommand<K> + ?Sized,
     {
         self.submit_with_selection::<K, O>(operation, self.class)
-            .await
-    }
-
-    pub(crate) async fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.submit_with_selection::<K, O>(operation, ClassSelection::Explicit(class))
             .await
     }
 
@@ -768,6 +747,17 @@ impl<P: CompileTimeProfile> Camera<P> {
         self.core.submission_class()
     }
 
+    /// Derives a camera view whose ordinary work uses `class`.
+    ///
+    /// The original view is unchanged. Commands, inquiries, operations, and
+    /// noun methods submitted through the returned view all inherit this
+    /// class; intrinsically urgent stops remain urgent.
+    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
+        let mut selected = self.clone();
+        selected.set_submission_class(Some(class));
+        selected
+    }
+
     /// Sets the ordinary-work [`SubmissionClass`] every later submission from
     /// *this handle* uses, or clears it with `None`.
     ///
@@ -828,25 +818,6 @@ impl<P: CompileTimeProfile> Camera<P> {
         self.core.execute(command).await
     }
 
-    /// Executes a plain command in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It applies to ordinary work; an intrinsically
-    /// [`crate::ControlClass::Urgent`] command remains urgent.
-    pub async fn execute_with_submission_class<C>(
-        &self,
-        command: &C,
-        class: SubmissionClass,
-    ) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.core
-            .execute_with_submission_class(command, class)
-            .await
-    }
-
     /// Sends an inquiry and decodes its response through the shared owner.
     ///
     /// This intentionally has no request-specific `P: Has*` bound. Noun and
@@ -867,24 +838,6 @@ impl<P: CompileTimeProfile> Camera<P> {
         self.core.inquire(inquiry).await
     }
 
-    /// Sends an inquiry in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. It cannot weaken an intrinsic urgent safety class.
-    pub async fn inquire_with_submission_class<Q>(
-        &self,
-        inquiry: &Q,
-        class: SubmissionClass,
-    ) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.core
-            .inquire_with_submission_class(inquiry, class)
-            .await
-    }
-
     /// Submits a typed operation and returns its owner-backed handle.
     pub async fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>>
     where
@@ -892,27 +845,6 @@ impl<P: CompileTimeProfile> Camera<P> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation).await
-    }
-
-    /// Submits a typed operation in an explicitly named scheduling lane.
-    ///
-    /// `class` replaces this handle's
-    /// [`set_submission_class`](Self::set_submission_class) default for this
-    /// submission only. As with
-    /// [`execute_with_submission_class`](Self::execute_with_submission_class),
-    /// an intrinsically urgent stop remains urgent.
-    pub async fn submit_with_submission_class<K, O>(
-        &self,
-        operation: &O,
-        class: SubmissionClass,
-    ) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.core
-            .submit_with_submission_class::<K, O>(operation, class)
-            .await
     }
 }
 
@@ -1018,6 +950,7 @@ mod tests {
                     .cancellation_timeout(Duration::from_secs(1))
                     .ambiguity_timeout(Duration::from_secs(1))
                     .busy_timeout(Duration::ZERO)
+                    .raw_inquiry_reply_skew(Duration::ZERO)
                     .minimum_inquiry_spacing(Duration::ZERO)
                     .minimum_command_spacing(Duration::ZERO)
                     .build()
@@ -1042,6 +975,32 @@ mod tests {
                 .expect("registered partial motion profile"),
             class: ClassSelection::Request,
         }
+    }
+
+    #[test]
+    fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
+        let (runtime, _) = DeterministicExecutor::new();
+        let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true);
+
+        let session = runtime
+            .run_until(Session::open::<DeterministicExecutor, _>(
+                transport,
+                config,
+                runtime.clone(),
+            ))
+            .expect("Sony session opens after RESET");
+
+        assert_eq!(
+            probe.sent(),
+            vec![vec![0x02, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0x01]]
+        );
+        runtime
+            .run_until(session.close())
+            .expect("session shutdown");
     }
 
     #[test]

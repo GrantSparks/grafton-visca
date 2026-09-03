@@ -5,12 +5,49 @@ use std::{num::NonZeroU64, sync::Arc, time::Duration};
 use smallvec::SmallVec;
 
 use crate::{
-    command::semantics::WriteOnlyState, raw::INLINE_BYTES, raw::MAX_BYTES, CameraId, Error,
-    ViscaSocket,
+    command::semantics::WriteOnlyState, protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES,
+    raw::MAX_BYTES, CameraId, Error, ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
 pub(crate) const MAX_SEQUENCE_HISTORY: usize = 8;
+
+/// Scheduler work permitted when an external-input turn is completed.
+///
+/// Both owner shells use these same three boundaries. A complete turn runs
+/// deadlines, pending cancellation work, and one ordinary dispatch. A
+/// deadline-only turn withholds that final dispatch while an exact request is
+/// reconsidered. An input-only turn preserves retained wire
+/// evidence ahead of every deadline at the same sampled instant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct EngineTurn {
+    run_due: bool,
+    dispatch: bool,
+}
+
+impl EngineTurn {
+    pub(crate) const COMPLETE: Self = Self {
+        run_due: true,
+        dispatch: true,
+    };
+    #[allow(dead_code)] // Used by blocking owner turns; async-only builds omit them.
+    pub(crate) const DEADLINES_ONLY: Self = Self {
+        run_due: true,
+        dispatch: false,
+    };
+    pub(crate) const INPUT_ONLY: Self = Self {
+        run_due: false,
+        dispatch: false,
+    };
+
+    pub(super) const fn runs_due(self) -> bool {
+        self.run_due
+    }
+
+    pub(super) const fn allows_dispatch(self) -> bool {
+        self.dispatch
+    }
+}
 
 /// Prepared wire data. It has no target, routing, or scheduling authority.
 #[derive(Clone, PartialEq, Eq)]
@@ -425,18 +462,25 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
     pub(crate) inquiry_cooldown: Duration,
+    /// Profile-derived skew window retained only after an unkeyed raw inquiry
+    /// can still produce a late reply (#712).
+    pub(crate) raw_inquiry_release_hold: Duration,
+    /// Maximum time retained raw stream evidence may wait for a completing
+    /// tail after a correlation hold becomes releasable (#713).
+    pub(crate) raw_release_grace: Duration,
     /// Opt-in strict recovery mode for the raw envelope.
     ///
-    /// When `false` (the default), a raw command whose ACK or completion can no
-    /// longer be confirmed — a lost ACK/completion datagram, a spent retry
-    /// budget, or an expired cancellation-ambiguity window — fails on its own
-    /// with [`Error::UnsequencedCommandUnconfirmed`] while its socket or
-    /// unacknowledged-command slot is quarantined for the ambiguity window so a
-    /// late reply cannot misbind; the session and every unrelated request keep
-    /// running. When `true`, the same events instead poison the whole session
-    /// (the pre-fix behavior), for deployments that would rather hard-fail than
-    /// risk a subtle correlation error. This flag is meaningless for the Sony
-    /// envelope, whose sequence correlation never needs the quarantine.
+    /// When `false` (the default), an uncancelled raw command whose ACK or
+    /// completion can no longer be confirmed — including at a spent retry
+    /// budget — immediately fails on its own with
+    /// [`Error::UnsequencedCommandUnconfirmed`] and leaves only the applicable
+    /// keyed correlation hold through the ambiguity interval. An active
+    /// cancellation remains live until its own resolution bound and fails with
+    /// the same error if that bound expires. The session and every unrelated
+    /// request keep running. When `true`, the same events instead poison the
+    /// whole session (the pre-fix behavior), for deployments that would rather
+    /// hard-fail than risk a subtle correlation error. This flag is meaningless
+    /// for the Sony envelope, whose sequence correlation needs no raw hold.
     pub(crate) strict_unconfirmed_poison: bool,
 }
 
@@ -475,6 +519,9 @@ pub(crate) enum DecodedResponse {
     Error {
         socket: Option<ViscaSocket>,
         code: u8,
+    },
+    SonyControl {
+        code: u16,
     },
     NetworkChange,
     Unknown,
@@ -589,24 +636,6 @@ pub(crate) enum RawPrefixEvidence {
     },
 }
 
-/// The protocol identity, if any, visible in an incomplete raw frame prefix.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RawIncompletePrefix {
-    /// The source byte (`0x9y..=0xFy`) arrived with no response-class byte.
-    SourceOnly,
-    /// `0x4y`: an ACK's nibble is an assignment preference, not an owner.
-    Ack,
-    /// `0x50`: socketless completion evidence.
-    SocketlessCompletion,
-    /// `0x60`: socketless error evidence.
-    SocketlessError,
-    /// `0x5y`/`0x6y` for one exact numbered socket.
-    NamedCompletionOrError(ViscaSocket),
-    /// Bytes cannot correlate to a raw request and therefore cannot revive or
-    /// bind a successor.
-    Noncorrelating,
-}
-
 /// The safe action for retained raw bytes at a correlation-release boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RawPrefixDisposition {
@@ -621,6 +650,17 @@ pub(crate) enum RawPrefixDisposition {
     /// Due work may run while the retained bytes remain available for the next
     /// receive turn; they cannot bind the released correlation to a successor.
     ReleasePreserving,
+}
+
+/// Engine-owned decision for retained input at a raw-correlation release.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawReleaseGateAction {
+    /// The release may advance and ordinary scheduling may resume.
+    Advance,
+    /// Keep the old correlation scope alive and await input until this instant.
+    AwaitInputUntil(std::time::Instant),
+    /// Discard the first retained raw fragment, record it, and classify again.
+    DiscardFirst,
 }
 
 /// A decoded frame owns its target and parsed data; it borrows no scheduler state.
@@ -678,9 +718,10 @@ pub(crate) enum IgnoreReason {
 /// Which of a request's own protocol deadlines expired.
 ///
 /// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
-/// deadlines are deliberately not part of this vocabulary: they resolve a
-/// quarantine rather than the request's own protocol progress, and they are
-/// already reported through [`Effect::CancellationObservation`].
+/// deadlines are deliberately not part of this vocabulary: they resolve the
+/// separate cancellation lifecycle rather than the request's ordinary protocol
+/// progress, and they are already reported through
+/// [`Effect::CancellationObservation`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DeadlineKind {
     /// The acknowledgement deadline for a sent command expired.
@@ -724,15 +765,8 @@ pub(crate) enum CancellationObservation {
 #[derive(Debug, Clone)]
 pub(crate) enum ShutdownReason {
     Explicit,
-    TransportClosed {
-        reason: Option<Box<str>>,
-    },
-    // Constructed by the async actor's framing seam; the blocking-only legs do not
-    // compile that seam (#636).
-    #[allow(dead_code)]
-    FramingFailure {
-        reason: Box<str>,
-    },
+    TransportClosed { reason: Option<Box<str>> },
+    FramingFailure { reason: Box<str> },
 }
 
 /// Session state is terminal except for `Running`.
@@ -769,21 +803,9 @@ pub(crate) enum Input {
     /// poisons the session on such a fault.
     ///
     /// A receive that proves the session is finished never reaches the engine
-    /// this way; it arrives as [`Input::Close`], [`Input::Poison`], or
-    /// [`Input::Shutdown`] instead.
+    /// this way; it arrives as [`Input::Shutdown`] instead.
     ReceiveFault {
         error: Error,
-    },
-    // The owner routes an orderly close and a stream poisoning through
-    // `Input::Shutdown` today; these two stay as the engine's explicit
-    // vocabulary and are driven directly by `runtime::engine::tests` (#636).
-    #[allow(dead_code)]
-    Close {
-        reason: Option<Box<str>>,
-    },
-    #[allow(dead_code)]
-    Poison {
-        reason: Box<str>,
     },
     Shutdown(ShutdownReason),
     // A pure "re-evaluate deadlines now" input. The owners call `advance`
@@ -826,11 +848,10 @@ pub(crate) enum Phase {
         ready_at: std::time::Instant,
         queue_generation: u64,
     },
+    /// A socket-owned command whose emitted cancellation is awaiting a
+    /// conclusive terminal response.
     AwaitingCancellationResolution {
         socket: ViscaSocket,
-        deadline: std::time::Instant,
-    },
-    AwaitingLateAck {
         deadline: std::time::Instant,
     },
 }

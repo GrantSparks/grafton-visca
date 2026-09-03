@@ -698,7 +698,7 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new(),
-            crate::prepared::ClassSelection::Explicit(SubmissionClass::Background),
+            crate::prepared::ClassSelection::Handle(SubmissionClass::Background),
         );
         assert!(
             prepared.is_ok(),

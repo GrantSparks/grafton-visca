@@ -12,8 +12,6 @@ mod movement;
 pub mod profiles;
 
 pub use config::{CameraConfig, TransportKind, TransportOptions};
-#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
-pub use construction::SerialConnectBuilder;
 #[cfg(feature = "async")]
-pub use construction::{Connect, ConnectBuilder, TcpConnectBuilder, UdpConnectBuilder};
+pub use construction::Connect;
 pub use movement::{IdleWait, MotionQuery, MovementTolerance, PanTiltPosition};

@@ -678,12 +678,12 @@ pub enum PanTilt {
     },
 }
 
-/// Profile-dispatched position framing used by the typed request layer.
+/// Sole position/limit encoder used by both public commands and typed requests.
 ///
 /// The public [`PanTilt`] command remains the baseline VISCA representation.
-/// Typed requests retain their profile conversion and lower through this
-/// crate-private discriminator so camera-specific framing never leaks into
-/// the generic command enum.
+/// It lowers through this crate-private discriminator with the standard codec;
+/// typed requests supply their profile's conversion and codec here as well, so
+/// each wire grammar has one implementation.
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum PanTiltProfiled {
     AbsolutePosition {
@@ -924,111 +924,82 @@ impl WireEncode for PanTilt {
                 tilt,
                 pan_speed,
                 tilt_speed,
-            } => {
-                // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::ABSOLUTE_PREFIX);
-                builder.with_camera_id_mut(camera_id);
-
-                builder.push_mut(pan_speed.value());
-                builder.push_mut(tilt_speed.value());
-                builder.push_visca_u16_mut(pan.value() as u16);
-                builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.terminate().build_into(buffer)
+            } => PanTiltProfiled::AbsolutePosition {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                pan: i32::from(pan.value()),
+                tilt: i32::from(tilt.value()),
+                pan_speed: *pan_speed,
+                tilt_speed: *tilt_speed,
             }
+            .write_into(camera_id, buffer),
             Self::RelativePosition {
                 pan,
                 tilt,
                 pan_speed,
                 tilt_speed,
-            } => {
-                // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::RELATIVE_PREFIX);
-                builder.with_camera_id_mut(camera_id);
-
-                builder.push_mut(pan_speed.value());
-                builder.push_mut(tilt_speed.value());
-                builder.push_visca_u16_mut(pan.value() as u16);
-                builder.push_visca_u16_mut(tilt.value() as u16);
-                builder.terminate().build_into(buffer)
+            } => PanTiltProfiled::RelativePosition {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                pan: i32::from(pan.value()),
+                tilt: i32::from(tilt.value()),
+                pan_speed: *pan_speed,
+                tilt_speed: *tilt_speed,
             }
+            .write_into(camera_id, buffer),
             Self::AbsolutePositionRaw {
                 pan_u16,
                 tilt_u16,
                 pan_speed,
                 tilt_speed,
-            } => {
-                // Absolute position: 81 01 06 02 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::ABSOLUTE_PREFIX);
-                builder.with_camera_id_mut(camera_id);
-
-                builder.push_mut(pan_speed.value());
-                builder.push_mut(tilt_speed.value());
-                builder.push_visca_u16_mut(*pan_u16);
-                builder.push_visca_u16_mut(*tilt_u16);
-                builder.terminate().build_into(buffer)
+            } => PanTiltProfiled::AbsolutePosition {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                pan: i32::from(*pan_u16 as i16),
+                tilt: i32::from(*tilt_u16 as i16),
+                pan_speed: *pan_speed,
+                tilt_speed: *tilt_speed,
             }
+            .write_into(camera_id, buffer),
             Self::RelativePositionRaw {
                 pan_u16,
                 tilt_u16,
                 pan_speed,
                 tilt_speed,
-            } => {
-                // Relative position: 81 01 06 03 VV WW PP PP PP PP TT TT TT TT FF
-                let mut builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::RELATIVE_PREFIX);
-                builder.with_camera_id_mut(camera_id);
-
-                builder.push_mut(pan_speed.value());
-                builder.push_mut(tilt_speed.value());
-                builder.push_visca_u16_mut(*pan_u16);
-                builder.push_visca_u16_mut(*tilt_u16);
-                builder.terminate().build_into(buffer)
+            } => PanTiltProfiled::RelativePosition {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                pan: i32::from(*pan_u16 as i16),
+                tilt: i32::from(*tilt_u16 as i16),
+                pan_speed: *pan_speed,
+                tilt_speed: *tilt_speed,
             }
-            Self::LimitSet { corner, pan, tilt } => {
-                // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
-                // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
-                let builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(corner.to_byte())
-                    .push_visca_u16(pan.value() as u16)
-                    .push_visca_u16(tilt.value() as u16)
-                    .terminate();
-
-                builder.build_into(buffer)
+            .write_into(camera_id, buffer),
+            Self::LimitSet { corner, pan, tilt } => PanTiltProfiled::LimitSet {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                corner: *corner,
+                pan: i32::from(pan.value()),
+                tilt: i32::from(tilt.value()),
             }
+            .write_into(camera_id, buffer),
             Self::LimitSetRaw {
                 corner,
                 pan_u16,
                 tilt_u16,
-            } => {
-                // PT Limit Set: 81 01 06 07 00 0W PPPP TTTT FF
-                // Where W = corner (0-3), PPPP = pan position, TTTT = tilt position
-                let builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_SET_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(corner.to_byte())
-                    .push_visca_u16(*pan_u16)
-                    .push_visca_u16(*tilt_u16)
-                    .terminate();
-
-                builder.build_into(buffer)
+            } => PanTiltProfiled::LimitSet {
+                codec: PanTiltWireCodec::StandardVisca,
+                coordinate_system: CoordinateSystem::SignedCentered,
+                corner: *corner,
+                pan: i32::from(*pan_u16 as i16),
+                tilt: i32::from(*tilt_u16 as i16),
             }
-            Self::LimitClear { corner } => {
-                // PT Limit Clear: 81 01 06 07 01 0W 07 0F 0F 0F 07 0F 0F 0F FF
-                // Where W = corner (0-3), the rest are fixed values per PtzOptics spec
-                let builder = ConstCommandBuilder::<15>::from_prefix(pan_tilt::LIMIT_CLEAR_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(corner.to_byte())
-                    .push(0x07)
-                    .push(0x0F)
-                    .push(0x0F)
-                    .push(0x0F)
-                    .push(0x07)
-                    .push(0x0F)
-                    .push(0x0F)
-                    .push(0x0F)
-                    .terminate();
-
-                builder.build_into(buffer)
+            .write_into(camera_id, buffer),
+            Self::LimitClear { corner } => PanTiltProfiled::LimitClear {
+                codec: PanTiltWireCodec::StandardVisca,
+                corner: *corner,
             }
+            .write_into(camera_id, buffer),
         }
     }
 }

@@ -457,7 +457,7 @@ pub(crate) const fn noun_table_key(noun: StaticNoun) -> &'static str {
 
 /// Maps a dynamic noun trait to its registry arm name.
 #[must_use]
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 pub(crate) fn dyn_trait_noun_key(dyn_trait: &str) -> &'static str {
     NOUN_FACADES
         .iter()
@@ -885,61 +885,8 @@ fn assert_accessor_trait_impls(source: &str, label: &str) {
 
 /// Maps a typed support capability to the marker imported by static facades.
 const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
-    match surface {
-        TypedSupportSurface::DirectZoom => "HasDirectZoom",
-        TypedSupportSurface::DigitalZoomToggle => "HasDigitalZoomToggle",
-        TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
-        TypedSupportSurface::ExposureMode => "HasExposureMode",
-        TypedSupportSurface::IrisControl => "HasIrisControl",
-        TypedSupportSurface::IrisControlInquiry => "HasIrisControlInquiry",
-        TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
-        TypedSupportSurface::PtzOpticsSnapFocus => "HasPtzOpticsSnapFocus",
-        TypedSupportSurface::PtzOpticsAntiFlicker => "HasPtzOpticsAntiFlicker",
-        TypedSupportSurface::PtzOpticsSettingsSave => "HasPtzOpticsSettingsSave",
-        TypedSupportSurface::PtzOpticsPresetRecallSpeed => "HasPtzOpticsPresetRecallSpeed",
-        TypedSupportSurface::SonySpotlight => "HasSonySpotlight",
-        TypedSupportSurface::SonyAutoSlowShutter => "HasSonyAutoSlowShutter",
-        TypedSupportSurface::PtzOpticsMulticastStreaming => "HasPtzOpticsMulticastStreaming",
-        TypedSupportSurface::PtzOpticsNdiQuality => "HasPtzOpticsNdiQuality",
-        TypedSupportSurface::FocusLock => "HasFocusLock",
-        TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
-        TypedSupportSurface::FocusZone => "HasFocusZone",
-        TypedSupportSurface::FocusZoneInquiry => "HasFocusZoneInquiry",
-        TypedSupportSurface::AutoFocusSensitivity => "HasAutoFocusSensitivity",
-        TypedSupportSurface::FocusNearLimitInquiry => "HasFocusNearLimitInquiry",
-        TypedSupportSurface::BacklightCompensation => "HasBacklightCompensation",
-        TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
-        TypedSupportSurface::ExposureCompensation => "HasExposureCompensation",
-        TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
-        TypedSupportSurface::OnePushWhiteBalance => "HasOnePushWhiteBalance",
-        TypedSupportSurface::AutoTrackingWhiteBalance => "HasAutoTrackingWhiteBalance",
-        TypedSupportSurface::AutoWhiteBalanceSensitivity => "HasAutoWhiteBalanceSensitivity",
-        TypedSupportSurface::ColorTemperature => "HasColorTemperature",
-        TypedSupportSurface::RgbGain => "HasRgbGain",
-        TypedSupportSurface::RgbTuning => "HasRgbTuning",
-        TypedSupportSurface::ImageFlip => "HasImageFlip",
-        TypedSupportSurface::ImageMirror => "HasImageMirror",
-        TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
-        TypedSupportSurface::ContrastControl => "HasContrastControl",
-        TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
-        TypedSupportSurface::SaturationControl => "HasSaturationControl",
-        TypedSupportSurface::HueControl => "HasHueControl",
-        TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
-        TypedSupportSurface::GammaControl => "HasGammaControl",
-        TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
-        TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
-        TypedSupportSurface::NoiseReduction2DControl => "HasNoiseReduction2DControl",
-        TypedSupportSurface::NoiseReduction3DControl => "HasNoiseReduction3DControl",
-        TypedSupportSurface::PictureEffect => "HasPictureEffect",
-        TypedSupportSurface::Tally => "HasTally",
-        TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
-        TypedSupportSurface::NdFilter => "HasNdFilter",
-        TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
-        TypedSupportSurface::MotionSync => "HasMotionSync",
-        TypedSupportSurface::UsbAudio => "HasUsbAudio",
-    }
+    surface.marker_trait_name()
 }
-
 /// Returns the marker used by the default gate on one static noun.
 const fn noun_marker(noun: StaticNoun) -> Option<&'static str> {
     match noun {
@@ -1245,8 +1192,8 @@ fn compiled_registry_inventory_counts_remain_readable() {
             | StaticSurfaceDisposition::InternalCancellation { .. } => exceptions += 1,
         }
     }
-    assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT); // 150 commands
-    assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 147 target-facing
+    assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT); // 149 commands
+    assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 146 target-facing
     assert_eq!(exceptions, NON_NOUN_COMMAND_COUNT); // 3 protocol exceptions
     assert_eq!(nouns.len(), 14); // 14 nouns
     assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 62); // 62 typed inquiries
@@ -1257,12 +1204,12 @@ fn compiled_registry_inventory_counts_remain_readable() {
     // mistaken for a command row or silently disappear from a facade.
     let table = table_surface();
     let (command_rows, inquiry_rows, helper_rows) = table_row_counts(&table);
-    assert_eq!(command_rows, 147); // 147 command-method rows
+    assert_eq!(command_rows, 146); // 146 command-method rows
     assert_eq!(inquiry_rows, 62); // 62 inquiry rows
     assert_eq!(helper_rows, 9); // 9 empty-ID helper rows
-    assert_eq!(command_rows + inquiry_rows + helper_rows, 218); // 218 total rows
+    assert_eq!(command_rows + inquiry_rows + helper_rows, 217); // 217 total rows
 
-    #[cfg(feature = "dyn-api")]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     {
         use crate::dynapi::DYN_NOUN_CONVENIENCE_METHODS;
 
