@@ -51,7 +51,9 @@ proc-macro = true
 (root / "CHANGELOG.md").write_text(
     f"# Changelog\n\n## [{version}] - 2026-08-26\n"
 )
-(root / "docs/hardware_release_checklist.md").write_text(checklist)
+(root / "docs/hardware_release_checklist.md").write_text(
+    checklist.replace("__VERSION__", version)
+)
 PY
 }
 
@@ -87,7 +89,7 @@ run_validator() {
 
 # Generate matrix fixtures from the same compact ID ranges as the checked-in
 # contract. Variants mutate one row so structural and evidence regressions do
-# not require hand-copying all 48 required rows into every fixture.
+# not require hand-copying all 59 required rows into every fixture.
 make_checklist() {
     local variant="$1"
     python3 - "${variant}" <<'PY'
@@ -97,6 +99,7 @@ variant = sys.argv[1]
 required_ids = (
     [f"PT-{number:02d}" for number in range(1, 24)]
     + [f"FW-{number:02d}" for number in range(1, 10)]
+    + [f"WC-{number:02d}" for number in range(1, 12)]
     + [f"CR-{number:02d}" for number in range(1, 8)]
     + [f"RT-{number:02d}" for number in range(1, 5)]
     + [f"MC-{number:02d}" for number in range(1, 6)]
@@ -107,6 +110,8 @@ def owner_for(identifier):
         return "Transport QA"
     if identifier.startswith("FW-"):
         return "Profile QA"
+    if identifier.startswith("WC-"):
+        return "Protocol QA"
     if identifier.startswith("CR-"):
         return "Lifecycle QA"
     if identifier.startswith("RT-"):
@@ -175,6 +180,8 @@ for identifier in required_ids:
         continue
     if variant == "missing-cr-07" and identifier == "CR-07":
         continue
+    if variant == "missing-wc-11" and identifier == "WC-11":
+        continue
 
     row_identifier = identifier
     status = "Pass"
@@ -233,7 +240,19 @@ elif variant in {"future-blank", "future-placeholder"}:
     evidence = "" if variant == "future-blank" else "Pending"
     lines.append(row("FUTURE-01", evidence=evidence))
 
-lines.extend(["", "Final sign-off: Release owner 2026-08-26", "Evidence index: docs/evidence/2.0.0.md"])
+lines.extend(
+    [
+        "",
+        "Hardware candidate tag: hardware-candidate-v__VERSION__-20260826.1",
+        "Hardware candidate tag object: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "Hardware candidate commit: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "Hardware candidate CI run: https://github.com/example/grafton-visca/actions/runs/123456",
+        "Hardware qualification operator/date: Release owner — 2026-08-26 UTC",
+        "",
+        "Final sign-off: Release owner 2026-08-26",
+        "Evidence index: docs/evidence/2.0.0.md",
+    ]
+)
 if variant == "unsigned":
     lines = lines[:-2]
 elif variant == "placeholder-signoff":
@@ -273,7 +292,38 @@ elif variant == "formatted-evidence":
         "Final sign-off: **Release owner 2026-08-26**",
         "Evidence index: [docs/evidence/2.0.0.md](https://example.test/evidence)",
     ]
+elif variant == "missing-candidate-provenance":
+    lines = [
+        line
+        for line in lines
+        if not line.startswith("Hardware candidate ")
+        and not line.startswith("Hardware qualification ")
+    ]
+elif variant == "placeholder-candidate-tag":
+    lines = [
+        "Hardware candidate tag: Pending"
+        if line.startswith("Hardware candidate tag:")
+        else line
+        for line in lines
+    ]
 
+print("\n".join(lines))
+PY
+}
+
+make_candidate_record_checklist() {
+    local label="$1"
+    local value="$2"
+    python3 - "${label}" "${value}" "$(make_checklist complete)" <<'PY'
+import sys
+
+label, value, checklist = sys.argv[1:]
+prefix = f"{label}:"
+lines = checklist.splitlines()
+matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+if len(matches) != 1:
+    raise SystemExit(f"expected one {label!r} record, found {len(matches)}")
+lines[matches[0]] = f"{prefix} {value}"
 print("\n".join(lines))
 PY
 }
@@ -584,9 +634,8 @@ PY
 root_temp="$(mktemp -d)"
 trap 'rm -rf "${root_temp}"' EXIT
 
-# Candidate tags retain their hardware-evidence exemption, but use the same
-# checked-in matrix shape so a Pending row is an honest, structurally complete
-# candidate record rather than a smaller stand-in table.
+# Pending and complete fixtures use the exact checked-in matrix shape. The
+# pending form must fail for every 2.0+ release identity, including an RC.
 pending_checklist="$(make_checklist pending)"
 blocked_checklist="$(make_checklist blocked)"
 unsigned_checklist="$(make_checklist unsigned)"
@@ -647,7 +696,11 @@ test "${#markdown_placeholder_forms[@]}" -eq 33
 rc_root="${root_temp}/rc"
 make_fixture "${rc_root}" "2.0.0-rc.1" "${pending_checklist}"
 test ! -e "${rc_root}/Cargo.lock"
-(cd "${rc_root}" && bash "${validator}" v2.0.0-rc.1)
+expect_failure "incomplete rows" run_validator "${rc_root}" v2.0.0-rc.1
+
+rc_complete_root="${root_temp}/rc-complete"
+make_fixture "${rc_complete_root}" "2.0.0-rc.1" "${complete_checklist}"
+run_validator "${rc_complete_root}" v2.0.0-rc.1
 
 pending_root="${root_temp}/pending"
 make_fixture "${pending_root}" "2.0.0" "${pending_checklist}"
@@ -668,6 +721,59 @@ expect_failure "non-Pass status cells" run_validator "${nonpassing_root}" v2.0.0
 complete_root="${root_temp}/complete"
 make_fixture "${complete_root}" "2.0.0" "${complete_checklist}"
 run_validator "${complete_root}" v2.0.0
+
+missing_candidate_provenance_root="${root_temp}/missing-candidate-provenance"
+make_fixture "${missing_candidate_provenance_root}" "2.0.0" \
+    "$(make_checklist missing-candidate-provenance)"
+expect_failure "complete unpublished hardware-candidate provenance" \
+    run_validator "${missing_candidate_provenance_root}" v2.0.0
+
+placeholder_candidate_tag_root="${root_temp}/placeholder-candidate-tag"
+make_fixture "${placeholder_candidate_tag_root}" "2.0.0" \
+    "$(make_checklist placeholder-candidate-tag)"
+expect_failure "hardware-candidate-v2.0.0-YYYYMMDD.N" \
+    run_validator "${placeholder_candidate_tag_root}" v2.0.0
+
+wrong_candidate_version_root="${root_temp}/wrong-candidate-version"
+make_fixture "${wrong_candidate_version_root}" "2.0.0" \
+    "$(make_candidate_record_checklist "Hardware candidate tag" \
+        "hardware-candidate-v2.0.1-20260826.1")"
+expect_failure "hardware-candidate-v2.0.0-YYYYMMDD.N" \
+    run_validator "${wrong_candidate_version_root}" v2.0.0
+
+invalid_candidate_date_root="${root_temp}/invalid-candidate-date"
+make_fixture "${invalid_candidate_date_root}" "2.0.0" \
+    "$(make_candidate_record_checklist "Hardware candidate tag" \
+        "hardware-candidate-v2.0.0-20261340.1")"
+expect_failure "valid UTC calendar date" \
+    run_validator "${invalid_candidate_date_root}" v2.0.0
+
+short_candidate_object_root="${root_temp}/short-candidate-object"
+make_fixture "${short_candidate_object_root}" "2.0.0" \
+    "$(make_candidate_record_checklist "Hardware candidate tag object" "abc123")"
+expect_failure "tag object must be a full lowercase object ID" \
+    run_validator "${short_candidate_object_root}" v2.0.0
+
+lightweight_candidate_root="${root_temp}/lightweight-candidate"
+make_fixture "${lightweight_candidate_root}" "2.0.0" \
+    "$(make_candidate_record_checklist "Hardware candidate commit" \
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")"
+expect_failure "tag object must differ from its peeled commit" \
+    run_validator "${lightweight_candidate_root}" v2.0.0
+
+invalid_candidate_ci_root="${root_temp}/invalid-candidate-ci"
+make_fixture "${invalid_candidate_ci_root}" "2.0.0" \
+    "$(make_candidate_record_checklist "Hardware candidate CI run" \
+        "https://github.com/example/grafton-visca/actions")"
+expect_failure "must be an exact GitHub Actions run URL" \
+    run_validator "${invalid_candidate_ci_root}" v2.0.0
+
+missing_candidate_operator_root="${root_temp}/missing-candidate-operator"
+make_fixture "${missing_candidate_operator_root}" "2.0.0" \
+    "$(make_candidate_record_checklist \
+        "Hardware qualification operator/date" "2026-08-26")"
+expect_failure "must be OPERATOR — YYYY-MM-DD UTC" \
+    run_validator "${missing_candidate_operator_root}" v2.0.0
 
 # Release records are valid only when they are visible in the checklist
 # document. Multiline comments, fenced code blocks, and an unclosed block to
@@ -712,12 +818,12 @@ for visibility_kind in comment backtick tilde backtick-long tilde-long; do
     done
 done
 
-# Candidate tags retain their exemption even for a document whose complete
-# matrix is hidden; stable tags above must expose the matrix.
+# An RC must expose the same complete evidence matrix as a stable release.
 hidden_matrix_rc_root="${root_temp}/hidden-matrix-rc"
 make_fixture "${hidden_matrix_rc_root}" "2.0.0-rc.1" \
     "$(make_visibility_checklist matrix-comment)"
-run_validator "${hidden_matrix_rc_root}" v2.0.0-rc.1
+expect_failure "no table row under a 'Status' column" \
+    run_validator "${hidden_matrix_rc_root}" v2.0.0-rc.1
 
 # Pipe-delimited text is hardware evidence only when it is a visible Markdown
 # table with an undecorated, matching header delimiter. Indented/list
@@ -828,6 +934,14 @@ make_fixture "${missing_cr_07_root}" "2.0.0" "$(make_checklist missing-cr-07)"
 expect_failure "missing required IDs: CR-07" \
     run_validator "${missing_cr_07_root}" v2.0.0
 
+# WC-11 is the final source-backed wire-correction scenario. The entire WC
+# range is release evidence and cannot disappear behind otherwise complete
+# profile, lifecycle, runtime, and multi-camera matrices.
+missing_wc_11_root="${root_temp}/missing-wc-11"
+make_fixture "${missing_wc_11_root}" "2.0.0" "$(make_checklist missing-wc-11)"
+expect_failure "missing required IDs: WC-11" \
+    run_validator "${missing_wc_11_root}" v2.0.0
+
 duplicate_id_root="${root_temp}/duplicate-id"
 make_fixture "${duplicate_id_root}" "2.0.0" "$(make_checklist duplicate)"
 expect_failure "duplicate required IDs" run_validator "${duplicate_id_root}" v2.0.0
@@ -893,8 +1007,7 @@ expect_failure "recorded non-placeholder evidence/notes" run_validator "${placeh
 
 # A Pass claim cannot pair any provenance field or release record with an
 # explicit denial of observation. These spellings exercise ordinary Markdown,
-# emphasis, and inline code; the candidate fixture above still proves that RC
-# hardware rows remain allowed to be pending.
+# emphasis, and inline code. RC publication follows these same evidence rules.
 explicit_denial_forms=(
     'Not run'
     '**No evidence**'
@@ -1005,7 +1118,7 @@ expect_extra_pass_claim_failure gate-placeholder-evidence "Status+Evidence table
     "| Future release gate | Release QA | Pass | N/A |"
 
 # The identity cell is provenance too: an unnamed future row or sign-off gate
-# cannot make a stable Pass claim, including when Markdown formatting hides a
+# cannot make a 2.0+ release Pass claim, including when Markdown formatting hides a
 # placeholder.
 expect_extra_pass_claim_failure future-blank-id "ID is <empty>" "${future_header}" \
     "| | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z | docs/evidence/2.0.0/future-01.md |"
@@ -1021,7 +1134,7 @@ expect_extra_pass_claim_failure gate-zero-width-identity "Gate is <empty>" "${ga
     "| ${zero_width} | Release QA | Pass | docs/evidence/2.0.0/release-gate.md |"
 
 # A literal, escaped pipe is valid GFM cell content, not a cell boundary. The
-# incomplete rows below must remain visible to the stable provenance checks.
+# incomplete rows below must remain visible to the release provenance checks.
 escaped_future_id='FUTURE\|01'
 escaped_gate='Future\|release gate'
 expect_extra_pass_claim_failure escaped-pipe-id "Owner is <empty>" "${future_header}" \
@@ -1074,12 +1187,13 @@ prose_after_table="${future_row}"$'\n\nNarrative prose may contain | a pipe afte
 expect_extra_pass_claim_success prose-after-claim-table "${future_header}" \
     "${prose_after_table}"
 
-# Candidate releases retain the existing exemption, including for a future
-# table whose stable Pass schema would be incomplete.
+# Candidate releases use the same provenance schema, including for future
+# Pass-claim tables.
 candidate_pass_claim_root="${root_temp}/candidate-pass-claim"
 make_fixture "${candidate_pass_claim_root}" "2.0.0-rc.1" \
     "$(make_extra_pass_claim_checklist "| ID | Owner | Status | Firmware / bench |" "| FUTURE-01 | Future QA | Pass | Camera firmware 9.9.9 / bench rack Z |")"
-run_validator "${candidate_pass_claim_root}" v2.0.0-rc.1
+expect_failure "missing Evidence artifact / notes" \
+    run_validator "${candidate_pass_claim_root}" v2.0.0-rc.1
 
 # A visible prose/result table is not a Status-based checklist claim.
 expect_extra_pass_claim_success unrelated-result "| Topic | Owner | Result |" \
@@ -1094,7 +1208,7 @@ expect_failure "build metadata" run_validator "${metadata_root}" v2.0.0+meta
 expect_failure "build metadata" run_validator "${metadata_root}" v2.0.0-rc.1+meta
 
 # Issue #632: the gate keyed off the literal major version 2, so every later
-# major skipped it. It applies to any stable release from 2.0.0 onward.
+# major skipped it. It applies to every release from 2.0.0 onward.
 major_three_root="${root_temp}/major-three"
 make_fixture "${major_three_root}" "3.0.0" "${pending_checklist}"
 expect_failure "incomplete rows" run_validator "${major_three_root}" v3.0.0
@@ -1109,10 +1223,20 @@ major_three_complete_root="${root_temp}/major-three-complete"
 make_fixture "${major_three_complete_root}" "3.0.0" "${complete_checklist}"
 run_validator "${major_three_complete_root}" v3.0.0
 
-# Pre-releases of any major keep the candidate exemption.
+# Pre-releases of later majors keep the same hardware gate.
 major_three_rc_root="${root_temp}/major-three-rc"
 make_fixture "${major_three_rc_root}" "3.0.0-rc.1" "${pending_checklist}"
-run_validator "${major_three_rc_root}" v3.0.0-rc.1
+expect_failure "incomplete rows" run_validator "${major_three_rc_root}" v3.0.0-rc.1
+
+major_three_rc_complete_root="${root_temp}/major-three-rc-complete"
+make_fixture "${major_three_rc_complete_root}" "3.0.0-rc.1" "${complete_checklist}"
+run_validator "${major_three_rc_complete_root}" v3.0.0-rc.1
+
+# The D8 gate begins at major version 2 and does not rewrite the 1.x release
+# contract maintained on its separate branch.
+major_one_rc_root="${root_temp}/major-one-rc"
+make_fixture "${major_one_rc_root}" "1.99.0-rc.1" "${pending_checklist}"
+run_validator "${major_one_rc_root}" v1.99.0-rc.1
 
 emphasised_root="${root_temp}/emphasised"
 make_fixture "${emphasised_root}" "2.0.0" "${emphasised_checklist}"

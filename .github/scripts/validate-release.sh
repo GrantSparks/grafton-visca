@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import tomllib
+from datetime import date
 
 expected = sys.argv[1]
 root = pathlib.Path.cwd()
@@ -57,14 +58,11 @@ if version_match.group("build") is not None:
         "identity"
     )
 
-# Every stable release from 2.0.0 onward carries the hardware claim, so the
-# evidence gate keys off "major >= 2 and not a pre-release" rather than the
-# literal major version 2. Candidate tags (-rc.N and friends) stay exempt:
-# they are publishable while their hardware rows are still marked pending.
-requires_hardware_evidence = (
-    int(version_match.group("major")) >= 2
-    and version_match.group("prerelease") is None
-)
+# Every publishable release from 2.0.0 onward carries the hardware claim,
+# including prereleases. Ratified decision D8 (#732) requires rc.1 and later
+# candidates to be qualified on a separate, non-release hardware tag before a
+# `vX.Y.Z[-prerelease]` tag can pass this validator.
+requires_hardware_evidence = int(version_match.group("major")) >= 2
 
 metadata = subprocess.run(
     # This is intentionally lockfile-independent.  grafton-visca is a library
@@ -99,8 +97,8 @@ if not heading.search(changelog):
         f"CHANGELOG.md must contain a dated '## [{expected}] - YYYY-MM-DD' heading"
     )
 
-# Stable publication from 2.0.0 onward requires physical-camera evidence in
-# addition to the software gates above.
+# Publication from 2.0.0 onward requires physical-camera evidence in addition
+# to the software gates above, whether or not the version is a prerelease.
 if requires_hardware_evidence:
     checklist = root / (
         os.environ.get("HARDWARE_CHECKLIST") or "docs/hardware_release_checklist.md"
@@ -130,7 +128,7 @@ if requires_hardware_evidence:
     unevidenced = re.compile(
         r"^(pending|blocked|fail(ed)?|tbd|todo)\b", re.IGNORECASE
     )
-    # A stable release cannot turn an explicit statement that the observation
+    # A release cannot turn an explicit statement that the observation
     # did not happen into provenance merely by marking the row Pass.  Keep
     # these denial phrases distinct from the narrower table-wide `unevidenced`
     # scan above: this predicate is used for the required provenance fields
@@ -245,6 +243,7 @@ if requires_hardware_evidence:
     required_ids = (
         [f"PT-{number:02d}" for number in range(1, 24)]
         + [f"FW-{number:02d}" for number in range(1, 10)]
+        + [f"WC-{number:02d}" for number in range(1, 12)]
         + [f"CR-{number:02d}" for number in range(1, 8)]
         + [f"RT-{number:02d}" for number in range(1, 5)]
         + [f"MC-{number:02d}" for number in range(1, 6)]
@@ -679,7 +678,7 @@ if requires_hardware_evidence:
                 # ignores extra cells. Either shape is unsafe as a release
                 # claim: silently stopping here used to hide this row and all
                 # following rows. Keep scanning so a malformed row cannot
-                # hide its successors, but reject it on stable publication.
+                # hide its successors, but reject it on 2.0+ publication.
                 if is_claim_status_table:
                     claim_row_width_errors.append(
                         f"line {data_index + 1}: {len(table_row[0])} cells; "
@@ -816,7 +815,7 @@ if requires_hardware_evidence:
         sample = "; ".join(ambiguous_headers[:5])
         suffix = "" if len(ambiguous_headers) <= 5 else f"; ... ({len(ambiguous_headers)} total)"
         raise SystemExit(
-            "stable 2.0+ publication rejects ambiguous checklist table headers: "
+            "2.0+ release publication rejects ambiguous checklist table headers: "
             f"{sample}{suffix}"
         )
 
@@ -828,14 +827,14 @@ if requires_hardware_evidence:
             else f"; ... ({len(claim_row_width_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication rejects inconsistent row widths in "
+            "2.0+ release publication rejects inconsistent row widths in "
             f"ID/Gate Status tables: {sample}{suffix}"
         )
 
     # Required hardware rows belong to the five checked-in matrix tables. A
     # smaller ID/Status/Evidence table can list every ID while omitting the
     # owner and exact firmware/bench provenance that the checklist requires,
-    # so its header is not sufficient stable-release evidence.
+    # so its header is not sufficient release evidence.
     if required_table_structure_errors:
         sample = "; ".join(required_table_structure_errors[:5])
         suffix = (
@@ -844,7 +843,7 @@ if requires_hardware_evidence:
             else f"; ... ({len(required_table_structure_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every table containing a current "
+            "2.0+ release publication requires every table containing a current "
             "hardware checklist ID to include ID, Owner, Status, Firmware / bench, "
             "and Evidence artifact / notes columns; incomplete required-row tables: "
             f"{sample}{suffix}"
@@ -858,7 +857,7 @@ if requires_hardware_evidence:
             else f"; ... ({len(pass_claim_structure_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every Pass claim in a checklist "
+            "2.0+ release publication requires every Pass claim in a checklist "
             "table to include its required provenance columns; incomplete "
             f"Pass-claim tables: {sample}{suffix}"
         )
@@ -871,7 +870,7 @@ if requires_hardware_evidence:
             else f"; ... ({len(table_evidence_errors)} total)"
         )
         message = (
-            "stable 2.0+ publication requires every data row under a "
+            "2.0+ release publication requires every data row under a "
             "Status+Evidence table to have recorded non-placeholder "
             f"evidence/notes: {sample}{suffix}"
         )
@@ -887,7 +886,7 @@ if requires_hardware_evidence:
             else f"; ... ({len(pass_claim_field_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every Pass claim in a checklist "
+            "2.0+ release publication requires every Pass claim in a checklist "
             "table to record non-placeholder provenance values: "
             f"{sample}{suffix}"
         )
@@ -896,21 +895,21 @@ if requires_hardware_evidence:
         sample = "; ".join(incomplete[:5])
         suffix = "" if len(incomplete) <= 5 else f"; ... ({len(incomplete)} total)"
         raise SystemExit(
-            "stable 2.0+ publication requires every hardware/checklist row to "
+            "2.0+ release publication requires every hardware/checklist row to "
             f"have evidence; incomplete rows: {sample}{suffix}"
         )
     if nonpassing:
         sample = "; ".join(nonpassing[:5])
         suffix = "" if len(nonpassing) <= 5 else f"; ... ({len(nonpassing)} total)"
         raise SystemExit(
-            "stable 2.0+ publication requires every hardware/checklist status "
+            "2.0+ release publication requires every hardware/checklist status "
             f"to be Pass; non-Pass status cells: {sample}{suffix}"
         )
     # A checklist with no recognisable `Status` table proves nothing, so an
     # emptied or restructured file must fail rather than pass by omission.
     if status_rows == 0:
         raise SystemExit(
-            "stable 2.0+ publication requires hardware evidence rows; "
+            "2.0+ release publication requires hardware evidence rows; "
             f"{checklist} has no table row under a 'Status' column"
         )
 
@@ -926,14 +925,14 @@ if requires_hardware_evidence:
         sample = ", ".join(missing_ids[:12])
         suffix = "" if len(missing_ids) <= 12 else f", ... ({len(missing_ids)} total)"
         raise SystemExit(
-            "stable 2.0+ publication requires every current hardware checklist "
+            "2.0+ release publication requires every current hardware checklist "
             f"ID exactly once; missing required IDs: {sample}{suffix}"
         )
     if duplicate_ids:
         sample = "; ".join(duplicate_ids[:12])
         suffix = "" if len(duplicate_ids) <= 12 else f"; ... ({len(duplicate_ids)} total)"
         raise SystemExit(
-            "stable 2.0+ publication requires every current hardware checklist "
+            "2.0+ release publication requires every current hardware checklist "
             f"ID exactly once; duplicate required IDs: {sample}{suffix}"
         )
 
@@ -952,7 +951,7 @@ if requires_hardware_evidence:
             else f"; ... ({len(required_status_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every required hardware checklist "
+            "2.0+ release publication requires every required hardware checklist "
             f"row to have Status exactly Pass; invalid required rows: {sample}{suffix}"
         )
 
@@ -982,17 +981,18 @@ if requires_hardware_evidence:
             else f"; ... ({len(required_field_errors)} total)"
         )
         raise SystemExit(
-            "stable 2.0+ publication requires every Pass row in a required-ID "
+            "2.0+ release publication requires every Pass row in a required-ID "
             "table to record non-placeholder Owner, Firmware / bench, and "
             f"Evidence artifact / notes values: {sample}{suffix}"
         )
 
-    # The five release-signoff gates are deliberately covered by the existing
+    # Release-signoff gates are deliberately covered by the existing
     # table-wide Status/evidence scan below. The checked-in contract gives
     # those gates prose labels rather than stable IDs, and RELEASING.md
-    # requires every Status row plus the two top-level records, not exact gate
-    # label cardinality; imposing a second label schema would reject valid
-    # future additions without strengthening the stated release invariant.
+    # requires every Status row plus candidate provenance and the two final
+    # records, not exact gate-label cardinality; imposing a second label schema
+    # would reject valid future additions without strengthening the stated
+    # release invariant.
     def recorded(label):
         pattern = re.compile(rf"^{re.escape(label)}:[ \t]*(.*)$", re.MULTILINE)
         for match in pattern.finditer(checklist_text):
@@ -1001,9 +1001,100 @@ if requires_hardware_evidence:
                 return value
         return None
 
+    candidate_tag = recorded("Hardware candidate tag")
+    candidate_tag_object = recorded("Hardware candidate tag object")
+    candidate_commit = recorded("Hardware candidate commit")
+    candidate_ci_run = recorded("Hardware candidate CI run")
+    candidate_operator_date = recorded("Hardware qualification operator/date")
+
+    candidate_record_errors = []
+    expected_candidate_pattern = re.compile(
+        rf"^hardware-candidate-v{re.escape(expected)}-"
+        r"(?P<date>\d{8})\.[1-9][0-9]*$"
+    )
+    candidate_tag_match = (
+        expected_candidate_pattern.fullmatch(candidate_tag)
+        if candidate_tag is not None
+        else None
+    )
+    if candidate_tag_match is None:
+        candidate_record_errors.append(
+            "Hardware candidate tag must match "
+            f"hardware-candidate-v{expected}-YYYYMMDD.N"
+        )
+    else:
+        tag_date = candidate_tag_match.group("date")
+        try:
+            date.fromisoformat(
+                f"{tag_date[:4]}-{tag_date[4:6]}-{tag_date[6:]}"
+            )
+        except ValueError:
+            candidate_record_errors.append(
+                "Hardware candidate tag must contain a valid UTC calendar date"
+            )
+    object_pattern = re.compile(r"^[0-9a-f]{40}$")
+    if (
+        candidate_tag_object is None
+        or object_pattern.fullmatch(candidate_tag_object) is None
+    ):
+        candidate_record_errors.append(
+            "Hardware candidate tag object must be a full lowercase object ID"
+        )
+    if (
+        candidate_commit is None
+        or object_pattern.fullmatch(candidate_commit) is None
+    ):
+        candidate_record_errors.append(
+            "Hardware candidate commit must be a full lowercase object ID"
+        )
+    if (
+        candidate_tag_object is not None
+        and candidate_commit is not None
+        and candidate_tag_object == candidate_commit
+    ):
+        candidate_record_errors.append(
+            "Hardware candidate tag object must differ from its peeled commit"
+        )
+    ci_run_pattern = re.compile(
+        r"^https://github\.com/[^/\s]+/[^/\s]+/actions/runs/[1-9][0-9]*"
+        r"(?:/attempts/[1-9][0-9]*)?/?$"
+    )
+    if (
+        candidate_ci_run is None
+        or ci_run_pattern.fullmatch(candidate_ci_run) is None
+    ):
+        candidate_record_errors.append(
+            "Hardware candidate CI run must be an exact GitHub Actions run URL"
+        )
+    operator_date_pattern = re.compile(
+        r"^(?P<operator>.+\S)[ \t]+(?:—|-)[ \t]+"
+        r"(?P<date>\d{4}-\d{2}-\d{2})(?:[ \t]+UTC)?$"
+    )
+    operator_date_match = (
+        operator_date_pattern.fullmatch(candidate_operator_date)
+        if candidate_operator_date is not None
+        else None
+    )
+    if operator_date_match is None:
+        candidate_record_errors.append(
+            "Hardware qualification operator/date must be OPERATOR — YYYY-MM-DD UTC"
+        )
+    else:
+        try:
+            date.fromisoformat(operator_date_match.group("date"))
+        except ValueError:
+            candidate_record_errors.append(
+                "Hardware qualification operator/date must contain a valid date"
+            )
+    if candidate_record_errors:
+        raise SystemExit(
+            "2.0+ release publication requires complete unpublished hardware-candidate "
+            "provenance: " + "; ".join(candidate_record_errors)
+        )
+
     if recorded("Final sign-off") is None or recorded("Evidence index") is None:
         raise SystemExit(
-            "stable 2.0+ publication requires non-placeholder 'Final sign-off:' "
+            "2.0+ release publication requires non-placeholder 'Final sign-off:' "
             f"and 'Evidence index:' records in {checklist}"
         )
 PY
