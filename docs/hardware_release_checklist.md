@@ -1,10 +1,11 @@
 # 2.0.0-rc.1 hardware release checklist
 
 This checklist separates software contract evidence from physical-camera
-evidence. Every row is intentionally `Pending (Not run)` for this release
-candidate until a named owner records the bench, firmware, date, command
-transcript, and artifact link. A passing software test is not a hardware pass,
-and no row may be marked complete from an unrecorded manual observation.
+evidence. Every row is intentionally `Pending (Not run)` for the planned
+release candidate until a named owner records the bench, firmware, date,
+command transcript, and artifact link. A passing software test is not a
+hardware pass, and no row may be marked complete from an unrecorded manual
+observation.
 
 ## Recording rules
 
@@ -22,6 +23,25 @@ Status vocabulary:
 - `Pass` or `Fail` is allowed only with the evidence fields completed.
 
 The release candidate has no hardware claim until the rows below are updated.
+
+## Unpublished hardware candidate provenance
+
+Create the annotated, non-release qualification tag only as described in
+[`RELEASING.md`](../RELEASING.md#unpublished-hardware-qualification-tag).
+Record full object IDs and the exact successful CI run for the peeled commit
+before collecting bench evidence. If executable code or a dependency changes,
+retain these values as historical evidence, create the next numbered tag, and
+replace them with the new qualification attempt before rerunning hardware.
+
+Hardware candidate tag: Pending
+
+Hardware candidate tag object: Pending
+
+Hardware candidate commit: Pending
+
+Hardware candidate CI run: Pending
+
+Hardware qualification operator/date: Pending
 
 ## Profile and transport matrix
 
@@ -132,6 +152,7 @@ they do not authorize sending to broadcast as a session target.
 | --- | --- | --- | --- |
 | Every applicable `PT-*` and `FW-*` row has an exact firmware revision | Release owner | Pending (Not run) | Pending |
 | Every `WC-*` wire-correction row has a command/reply capture or an explicit blocker | Release owner | Pending (Not run) | Pending |
+| Unpublished hardware-candidate tag, object, peeled commit, exact-commit CI run, operator, and date are recorded | Release owner | Pending (Not run) | Pending |
 | Every cancellation/retry row has a transcript and sanitized diagnostics | Lifecycle QA | Pending (Not run) | Pending |
 | Every multi-camera row has target-attribution evidence | Multi-camera QA | Pending (Not run) | Pending |
 | No open safety issue or unexplained physical behavior | Release owner | Pending (Not run) | Pending |
@@ -139,3 +160,7 @@ they do not authorize sending to broadcast as a session target.
 
 Do not publish or describe hardware support as verified until the release owner
 reviews the completed evidence and records the date and sign-off here.
+
+Final sign-off: Pending
+
+Evidence index: Pending

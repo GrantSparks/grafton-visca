@@ -372,6 +372,16 @@ entries below retain their original wording.
 
 ### Changed
 
+- **Hardware evidence now gates every publishable 2.0+ tag, including
+  prereleases** (#738), implementing the ratified D8 order in #732 and
+  superseding #632's prerelease exemption. Physical validation runs first on
+  an immutable annotated `hardware-candidate-*` tag that cannot enter the
+  release publication workflow. The release validator now requires all 59
+  scenario IDs, including `WC-01` through `WC-11`, plus the candidate tag
+  object, peeled commit, exact-commit CI run, operator/date, final sign-off,
+  and evidence index before `v2.0.0-rc.1` or any later 2.0+ release identity
+  can pass.
+
 - **BREAKING: transport deadlines are now valid before I/O begins** (#736).
   `TransportConfig` rejects zero connect/read/write timeouts and durations that
   cannot be added to the platform monotonic clock; an impossible blocking UDP

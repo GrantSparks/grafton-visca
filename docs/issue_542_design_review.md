@@ -197,8 +197,11 @@ encoding.
    deserialization revalidates, schema bounds are 1 through 31, and a possibly
    empty intersection returns `Option<AffectedAxes>`.
 5. Recoverable cancellation refusal is approved and retained.
-6. Hardware verification remains a stable-release gate, not a prerequisite to
-   calling the software work release-candidate complete.
+6. Hardware verification remains distinct from calling the software work
+   development-complete. The later ratified D8 decision in #732 supersedes the
+   release-order portion of this review: hardware now gates the first
+   publishable RC as well as the stable release, using an unpublished
+   `hardware-candidate-*` tag for qualification.
 7. Raw VISCA does not use universal FIFO pre-ACK attribution. It normally keeps
    one unacknowledged command candidate per target across `Sending`,
    `AwaitingAck`, and `AwaitingCompletion`. One intrinsic `Urgent` command may
@@ -364,5 +367,8 @@ encoding.
 Development-complete issue closure should require implementation, contract
 tests, documentation/migration notes, public-API snapshot review, MSRV/lint,
 and the supported feature matrix. It should not claim physical-camera evidence.
-The stable 2.0 release remains blocked on the hardware checklist, while an RC
-tag is explicitly allowed to carry pending hardware rows.
+This review originally allowed an RC tag to carry pending hardware rows. The
+subsequent ratified D8 decision (#732), enforced by #738, supersedes that
+release-order conclusion: every publishable 2.0+ RC or stable tag requires the
+completed hardware checklist. Pending work is anchored only by an unpublished,
+non-release `hardware-candidate-*` tag.
