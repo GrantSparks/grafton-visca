@@ -33,13 +33,20 @@ before collecting bench evidence. If executable code or a dependency changes,
 retain these values as historical evidence, create the next numbered tag, and
 replace them with the new qualification attempt before rerunning hardware.
 
-Hardware candidate tag: hardware-candidate-v2.0.0-rc.1-20260903.1
+Historical pre-hardware attempt: `hardware-candidate-v2.0.0-rc.1-20260903.1`
+(annotated tag object `b090c78993107e0731caf092b273005c65e4453f`, peeled
+commit `3b560d0b4a5ffdd99965cd529636452ac8310d2e`,
+[43-check CI run](https://github.com/GrantSparks/grafton-visca/actions/runs/33717197233)).
+It was superseded before bench execution because #741 changes test source; no
+hardware result or PASS is attached to this attempt.
 
-Hardware candidate tag object: b090c78993107e0731caf092b273005c65e4453f
+Hardware candidate tag: Pending
 
-Hardware candidate commit: 3b560d0b4a5ffdd99965cd529636452ac8310d2e
+Hardware candidate tag object: Pending
 
-Hardware candidate CI run: https://github.com/GrantSparks/grafton-visca/actions/runs/33717197233
+Hardware candidate commit: Pending
+
+Hardware candidate CI run: Pending
 
 Hardware qualification operator/date: Pending
 
@@ -152,11 +159,11 @@ they do not authorize sending to broadcast as a session target.
 | --- | --- | --- | --- |
 | Every applicable `PT-*` and `FW-*` row has an exact firmware revision | Release owner | Pending (Not run) | Pending |
 | Every `WC-*` wire-correction row has a command/reply capture or an explicit blocker | Release owner | Pending (Not run) | Pending |
-| Unpublished hardware-candidate tag, object, peeled commit, exact-commit CI run, operator, and date are recorded | Release owner | Pending (Not run) | Tag, object, commit, and 43-check CI run recorded above; hardware operator/date pending |
+| Unpublished hardware-candidate tag, object, peeled commit, exact-commit CI run, operator, and date are recorded | Release owner | Pending (Not run) | Attempt `.1` retained above; replacement candidate and hardware operator/date pending |
 | Every cancellation/retry row has a transcript and sanitized diagnostics | Lifecycle QA | Pending (Not run) | Pending |
 | Every multi-camera row has target-attribution evidence | Multi-camera QA | Pending (Not run) | Pending |
 | No open safety issue or unexplained physical behavior | Release owner | Pending (Not run) | Pending |
-| Software feature/API/allocation gates are recorded separately | CI owner | Pass | [Phase-5 PASS](https://github.com/GrantSparks/grafton-visca/pull/559#issuecomment-5519077756); [43/43 exact candidate-commit checks](https://github.com/GrantSparks/grafton-visca/actions/runs/33717197233) |
+| Software feature/API/allocation gates are recorded separately | CI owner | Pending (Not run) | Attempt `.1` passed; replacement exact-head candidate CI pending after #741 |
 
 Do not publish or describe hardware support as verified until the release owner
 reviews the completed evidence and records the date and sign-off here.

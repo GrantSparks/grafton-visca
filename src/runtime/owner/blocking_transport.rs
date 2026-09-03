@@ -624,7 +624,6 @@ mod tests {
         Bytes(Vec<u8>),
         TransientFault,
         TimedOut,
-        BytesNearDeadline(Vec<u8>),
         BytesAtDeadline(Vec<u8>),
     }
 
@@ -712,10 +711,6 @@ mod tests {
                     ))));
                 }
                 TombstoneIntegrationRead::TimedOut => return Err(Error::Timeout),
-                TombstoneIntegrationRead::BytesNearDeadline(bytes) => {
-                    std::thread::sleep(timeout.saturating_sub(Duration::from_millis(1)));
-                    bytes
-                }
                 TombstoneIntegrationRead::BytesAtDeadline(bytes) => {
                     std::thread::sleep(timeout);
                     bytes
@@ -1604,9 +1599,9 @@ mod tests {
     }
 
     /// No source-only, ACK, or socketless terminal prefix proves an owner.
-    /// The production adapter gives each literal one real grace interval, then
-    /// discards the orphan and releases the successor without poisoning the
-    /// session (#713).
+    /// The production adapter gives each literal arriving at the hold boundary
+    /// one real grace interval, then discards the orphan and releases the
+    /// successor without poisoning the session (#713).
     #[test]
     fn production_raw_tombstone_ambiguous_prefixes_expire_by_time_without_poison() {
         for prefix in [vec![0x90], vec![0x90, 0x41], vec![0x90, 0x50]] {
@@ -1614,13 +1609,10 @@ mod tests {
             let reads = std::iter::once(TombstoneIntegrationRead::Bytes(vec![
                 0x90, 0x50, 0xa1, 0xff,
             ]))
-            .chain(std::iter::once(
-                TombstoneIntegrationRead::BytesNearDeadline(prefix.clone()),
-            ))
-            .chain([
-                TombstoneIntegrationRead::TimedOut,
-                TombstoneIntegrationRead::TimedOut,
-            ]);
+            .chain(std::iter::once(TombstoneIntegrationRead::BytesAtDeadline(
+                prefix.clone(),
+            )))
+            .chain(std::iter::once(TombstoneIntegrationRead::TimedOut));
             let (transport, io) = TombstoneIntegrationTransport::new(reads);
             let adapter =
                 BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
@@ -1663,8 +1655,8 @@ mod tests {
             );
             assert_eq!(
                 io.send_counts_at_read.len(),
-                4,
-                "{prefix:02x?}: one probe starts grace and one expires it"
+                3,
+                "{prefix:02x?}: boundary input starts grace and one probe expires it"
             );
             assert!(
                 io.reads.is_empty(),
