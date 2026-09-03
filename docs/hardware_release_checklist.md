@@ -40,13 +40,13 @@ commit `3b560d0b4a5ffdd99965cd529636452ac8310d2e`,
 It was superseded before bench execution because #741 changes test source; no
 hardware result or PASS is attached to this attempt.
 
-Hardware candidate tag: Pending
+Hardware candidate tag: hardware-candidate-v2.0.0-rc.1-20260903.2
 
-Hardware candidate tag object: Pending
+Hardware candidate tag object: 0dd205c5694e0a273923f8610b56430a4ed573a9
 
-Hardware candidate commit: Pending
+Hardware candidate commit: defada3be17161eea65c0cfba6d15e1b70ec45bc
 
-Hardware candidate CI run: Pending
+Hardware candidate CI run: https://github.com/GrantSparks/grafton-visca/actions/runs/33720680690
 
 Hardware qualification operator/date: Pending
 
@@ -159,11 +159,11 @@ they do not authorize sending to broadcast as a session target.
 | --- | --- | --- | --- |
 | Every applicable `PT-*` and `FW-*` row has an exact firmware revision | Release owner | Pending (Not run) | Pending |
 | Every `WC-*` wire-correction row has a command/reply capture or an explicit blocker | Release owner | Pending (Not run) | Pending |
-| Unpublished hardware-candidate tag, object, peeled commit, exact-commit CI run, operator, and date are recorded | Release owner | Pending (Not run) | Attempt `.1` retained above; replacement candidate and hardware operator/date pending |
+| Unpublished hardware-candidate tag, object, peeled commit, exact-commit CI run, operator, and date are recorded | Release owner | Pending (Not run) | Attempt `.1` retained above; active `.2` tag/object/commit/CI recorded; hardware operator/date pending |
 | Every cancellation/retry row has a transcript and sanitized diagnostics | Lifecycle QA | Pending (Not run) | Pending |
 | Every multi-camera row has target-attribution evidence | Multi-camera QA | Pending (Not run) | Pending |
 | No open safety issue or unexplained physical behavior | Release owner | Pending (Not run) | Pending |
-| Software feature/API/allocation gates are recorded separately | CI owner | Pending (Not run) | Attempt `.1` passed; replacement exact-head candidate CI pending after #741 |
+| Software feature/API/allocation gates are recorded separately | CI owner | Pass | [Phase-5 PASS](https://github.com/GrantSparks/grafton-visca/pull/559#issuecomment-5519077756); [43/43 exact `.2` candidate-commit checks](https://github.com/GrantSparks/grafton-visca/actions/runs/33720680690), including Windows |
 
 Do not publish or describe hardware support as verified until the release owner
 reviews the completed evidence and records the date and sign-off here.
