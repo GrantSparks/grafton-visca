@@ -372,6 +372,12 @@ entries below retain their original wording.
 
 ### Changed
 
+- Recorded the immutable `2.0.0-rc.1` hardware-candidate provenance and the
+  already-complete software sign-off in the checked-in release checklist
+  (#557). The hardware operator/date, all 59 physical scenario results, the
+  remaining six release sign-off gates, final sign-off, and evidence index
+  remain explicitly pending.
+
 - **Hardware evidence now gates every publishable 2.0+ tag, including
   prereleases** (#738), implementing the ratified D8 order in #732 and
   superseding #632's prerelease exemption. Physical validation runs first on
