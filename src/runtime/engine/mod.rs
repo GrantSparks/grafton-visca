@@ -2626,9 +2626,26 @@ impl ProtocolEngine {
                 {
                     self.quarantine_displaced_raw_socket_owner(stale, now, effects);
                 }
+                self.quarantine_displaced_raw_socket_hold(target, socket);
             }
         }
         self.assign_socket(target, requested, id)
+    }
+
+    /// Downgrades an exact raw socket tombstone superseded by a camera ACK.
+    ///
+    /// An inert `Socket` hold records only our uncertainty about a predecessor
+    /// whose terminal frame was lost. A later ACK naming that same socket is
+    /// authoritative evidence that the camera released it and assigned it to
+    /// the uniquely resolved live request. Retain the predecessor's ambiguity
+    /// window as an unkeyed `PreAck` hold, but never let the stale exact key
+    /// reject the camera-named successor (#750).
+    fn quarantine_displaced_raw_socket_hold(&mut self, target: CameraId, socket: ViscaSocket) {
+        let key = RawHoldKey::new(target, RawHoldScope::Socket(socket));
+        let Some(hold) = self.holds.remove(&key) else {
+            return;
+        };
+        self.extend_raw_hold(target, RawHoldScope::PreAck, hold.until, hold.owner);
     }
 
     /// Relinquishes a socket claim superseded by an authoritative camera ACK.

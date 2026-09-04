@@ -1506,6 +1506,14 @@ entries below retain their original wording.
   instead of being falsely reported `UnsequencedCommandUnconfirmed`. Blocking
   and async owner tests pin both the safety write and ACK binding.
 
+- A raw ACK that names a socket held only by an expired predecessor now treats
+  the camera's assignment as authoritative (#750). The stale exact-socket
+  quarantine is downgraded to the same unkeyed `PreAck` hold used for a
+  displaced live owner, retaining its original ambiguity deadline while
+  allowing the uniquely resolved successor to own, cancel, and complete on the
+  camera-named socket. Blocking and Tokio owner regressions cover the matching
+  live-owner and inert-hold cases.
+
 - Blocking serial writes now report success when the final low-level write
   accepted the complete frame, even if that syscall returned after the logical
   deadline (#748). A delivered command—including an emergency stop—therefore

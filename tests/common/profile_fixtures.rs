@@ -34,8 +34,23 @@ macro_rules! synthetic_profile_default {
     (no_default, $profile:ident) => {};
 }
 
+macro_rules! synthetic_command_timeouts {
+    () => {
+        CommandTimeouts::new(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            Duration::from_secs(60),
+            Duration::from_secs(300),
+            Duration::from_secs(5),
+        )
+    };
+    ($command_timeouts:expr) => {
+        $command_timeouts
+    };
+}
+
 macro_rules! synthetic_profile_impl {
-    ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr) => {
+    ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr $(, $command_timeouts:expr)?) => {
         #[allow(dead_code)]
         #[derive(Debug, Clone, Copy)]
         pub struct $profile;
@@ -47,13 +62,7 @@ macro_rules! synthetic_profile_impl {
             const DEFAULT_CAMERA_ID: u8 = 1;
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-            const COMMAND_TIMEOUTS: CommandTimeouts = CommandTimeouts::new(
-                Duration::from_secs(5),
-                Duration::from_secs(30),
-                Duration::from_secs(60),
-                Duration::from_secs(300),
-                Duration::from_secs(5),
-            );
+            const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);
             const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
         }
 
@@ -196,6 +205,25 @@ synthetic_profile_impl!(
     Duration::from_secs(1)
 );
 
+// Socket-reuse integration tests need a real owner timeout to install an
+// exact-socket quarantine without making the test wait for a production-scale
+// movement deadline. The distinct fixture keeps that timing fact local to
+// those tests.
+synthetic_profile_impl!(
+    QuarantinedSocketCompileTimeProfile,
+    "Quarantined Socket Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default,
+    Duration::from_millis(250),
+    CommandTimeouts::new(
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+    )
+);
+
 // No built-in profile declares motion sync (see the profile registry's
 // `MotionSync` note), so the typed accessor is only reachable from a profile
 // that opts in — which is what makes a behavioural test of the helper possible
@@ -210,6 +238,7 @@ impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
 impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
 impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
 impl MotionSyncMetadata for MotionOwnerCompileTimeProfile {}
+impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
 
 /// The one fixture that documents the physical capability, so the typed
 /// `MotionSync` surface above has something real to gate.
