@@ -11,6 +11,7 @@ use crate::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         builder::TransportConfig,
         serial::{
+            device_timeout,
             handshake::async_handshake::{address_set_async, if_clear_async},
             startup_plan, Config as SerialConfig, StartupOperation,
         },
@@ -88,7 +89,7 @@ impl Serial {
         // Open serial port
         #[cfg(unix)]
         let mut port = tokio_serial::new(&config.port, config.baud_rate)
-            .timeout(config.read_timeout)
+            .timeout(device_timeout(config.read_timeout))
             .open_native_async()
             .map_err(|e| Error::ConnectionFailed {
                 addr: config.port.clone().into(),
@@ -99,7 +100,7 @@ impl Serial {
 
         #[cfg(not(unix))]
         let port = tokio_serial::new(&config.port, config.baud_rate)
-            .timeout(config.read_timeout)
+            .timeout(device_timeout(config.read_timeout))
             .open_native_async()
             .map_err(|e| Error::ConnectionFailed {
                 addr: config.port.clone().into(),
@@ -188,6 +189,7 @@ mod tests {
         reads: VecDeque<Vec<u8>>,
         writes: Vec<Vec<u8>>,
         read_buffer_sizes: Vec<usize>,
+        flush_calls: usize,
     }
 
     impl TranscriptIo {
@@ -196,6 +198,7 @@ mod tests {
                 reads: [bytes].into(),
                 writes: Vec::new(),
                 read_buffer_sizes: Vec::new(),
+                flush_calls: 0,
             }
         }
     }
@@ -216,6 +219,7 @@ mod tests {
         }
 
         async fn flush(&mut self) -> Result<()> {
+            self.flush_calls += 1;
             Ok(())
         }
     }
@@ -286,6 +290,10 @@ mod tests {
             "the Tokio serial startup transcript must address the bus before clearing it"
         );
         assert_eq!(io.read_buffer_sizes, [4]);
+        assert_eq!(
+            io.flush_calls, 0,
+            "Tokio serial startup must not enter the unbounded device flush"
+        );
     }
 
     struct PendingWriteIo;

@@ -1433,6 +1433,18 @@ entries below retain their original wording.
   session; genuinely partial writes still fail under the fixed whole-frame
   deadline.
 
+- **Hardened both serial startup paths and command submission** (#756).
+  Blocking commands and handshakes now share one whole-frame, deadline-bounded
+  write loop: interrupted device writes retry, poll expiry maps to `Timeout`,
+  and Address Set uses its remaining attempts after either condition. Address
+  Set discards and resynchronizes after an oversized delimiter-framed noise
+  burst instead of aborting connection setup. Every timeout sent to a serial
+  device is rounded up to one millisecond, avoiding Windows' zero-millisecond
+  no-timeout mode while preserving the owner's precise logical deadline.
+  Finally, Tokio serial commands and startup handshakes no longer call
+  `flush`/device drain (`tcdrain` on POSIX), which could block an async runtime
+  thread indefinitely despite its configured timeout.
+
 - **Made the public-error reachability release gate non-vacuous** (#736). The
   gate now inventories one explicit production constructor for every public
   `Error` variant instead of accepting pattern matches and documentation as
