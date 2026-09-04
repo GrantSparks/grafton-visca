@@ -1421,6 +1421,13 @@ entries below retain their original wording.
 
 ### Fixed
 
+- Blocking serial writes now report success when the final low-level write
+  accepted the complete frame, even if that syscall returned after the logical
+  deadline (#748). A delivered command—including an emergency stop—therefore
+  cannot be misreported as `Timeout` and poison an otherwise usable stream
+  session; genuinely partial writes still fail under the fixed whole-frame
+  deadline.
+
 - **Made the public-error reachability release gate non-vacuous** (#736). The
   gate now inventories one explicit production constructor for every public
   `Error` variant instead of accepting pattern matches and documentation as

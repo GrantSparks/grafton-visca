@@ -198,10 +198,6 @@ impl BlockingTransport for SerialTransport {
             }
         }
 
-        if timeout.saturating_sub(started.elapsed()).is_zero() {
-            return Err(Error::Timeout);
-        }
-
         // Do not call `SerialPort::flush`: on POSIX it is `tcdrain`, which can
         // remain blocked after the write timeout. The subsequent VISCA reply
         // wait is the protocol-level confirmation that the queued bytes left.
@@ -951,6 +947,29 @@ mod tests {
             "an expired whole-write budget must prevent a follow-up syscall"
         );
         assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(transport.port.timeout(), original_timeout);
+    }
+
+    #[test]
+    fn send_with_timeout_reports_a_completed_last_chunk_after_deadline() {
+        let original_timeout = Duration::from_secs(5);
+        let port = TestSerialPort::new(original_timeout).with_write_steps([WriteStep::Partial {
+            bytes: 6,
+            delay: Duration::from_millis(40),
+        }]);
+        let write_calls = Arc::clone(&port.write_calls);
+        let mut transport = create_test_transport(port);
+
+        // This is the wire form of a pan/tilt stop. The low-level writer accepts
+        // the complete frame before returning, even though it returns after the
+        // logical deadline. The command is already on the wire and must not be
+        // reported as a timeout (which would poison a stream session).
+        let stop = [0x81, 0x01, 0x06, 0x01, 0x03, VISCA_TERMINATOR];
+        let result =
+            transport.send_with_timeout(&stop, CommandKind::Command, Duration::from_millis(20));
+
+        assert!(result.is_ok(), "a fully written frame was delivered");
+        assert_eq!(write_calls.load(Ordering::SeqCst), 1);
         assert_eq!(transport.port.timeout(), original_timeout);
     }
 
