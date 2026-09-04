@@ -1470,6 +1470,12 @@ entries below retain their original wording.
   running after `80 50 dd`, passed-through `88 30 02`, or stray noise; only a
   genuine framer overflow remains terminal (#745).
 
+- Blocking raw-correlation tombstone waits now stop at the submitting caller's
+  absolute observer deadline even while every receive attempt faults (#747).
+  Deadline expiry returns `Timeout` with the session intact instead of polling
+  until the permanent-fault threshold and closing the session; a genuinely
+  permanent fault proven while observer budget remains still closes normally.
+
 - Blocking serial writes now report success when the final low-level write
   accepted the complete frame, even if that syscall returned after the logical
   deadline (#748). A delivered command—including an emergency stop—therefore
