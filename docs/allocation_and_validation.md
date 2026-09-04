@@ -128,7 +128,11 @@ named Miri filters and feature compile checks, rather than an unbounded Miri
 library sweep. Run Synemantic's
 external compatibility check once the service/project credentials are
 available. Hardware tests are separate and are tracked in
-[`hardware_release_checklist.md`](hardware_release_checklist.md).
+[`hardware_release_checklist.md`](hardware_release_checklist.md). Under #753's
+proportional policy (which supersedes #738/D8 in #732), an RC may have pending
+hardware rows only when its release notes state that no physical hardware
+validation has been performed and no hardware support has been verified for
+that release candidate.
 
 Serialization, schema, and TypeScript checks validate public data shapes only;
 they must not introduce a second protocol or semantic registry. Keep generated

@@ -1,10 +1,13 @@
 # 2.0 hardware release checklist
 
-This checklist records targeted representative physical-camera evidence. An
-RC may be published while every row remains `Pending (Not run)`, provided the
-release notes say plainly that hardware is unverified. A stable release with
-major version 2 or higher requires a representative pass on all five rows.
-Software tests and packet fixtures do not constitute a hardware pass.
+This checklist records targeted representative physical-camera evidence. Under
+the proportional policy authorized by #753 (superseding #738/D8 in #732), an RC
+may be published while every row remains `Pending (Not run)`, provided its
+release notes state plainly: **"No physical hardware validation has been
+performed, and no hardware support has been verified for this release
+candidate."** A stable release with major version 2 or higher requires a
+representative pass on all five rows. Software tests and packet fixtures do not
+constitute a hardware pass.
 
 ## Recording rules
 
@@ -21,7 +24,9 @@ Status vocabulary:
   available; record the blocker and owner.
 - `Pass` or `Fail` is allowed only with the evidence fields completed.
 
-The current `2.0.0-rc.1` status is intentionally unverified:
+The current `2.0.0-rc.1` status is intentionally unverified: no physical
+hardware validation has been performed, and no hardware support has been
+verified for this release candidate.
 
 Hardware-tested commit: Pending
 
@@ -50,7 +55,9 @@ paths between `Hardware-tested commit:` and release `HEAD`; a difference
 requires another targeted pass.
 
 For an RC, leave the rows and provenance fields `Pending` when hardware has not
-been run. Do not describe hardware support as verified based on software CI,
+been run. Its release notes must state that no physical hardware validation has
+been performed and no hardware support has been verified for that release
+candidate. Do not describe hardware support as verified based on software CI,
 the release tag, or an unrecorded manual observation.
 
 Evidence index: Pending

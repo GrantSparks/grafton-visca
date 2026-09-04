@@ -85,6 +85,13 @@ cargo clippy --examples --no-default-features --features blocking -- -D warnings
 bash .github/scripts/test-all-features.sh
 ```
 
+An RC may be published with the physical-camera checklist still pending under
+#753's proportional policy, which supersedes #738/D8 in #732. Its release notes
+must state plainly: **"No physical hardware validation has been performed, and
+no hardware support has been verified for this release candidate."** See the
+[hardware release checklist](hardware_release_checklist.md) for the separate
+stable-release evidence requirement.
+
 Lab validation tools can be run separately against a known camera bench:
 
 ```sh
