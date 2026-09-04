@@ -9,22 +9,22 @@ Procedural macros for the grafton-visca crate, providing derive macros to elimin
 ## Overview
 
 This crate provides three downstream derive macros for type-safe VISCA protocol
-implementations and one attribute macro used internally by the main crate:
+implementations:
 
 - **`ViscaInquiry`** - Generate inquiry command implementations with parser support
 - **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
-- **`ViscaValue`** - Value wrapper types with VISCA encoding
-- **`delegate_to_session`** - Internal main-crate maintenance macro that generates `CameraSession` forwarding implementations
+- **`ViscaValue`** - Validated value wrapper types
 
 ## ViscaInquiry
 
-Generates complete `ViscaCommand` implementations for inquiry commands, including exact-size,
-zero-allocation `write_into` encoding and optional response parsing.
+Generates typed `Request` and `Inquiry` implementations for inquiry commands,
+including exact-size, zero-allocation `write_into` encoding and optional inherent
+response parsing.
 
 ### Basic Usage
 
 ```rust
-use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
+use grafton_visca::{CameraId, Request, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x00, response = Power, parser = Bool)]
@@ -35,7 +35,7 @@ pub struct PowerInquiry;
 #[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
 pub struct PanTiltPositionInquiry;
 
-let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
+let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 let len = PowerInquiry
     .write_into(CameraId::CAMERA_1, &mut buffer)
     .expect("inquiry should encode");
@@ -48,24 +48,23 @@ assert_eq!(
 ### Generated Code
 
 The macro generates:
-- `ViscaCommand` trait implementation
+- `Request` and `Inquiry` trait implementations
 - exact `MAX_SIZE`
 - `write_into()` for caller-provided buffers
-- `behavior()` returning built-in or raw inquiry response routing metadata
-- `parse_response()` method when parser is specified
+- `parse_response()` method when parser is specified; it and `Inquiry::decoder()`
+  use the same generated payload decoder
 - `ResponseParser` implementation when typed response attributes are specified
 
-### Parser Types
+### Parser Selectors
 
-- `Bool` - Boolean values (0x02 = true, 0x03 = false)
-- `Byte` / `DirectByte` - Direct byte value
-- `Position` - 4-nibble position value (converts to u16)
-- `Nibble` / `ExtendedNibble` - Extended nibble encoding
-- `Flags` / `BitFlags` - Bit flags (for image flip)
-- `Mode` / `ModeEnum` - Enum value parsing
-- `PanTilt` - Special parser for pan/tilt positions
-- `LastNibble` - Last nibble from a nibble-encoded payload
-- `BoolConvention` - Boolean parsing with an explicit convention
+The established parser selectors remain accepted for source compatibility. They
+enable the inherent `parse_response()` convenience method, but never define a
+second decoder: it and `Inquiry::decoder()` share one generated payload decoder.
+Selectors that identify a built-in table shape delegate to `response` for
+boolean convention, nibble width, and value conversion. `Custom` continues to
+call `parse_with`, and selector forms with established transformations retain
+them, including `BoolConvention` and the selector-supported `data_variant` and
+`value_type` attributes, on both paths.
 
 ## ViscaEnum
 
@@ -111,7 +110,8 @@ pub enum Mode {
 
 ## ViscaValue
 
-Creates value wrapper types with VISCA encoding and validation.
+Creates value wrapper types with construction-time validation and configurable
+display formatting. It does not generate VISCA byte encoding or decoding APIs.
 
 ### Basic Usage
 
@@ -119,45 +119,31 @@ Creates value wrapper types with VISCA encoding and validation.
 use grafton_visca_macros::ViscaValue;
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 2)]
+#[visca_value(min = "0x0000", max = "0x4000")]
 struct ZoomPosition(u16);
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 1)]
+#[visca_value(valid_values = "[0x01, 0x02, 0x03]")]
 struct ZoomSpeed(u8);
 ```
 
-### Generated Methods
+### Attributes and Generated API
 
-The macro generates methods for:
-- Converting to/from byte representations
-- Validation of value ranges
-- VISCA protocol encoding
+The supported `visca_value` keys are `min`, `max`, `valid_values`,
+`display_format`, and `display_prefix`. `min` and `max` must be specified
+together as unsuffixed integer literals inside strings, for example
+`min = "0x0000"`. `valid_values` is the alternative validation form. Every key
+may appear only once; unknown keys, including `bytes`, are rejected.
 
-## delegate_to_session
+The macro generates:
 
-This attribute macro is an implementation tool for the matching
-`grafton-visca` source tree. It auto-generates `CameraSession` forwarding
-implementations for the main crate's control traits. It is public only because
-procedural macros cannot be scoped crate-private; downstream applications should
-not build APIs around it.
+- `new(value)` with range or valid-value validation
+- `value()`, `TryFrom<Inner>`, and `From<Wrapper> for Inner`
+- `MIN` and `MAX` when bounds or `valid_values` are specified
+- `Display` with optional format and prefix
 
-### Usage
-
-```rust
-use grafton_visca_macros::delegate_to_session;
-
-#[delegate_to_session]
-pub trait ZoomControl {
-    type Mode: Mode;
-
-    fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-    fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-    // ... more methods
-}
-```
-
-The macro generates forwarding implementations that delegate from `CameraSession` to the inner `Camera` instance with proper error handling.
+Use the derive macros above with the typed request contracts documented by the
+main crate. There is no forwarding attribute or mode-specific generated API.
 
 ## Integration with grafton-visca
 
@@ -182,20 +168,17 @@ use grafton_visca::{ViscaInquiry, ViscaEnum, ViscaValue};
 ### Example Inquiry and Enum
 
 ```rust
-use grafton_visca_macros::{ViscaInquiry, ViscaEnum};
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-pub enum ExposureMode {
-    Auto = 0x00,
-    Manual = 0x03,
-    Shutter = 0x0A,
-    Iris = 0x0B,
-}
+use grafton_visca::{command::ExposureMode, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x39, response = ExposureMode, parser = Mode, value_type = ExposureMode)]
 pub struct ExposureModeInquiry;
 ```
+
+Generated parsers return the named built-in `InquiryData` variant, so a Mode
+parser's value type must be the corresponding `grafton_visca::command` enum.
+Use `ViscaEnum` independently for downstream wire enums whose response parsing
+is implemented by downstream code.
 
 ### Value Types with Validation
 
@@ -203,7 +186,7 @@ pub struct ExposureModeInquiry;
 use grafton_visca_macros::ViscaValue;
 
 #[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(bytes = 2, min = 0x0000, max = 0x4000)]
+#[visca_value(min = "0x0000", max = "0x4000")]
 pub struct ZoomPosition(u16);
 
 impl ZoomPosition {
@@ -234,8 +217,8 @@ users must use matching versions:
 
 ```toml
 [dependencies]
-grafton-visca = "=1.2.0"
-grafton-visca-macros = "=1.2.0"
+grafton-visca = "=2.0.0-rc.1"
+grafton-visca-macros = "=2.0.0-rc.1"
 ```
 
 During a release, this macro crate is published and indexed before the
@@ -244,7 +227,6 @@ two-crate sequence.
 
 ## License
 
-Licensed under MIT OR Apache-2.0 dual license. See
-[LICENSE-MIT](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-MIT)
-and
-[LICENSE-APACHE](https://github.com/GrantSparks/grafton-visca/blob/main/LICENSE-APACHE).
+Licensed under MIT OR Apache-2.0 dual license. Both texts are shipped inside
+this package: see [LICENSE-MIT](LICENSE-MIT) and
+[LICENSE-APACHE](LICENSE-APACHE).

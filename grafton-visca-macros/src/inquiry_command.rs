@@ -37,14 +37,8 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 }
             };
 
-            // Determine crate path once for consistency
-            let is_internal_crate =
-                std::env::var("CARGO_CRATE_NAME").unwrap_or_default() == "grafton_visca";
-            let crate_path = if is_internal_crate {
-                quote! { crate }
-            } else {
-                quote! { ::grafton_visca }
-            };
+            // Determine the actual dependency name once for all generated paths.
+            let crate_path = crate::crate_path::grafton_visca();
 
             let byte_value = match attrs.byte_value {
                 Some(byte_value) => byte_value,
@@ -67,11 +61,10 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 return error.to_compile_error();
             }
 
-            let max_size_expr = quote! { 5 };
             let write_into_body = quote! {
                 const LEN: usize = 5;
                 if buffer.len() < LEN {
-                    return Err(#crate_path::Error::BufferTooSmall {
+                    return ::core::result::Result::Err(#crate_path::Error::BufferTooSmall {
                         required: LEN,
                         actual: buffer.len(),
                     });
@@ -81,7 +74,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 buffer[2] = #subcategory;
                 buffer[3] = #byte_value;
                 buffer[4] = #crate_path::command::VISCA_TERMINATOR;
-                Ok(LEN)
+                ::core::result::Result::Ok(LEN)
             };
 
             let parser_info = attrs.parser_info();
@@ -94,17 +87,39 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 .to_compile_error();
             }
 
-            // Generate parser implementation if parser info is provided
+            // A parser selector generates one payload decoder. Both the
+            // inherent convenience method and Inquiry::decoder use it, so
+            // selector-specific overrides cannot drift from runtime decoding.
             let parse_response_impl = if let Some(parser_info) = &parser_info {
-                let parser_body = generate_parser_body(&response_kind, parser_info, &crate_path);
+                let decode_body =
+                    generate_shared_decode_body(&response_kind, parser_info, &crate_path);
                 quote! {
                     impl #struct_name {
-                        /// Parse the response data for this inquiry command
-                        pub fn parse_response(&self, data: &[u8]) -> Result<#crate_path::command::InquiryData, #crate_path::Error> {
-                            if data.is_empty() {
-                                return Err(#crate_path::Error::invalid_response_length(1, data));
+                        #[doc(hidden)]
+                        fn __grafton_visca_decode_payload(
+                            payload: &[u8],
+                        ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
+                            #decode_body
+                        }
+
+                        /// Parses this inquiry's payload with the shared decoder.
+                        ///
+                        /// This is the exact decoder used by `Inquiry::decoder()`.
+                        /// Built-in selector forms use the canonical `InquiryKind`
+                        /// table; explicit selector overrides use their declared
+                        /// parser on both public paths.
+                        pub fn parse_response(&self, data: &[u8]) -> ::core::result::Result<#crate_path::command::InquiryData, #crate_path::Error> {
+                            match Self::__grafton_visca_decode_payload(data)? {
+                                #crate_path::command::Response::Inquiry(response) => {
+                                    ::core::result::Result::Ok(response)
+                                }
+                                #crate_path::command::Response::Error(error) => {
+                                    ::core::result::Result::Err(error)
+                                }
+                                _ => ::core::result::Result::Err(
+                                    #crate_path::Error::UnexpectedResponseType
+                                ),
                             }
-                            #parser_body
                         }
                     }
                 }
@@ -121,40 +136,156 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
                 &parser_info,
             );
 
-            let behavior_expr = if raw_response {
+            let decode_response = if parser_info.is_some() {
+                quote! { #struct_name::__grafton_visca_decode_payload(payload)? }
+            } else {
                 quote! {
-                    #crate_path::command::CommandBehavior::Inquiry(
-                        #crate_path::command::InquiryResponseSpec::Raw,
+                    #crate_path::command::parse_inquiry_payload(
+                        payload,
+                        &#crate_path::command::InquiryKind::#response_kind,
+                    )?
+                }
+            };
+
+            let response_decoder = if parser_info.is_some() {
+                quote! {
+                    #crate_path::ResponseDecoder::from_fn(
+                        #struct_name::__grafton_visca_decode_payload
                     )
                 }
             } else {
                 quote! {
-                    #crate_path::command::CommandBehavior::Inquiry(
-                        #crate_path::command::InquiryResponseSpec::Builtin(
-                            #crate_path::command::InquiryKind::#response_kind,
-                        ),
-                    )
+                    fn decode(
+                        payload: &[u8],
+                    ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
+                        #crate_path::command::parse_inquiry_payload(
+                            payload,
+                            &#crate_path::command::InquiryKind::#response_kind,
+                        )
+                    }
+                    #crate_path::ResponseDecoder::from_fn(decode)
+                }
+            };
+
+            let final_inquiry_impl = if raw_response {
+                quote! {
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #crate_path::command::RawInquiryPayload;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::RAW
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> ::core::result::Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
+                                ::core::result::Result::Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        }
+                    }
+                }
+            } else if let Some(typed_response) = &attrs.typed_response {
+                let response_type = type_spec_tokens(typed_response, &crate_path);
+                quote! {
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #response_type;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::custom(
+                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
+                            )
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> ::core::result::Result<#response_type, #crate_path::Error> {
+                                let response = #decode_response;
+                                <#struct_name as #crate_path::command::ResponseParser>::from_response(
+                                    response,
+                                )
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    impl #crate_path::Request for #struct_name {
+                        type Class = #crate_path::request::Inquiry;
+
+                        const MAX_SIZE: usize = 5;
+                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+                        fn write_into(
+                            &self,
+                            camera_id: #crate_path::CameraId,
+                            buffer: &mut [u8],
+                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
+                            #write_into_body
+                        }
+                    }
+
+                    impl #crate_path::Inquiry for #struct_name {
+                        type Response = #crate_path::command::Response;
+
+                        fn route(&self) -> #crate_path::InquiryRoute {
+                            #crate_path::InquiryRoute::custom(
+                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
+                            )
+                        }
+
+                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                            #response_decoder
+                        }
+                    }
                 }
             };
 
             let expanded = quote! {
-                impl #crate_path::command::ViscaCommand for #struct_name {
-                    const MAX_SIZE: usize = #max_size_expr;
-                    const TIMEOUT_CATEGORY: #crate_path::timeout::CommandCategory = #crate_path::timeout::CommandCategory::Quick;
-
-                    fn write_into(&self, camera_id: #crate_path::CameraId, buffer: &mut [u8]) -> Result<usize, #crate_path::Error> {
-                        #write_into_body
-                    }
-
-                    fn behavior(&self) -> #crate_path::command::CommandBehavior {
-                        #behavior_expr
-                    }
-                }
-
-
                 #parse_response_impl
 
                 #typed_impl
+
+                #final_inquiry_impl
             };
 
             expanded
@@ -524,152 +655,193 @@ fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<(
     }
 }
 
-fn generate_parser_body(
+/// Generates the one payload decoder shared by `parse_response` and
+/// `Inquiry::decoder` for a derive carrying a parser selector.
+///
+/// Most historical selectors merely identify a built-in response shape, so
+/// they delegate to the authoritative inquiry table. Selectors carrying a
+/// caller-supplied transformation retain that transformation here; each uses
+/// the public payload helper rather than restating a wire convention.
+fn generate_shared_decode_body(
     response_variant: &Ident,
     parser_info: &ParserInfo,
     crate_path: &TokenStream,
 ) -> TokenStream {
-    // Use data_variant if specified, otherwise use response_variant
+    let canonical = quote! {
+        #crate_path::command::parse_inquiry_payload(
+            payload,
+            &#crate_path::command::InquiryKind::#response_variant,
+        )
+    };
+
     let actual_variant = parser_info
         .data_variant
         .clone()
         .unwrap_or_else(|| response_variant.clone());
 
-    match parser_info.parser_type {
-        ParserStrategy::Bool => {
-            super::parser_templates::generate_bool_parser(response_variant, crate_path)
+    let data_decoder = match parser_info.parser_type {
+        ParserStrategy::Custom => {
+            let parse_with = parser_info
+                .parse_with
+                .as_ref()
+                .expect("custom parser requires parse_with attribute");
+            Some(quote! { #parse_with(payload) })
         }
-        ParserStrategy::DirectByte | ParserStrategy::Byte => {
-            let field_name = format_ident!("value"); // Default field name
-            super::parser_templates::generate_direct_byte_parser(
-                response_variant,
-                &field_name,
-                crate_path,
-            )
-        }
-        ParserStrategy::Position => {
-            super::parser_templates::generate_position_parser(response_variant, crate_path)
+        ParserStrategy::BoolConvention => {
+            let field_name = parser_info
+                .field_name
+                .as_ref()
+                .expect("bool_convention parser requires field attribute");
+            let convention = parser_info
+                .convention
+                .as_ref()
+                .expect("bool_convention parser requires convention attribute");
+            let convention = bool_convention_tokens(convention, crate_path);
+            let parameter = field_name.to_string();
+            Some(quote! {
+                {
+                    let payload = #crate_path::command::Payload::new(payload);
+                    let #field_name = payload.parse_bool(#parameter, #convention)?;
+                    ::core::result::Result::Ok(
+                        #crate_path::command::InquiryData::#actual_variant { #field_name }
+                    )
+                }
+            })
         }
         ParserStrategy::ExtendedNibble | ParserStrategy::Nibble => {
             let field_name = parser_info
                 .field_name
                 .clone()
                 .unwrap_or_else(|| format_ident!("value"));
-            super::parser_templates::generate_extended_nibble_parser(
-                response_variant,
-                &field_name,
-                crate_path,
-            )
-        }
-        ParserStrategy::Flags | ParserStrategy::BitFlags => {
-            super::parser_templates::generate_bit_flags_parser(response_variant, crate_path)
+            Some(quote! {
+                {
+                    let payload = #crate_path::command::Payload::new(payload);
+                    let nibbles = <#crate_path::command::Nibbles<'_, 2> as
+                        ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
+                    ::core::result::Result::Ok(
+                        #crate_path::command::InquiryData::#response_variant {
+                            #field_name: nibbles.u8_pair(0),
+                        }
+                    )
+                }
+            })
         }
         ParserStrategy::Mode | ParserStrategy::ModeEnum => {
             let mode_type = parser_info
                 .mode_type
-                .clone()
-                .expect("mode parser requires type attribute");
-            let mode_type = command_type_tokens(&mode_type, crate_path);
-            super::parser_templates::generate_mode_enum_parser(
-                response_variant,
-                &mode_type,
-                crate_path,
-            )
-        }
-        ParserStrategy::PanTilt => {
-            super::parser_templates::generate_pan_tilt_parser(response_variant, crate_path)
-        }
-        ParserStrategy::BoolConvention => {
-            let field_name = parser_info
-                .field_name
-                .clone()
-                .expect("bool_convention parser requires field attribute");
-            let convention = parser_info
-                .convention
-                .clone()
-                .expect("bool_convention parser requires convention attribute (OnIs02 or OnIs03)");
-            let convention = bool_convention_tokens(&convention, crate_path);
-            super::parser_templates::generate_bool_convention_parser(
-                &actual_variant,
-                &field_name,
-                &convention,
-                crate_path,
-            )
+                .as_ref()
+                .expect("mode parser requires value_type attribute");
+            let mode_type = command_type_tokens(mode_type, crate_path);
+            let field_name = match response_variant.to_string().as_str() {
+                "FocusZone" => quote! { zone },
+                "AutoFocusSensitivity" => quote! { sensitivity },
+                _ => quote! { mode },
+            };
+            Some(quote! {
+                {
+                    if payload.len() != 1 {
+                        return ::core::result::Result::Err(
+                            #crate_path::Error::invalid_response_length(1, payload)
+                        );
+                    }
+                    let value = <#mode_type as ::core::convert::TryFrom<u8>>::try_from(payload[0])
+                        .map_err(|_| #crate_path::Error::InvalidResponse {
+                            expected: ::std::borrow::Cow::Owned(::std::format!(
+                                "Valid {} value",
+                                ::core::stringify!(#mode_type)
+                            )),
+                            actual: ::std::vec![payload[0]],
+                        })?;
+                    ::core::result::Result::Ok(
+                        #crate_path::command::InquiryData::#response_variant { #field_name: value }
+                    )
+                }
+            })
         }
         ParserStrategy::LastNibble => {
             let field_name = parser_info
                 .field_name
-                .clone()
+                .as_ref()
                 .expect("last_nibble parser requires field attribute");
-            super::parser_templates::generate_last_nibble_parser(
-                &actual_variant,
-                &field_name,
-                crate_path,
-            )
+            Some(quote! {
+                {
+                    let payload = #crate_path::command::Payload::new(payload);
+                    let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
+                    ::core::result::Result::Ok(
+                        #crate_path::command::InquiryData::#actual_variant {
+                            #field_name: nibbles.last_nibble(),
+                        }
+                    )
+                }
+            })
         }
-        ParserStrategy::TallyStatus => {
-            super::parser_templates::generate_tally_status_parser(crate_path)
-        }
-        ParserStrategy::SharpnessMode => {
-            super::parser_templates::generate_sharpness_mode_parser(crate_path)
-        }
-        ParserStrategy::Gamma => super::parser_templates::generate_gamma_parser(crate_path),
-        ParserStrategy::AutoWbSensitivity => {
-            super::parser_templates::generate_auto_wb_sensitivity_parser(crate_path)
-        }
-        ParserStrategy::NdFilter => {
-            let field_name = format_ident!("position");
-            let converter_type = quote! { #crate_path::command::NdFilterPosition };
-            super::parser_templates::generate_byte_converter_parser(
-                &actual_variant,
-                &field_name,
-                &converter_type,
-                super::parser_templates::ConverterMethod::FromByte,
-                crate_path,
-            )
-        }
-        ParserStrategy::PictureEffect => {
-            let field_name = format_ident!("effect");
-            let converter_type = quote! { #crate_path::command::PictureEffectMode };
-            super::parser_templates::generate_byte_converter_parser(
-                &actual_variant,
-                &field_name,
-                &converter_type,
-                super::parser_templates::ConverterMethod::FromByte,
-                crate_path,
-            )
-        }
-        ParserStrategy::DefogLevel => {
-            let field_name = format_ident!("level");
-            let converter_type = quote! { #crate_path::types::DefogLevel };
-            super::parser_templates::generate_byte_converter_parser(
-                &actual_variant,
-                &field_name,
-                &converter_type,
-                super::parser_templates::ConverterMethod::New,
-                crate_path,
-            )
-        }
-        ParserStrategy::FocusRange => {
-            let field_name = format_ident!("range");
-            let converter_type = quote! { #crate_path::command::FocusRange };
-            super::parser_templates::generate_byte_converter_parser(
-                &actual_variant,
-                &field_name,
-                &converter_type,
-                super::parser_templates::ConverterMethod::TryFrom,
-                crate_path,
-            )
-        }
-        ParserStrategy::Custom => {
-            let parse_with = parser_info
-                .parse_with
-                .clone()
-                .expect("custom parser requires parse_with attribute");
-            quote! {
-                #parse_with(data)
+        ParserStrategy::NdFilter => Some(quote! {
+            {
+                if payload.len() != 1 {
+                    return ::core::result::Result::Err(
+                        #crate_path::Error::invalid_response_length(1, payload)
+                    );
+                }
+                let position = #crate_path::command::NdFilterPosition::from_byte(payload[0]);
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#actual_variant { position }
+                )
             }
+        }),
+        ParserStrategy::PictureEffect => Some(quote! {
+            {
+                if payload.len() != 1 {
+                    return ::core::result::Result::Err(
+                        #crate_path::Error::invalid_response_length(1, payload)
+                    );
+                }
+                let effect = #crate_path::command::PictureEffectMode::from_byte(payload[0]);
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#actual_variant { effect }
+                )
+            }
+        }),
+        ParserStrategy::DefogLevel => Some(quote! {
+            {
+                if payload.len() != 1 {
+                    return ::core::result::Result::Err(
+                        #crate_path::Error::invalid_response_length(1, payload)
+                    );
+                }
+                let level = #crate_path::types::DefogLevel::new(payload[0]).map_err(|_| {
+                    #crate_path::Error::InvalidParameter {
+                        parameter: "level",
+                        value: ::std::borrow::Cow::Owned(payload[0].to_string()),
+                        reason: ::std::borrow::Cow::Borrowed("value out of range"),
+                    }
+                })?;
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#actual_variant { level }
+                )
+            }
+        }),
+        ParserStrategy::FocusRange => Some(quote! {
+            {
+                if payload.len() != 1 {
+                    return ::core::result::Result::Err(
+                        #crate_path::Error::invalid_response_length(1, payload)
+                    );
+                }
+                let range = #crate_path::command::FocusRange::try_from(payload[0])?;
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#actual_variant { range }
+                )
+            }
+        }),
+        _ => None,
+    };
+
+    if let Some(data_decoder) = data_decoder {
+        quote! {
+            (#data_decoder).map(#crate_path::command::Response::Inquiry)
         }
+    } else {
+        canonical
     }
 }
 
@@ -717,7 +889,7 @@ fn generate_typed_impl(
     let construction = match constructor.as_deref() {
         None => {
             let f = &field_names[0];
-            quote! { Ok(#f) }
+            quote! { ::core::result::Result::Ok(#f) }
         }
         Some("new") => {
             let f = &field_names[0];
@@ -725,14 +897,14 @@ fn generate_typed_impl(
         }
         Some("ok_new") => {
             let f = &field_names[0];
-            quote! { Ok(#response_type::new(#f)) }
+            quote! { ::core::result::Result::Ok(#response_type::new(#f)) }
         }
         Some("new_u8") => {
             let f = &field_names[0];
             quote! { #response_type::new(#f as u8) }
         }
         Some("ok_struct") => {
-            quote! { Ok(#response_type { #(#field_names),* }) }
+            quote! { ::core::result::Result::Ok(#response_type { #(#field_names),* }) }
         }
         Some(unknown) => {
             let msg = format!("unknown typed_constructor: {unknown}");
@@ -746,11 +918,11 @@ fn generate_typed_impl(
 
             fn from_response(
                 resp: #crate_path::command::Response,
-            ) -> Result<Self::Response, #crate_path::Error> {
+            ) -> ::core::result::Result<Self::Response, #crate_path::Error> {
                 match resp {
                     #crate_path::command::Response::Inquiry(#destructure) => #construction,
-                    #crate_path::command::Response::Error(e) => Err(e),
-                    _ => Err(#crate_path::Error::UnexpectedResponseType),
+                    #crate_path::command::Response::Error(e) => ::core::result::Result::Err(e),
+                    _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
                 }
             }
         }
@@ -943,7 +1115,38 @@ mod tests {
     }
 
     #[test]
-    fn qualified_mode_type_path_is_preserved() {
+    fn parser_attributes_enable_the_canonical_decoder_without_a_second_template() {
+        let inputs: [DeriveInput; 2] = [
+            syn::parse_quote! {
+                #[visca(opcode = 0x7B, response = Digital, parser = Bool)]
+                struct DigitalInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x47, response = ZoomPosition, parser = Position)]
+                struct ZoomPositionInquiry;
+            },
+        ];
+
+        for input in inputs {
+            let tokens = derive_visca_inquiry_impl(input).to_string();
+            assert_eq!(
+                tokens.matches("parse_inquiry_payload").count(),
+                1,
+                "the shared helper must be the only canonical parser call: {tokens}"
+            );
+            assert!(
+                !tokens.contains("Nibbles"),
+                "derive output must not duplicate nibble-width decoding: {tokens}"
+            );
+            assert!(
+                tokens.contains("__grafton_visca_decode_payload"),
+                "both public decode paths must use one generated helper: {tokens}"
+            );
+        }
+    }
+
+    #[test]
+    fn qualified_mode_type_path_is_preserved_in_the_shared_decoder() {
         let input: DeriveInput = syn::parse_quote! {
             #[visca(
                 opcode = 0x39,
@@ -958,16 +1161,16 @@ mod tests {
 
         assert!(
             tokens.contains("crate :: support :: ExposureMode"),
-            "qualified value_type path should be preserved: {tokens}"
+            "the shared decoder must retain the declared mode type: {tokens}"
         );
         assert!(
-            !tokens.contains("command :: ExposureMode as TryFrom"),
-            "qualified value_type path must not be reduced to its last segment: {tokens}"
+            tokens.contains("__grafton_visca_decode_payload"),
+            "parser derives must use one shared decoder: {tokens}"
         );
     }
 
     #[test]
-    fn qualified_custom_parser_path_is_preserved() {
+    fn qualified_custom_parser_path_is_preserved_in_the_shared_decoder() {
         let input: DeriveInput = syn::parse_quote! {
             #[visca(
                 opcode = 0x00,
@@ -981,8 +1184,12 @@ mod tests {
         let tokens = derive_visca_inquiry_impl(input).to_string();
 
         assert!(
-            tokens.contains("crate :: parsers :: parse_power (data)"),
-            "qualified custom parser path should be preserved: {tokens}"
+            tokens.contains("crate :: parsers :: parse_power (payload)"),
+            "the shared decoder must invoke the declared custom parser: {tokens}"
+        );
+        assert!(
+            tokens.contains("__grafton_visca_decode_payload"),
+            "parser derives must use one shared decoder: {tokens}"
         );
     }
 

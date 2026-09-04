@@ -10,15 +10,16 @@ mod types;
 
 #[cfg(test)]
 pub(crate) use self::lift::lift_inquiry;
-pub(crate) use self::lift::lift_response_for_spec;
 pub use self::{
     lift::parse_inquiry_payload,
     payload::{BoolConvention, Nibbles, Nibbles4Or8, Payload},
     types::{RawInquiryPayload, Response},
 };
 
-// Re-export InquiryKind from the generated built-in inquiry table.
-pub use crate::command::inquiry_structs::InquiryKind;
+// Re-export InquiryKind only for this module's unit tests. The command module
+// owns the non-test extension-surface re-export.
+#[cfg(test)]
+pub(crate) use crate::command::inquiry_structs::InquiryKind;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::panic)]
@@ -699,29 +700,6 @@ mod tests {
                 assert_eq!(speed, crate::command::system::MotionSyncPreset::Fast);
             }
             _ => panic!("Expected MotionSyncPreset inquiry response"),
-        }
-    }
-
-    #[test]
-    fn test_parse_noise_reduction_level_response() {
-        // Test NoiseReductionLevel 0
-        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
-        match response {
-            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
-                assert_eq!(level, 0x00);
-            }
-            _ => panic!("Expected NoiseReductionLevel inquiry response"),
-        }
-
-        // Test NoiseReductionLevel 5
-        let response_bytes = &[0x90, 0x50, 0x05, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::NoiseReductionLevel);
-        match response {
-            Ok(Response::Inquiry(InquiryData::NoiseReductionLevel(level))) => {
-                assert_eq!(level, 0x05);
-            }
-            _ => panic!("Expected NoiseReductionLevel inquiry response"),
         }
     }
 

@@ -1,7 +1,8 @@
+use std::marker::PhantomData;
+
 use grafton_visca::{
-    command::{BoolConvention, Nibbles, Payload, Response},
-    zoom_from_normalized, CachedFlipState, CameraId, PanTiltLimits, StateCache, UnitInterval,
-    ViscaSocket, ZoomDomain,
+    command::{BoolConvention, FlipState, Nibbles, Payload, Response},
+    zoom_from_normalized, CameraId, StateCache, UnitInterval, ViscaSocket, ZoomDomain,
 };
 
 fn main() {
@@ -9,12 +10,15 @@ fn main() {
     assert_eq!(camera_id.to_address_byte(), 0x81);
 
     let _socket = ViscaSocket::S1;
-    let _cache = StateCache::new();
-    let _limits = PanTiltLimits::new();
-    let _flip = CachedFlipState {
+    // The canonical root cache is an owner-backed target view; it is not a
+    // standalone mutable value.  Construction is exercised through Session
+    // and Camera facade tests, while this fixture keeps the root type public.
+    let _: PhantomData<StateCache> = PhantomData;
+    let _flip = FlipState {
         horizontal: false,
         vertical: false,
     };
+    let _position = grafton_visca::camera::PanTiltPosition::new(0, 0);
     let _response = Response::Completion { socket: None };
     let payload = Payload::new(&[0x02]);
     let _ = payload
@@ -27,13 +31,13 @@ fn main() {
     let _ = zoom_from_normalized(root_value, ZoomDomain::Optical, 0x4000, None)
         .expect("UnitInterval is accepted by profile-aware zoom helpers");
 
-    #[cfg(feature = "mode-async")]
+    #[cfg(feature = "async")]
     {
         let prelude_value: grafton_visca::prelude::r#async::UnitInterval = root_value;
         assert_eq!(prelude_value.value(), 0.5);
     }
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     {
         let prelude_value: grafton_visca::prelude::blocking::UnitInterval = root_value;
         assert_eq!(prelude_value.value(), 0.5);

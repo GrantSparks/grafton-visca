@@ -114,7 +114,7 @@ pub mod focus {
     pub const NEAR_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x28];
 
     /// Push AF control prefix (Sony FR7).
-    pub const PUSH_AF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00];
+    pub const PUSH_AF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x58];
 }
 
 /// Exposure command constants.
@@ -200,14 +200,6 @@ pub mod image {
     /// Picture effect mode prefix.
     #[cfg(test)]
     pub const PICTURE_EFFECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x63];
-
-    /// 2D noise reduction prefix.
-    #[cfg(test)]
-    pub const NOISE_REDUCTION_2D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x53];
-
-    /// 3D noise reduction prefix.
-    #[cfg(test)]
-    pub const NOISE_REDUCTION_3D_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x54];
 
     /// Luminance/brightness adjustment prefix.
     #[cfg(test)]
@@ -398,12 +390,12 @@ pub mod motion_sync {
     pub const SPEED_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x11, 0x14];
 }
 
-/// Variable speed command constants.
+/// Sony FR7 pan/tilt speed-step command constants.
 pub mod variable_speed {
     use super::*;
 
-    /// Variable speed control prefix.
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x1B];
+    /// Normal/extended pan/tilt speed-step control prefix.
+    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x45];
 }
 
 /// System command-related constants.
@@ -481,15 +473,16 @@ mod validation_tests {
         assert_eq!(tally::TALLY_PTZO_PREFIX[1], 0x0A); // Different command type
     }
 
-    /// Test that inquiry constants follow the proper VISCA inquiry format
+    /// Test that inquiry constants follow their standard or validated vendor format.
     #[test]
     fn test_inquiry_format_validation() {
         // All inquiry commands should:
         // 1. Start with 0x81 (camera ID)
-        // 2. Use the baseline 0x09 inquiry family unless explicitly
-        //    classified as a vendor-specific extension
+        // 2. Use standard 0x09 inquiry framing, except the validated UAC extension
         // 3. End with 0xFF (terminator)
         // 4. Duplicate bytes must be explicitly classified in metadata.
+
+        const UAC_INQUIRY: &[u8] = &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF];
 
         let mut seen = Vec::new();
 
@@ -499,13 +492,11 @@ mod validation_tests {
             };
             // Check format
             assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", meta.name);
-            if inq[1] != 0x09 {
-                assert!(
-                    meta.vendor_specific,
-                    "Baseline inquiry {} should have 0x09 as second byte",
-                    meta.name
-                );
-            }
+            assert!(
+                inq[1] == 0x09 || (meta.vendor_specific && inq == UAC_INQUIRY),
+                "Inquiry {} should use standard 0x09 framing or the validated UAC extension",
+                meta.name,
+            );
             assert_eq!(
                 inq[inq.len() - 1],
                 0xFF,
@@ -519,13 +510,11 @@ mod validation_tests {
                         prev_query,
                         BuiltinInquiryQuery::Alias { .. }
                             | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
-                            | BuiltinInquiryQuery::Unavailable
                     );
                     let current_explicit = matches!(
                         meta.query,
                         BuiltinInquiryQuery::Alias { .. }
                             | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
-                            | BuiltinInquiryQuery::Unavailable
                     );
                     assert!(
                         prev_explicit || current_explicit,
@@ -573,8 +562,6 @@ mod validation_tests {
             image::BACKLIGHT_PREFIX,
             image::FLIP_COMBINED_PREFIX,
             image::PICTURE_EFFECT_PREFIX,
-            image::NOISE_REDUCTION_2D_PREFIX,
-            image::NOISE_REDUCTION_3D_PREFIX,
             image::LUMINANCE_PREFIX,
             image::CONTRAST_PREFIX,
             image::GAMMA_PREFIX,
@@ -616,7 +603,7 @@ mod validation_tests {
     #[test]
     fn test_constant_usage_in_commands() {
         use crate::camera_id::CameraId;
-        use crate::command::encode::ViscaCommand;
+        use crate::command::encode::WireEncode;
 
         // Test gain commands use constants
         let mut buffer = [0u8; 32];

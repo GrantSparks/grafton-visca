@@ -10,11 +10,12 @@ use std::time::Duration;
 ///
 /// # Hardware Evidence
 ///
-/// PTZOptics G2/G3/30X cameras have been confirmed via hardware testing to support
-/// the complete VISCA inquiry command set, including all exposure, focus, image
-/// processing, and color inquiries documented in the PTZOptics VISCA command list.
-/// See [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
-/// the full test results against a PTZOptics PT20X-NDI (G2 profile).
+/// PTZOptics G2/G3/30X cameras have baseline VISCA inquiry support confirmed by
+/// hardware testing. Model-specific optional inquiries still require their own
+/// source-backed typed-support gate; a profile-wide `Full` value is never a
+/// fallback permission for an optional accessor. See
+/// [issue #498](https://github.com/GrantSparks/grafton-visca/issues/498) for
+/// the tested G2 baseline.
 ///
 /// # Usage
 ///
@@ -25,7 +26,8 @@ use std::time::Duration;
 /// let profile = ProfileId::PtzOpticsG2;
 /// match profile.inquiry_support() {
 ///     InquirySupport::Full => {
-///         // Safe to use all inquiry commands
+///         // Baseline inquiries are available; optional accessors still
+///         // require their profile-specific typed gates.
 ///     }
 ///     InquirySupport::Partial => {
 ///         // Basic inquiries work; advanced ones may not
@@ -44,11 +46,11 @@ use std::time::Duration;
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[non_exhaustive]
 pub enum InquirySupport {
-    /// Full inquiry support — all documented VISCA inquiry commands work correctly.
+    /// Full baseline inquiry support for the documented profile family.
     ///
-    /// Cameras with full support respond to every inquiry command in their VISCA
-    /// documentation, including exposure mode, shutter, iris, focus mode,
-    /// backlight, image processing settings, and block inquiries.
+    /// Cameras in this category support the baseline VISCA inquiry set used by
+    /// their profile. Optional model-specific inquiries remain independently
+    /// gated by typed support markers and runtime capability facts.
     ///
     /// Confirmed profiles: PTZOptics G2, PTZOptics G3, PTZOptics 30X,
     /// Sony FR7, Sony BRC-H900.
@@ -93,8 +95,8 @@ pub trait ProfileMetadata {
     /// Maximum time to wait for command acknowledgment.
     const ACK_TIMEOUT: Duration;
 
-    /// Maximum time to wait for command completion.
-    const COMPLETION_TIMEOUT: Duration;
+    /// Exact command completion deadlines for the five request categories.
+    const COMMAND_TIMEOUTS: crate::CommandTimeouts;
 
     /// Time camera is busy after certain operations.
     /// Some cameras need a delay after operations like preset recall.
@@ -108,6 +110,26 @@ pub trait ProfileMetadata {
     ///
     /// Default: [`InquirySupport::Full`] — most VISCA cameras support all inquiries.
     const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
+
+    /// Exact per-axis position-inquiry support used by motion observation.
+    ///
+    /// Runtime profiles must carry this fact in their [`ProfileSpec`](crate::ProfileSpec).
+    /// Static profiles may override this associated constant directly; built-in
+    /// registry profiles do so from their per-axis protocol facts. The default is
+    /// intentionally conservative for profiles that only declare the coarse
+    /// [`Self::INQUIRY_SUPPORT`] level: no inquiry support means no position polling,
+    /// while any inquiry support permits the three baseline PTZ position
+    /// inquiries. Iris and ND-filter inquiries remain conservative unless a
+    /// profile overrides this constant with explicit scalar facts.
+    const POSITION_INQUIRY_SUPPORT: crate::profile::PositionInquirySupport =
+        match Self::INQUIRY_SUPPORT {
+            InquirySupport::None => {
+                crate::profile::PositionInquirySupport::new(false, false, false)
+            }
+            InquirySupport::Full | InquirySupport::Partial => {
+                crate::profile::PositionInquirySupport::new(true, true, true)
+            }
+        };
 
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///
@@ -152,6 +174,15 @@ pub trait ProfileMetadata {
     ///
     /// Default: Duration::ZERO (no artificial spacing)
     const MIN_COMMAND_SPACING: Duration = Duration::from_millis(0);
+
+    /// Whether this profile has source-backed USB audio support.
+    ///
+    /// The typed [`crate::capabilities::TypedSupportSurface::UsbAudio`]
+    /// permission remains the authority for exposing a static operation; this
+    /// fact lets dynamic validation reject a profile that claims the typed
+    /// surface without the required model capability. Downstream profiles
+    /// remain conservative unless they opt in explicitly.
+    const SUPPORTS_USB_AUDIO: bool = false;
 }
 
 /// Marker trait indicating that a profile supports standard TCP construction.
@@ -186,25 +217,6 @@ pub trait SupportsSerial {}
 
 // Marker traits for compile-time capability detection.
 // These traits have no methods - they just mark a type as having a capability.
-
-macro_rules! profile_capability_marker {
-    (
-        $(#[$doc:meta])*
-        $vis:vis trait $trait_name:ident {
-            message: $message:literal,
-            label: $label:literal,
-            note: $note:literal $(,)?
-        }
-    ) => {
-        $(#[$doc])*
-        #[diagnostic::on_unimplemented(
-            message = $message,
-            label = $label,
-            note = $note
-        )]
-        $vis trait $trait_name {}
-    };
-}
 
 /// Marker trait indicating support for pan/tilt movement.
 #[diagnostic::on_unimplemented(
@@ -250,7 +262,7 @@ pub trait HasWhiteBalance {}
 #[diagnostic::on_unimplemented(
     message = "profile `{Self}` does not declare image-processing support",
     label = "profile `{Self}` does not implement `HasImageProcessing`",
-    note = "built-in marker support is documented in docs/camera_profile_support.md; add the marker bound only when every selected profile supports this typed surface"
+    note = "built-in marker support is registry-backed; downstream profiles must implement this marker explicitly only for a source-backed typed image noun"
 )]
 pub trait HasImageProcessing {}
 
@@ -278,378 +290,18 @@ pub trait HasPower {}
 )]
 pub trait HasMenuControl {}
 
-profile_capability_marker! {
-    /// Marker trait indicating typed Motion Sync API support.
-    pub trait HasMotionSync {
-        message: "profile `{Self}` does not declare typed Motion Sync support",
-        label: "profile `{Self}` does not implement `HasMotionSync`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; use optional accessors, runtime feature detection, or a split trait instead of requiring this marker in a heterogeneous dyn-erased camera aggregate",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating typed variable speed API support.
-    pub trait HasVariableSpeed {
-        message: "profile `{Self}` does not declare typed variable-speed support",
-        label: "profile `{Self}` does not implement `HasVariableSpeed`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; use optional accessors, runtime feature detection, or a split trait instead of requiring this marker in a heterogeneous dyn-erased camera aggregate",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating typed ND filter API support.
-    pub trait HasNdFilter {
-        message: "profile `{Self}` does not declare typed ND filter support",
-        label: "profile `{Self}` does not implement `HasNdFilter`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; use optional accessors, runtime feature detection, or a split trait instead of requiring this marker in a heterogeneous dyn-erased camera aggregate",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating typed tally light API support.
-    pub trait HasTally {
-        message: "profile `{Self}` does not declare typed tally-light support",
-        label: "profile `{Self}` does not implement `HasTally`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; do not require `HasTally` in a heterogeneous dyn-erased camera aggregate unless every profile supports tally",
-    }
-}
-
-// Specific feature marker traits
-profile_capability_marker! {
-    /// Marker trait indicating support for exposure compensation.
-    pub trait HasExposureCompensation {
-        message: "profile `{Self}` does not declare exposure-compensation support",
-        label: "profile `{Self}` does not implement `HasExposureCompensation`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for VISCA exposure brightness control and inquiry.
-    pub trait HasBrightnessControl {
-        message: "profile `{Self}` does not declare exposure brightness support",
-        label: "profile `{Self}` does not implement `HasBrightnessControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for focus lock.
-    ///
-    /// Focus lock prevents any focus changes while enabled, useful for
-    /// maintaining consistent focus during recording. This is a vendor-specific
-    /// feature primarily supported by PtzOptics cameras.
-    pub trait HasFocusLock {
-        message: "profile `{Self}` does not declare focus-lock support",
-        label: "profile `{Self}` does not implement `HasFocusLock`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for Push AF (Push Auto Focus).
-    ///
-    /// Push AF temporarily activates auto focus while the button is pressed,
-    /// then returns to the previous focus mode. This is a vendor-specific
-    /// feature primarily supported by Sony cameras.
-    pub trait HasPushAutoFocus {
-        message: "profile `{Self}` does not declare Push AF support",
-        label: "profile `{Self}` does not implement `HasPushAutoFocus`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for direct absolute zoom positioning.
-    ///
-    /// Profiles without this marker may still support continuous tele/wide zoom,
-    /// but the high-level typed API will not expose absolute zoom positioning.
-    pub trait HasDirectZoom {
-        message: "profile `{Self}` does not declare direct absolute zoom support",
-        label: "profile `{Self}` does not implement `HasDirectZoom`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for the VISCA digital zoom on/off command.
-    ///
-    /// This marks the explicit enable/disable opcode, not necessarily absolute
-    /// zoom positioning into a digital zoom range.
-    pub trait HasDigitalZoomToggle {
-        message: "profile `{Self}` does not declare VISCA digital zoom toggle support",
-        label: "profile `{Self}` does not implement `HasDigitalZoomToggle`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for absolute zoom positions beyond the
-    /// optical zoom range.
-    pub trait HasDigitalZoomRange {
-        message: "profile `{Self}` does not declare optical-plus-digital zoom range support",
-        label: "profile `{Self}` does not implement `HasDigitalZoomRange`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for direct iris control and iris-priority
-    /// exposure mode.
-    pub trait HasIrisControl {
-        message: "profile `{Self}` does not declare iris control support",
-        label: "profile `{Self}` does not implement `HasIrisControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for standard one-push auto focus.
-    pub trait HasOnePushFocus {
-        message: "profile `{Self}` does not declare one-push focus support",
-        label: "profile `{Self}` does not implement `HasOnePushFocus`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for PTZOptics snap focus.
-    ///
-    /// Snap focus is modeled separately from standard one-push AF because the
-    /// vendor command is not assumed to be semantically identical.
-    pub trait HasPtzOpticsSnapFocus {
-        message: "profile `{Self}` does not declare PTZOptics snap focus support",
-        label: "profile `{Self}` does not implement `HasPtzOpticsSnapFocus`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for focus zone selection.
-    pub trait HasFocusZone {
-        message: "profile `{Self}` does not declare focus-zone support",
-        label: "profile `{Self}` does not implement `HasFocusZone`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for auto-focus sensitivity adjustment.
-    pub trait HasAutoFocusSensitivity {
-        message: "profile `{Self}` does not declare auto-focus sensitivity support",
-        label: "profile `{Self}` does not implement `HasAutoFocusSensitivity`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for the focus near-limit inquiry command.
-    pub trait HasFocusNearLimitInquiry {
-        message: "profile `{Self}` does not declare focus near-limit inquiry support",
-        label: "profile `{Self}` does not implement `HasFocusNearLimitInquiry`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for backlight compensation control.
-    pub trait HasBacklightCompensation {
-        message: "profile `{Self}` does not declare backlight compensation support",
-        label: "profile `{Self}` does not implement `HasBacklightCompensation`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for wide dynamic range control.
-    pub trait HasWideDynamicRange {
-        message: "profile `{Self}` does not declare wide dynamic range support",
-        label: "profile `{Self}` does not implement `HasWideDynamicRange`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for color-temperature white balance control.
-    pub trait HasColorTemperature {
-        message: "profile `{Self}` does not declare color-temperature support",
-        label: "profile `{Self}` does not implement `HasColorTemperature`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for manual red/blue gain control.
-    pub trait HasRgbGain {
-        message: "profile `{Self}` does not declare RGB gain support",
-        label: "profile `{Self}` does not implement `HasRgbGain`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for red/blue tuning control.
-    pub trait HasRgbTuning {
-        message: "profile `{Self}` does not declare RGB tuning support",
-        label: "profile `{Self}` does not implement `HasRgbTuning`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for one-push white balance mode and trigger.
-    pub trait HasOnePushWhiteBalance {
-        message: "profile `{Self}` does not declare one-push white-balance support",
-        label: "profile `{Self}` does not implement `HasOnePushWhiteBalance`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for auto-tracking white balance mode.
-    pub trait HasAutoTrackingWhiteBalance {
-        message: "profile `{Self}` does not declare auto-tracking white-balance support",
-        label: "profile `{Self}` does not implement `HasAutoTrackingWhiteBalance`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for auto white-balance sensitivity control.
-    pub trait HasAutoWhiteBalanceSensitivity {
-        message: "profile `{Self}` does not declare auto white-balance sensitivity support",
-        label: "profile `{Self}` does not implement `HasAutoWhiteBalanceSensitivity`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for vertical image flip control.
-    pub trait HasImageFlip {
-        message: "profile `{Self}` does not declare image flip support",
-        label: "profile `{Self}` does not implement `HasImageFlip`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for horizontal image mirror control.
-    pub trait HasImageMirror {
-        message: "profile `{Self}` does not declare image mirror support",
-        label: "profile `{Self}` does not implement `HasImageMirror`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for the combined image flip mode command.
-    pub trait HasCombinedImageFlip {
-        message: "profile `{Self}` does not declare combined image flip mode support",
-        label: "profile `{Self}` does not implement `HasCombinedImageFlip`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for saturation control and inquiry.
-    pub trait HasSaturationControl {
-        message: "profile `{Self}` does not declare saturation control support",
-        label: "profile `{Self}` does not implement `HasSaturationControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for contrast control and inquiry.
-    pub trait HasContrastControl {
-        message: "profile `{Self}` does not declare contrast control support",
-        label: "profile `{Self}` does not implement `HasContrastControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for sharpness control and inquiry.
-    pub trait HasSharpnessControl {
-        message: "profile `{Self}` does not declare sharpness control support",
-        label: "profile `{Self}` does not implement `HasSharpnessControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for hue control and inquiry.
-    pub trait HasHueControl {
-        message: "profile `{Self}` does not declare hue control support",
-        label: "profile `{Self}` does not implement `HasHueControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for luminance control and inquiry.
-    pub trait HasLuminanceControl {
-        message: "profile `{Self}` does not declare luminance control support",
-        label: "profile `{Self}` does not implement `HasLuminanceControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for gamma control and inquiry.
-    pub trait HasGammaControl {
-        message: "profile `{Self}` does not declare gamma control support",
-        label: "profile `{Self}` does not implement `HasGammaControl`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for aggregate noise-reduction inquiry.
-    pub trait HasNoiseReduction {
-        message: "profile `{Self}` does not declare aggregate noise-reduction inquiry support",
-        label: "profile `{Self}` does not implement `HasNoiseReduction`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for 2D noise-reduction control and inquiry.
-    pub trait HasNoiseReduction2D {
-        message: "profile `{Self}` does not declare 2D noise-reduction support",
-        label: "profile `{Self}` does not implement `HasNoiseReduction2D`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for 3D noise-reduction control and inquiry.
-    pub trait HasNoiseReduction3D {
-        message: "profile `{Self}` does not declare 3D noise-reduction support",
-        label: "profile `{Self}` does not implement `HasNoiseReduction3D`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-profile_capability_marker! {
-    /// Marker trait indicating support for picture-effect control and inquiry.
-    pub trait HasPictureEffect {
-        message: "profile `{Self}` does not declare picture-effect support",
-        label: "profile `{Self}` does not implement `HasPictureEffect`",
-        note: "see the built-in marker matrix in docs/camera_profile_support.md; add this bound only for profiles with source-backed typed support",
-    }
-}
-
-// Specialized blanket implementations for baseline marker traits.
-// These automatically implement the marker trait for any type that implements
-// both ProfileMetadata and the corresponding capability trait.
+// Specialized blanket implementations for baseline marker traits whose
+// metadata traits intrinsically establish the baseline surface. Image metadata
+// is intentionally different: every `Profile` supplies `ImageProcessing`
+// metadata, including profiles with no image noun at all. Its marker is emitted
+// by the built-in registry from a source-backed base-support fact, and custom
+// profiles opt in explicitly.
 
 impl<T: ProfileMetadata + crate::capabilities::PanTilt> HasPanTilt for T {}
 impl<T: ProfileMetadata + crate::capabilities::Zoom> HasZoom for T {}
 impl<T: ProfileMetadata + crate::capabilities::Focus> HasFocus for T {}
 impl<T: ProfileMetadata + crate::capabilities::Exposure> HasExposure for T {}
 impl<T: ProfileMetadata + crate::capabilities::WhiteBalance> HasWhiteBalance for T {}
-impl<T: ProfileMetadata + crate::capabilities::ImageProcessing> HasImageProcessing for T {}
 impl<T: ProfileMetadata + crate::capabilities::Presets> HasPresets for T {}
 impl<T: ProfileMetadata + crate::capabilities::Power> HasPower for T {}
 impl<T: ProfileMetadata + crate::capabilities::MenuCapability> HasMenuControl for T {}
@@ -665,7 +317,13 @@ mod tests {
         const DEFAULT_CAMERA_ID: u8 = 1;
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-        const COMPLETION_TIMEOUT: Duration = Duration::from_millis(5000);
+        const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            Duration::from_secs(60),
+            Duration::from_secs(300),
+            Duration::from_secs(5),
+        );
     }
 
     #[test]

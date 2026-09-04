@@ -4,7 +4,7 @@
 //! different transport types, eliminating code duplication.
 
 use std::borrow::Cow;
-#[cfg(any(not(feature = "mode-async"), test))]
+#[cfg(any(feature = "blocking", test))]
 use std::net::ToSocketAddrs;
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},
@@ -51,10 +51,13 @@ impl ParsedEndpoint {
         }
 
         if let Ok(ip) = address.parse::<IpAddr>() {
-            return Ok(Self {
-                host: Host::Ip(ip),
-                port: None,
-            });
+            return match ip {
+                IpAddr::V4(ip) => Ok(Self {
+                    host: Host::Ip(IpAddr::V4(ip)),
+                    port: None,
+                }),
+                IpAddr::V6(_) => Err(invalid_address("Bare IPv6 literals must be bracketed")),
+            };
         }
 
         if let Ok(socket_addr) = address.parse::<SocketAddr>() {
@@ -80,7 +83,7 @@ impl ParsedEndpoint {
                 })
             }
             _ => Err(invalid_address(
-                "Multi-colon input is not a valid bare IPv6 literal or bracketed IPv6 endpoint",
+                "Multi-colon input is not a bracketed IPv6 endpoint",
             )),
         }
     }
@@ -185,8 +188,8 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 /// at connection boundaries. It ensures:
 ///
 /// 1. The address is parsed and validated
-/// 2. Bare IPv6 literals are always treated as hosts, never split at the final hextet
-/// 3. Bracketed IPv6 is required when an explicit IPv6 port is supplied
+/// 2. Bare IPv6 literals are rejected to avoid ambiguous endpoint grammar
+/// 3. Bracketed IPv6 is required for IPv6 endpoints
 /// 4. Default ports are applied when the parsed port is missing
 /// 5. A missing final port without a default returns `Error::InvalidAddress`
 /// 6. The output is always a canonical `host:port` string suitable for `ToSocketAddrs`
@@ -199,7 +202,7 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 ///
 /// # Arguments
 ///
-/// * `address` - The address string to canonicalize (may be IPv4, IPv6, or hostname)
+/// * `address` - The address string to canonicalize (IPv4, bracketed IPv6, or hostname)
 /// * `default_port` - Port to use if none is specified in the address
 ///
 /// # Returns
@@ -225,18 +228,6 @@ fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Error {
 ///
 /// ```ignore
 /// use grafton_visca::transport::address::canonicalize_endpoint;
-///
-/// // Bare IPv6 always remains the host and receives the default port
-/// assert_eq!(
-///     canonicalize_endpoint("2001:db8::1:5678", Some(1234)).unwrap(),
-///     "[2001:db8::1:5678]:1234"
-/// );
-///
-/// // IPv6 without port gets default port added
-/// assert_eq!(
-///     canonicalize_endpoint("::1", Some(5678)).unwrap(),
-///     "[::1]:5678"
-/// );
 ///
 /// // Already bracketed IPv6 is preserved
 /// assert_eq!(
@@ -279,7 +270,7 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
 /// This struct provides common address resolution logic that can be used
 /// across different transport implementations, reducing code duplication.
 #[cfg(any(
-    not(feature = "mode-async"),
+    feature = "blocking",
     feature = "runtime-tokio",
     feature = "runtime-smol",
     test
@@ -288,7 +279,7 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
 pub struct AddressResolver;
 
 #[cfg(any(
-    not(feature = "mode-async"),
+    feature = "blocking",
     feature = "runtime-tokio",
     feature = "runtime-smol",
     test
@@ -330,7 +321,7 @@ impl AddressResolver {
     /// }
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
-    #[cfg(any(not(feature = "mode-async"), test))]
+    #[cfg(any(feature = "blocking", test))]
     pub fn resolve(&self, address: &str) -> Result<Vec<SocketAddr>, Error> {
         let addrs: Vec<SocketAddr> = address
             .to_socket_addrs()
@@ -378,7 +369,7 @@ impl AddressResolver {
     /// println!("Using address: {addr}");
     /// # Ok::<(), grafton_visca::Error>(())
     /// ```
-    #[cfg(any(not(feature = "mode-async"), test))]
+    #[cfg(any(feature = "blocking", test))]
     pub fn resolve_first(&self, address: &str) -> Result<SocketAddr, Error> {
         self.resolve(address)?
             .into_iter()
@@ -531,12 +522,8 @@ mod tests {
     }
 
     #[test]
-    fn test_bare_ipv6_with_numeric_final_hextet_is_not_split() {
-        assert_eq!(
-            canonicalize_endpoint("2001:db8::1:5678", Some(1234)).unwrap(),
-            "[2001:db8::1:5678]:1234"
-        );
-
+    fn test_bare_ipv6_with_numeric_final_hextet_is_rejected() {
+        assert_invalid(canonicalize_endpoint("2001:db8::1:5678", Some(1234)));
         assert_invalid(canonicalize_endpoint("2001:db8::1:5678", None));
     }
 
@@ -545,10 +532,6 @@ mod tests {
         assert_eq!(
             canonicalize_endpoint("[2001:db8::1]:5678", Some(1234)).unwrap(),
             "[2001:db8::1]:5678"
-        );
-        assert_eq!(
-            canonicalize_endpoint("::1", Some(5678)).unwrap(),
-            "[::1]:5678"
         );
         assert_eq!(
             canonicalize_endpoint("[::1]", Some(5678)).unwrap(),
@@ -622,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_bare_ipv6_literals_are_never_split() {
+    fn test_bare_ipv6_literals_are_rejected() {
         for literal in [
             "::",
             "::1",
@@ -632,11 +615,7 @@ mod tests {
             "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
             "::ffff:192.0.2.128",
         ] {
-            let ipv6: Ipv6Addr = literal.parse().unwrap();
-            assert_eq!(
-                canonicalize_endpoint(literal, Some(1234)).unwrap(),
-                format!("[{ipv6}]:1234")
-            );
+            assert_invalid(canonicalize_endpoint(literal, Some(1234)));
             assert_invalid(canonicalize_endpoint(literal, None));
         }
     }

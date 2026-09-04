@@ -3,7 +3,7 @@
 //! This module provides unified buffer management across all transport implementations,
 //! ensuring consistent buffer sizes and allocation strategies.
 
-#[cfg(all(not(feature = "mode-async"), test))]
+#[cfg(all(feature = "blocking", test))]
 use bytes::BytesMut;
 
 /// Default buffer size for most VISCA operations.
@@ -33,9 +33,6 @@ pub struct BufferConfig {
     /// Initial buffer capacity for receive operations.
     pub recv_buffer_size: usize,
 
-    /// Initial buffer capacity for send operations.
-    pub send_buffer_size: usize,
-
     /// Maximum buffer size to prevent unbounded growth.
     pub max_buffer_size: usize,
 }
@@ -44,7 +41,6 @@ impl Default for BufferConfig {
     fn default() -> Self {
         Self {
             recv_buffer_size: DEFAULT_BUFFER_SIZE,
-            send_buffer_size: DEFAULT_BUFFER_SIZE,
             max_buffer_size: 8192, // 8KB max
         }
     }
@@ -55,7 +51,6 @@ impl BufferConfig {
     pub fn for_udp() -> Self {
         Self {
             recv_buffer_size: UDP_BUFFER_SIZE,
-            send_buffer_size: UDP_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -64,7 +59,6 @@ impl BufferConfig {
     pub fn for_sony_ip() -> Self {
         Self {
             recv_buffer_size: SONY_BUFFER_SIZE,
-            send_buffer_size: SONY_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -73,7 +67,6 @@ impl BufferConfig {
     pub fn for_raw_ip() -> Self {
         Self {
             recv_buffer_size: RAW_IP_BUFFER_SIZE,
-            send_buffer_size: RAW_IP_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -82,7 +75,6 @@ impl BufferConfig {
     pub fn for_serial() -> Self {
         Self {
             recv_buffer_size: SERIAL_BUFFER_SIZE,
-            send_buffer_size: SERIAL_BUFFER_SIZE,
             ..Default::default()
         }
     }
@@ -92,39 +84,27 @@ impl BufferConfig {
 /// Available for all transport configurations.
 #[doc(hidden)]
 #[derive(Debug, Clone, Copy)]
+#[cfg(all(test, feature = "blocking"))]
 pub struct BufferManager {
     config: BufferConfig,
 }
 
+#[cfg(all(test, feature = "blocking"))]
 impl BufferManager {
     /// Create a new buffer manager with the given configuration.
     pub fn new(config: BufferConfig) -> Self {
         Self { config }
     }
 
-    /// Get the buffer configuration (crate-visible for runtime loop).
-    #[inline]
-    pub(crate) fn config(&self) -> BufferConfig {
-        self.config
-    }
-
     /// Allocate a new receive buffer.
     /// Only used by blocking transports that need BytesMut for receive operations.
-    #[cfg(all(not(feature = "mode-async"), test))]
+    #[cfg(all(feature = "blocking", test))]
     pub fn alloc_recv_buffer(&self) -> BytesMut {
         BytesMut::with_capacity(self.config.recv_buffer_size)
     }
 
-    /// Allocate a new send buffer.
-    /// Available for all transport configurations that need BytesMut.
-    /// Some transports don't need send buffers (they send data directly).
-    #[cfg(all(not(feature = "mode-async"), test))]
-    pub fn alloc_send_buffer(&self) -> BytesMut {
-        BytesMut::with_capacity(self.config.send_buffer_size)
-    }
-
     /// Resize a buffer if needed, respecting max size limits.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn resize_buffer(&self, buffer: &mut BytesMut, required_size: usize) {
         let new_size = required_size.min(self.config.max_buffer_size);
         if buffer.capacity() < new_size {
@@ -134,7 +114,7 @@ impl BufferManager {
     }
 
     /// Clear and reset a buffer for reuse.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn reset_buffer(&self, buffer: &mut BytesMut) {
         buffer.clear();
         // Shrink if buffer has grown too large
@@ -153,7 +133,6 @@ mod tests {
     fn test_buffer_config_defaults() {
         let config = BufferConfig::default();
         assert_eq!(config.recv_buffer_size, DEFAULT_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, DEFAULT_BUFFER_SIZE);
         assert_eq!(config.max_buffer_size, 8192);
     }
 
@@ -161,30 +140,25 @@ mod tests {
     fn test_buffer_config_for_udp() {
         let config = BufferConfig::for_udp();
         assert_eq!(config.recv_buffer_size, UDP_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, UDP_BUFFER_SIZE);
     }
 
     #[test]
     fn test_buffer_config_for_sony_ip() {
         let config = BufferConfig::for_sony_ip();
         assert_eq!(config.recv_buffer_size, SONY_BUFFER_SIZE);
-        assert_eq!(config.send_buffer_size, SONY_BUFFER_SIZE);
     }
 
     // These tests rely on BytesMut and blocking-only allocation helpers
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_manager_allocation() {
         let manager = BufferManager::new(BufferConfig::default());
 
         let recv_buf = manager.alloc_recv_buffer();
         assert_eq!(recv_buf.capacity(), DEFAULT_BUFFER_SIZE);
-
-        let send_buf = manager.alloc_send_buffer();
-        assert_eq!(send_buf.capacity(), DEFAULT_BUFFER_SIZE);
     }
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_resize() {
         let manager = BufferManager::new(BufferConfig::default());
@@ -208,7 +182,7 @@ mod tests {
         assert!(buffer.capacity() <= 8192);
     }
 
-    #[cfg(not(feature = "mode-async"))]
+    #[cfg(feature = "blocking")]
     #[test]
     fn test_buffer_reset() {
         let manager = BufferManager::new(BufferConfig::default());

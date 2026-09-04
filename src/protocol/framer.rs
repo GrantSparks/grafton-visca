@@ -9,42 +9,117 @@
 use bytes::{Bytes, BytesMut};
 
 use crate::{
-    command::bytes::VISCA_TERMINATOR,
-    protocol::sony::{PayloadType, SonyHeader},
-    transport::buffer::BufferConfig,
-    Error,
+    command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, CameraId, Error, ViscaSocket,
 };
+
+#[cfg(test)]
+use crate::protocol::sony::PayloadType;
+
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use crate::transport::buffer::BufferConfig;
+
+/// Wire framing selected for one transport connection.
+///
+/// A production connection's envelope is known before any response bytes
+/// arrive, so owners must select [`Self::RawVisca`] or
+/// [`Self::SonyEncapsulated`]. Test builds additionally retain a legacy
+/// auto-detect mode for compatibility coverage; production code cannot select
+/// it from untrusted received bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FramingMode {
+    /// Raw VISCA frames are delimited solely by the `0xFF` terminator.
+    RawVisca,
+    /// Sony VISCA-over-IP frames use the eight-byte Sony header and its length.
+    SonyEncapsulated,
+    /// Legacy compatibility mode that chooses Sony framing from the first two
+    /// received bytes and otherwise scans for a raw VISCA terminator.
+    #[cfg(test)]
+    AutoDetect,
+}
+
+/// The protocol identity visible in an incomplete raw response prefix.
+///
+/// Classification belongs beside the byte-stream framer so every owner gives
+/// the engine identical evidence at a correlation-release boundary (#723).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawIncompletePrefix {
+    /// The source byte (`0x9y..=0xFy`) arrived with no response-class byte.
+    SourceOnly,
+    /// `0x4y`: an ACK's nibble is an assignment preference, not an owner.
+    Ack,
+    /// `0x50`: socketless completion evidence.
+    SocketlessCompletion,
+    /// `0x60`: socketless error evidence.
+    SocketlessError,
+    /// `0x5y`/`0x6y` for one exact numbered socket.
+    NamedCompletionOrError(ViscaSocket),
+    /// Bytes cannot correlate to a raw request and therefore cannot revive or
+    /// bind a successor.
+    Noncorrelating,
+}
+
+/// The first retained raw input as seen at a correlation-release boundary.
+///
+/// The framer owns the distinction between a complete input, an incomplete
+/// response-shaped prefix, and bytes which cannot start a response at all.
+/// That keeps malformed stream noise on the same discard path as a delimited
+/// malformed frame instead of handing it to an owner as a fallible routing
+/// operation (#745).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawBufferedInput {
+    /// The first input already has its terminator and must use normal decoding.
+    Complete,
+    /// An incomplete input starts with a byte that cannot be routed as a VISCA
+    /// response source for this owner.
+    Malformed,
+    /// An incomplete response-shaped input with its resolved target and class.
+    Incomplete {
+        target: CameraId,
+        kind: RawIncompletePrefix,
+    },
+}
 
 /// A zero-copy, protocol-aware VISCA/Sony frame decoder.
 ///
-/// This decoder accumulates bytes and correctly drains complete frames by:
-/// - Detecting Sony headers and reading exact payload lengths
-/// - Falling back to 0xFF terminator for raw VISCA
+/// This decoder accumulates bytes and correctly drains complete frames according
+/// to its configured [`FramingMode`]:
+/// - Raw VISCA splits on the `0xFF` terminator
+/// - Sony encapsulation reads the eight-byte header plus its payload length
 /// - Enforcing maximum frame and buffer sizes to prevent unbounded growth
-///
-/// This ensures Sony frames with 0xFF in headers/sequence are not prematurely split.
 #[derive(Debug)]
 pub struct ProtocolFramer {
     buf: BytesMut,
+    mode: FramingMode,
     max_frame_size: usize,
     max_buffer_size: usize,
 }
 
 impl ProtocolFramer {
-    /// Create a new protocol framer with the specified initial capacity.
+    /// Create a legacy auto-detecting framer with the specified initial capacity.
+    ///
+    /// New production code that knows its wire envelope should select an
+    /// explicit [`FramingMode`] with [`Self::new_with_limits_and_mode`].
     #[cfg(test)]
     pub fn new(capacity: usize) -> Self {
-        Self {
-            buf: BytesMut::with_capacity(capacity),
-            max_frame_size: usize::MAX,
-            max_buffer_size: usize::MAX,
-        }
+        Self::new_with_limits_and_mode(capacity, usize::MAX, usize::MAX, FramingMode::AutoDetect)
     }
 
-    /// Create a new protocol framer with size limits from BufferConfig.
+    /// Create a legacy auto-detecting framer with size limits from `BufferConfig`.
+    ///
+    /// This compatibility constructor preserves the historical behavior of
+    /// detecting a Sony header from received bytes. Owners with a validated
+    /// envelope must instead call [`Self::new_with_config_and_mode`].
+    #[cfg(test)]
     pub fn new_with_config(config: BufferConfig) -> Self {
+        Self::new_with_config_and_mode(config, FramingMode::AutoDetect)
+    }
+
+    /// Create a protocol framer with size limits and an explicit wire mode.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub fn new_with_config_and_mode(config: BufferConfig, mode: FramingMode) -> Self {
         Self {
             buf: BytesMut::with_capacity(config.recv_buffer_size),
+            mode,
             // A single frame should not exceed what we provisioned for one recv.
             // This aligns limits with the per-transport expectation.
             max_frame_size: config.recv_buffer_size,
@@ -52,11 +127,28 @@ impl ProtocolFramer {
         }
     }
 
-    /// Create a new protocol framer with explicit size limits (mainly for testing).
+    /// Create a legacy auto-detecting framer with explicit size limits.
     #[cfg(test)]
     pub fn new_with_limits(capacity: usize, max_frame_size: usize, max_buffer_size: usize) -> Self {
+        Self::new_with_limits_and_mode(
+            capacity,
+            max_frame_size,
+            max_buffer_size,
+            FramingMode::AutoDetect,
+        )
+    }
+
+    /// Create a framer with explicit size limits and an explicit wire mode.
+    #[cfg(test)]
+    pub fn new_with_limits_and_mode(
+        capacity: usize,
+        max_frame_size: usize,
+        max_buffer_size: usize,
+        mode: FramingMode,
+    ) -> Self {
         Self {
             buf: BytesMut::with_capacity(capacity),
+            mode,
             max_frame_size,
             max_buffer_size,
         }
@@ -96,56 +188,45 @@ impl ProtocolFramer {
     /// or an error if a frame exceeds size limits.
     /// Incomplete frames remain in the buffer for future processing.
     ///
-    /// This method is protocol-aware:
-    /// - Sony frames: waits for full header, then reads exactly payload_length bytes
-    /// - Raw VISCA: splits on 0xFF terminator
+    /// Frames are decoded only according to this framer's configured
+    /// [`FramingMode`].
     pub fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, Error>> + '_ {
         std::iter::from_fn(move || self.extract_next_frame())
     }
 
     /// Extract the next complete frame from the buffer if available.
     fn extract_next_frame(&mut self) -> Option<Result<Bytes, Error>> {
-        // Need at least 2 bytes to check for Sony header
-        if self.buf.len() < 2 {
-            return None;
-        }
-
-        // Check if this looks like a Sony header (0x01 followed by valid payload type)
-        if self.buf[0] == 0x01 {
-            // Try to decode as Sony header
-            if let Some(_payload_type) = PayloadType::from_bytes([self.buf[0], self.buf[1]]) {
-                // This looks like a Sony frame - wait for full header
-                if self.buf.len() < SonyHeader::SIZE {
-                    return None; // Need more data for full header
-                }
-
-                // Try to decode the Sony header
-                if let Some(header) = SonyHeader::decode(&self.buf[..SonyHeader::SIZE]) {
-                    // Valid Sony header - check size limits
-                    let total_frame_size = SonyHeader::SIZE + header.payload_length as usize;
-
-                    if total_frame_size > self.max_frame_size {
-                        // Frame exceeds maximum allowed size
-                        // Clear the invalid header to recover
-                        let _ = self.buf.split_to(SonyHeader::SIZE);
-                        return Some(Err(Error::ResponseTooLarge {
-                            max_size: self.max_frame_size,
-                        }));
-                    }
-
-                    if self.buf.len() >= total_frame_size {
-                        // We have the complete Sony frame
-                        return Some(Ok(self.buf.split_to(total_frame_size).freeze()));
-                    }
-
-                    // Need more data for complete payload
+        match self.mode {
+            // A raw owner must never infer Sony framing from response bytes:
+            // malformed/noise prefixes can legally contain the Sony type bytes.
+            FramingMode::RawVisca => self.extract_raw_frame(),
+            FramingMode::SonyEncapsulated => self.extract_sony_frame(),
+            // Preserve the historical lower-level behavior for callers that
+            // intentionally accept auto detection. Production owners do not
+            // construct framers in this mode.
+            #[cfg(test)]
+            FramingMode::AutoDetect => {
+                if self.buf.len() < 2 {
                     return None;
                 }
+                if PayloadType::from_bytes([self.buf[0], self.buf[1]]).is_some() {
+                    // Match the legacy fallback exactly: a recognized type
+                    // waits for a complete header, but a header decoder that
+                    // rejects those eight bytes is delimiter-framed as raw.
+                    if self.buf.len() < SonyHeader::SIZE {
+                        return None;
+                    }
+                    if SonyHeader::decode(&self.buf[..SonyHeader::SIZE]).is_some() {
+                        return self.extract_sony_frame();
+                    }
+                }
+                self.extract_raw_frame()
             }
         }
+    }
 
-        // Not a Sony header or invalid Sony header - treat as raw VISCA
-        // Look for 0xFF terminator
+    /// Extract one raw VISCA frame at its terminator.
+    fn extract_raw_frame(&mut self) -> Option<Result<Bytes, Error>> {
         if let Some(pos) = self.buf.iter().position(|&b| b == VISCA_TERMINATOR) {
             let frame_size = pos + 1;
             if frame_size > self.max_frame_size {
@@ -163,34 +244,54 @@ impl ProtocolFramer {
         }
     }
 
+    /// Extract one Sony frame from its header and declared payload length.
+    fn extract_sony_frame(&mut self) -> Option<Result<Bytes, Error>> {
+        if self.buf.len() < SonyHeader::SIZE {
+            return None;
+        }
+
+        // Sony mode deliberately does not fall back to delimiter framing:
+        // `0xFF` can occur in the header and sequence number. An invalid
+        // header has no reliable payload boundary, so it remains buffered
+        // until the configured maximum-buffer handling decides recovery.
+        let header = SonyHeader::decode(&self.buf[..SonyHeader::SIZE])?;
+        let total_frame_size = SonyHeader::SIZE + header.payload_length as usize;
+
+        if total_frame_size > self.max_frame_size {
+            // Discard the known header so a direct framer caller can resume
+            // after reporting the oversized Sony frame.
+            let _ = self.buf.split_to(SonyHeader::SIZE);
+            return Some(Err(Error::ResponseTooLarge {
+                max_size: self.max_frame_size,
+            }));
+        }
+
+        if self.buf.len() >= total_frame_size {
+            return Some(Ok(self.buf.split_to(total_frame_size).freeze()));
+        }
+
+        None
+    }
+
     /// Try to extract any available frame when the stream has ended.
     /// This handles edge cases where EOF is encountered with partial data.
-    #[cfg(all(test, not(feature = "mode-async")))]
+    #[cfg(all(test, feature = "blocking"))]
     pub fn drain_on_eof(&mut self) -> Option<Result<Bytes, Error>> {
         if self.buf.is_empty() {
             return None;
         }
 
-        // If we have data that looks like it could be a Sony header but we hit EOF,
-        // treat it as raw VISCA and look for any terminator
-        if let Some(pos) = self.buf.iter().position(|&b| b == VISCA_TERMINATOR) {
-            let frame_size = pos + 1;
-            if frame_size > self.max_frame_size {
-                let _ = self.buf.split_to(frame_size);
-                return Some(Err(Error::ResponseTooLarge {
-                    max_size: self.max_frame_size,
-                }));
-            }
-            return Some(Ok(self.buf.split_to(frame_size).freeze()));
+        match self.mode {
+            // Compatibility mode historically recovers a terminator-delimited
+            // raw frame at EOF even after a Sony-looking prefix.
+            FramingMode::RawVisca | FramingMode::AutoDetect => self.extract_raw_frame(),
+            FramingMode::SonyEncapsulated => self.extract_sony_frame(),
         }
-
-        // No terminator found and EOF reached - can't form a valid frame
-        None
     }
 
     /// Returns the number of bytes currently buffered but not yet parsed into complete frames.
-    #[cfg(test)]
-    pub fn buffered_len(&self) -> usize {
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) fn buffered_len(&self) -> usize {
         self.buf.len()
     }
 
@@ -198,6 +299,69 @@ impl ProtocolFramer {
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.buf.is_empty()
+    }
+
+    /// Whether bytes remain buffered without yet forming a complete frame.
+    /// Transport owners use this to enforce datagram boundaries while keeping
+    /// stream partial-frame state across reads.
+    pub fn has_buffered_data(&self) -> bool {
+        !self.buf.is_empty()
+    }
+
+    /// Classify the first retained raw input once for both owner shells.
+    ///
+    /// `target_for_source` must apply the owner's same strict source-byte
+    /// routing rule used for complete responses.  A source it cannot route is
+    /// reported as [`RawBufferedInput::Malformed`], never as an error: stream
+    /// noise is discardable framing input, not a session-wide framing failure.
+    /// An empty buffer and a non-raw framer have no raw-prefix evidence.
+    pub(crate) fn buffered_raw_incomplete_prefix(
+        &self,
+        mut target_for_source: impl FnMut(u8) -> Option<CameraId>,
+    ) -> Option<RawBufferedInput> {
+        if self.mode != FramingMode::RawVisca || self.buf.is_empty() {
+            return None;
+        }
+        if self.buf.contains(&VISCA_TERMINATOR) {
+            return Some(RawBufferedInput::Complete);
+        }
+
+        let source = self.buf[0];
+        let Some(target) = target_for_source(source) else {
+            return Some(RawBufferedInput::Malformed);
+        };
+        let kind = match self.buf.get(1).copied() {
+            None => RawIncompletePrefix::SourceOnly,
+            // An ACK socket nibble is a preference for assigning a free
+            // socket, never evidence of who owns a named socket already.
+            Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
+            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
+            Some(0x60) => RawIncompletePrefix::SocketlessError,
+            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            Some(_) => RawIncompletePrefix::Noncorrelating,
+        };
+        Some(RawBufferedInput::Incomplete { target, kind })
+    }
+
+    /// Discard exactly the first retained raw frame, or the sole incomplete
+    /// raw fragment when no terminator has arrived yet.
+    ///
+    /// Bytes after the first terminator are preserved. That distinction is
+    /// load-bearing for multi-camera serial: an expiring target must not erase
+    /// a later complete response already buffered for another target.
+    pub(crate) fn discard_first_raw_input(&mut self) -> Result<(), Error> {
+        if self.mode != FramingMode::RawVisca {
+            return Err(Error::InvalidState(
+                "target-aware discard requires a raw VISCA framer".into(),
+            ));
+        }
+        if let Some(pos) = self.buf.iter().position(|&byte| byte == VISCA_TERMINATOR) {
+            let _ = self.buf.split_to(pos + 1);
+        } else {
+            self.buf.clear();
+        }
+        Ok(())
     }
 
     /// Clear the internal buffer, discarding any incomplete frames.
@@ -232,6 +396,7 @@ impl ProtocolFramer {
     /// * `Ok(true)` - Push succeeded normally
     /// * `Ok(false)` - Push required resync (buffer was cleared and chunk re-pushed)
     /// * `Err(Error::ResponseTooLarge)` - Resync failed (chunk alone exceeds max_buffer_size)
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio", test))]
     pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, Error> {
         match self.push_slice(chunk) {
             Ok(()) => Ok(true),
@@ -344,6 +509,188 @@ mod tests {
     }
 
     #[test]
+    fn raw_prefix_classifier_handles_empty_buffer() {
+        let framer = ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+
+        assert_eq!(framer.buffered_raw_incomplete_prefix(|_| None), None);
+    }
+
+    #[test]
+    fn raw_prefix_classifier_reports_one_byte_fragment() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer.push_slice(&[0x90]).unwrap();
+
+        assert_eq!(
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::SourceOnly,
+            })
+        );
+    }
+
+    #[test]
+    fn raw_prefix_classifier_reports_two_byte_fragment() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer.push_slice(&[0x90, 0x51]).unwrap();
+
+        assert_eq!(
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            })
+        );
+    }
+
+    #[test]
+    fn raw_incomplete_prefix_classifier_is_owner_independent() {
+        let cases: &[(&[u8], RawIncompletePrefix)] = &[
+            (&[0x90], RawIncompletePrefix::SourceOnly),
+            (&[0x90, 0x41], RawIncompletePrefix::Ack),
+            (&[0x90, 0x4f], RawIncompletePrefix::Ack),
+            (&[0x90, 0x50], RawIncompletePrefix::SocketlessCompletion),
+            (&[0x90, 0x60], RawIncompletePrefix::SocketlessError),
+            (
+                &[0x90, 0x51],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            ),
+            (
+                &[0x90, 0x62],
+                RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            ),
+            (&[0x90, 0x7f], RawIncompletePrefix::Noncorrelating),
+        ];
+
+        for &(bytes, expected) in cases {
+            let mut framer =
+                ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+            framer.push_slice(bytes).unwrap();
+            assert_eq!(
+                framer.buffered_raw_incomplete_prefix(|source| {
+                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                }),
+                Some(RawBufferedInput::Incomplete {
+                    target: CameraId::CAMERA_1,
+                    kind: expected,
+                }),
+                "bytes {bytes:02x?}",
+            );
+        }
+    }
+
+    #[test]
+    fn raw_prefix_classifier_preserves_complete_input_for_normal_decode() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer
+            .push_slice(&[0x90, 0x51, VISCA_TERMINATOR, 0x90, 0x41, VISCA_TERMINATOR])
+            .unwrap();
+
+        assert_eq!(
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Complete)
+        );
+    }
+
+    #[test]
+    fn raw_prefix_classifier_treats_one_byte_terminated_input_as_complete() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+        framer
+            .push_slice(&[0x90, VISCA_TERMINATOR, 0x51, VISCA_TERMINATOR])
+            .unwrap();
+
+        assert_eq!(
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Complete)
+        );
+    }
+
+    #[test]
+    fn raw_prefix_classifier_ignores_non_raw_framing() {
+        let framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::SonyEncapsulated);
+
+        assert_eq!(framer.buffered_raw_incomplete_prefix(|_| None), None);
+    }
+
+    /// Issue #745: malformed incomplete prefixes are classified at the raw
+    /// framer boundary, where they can be discarded like their complete twins
+    /// instead of escaping as fallible owner routing input.
+    #[test]
+    fn raw_prefix_classifier_marks_invalid_response_sources_malformed() {
+        for bytes in [&[0x80, 0x50, 0xdd][..], &[0x88, 0x30, 0x02], &[0x00]] {
+            let mut framer =
+                ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+            framer.push_slice(bytes).unwrap();
+            assert_eq!(
+                framer.buffered_raw_incomplete_prefix(|source| {
+                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                }),
+                Some(RawBufferedInput::Malformed),
+                "bytes {bytes:02x?}",
+            );
+        }
+    }
+
+    /// Malformed/noise raw prefixes may happen to match Sony payload types.
+    /// Raw framing is still strictly terminator-delimited; this test does not
+    /// claim that valid raw VISCA replies begin with either prefix.
+    #[test]
+    fn raw_mode_delimits_sony_looking_noise_before_following_replies() {
+        for payload_type in [[0x01, 0x11], [0x02, 0x00]] {
+            let mut framer =
+                ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+            // This resembles a Sony header declaring five payload bytes, but
+            // it is malformed/noise and reaches a raw VISCA boundary first.
+            let noise = [
+                payload_type[0],
+                payload_type[1],
+                0x00,
+                0x05,
+                0x12,
+                0x34,
+                0x56,
+                0x78,
+                0x55,
+                VISCA_TERMINATOR,
+            ];
+            let ack = [0x90, 0x41, VISCA_TERMINATOR];
+            let completion = [0x90, 0x51, VISCA_TERMINATOR];
+            let mut bytes = noise.to_vec();
+            bytes.extend_from_slice(&ack);
+            bytes.extend_from_slice(&completion);
+
+            framer.push(Bytes::from(bytes)).unwrap();
+            let frames: Vec<_> = framer
+                .drain_frames()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+
+            assert_eq!(
+                frames,
+                vec![
+                    Bytes::from(noise.to_vec()),
+                    Bytes::from(ack.to_vec()),
+                    Bytes::from(completion.to_vec())
+                ]
+            );
+            assert!(framer.is_empty());
+        }
+    }
+
+    #[test]
     fn test_sony_frame_basic() {
         let mut framer = ProtocolFramer::new(256);
 
@@ -365,6 +712,50 @@ mod tests {
 
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0], Bytes::from(frame));
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn sony_mode_waits_for_fragmented_header_and_payload_length() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::SonyEncapsulated);
+        let header = SonyHeader {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: 3,
+            sequence_number: 0xff00_ff00,
+        };
+        let mut frame = header.encode().to_vec();
+        frame.extend_from_slice(&[0x90, 0x50, VISCA_TERMINATOR]);
+
+        framer.push(Bytes::copy_from_slice(&frame[..6])).unwrap();
+        assert!(framer.drain_frames().next().is_none());
+
+        framer.push(Bytes::copy_from_slice(&frame[6..])).unwrap();
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames, vec![Bytes::from(frame)]);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn sony_mode_rejects_oversized_declared_payload_before_it_arrives() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 20, 32, FramingMode::SonyEncapsulated);
+        let header = SonyHeader {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: 13,
+            sequence_number: 1,
+        };
+
+        framer
+            .push(Bytes::copy_from_slice(&header.encode()))
+            .unwrap();
+        assert!(matches!(
+            framer.drain_frames().next(),
+            Some(Err(Error::ResponseTooLarge { max_size: 20 }))
+        ));
         assert!(framer.is_empty());
     }
 
@@ -598,6 +989,38 @@ mod tests {
         assert_eq!(frames.len(), 2);
         assert_eq!(frames[0].len(), SonyHeader::SIZE + 3);
         assert_eq!(frames[1].len(), SonyHeader::SIZE + 2);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn test_sony_control_frames_are_length_delimited() {
+        let mut framer = ProtocolFramer::new(256);
+
+        let command_header = SonyHeader {
+            payload_type: PayloadType::ControlCommand,
+            payload_length: 1,
+            sequence_number: 0x11223344,
+        };
+        let reply_header = SonyHeader {
+            payload_type: PayloadType::ControlReply,
+            payload_length: 2,
+            sequence_number: 0x55667788,
+        };
+
+        let mut command = Vec::from(command_header.encode());
+        command.extend_from_slice(&[0x01]);
+        let mut reply = Vec::from(reply_header.encode());
+        reply.extend_from_slice(&[0x0F, 0x01]);
+
+        let mut data = command.clone();
+        data.extend_from_slice(&reply);
+        framer.push(Bytes::from(data)).unwrap();
+
+        let frames: Vec<_> = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames, vec![Bytes::from(command), Bytes::from(reply)]);
         assert!(framer.is_empty());
     }
 

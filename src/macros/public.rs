@@ -9,8 +9,8 @@
 /// at the type level. It's useful for creating custom parameter types that
 /// work seamlessly with the VISCA command system.
 ///
-/// The generated types automatically include `serde` and `schemars` support
-/// when the respective features are enabled.
+/// The generated types automatically include `serde`, `schemars`, and `ts-rs`
+/// support when the respective `grafton-visca` features are enabled.
 ///
 /// # Example
 /// ```
@@ -58,117 +58,97 @@ macro_rules! visca_range_type {
             max: $max:expr
         }
     ) => {
-        $(#[$meta])*
-        #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-        pub struct $name($inner);
-
-        impl $name {
-            /// Minimum allowed value
-            pub const MIN: $inner = $min;
-            /// Maximum allowed value
-            pub const MAX: $inner = $max;
-
-            /// Create a new instance with validation
-            pub fn new(value: $inner) -> Result<Self, $crate::Error> {
-                if !(Self::MIN..=Self::MAX).contains(&value) {
-                    return Err($crate::Error::InvalidParameter {
-                        parameter: stringify!($name),
-                        value: ::std::borrow::Cow::Owned(format!("{value}")),
-                        reason: {
-                            let min = Self::MIN;
-                            let max = Self::MAX;
-                            ::std::borrow::Cow::Owned(format!("must be between {min} and {max}"))
-                        },
-                    });
-                }
-                Ok(Self(value))
-            }
-
-            /// Get the inner value
-            #[must_use]
-            pub fn value(&self) -> $inner {
-                self.0
-            }
-        }
-
-        impl TryFrom<$inner> for $name {
-            type Error = $crate::Error;
-
-            fn try_from(value: $inner) -> Result<Self, Self::Error> {
-                Self::new(value)
-            }
-        }
-
-        impl From<$name> for $inner {
-            fn from(val: $name) -> Self {
-                val.0
+        $crate::__grafton_visca_range_type_decl! {
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
             }
         }
     };
 }
 
-/// Generate trait implementations that forward to inherent methods on Camera.
-///
-/// This macro eliminates boilerplate for trait implementations that simply
-/// forward to identically-named inherent methods on the Camera struct.
-///
-/// # Example Usage
-///
-/// ```rust,ignore
-/// impl_camera_ops!(async, PowerControl,
-///     async fn power_on(&self) -> Result<(), Error>;
-///     async fn power_off(&self) -> Result<(), Error>;
-///     async fn power_inquiry(&self) -> Result<bool, Error>;
-/// );
-/// ```
-///
-/// This generates:
-/// ```rust,ignore
-/// impl<P, T> PowerControl for Camera<AsyncMode, P, T>
-/// where
-///     P: Profile,
-///     T: AsyncTransport + Send + Sync + 'static,
-/// {
-///     async fn power_on(&self) -> Result<(), Error> {
-///         self.power_on().await
-///     }
-///     // ... other methods
-/// }
-/// ```
+#[cfg(not(feature = "serde"))]
+#[doc(hidden)]
 #[macro_export]
-macro_rules! impl_camera_ops {
-    // Async variant
-    (async, $trait_name:ident,
-     $(async fn $method:ident(&self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
-    ) => {
-        #[cfg(feature = "mode-async")]
-        impl<P, T> $trait_name for $crate::camera::Camera<$crate::mode::Async, P, T>
-        where
-            P: $crate::capabilities::Profile,
-            T: $crate::transport::AsyncTransport + Send + Sync + 'static,
-        {
-            $( async fn $method(&self $(, $param: $ptype)*) -> $ret {
-                self.$method($($param),*).await
-            } )*
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            []
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
         }
     };
+}
 
-    // Blocking variant
-    (blocking, $trait_name:ident,
-     $(fn $method:ident(&mut self $(, $param:ident: $ptype:ty)*) -> $ret:ty; $(,)? )*
-    ) => {
-        #[cfg(not(feature = "mode-async"))]
-        impl<P, T> $trait_name for $crate::camera::Camera<$crate::mode::Blocking, P, T>
-        where
-            P: $crate::capabilities::Profile,
-            T: $crate::transport::BlockingTransport + Send + Sync + 'static,
-        {
-            $( fn $method(&mut self $(, $param: $ptype)*) -> $ret {
-                self.$method($($param),*)
-            } )*
+#[cfg(all(feature = "serde", not(feature = "schemars"), not(feature = "ts-rs")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "schemars", not(feature = "ts-rs")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, schemars]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "ts-rs", not(feature = "schemars")))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, ts_rs]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
+        }
+    };
+}
+
+#[cfg(all(feature = "schemars", feature = "ts-rs"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __grafton_visca_range_type_decl {
+    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
+        $crate::__macro_support::__grafton_visca_range_type_decl! {
+            crate = $crate;
+            [serde, schemars, ts_rs]
+            $(#[$meta])*
+            $name : $inner {
+                min: $min,
+                max: $max
+            }
         }
     };
 }

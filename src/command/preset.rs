@@ -4,9 +4,8 @@
 //! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// Action to perform on a preset.
@@ -57,15 +56,19 @@ crate::visca_range_type! {
 /// This controls how fast the camera moves when recalling a preset position.
 /// **Vendor-Specific**: PTZOptics cameras only.
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct PresetRecallSpeedCommand {
+pub struct PresetRecallSpeedCommand {
     /// The recall speed to set.
     pub speed: PresetRecallSpeed,
 }
 
-impl ViscaCommand for PresetRecallSpeedCommand {
-    const MAX_SIZE: usize = 6;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
+impl PresetRecallSpeedCommand {
+    /// Create a command that sets the preset-recall speed.
+    pub const fn new(speed: PresetRecallSpeed) -> Self {
+        Self { speed }
+    }
+}
 
+impl WireEncode for PresetRecallSpeedCommand {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -92,19 +95,7 @@ pub(crate) struct PresetCommand {
 
 impl PresetCommand {}
 
-impl ViscaCommand for PresetCommand {
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Preset;
-
-    fn operation_metadata(&self) -> Option<crate::camera::OperationMetadata> {
-        use crate::camera::{Axes, OperationMetadata};
-
-        Some(match self.action {
-            PresetAction::Recall => OperationMetadata::targeted(Axes::ALL),
-            PresetAction::Reset | PresetAction::Set => OperationMetadata::applied_only(Axes::NONE),
-        })
-    }
-
+impl WireEncode for PresetCommand {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -124,9 +115,7 @@ impl ViscaCommand for PresetCommand {
 #[cfg(test)]
 #[allow(clippy::panic)]
 mod tests {
-    use crate::{
-        command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test, timeout::CommandTimeout,
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     use super::*;
 
@@ -197,54 +186,56 @@ mod tests {
         &[0x81, 0x01, 0x04, 0x3F, 0x02, 0x59, VISCA_TERMINATOR]
     );
 
-    #[test]
-    fn preset_255_keeps_data_and_terminator_bytes() {
-        for (action, action_byte) in [
-            (PresetAction::Reset, 0x00),
-            (PresetAction::Set, 0x01),
-            (PresetAction::Recall, 0x02),
-        ] {
-            let command = PresetCommand {
-                action,
-                preset_number: PresetNumber::new(255)
-                    .unwrap_or_else(|error| panic!("valid preset number: {error:?}")),
-            };
-            let bytes = command
-                .to_bytes(crate::CameraId::CAMERA_1)
-                .unwrap_or_else(|error| panic!("preset 255 must encode: {error:?}"));
-            assert_eq!(
-                bytes.as_ref(),
-                &[
-                    0x81,
-                    0x01,
-                    0x04,
-                    0x3F,
-                    action_byte,
-                    u8::MAX,
-                    VISCA_TERMINATOR,
-                ]
-            );
-        }
-    }
-
-    #[test]
-    fn test_preset_timeout_kind() {
-        let cmd = PresetCommand {
-            action: PresetAction::Recall,
-            preset_number: PresetNumber::new(0)
-                .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert_eq!(cmd.timeout_class(), CommandCategory::Preset);
-    }
-
-    #[test]
-    fn test_preset_command_response_type() {
-        let cmd = PresetCommand {
+    // Regression for #683: preset number 255 (0xFF) is a data byte. The frame
+    // must still be terminated, encoding to `... 01 FF FF` (data FF then the
+    // terminator FF), not truncated to `... 01 FF`.
+    visca_test!(
+        PresetCommand,
+        test_preset_command_set_255_keeps_terminator,
+        PresetCommand {
             action: PresetAction::Set,
-            preset_number: PresetNumber::new(0)
+            preset_number: PresetNumber::new(255)
                 .unwrap_or_else(|e| panic!("Valid preset number: {e:?}")),
-        };
-        assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
+        },
+        &[0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
+    );
+
+    /// Exhaustive value-domain sweep for #683: every preset number and action
+    /// must encode to a frame whose length matches, that ends in the terminator,
+    /// and whose byte *before* the terminator is the preset number itself (so a
+    /// trailing 0xFF data byte is never swallowed).
+    #[test]
+    fn every_preset_number_and_action_terminates() {
+        for action in [PresetAction::Reset, PresetAction::Set, PresetAction::Recall] {
+            for number in 0..=u8::MAX {
+                let command = PresetCommand {
+                    action,
+                    preset_number: PresetNumber::new(number)
+                        .unwrap_or_else(|e| panic!("preset {number} valid: {e:?}")),
+                };
+                let mut buffer = [0u8; 32];
+                let len = command
+                    .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
+                    .unwrap_or_else(|e| panic!("preset {number} action {action:?}: {e:?}"));
+                assert_eq!(
+                    len, 7,
+                    "preset {number} action {action:?} must be a 7-byte frame"
+                );
+                assert_eq!(
+                    buffer[..len],
+                    [
+                        0x81,
+                        0x01,
+                        0x04,
+                        0x3F,
+                        action as u8,
+                        number,
+                        VISCA_TERMINATOR
+                    ],
+                    "preset {number} action {action:?} wire bytes"
+                );
+            }
+        }
     }
 
     #[test]

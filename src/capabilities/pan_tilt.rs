@@ -4,6 +4,26 @@ use std::time::Duration;
 
 use crate::capabilities::{CapabilityRange, CoordinateSystem, ValidationError};
 
+/// Profile-owned wire framing for pan/tilt position commands and inquiries.
+///
+/// The baseline VISCA form carries two speed bytes and four nibbles per axis.
+/// Some camera families use a different position payload even though they keep
+/// the usual pan/tilt opcodes.  This discriminator keeps that variation a
+/// profile fact rather than scattering model checks through encoders and
+/// decoders.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[non_exhaustive]
+pub enum PanTiltWireCodec {
+    /// Standard VISCA: two speed bytes and four nibbles for each axis.
+    #[default]
+    StandardVisca,
+    /// Sony BRC-300: one speed byte, fixed `00`, five signed pan nibbles,
+    /// and four signed tilt nibbles.
+    SonyBrc300,
+}
+
 /// Trait for cameras that support pan and tilt movement.
 ///
 /// This trait defines the constants and capabilities for pan/tilt operations.
@@ -11,16 +31,16 @@ use crate::capabilities::{CapabilityRange, CoordinateSystem, ValidationError};
 pub trait PanTilt {
     /// Valid range for pan position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const PAN_RANGE: CapabilityRange<i16>;
+    const PAN_RANGE: CapabilityRange<i32>;
 
     /// Valid range for tilt position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const TILT_RANGE: CapabilityRange<i16>;
+    const TILT_RANGE: CapabilityRange<i32>;
 
     /// Maximum pan speed (0x01-0x18 for most cameras).
     const MAX_PAN_SPEED: u8;
 
-    /// Maximum tilt speed (0x01-0x14 for most cameras).
+    /// Maximum tilt speed (0x01-0x14 for most cameras; up to 0x18 where documented).
     const MAX_TILT_SPEED: u8;
 
     /// Whether camera can pan and tilt simultaneously.
@@ -31,23 +51,34 @@ pub trait PanTilt {
     /// Some cameras need a delay after recalling presets.
     const PRESET_RECOVERY_TIME: Duration = Duration::from_millis(0);
 
-    /// Conversion factor from degrees to VISCA units for pan.
-    /// This is camera-specific based on the pan range and degrees coverage.
+    /// Signed scale from the library's logical pan degrees to raw camera units.
+    ///
+    /// A positive scale maps positive (rightward) degrees to increasing raw
+    /// units. A negative scale maps them to decreasing raw units for cameras
+    /// whose documented wire-axis polarity is reversed. The scale must be
+    /// finite and nonzero.
     const PAN_DEGREES_TO_UNITS: f32;
 
-    /// Conversion factor from degrees to VISCA units for tilt.
-    /// This is camera-specific based on the tilt range and degrees coverage.
+    /// Signed scale from the library's logical tilt degrees to raw camera units.
+    ///
+    /// A positive scale maps positive (downward) degrees to increasing raw
+    /// units. A negative scale maps negative (upward) degrees to increasing
+    /// raw units for cameras whose documented wire-axis polarity is reversed.
+    /// The scale must be finite and nonzero.
     const TILT_DEGREES_TO_UNITS: f32;
 
     /// Coordinate system used by the camera.
     /// Most cameras use SignedCentered, but some legacy models use UnsignedCentered.
     const COORDINATE_SYSTEM: CoordinateSystem = CoordinateSystem::SignedCentered;
+
+    /// Position-command and inquiry framing used by the profile.
+    const PAN_TILT_WIRE_CODEC: PanTiltWireCodec = PanTiltWireCodec::StandardVisca;
 }
 
 /// Extension trait that adds validation methods to cameras with pan/tilt support.
 pub trait PanTiltExt: PanTilt {
     /// Validate a pan position is within range.
-    fn validate_pan(&self, pan: i16) -> Result<i16, ValidationError> {
+    fn validate_pan(&self, pan: i32) -> Result<i32, ValidationError> {
         if Self::PAN_RANGE.contains(pan) {
             Ok(pan)
         } else {
@@ -61,7 +92,7 @@ pub trait PanTiltExt: PanTilt {
     }
 
     /// Validate a tilt position is within range.
-    fn validate_tilt(&self, tilt: i16) -> Result<i16, ValidationError> {
+    fn validate_tilt(&self, tilt: i32) -> Result<i32, ValidationError> {
         if Self::TILT_RANGE.contains(tilt) {
             Ok(tilt)
         } else {
@@ -85,22 +116,22 @@ pub trait PanTiltExt: PanTilt {
     }
 
     /// Convert degrees to VISCA units for pan.
-    fn degrees_to_pan_units(&self, degrees: f32) -> i16 {
-        (degrees * Self::PAN_DEGREES_TO_UNITS) as i16
+    fn degrees_to_pan_units(&self, degrees: f32) -> i32 {
+        (degrees * Self::PAN_DEGREES_TO_UNITS) as i32
     }
 
     /// Convert VISCA units to degrees for pan.
-    fn pan_units_to_degrees(&self, units: i16) -> f32 {
+    fn pan_units_to_degrees(&self, units: i32) -> f32 {
         units as f32 / Self::PAN_DEGREES_TO_UNITS
     }
 
     /// Convert degrees to VISCA units for tilt.
-    fn degrees_to_tilt_units(&self, degrees: f32) -> i16 {
-        (degrees * Self::TILT_DEGREES_TO_UNITS) as i16
+    fn degrees_to_tilt_units(&self, degrees: f32) -> i32 {
+        (degrees * Self::TILT_DEGREES_TO_UNITS) as i32
     }
 
     /// Convert VISCA units to degrees for tilt.
-    fn tilt_units_to_degrees(&self, units: i16) -> f32 {
+    fn tilt_units_to_degrees(&self, units: i32) -> f32 {
         units as f32 / Self::TILT_DEGREES_TO_UNITS
     }
 }
@@ -115,8 +146,8 @@ mod tests {
     struct TestCamera;
 
     impl PanTilt for TestCamera {
-        const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-170, 170);
-        const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-30, 90);
+        const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-170, 170);
+        const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-30, 90);
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 24;
         const PAN_DEGREES_TO_UNITS: f32 = 100.0;
@@ -149,5 +180,16 @@ mod tests {
 
         assert_eq!(camera.degrees_to_pan_units(45.0), 4500);
         assert_eq!(camera.pan_units_to_degrees(4500), 45.0);
+    }
+
+    #[test]
+    fn signed_profile_scales_reverse_brc300_axis_polarity() {
+        use crate::profiles::SonyBRC300;
+
+        let camera = SonyBRC300;
+        assert_eq!(camera.degrees_to_pan_units(45.0), -0x02490);
+        assert_eq!(camera.degrees_to_tilt_units(-15.0), 0x0C30);
+        assert_eq!(camera.pan_units_to_degrees(-0x02490), 45.0);
+        assert_eq!(camera.tilt_units_to_degrees(0x0C30), -15.0);
     }
 }

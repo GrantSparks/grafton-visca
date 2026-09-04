@@ -14,6 +14,8 @@ concurrency:
 
 permissions:
   contents: read
+  # Needed by the workflow-runs API gate below; no check-run name is trusted.
+  actions: read
 
 jobs:
   publish:
@@ -21,10 +23,259 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      # Keep the input in the validator's exact tag grammar before it is used
+      # to select any Git ref. In particular, a slash or ref-expression cannot
+      # reach checkout and turn this into a branch/ref selection.
+      - name: Validate release tag input
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_TAG}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::release tag must match vX.Y.Z with an optional prerelease suffix"
+            exit 1
+          fi
+
+      # Action refs and compiler selection are pinned to exactly what `ci.yml`
+      # pins (see its "Toolchain pinning policy" comment). Publication must
+      # package with the same compiler the release gates ran under; immutable
+      # action commits keep the installer code from changing underneath it.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.release_tag }}
+          ref: refs/tags/${{ github.event.inputs.release_tag }}
+
+      - name: Verify annotated tag provenance
+        id: provenance
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag_ref="refs/tags/${RELEASE_TAG}"
+          if ! git show-ref --verify --quiet "${tag_ref}"; then
+            echo "::error::required local tag ref ${tag_ref} was not fetched"
+            exit 1
+          fi
+
+          tag_object="$(git rev-parse --verify "${tag_ref}")"
+          if [[ "$(git cat-file -t "${tag_object}")" != "tag" ]]; then
+            echo "::error::${tag_ref} is not an annotated tag"
+            exit 1
+          fi
+          git cat-file -e "${tag_object}"
+
+          peeled_commit="$(git rev-parse --verify "${tag_ref}^{commit}")"
+          head_commit="$(git rev-parse --verify HEAD^{commit})"
+          if [[ "${peeled_commit}" != "${head_commit}" ]]; then
+            echo "::error::${tag_ref} peels to ${peeled_commit}, but checkout HEAD is ${head_commit}"
+            exit 1
+          fi
+          bash .github/scripts/verify-release-tag.sh "${RELEASE_TAG}" "${tag_object}" origin
+          echo "EXPECTED_TAG_OBJECT=${tag_object}" >>"${GITHUB_OUTPUT}"
+          echo "verified annotated ${tag_ref} object ${tag_object} at commit ${head_commit}"
+
+      # RELEASING.md requires a tag whose commit passed every required CI job.
+      # Query workflow runs for the exact workflow path and HEAD SHA, follow
+      # every page, and select the latest run/attempt deterministically. A
+      # same-named check from another workflow or app is not evidence here.
+      - name: Verify CI workflow run passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse --verify HEAD^{commit})"
+          runs_file="$(mktemp)"
+          trap 'rm -f -- "${runs_file}"' EXIT
+          if ! gh api \
+              --method GET \
+              --paginate \
+              "repos/${REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}&per_page=100" \
+              --jq '.workflow_runs[] | [(.id // ""), (.run_number // ""), (.path // ""), (.head_sha // ""), (.status // ""), (.conclusion // ""), (.run_attempt // ""), (.created_at // ""), (.run_started_at // ""), (.updated_at // "")] | @tsv' \
+              >"${runs_file}"; then
+            echo "::error::GitHub workflow-runs API query failed for ${sha}"
+            exit 1
+          fi
+
+          if ! selected_run="$(python3 - "${runs_file}" "${sha}" <<'PY'
+          import datetime as dt
+          import json
+          import pathlib
+          import re
+          import sys
+
+          runs_path = pathlib.Path(sys.argv[1])
+          expected_sha = sys.argv[2]
+          expected_path = ".github/workflows/ci.yml"
+          integer = re.compile(r"[0-9]+\Z")
+          sha_pattern = re.compile(r"[0-9a-f]{40}\Z")
+
+          def parse_time(label, value, allow_empty=False):
+              if not value and allow_empty:
+                  return None
+              if not value:
+                  raise ValueError(f"{label} is missing")
+              try:
+                  parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+              except ValueError as error:
+                  raise ValueError(f"{label} is not an RFC3339 timestamp") from error
+              if parsed.tzinfo is None:
+                  raise ValueError(f"{label} has no timezone")
+              return parsed
+
+          records = []
+          seen_ids = set()
+          for line_number, line in enumerate(runs_path.read_text().splitlines(), 1):
+              fields = line.split("\t")
+              if len(fields) != 10:
+                  raise SystemExit(
+                      f"workflow-runs response parse error on line {line_number}: "
+                      f"expected 10 fields, got {len(fields)}"
+                  )
+              (
+                  run_id_text,
+                  run_number_text,
+                  path,
+                  head_sha,
+                  status,
+                  conclusion,
+                  attempt_text,
+                  created_text,
+                  started_text,
+                  updated_text,
+              ) = fields
+              if not integer.fullmatch(run_id_text):
+                  raise SystemExit(f"workflow-runs response has invalid run id on line {line_number}")
+              if not integer.fullmatch(run_number_text):
+                  raise SystemExit(f"workflow-runs response has invalid run number on line {line_number}")
+              if not integer.fullmatch(attempt_text):
+                  raise SystemExit(f"workflow-runs response has invalid run attempt on line {line_number}")
+              if not sha_pattern.fullmatch(head_sha):
+                  raise SystemExit(f"workflow-runs response has invalid head SHA on line {line_number}")
+              if not status:
+                  raise SystemExit(f"workflow-runs response has a missing status on line {line_number}")
+              run_id = int(run_id_text)
+              if run_id in seen_ids:
+                  raise SystemExit(f"workflow-runs response repeats run id {run_id}")
+              seen_ids.add(run_id)
+              created = parse_time("created_at", created_text)
+              started = parse_time("run_started_at", started_text, allow_empty=True)
+              updated = parse_time("updated_at", updated_text)
+              records.append(
+                  {
+                      "id": run_id,
+                      "run_number": int(run_number_text),
+                      "path": path,
+                      "head_sha": head_sha,
+                      "status": status,
+                      "conclusion": conclusion,
+                      "run_attempt": int(attempt_text),
+                      "created": created,
+                      "started": started,
+                      "updated": updated,
+                  }
+              )
+
+          candidates = [
+              record
+              for record in records
+              if record["path"] == expected_path and record["head_sha"] == expected_sha
+          ]
+          if not candidates:
+              raise SystemExit(
+                  f"no workflow run for {expected_path} has exact HEAD SHA {expected_sha}"
+              )
+
+          # A rerun normally keeps its run id and increments run_attempt. Use
+          # start time (falling back to creation for a queued run), then the
+          # attempt and stable numeric identifiers as deterministic tie-breaks.
+          selected = max(
+              candidates,
+              key=lambda record: (
+                  record["started"] or record["created"],
+                  record["run_attempt"],
+                  record["updated"],
+                  record["run_number"],
+                  record["id"],
+              ),
+          )
+          # Keep the selected record structured until Bash has extracted each
+          # field. A tab-separated record is ambiguous to Bash `read` when a
+          # middle field is empty: whitespace IFS collapses the empty field
+          # and shifts every following value left (notably for an in-progress
+          # run whose conclusion is null).
+          print(
+              json.dumps(
+                  {
+                      field: selected[field]
+                      for field in ("id", "run_number", "run_attempt", "status", "conclusion", "path", "head_sha")
+                  },
+                  separators=(",", ":"),
+              )
+          )
+          PY
+          )"; then
+            echo "::error::could not parse GitHub workflow-runs response for ${sha}"
+            exit 1
+          fi
+
+          run_id="$(jq -er '.id | numbers' <<<"${selected_run}")"
+          run_number="$(jq -er '.run_number | numbers' <<<"${selected_run}")"
+          run_attempt="$(jq -er '.run_attempt | numbers' <<<"${selected_run}")"
+          status="$(jq -er '.status | strings' <<<"${selected_run}")"
+          conclusion="$(jq -er '.conclusion | strings' <<<"${selected_run}")"
+          workflow_path="$(jq -er '.path | strings' <<<"${selected_run}")"
+          workflow_sha="$(jq -er '.head_sha | strings' <<<"${selected_run}")"
+          conclusion_display="${conclusion:-<empty>}"
+          echo "latest ${workflow_path} run ${run_id} attempt ${run_attempt} for ${workflow_sha}: ${status}/${conclusion_display}"
+          if [[ "${workflow_path}" != ".github/workflows/ci.yml" || \
+                "${workflow_sha}" != "${sha}" || \
+                "${status}" != "completed" || \
+                "${conclusion}" != "success" ]]; then
+            echo "::error::refusing to publish ${sha}: latest exact CI workflow run is ${status}/${conclusion_display}"
+            exit 1
+          fi
+
+      - name: Verify stable release source equivalence
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_TAG#v}"
+          if [[ "${release_version}" == *-* ]]; then
+            echo "prerelease ${RELEASE_TAG}: hardware source check skipped"
+            exit 0
+          fi
+
+          major="${release_version%%.*}"
+          if (( major < 2 )); then
+            echo "pre-2.0 stable release ${RELEASE_TAG}: hardware source check skipped"
+            exit 0
+          fi
+
+          mapfile -t tested_records < <(grep -E '^Hardware-tested commit:' docs/hardware_release_checklist.md || true)
+          if (( ${#tested_records[@]} != 1 )) || [[ ! "${tested_records[0]:-}" =~ ^Hardware-tested\ commit:\ [0-9a-f]{40}$ ]]; then
+            echo "::error::stable ${RELEASE_TAG} requires exactly one Hardware-tested commit: full lowercase 40-hex record"
+            exit 1
+          fi
+          tested_commit="${tested_records[0]#Hardware-tested commit: }"
+
+          if ! git cat-file -e "${tested_commit}^{commit}" 2>/dev/null; then
+            echo "::error::hardware-tested commit ${tested_commit} is not present"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${tested_commit}" HEAD; then
+            echo "::error::hardware-tested commit ${tested_commit} is not an ancestor of release HEAD"
+            exit 1
+          fi
+
+          changed_paths="$(git diff --name-only "${tested_commit}" HEAD -- Cargo.toml grafton-visca-macros/Cargo.toml src/ grafton-visca-macros/src/)"
+          if [[ -n "${changed_paths}" ]]; then
+            echo "::error::stable ${RELEASE_TAG} changes shipped code or manifests after ${tested_commit}"
+            printf '%s\n' "${changed_paths}"
+            exit 1
+          fi
+          echo "stable ${RELEASE_TAG} matches hardware-tested source ${tested_commit}"
 
       - name: Install system dependencies
         run: |
@@ -32,9 +283,9 @@ jobs:
           sudo apt-get install -y libudev-dev
 
       - name: Install Rust stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         continue-on-error: true
         with:
           shared-key: "rust-cache-ubuntu-latest-stable"
@@ -44,51 +295,84 @@ jobs:
         id: release
         env:
           RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          HARDWARE_CHECKLIST: docs/hardware_release_checklist.md
           RUSTC_WRAPPER: ""
         run: |
-          git fetch --no-tags origin main
-          git merge-base --is-ancestor "$(git rev-parse HEAD)" origin/main
-          cargo generate-lockfile
+          git fetch --no-tags origin refs/heads/main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$(git rev-parse --verify HEAD^{commit})" refs/remotes/origin/main
           bash .github/scripts/validate-release.sh "$RELEASE_TAG"
+          # Cargo.lock is intentionally ignored by this library workspace.
+          # Generate the checkout-local lockfile only for reproducible locked
+          # package/publish commands below.
+          cargo generate-lockfile
           cargo package -p grafton-visca-macros --locked --no-verify
           cargo package -p grafton-visca-macros --list
-          cargo package -p grafton-visca --list
+          macro_payload="target/package/grafton-visca-macros-${RELEASE_TAG#v}.crate"
+          test -f "$macro_payload"
+          echo "prepared local macro payload: $macro_payload"
 
       - name: Publish grafton-visca-macros if needed
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+          EXPECTED_TAG_OBJECT: ${{ steps.provenance.outputs.EXPECTED_TAG_OBJECT }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RUSTC_WRAPPER: ""
         run: |
+          macro_payload="target/package/grafton-visca-macros-${RELEASE_VERSION}.crate"
+          test -f "$macro_payload"
           if cargo info --registry crates-io "grafton-visca-macros@${RELEASE_VERSION}" >/dev/null 2>&1; then
             echo "grafton-visca-macros@${RELEASE_VERSION} is already published"
           else
             cargo publish -p grafton-visca-macros --locked --dry-run
+            bash .github/scripts/verify-release-tag.sh "${RELEASE_TAG}" "${EXPECTED_TAG_OBJECT}" origin
             cargo publish -p grafton-visca-macros --locked
           fi
-
-      - name: Wait for the macro crate index entry
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        run: bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
+          bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
+          bash .github/scripts/verify-crate-payload.sh \
+            grafton-visca-macros \
+            "$RELEASE_VERSION" \
+            "target/package/grafton-visca-macros-${RELEASE_VERSION}.crate"
 
       - name: Publish grafton-visca if needed
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+          EXPECTED_TAG_OBJECT: ${{ steps.provenance.outputs.EXPECTED_TAG_OBJECT }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
           RUSTC_WRAPPER: ""
         run: |
+          cargo package -p grafton-visca --locked --no-verify
+          cargo package -p grafton-visca --list
+          main_payload="target/package/grafton-visca-${RELEASE_VERSION}.crate"
+          test -f "$main_payload"
           if cargo info --registry crates-io "grafton-visca@${RELEASE_VERSION}" >/dev/null 2>&1; then
             echo "grafton-visca@${RELEASE_VERSION} is already published"
           else
-            cargo package -p grafton-visca --locked --no-verify
             cargo publish -p grafton-visca --locked --dry-run
+            bash .github/scripts/verify-release-tag.sh "${RELEASE_TAG}" "${EXPECTED_TAG_OBJECT}" origin
             cargo publish -p grafton-visca --locked
           fi
+          bash .github/scripts/wait-for-crate.sh grafton-visca "$RELEASE_VERSION" 300
+          bash .github/scripts/verify-crate-payload.sh \
+            grafton-visca \
+            "$RELEASE_VERSION" \
+            "target/package/grafton-visca-${RELEASE_VERSION}.crate"
 
       - name: Verify both published versions
         env:
+          EXPECTED_TAG_OBJECT: ${{ steps.provenance.outputs.EXPECTED_TAG_OBJECT }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
+          bash .github/scripts/verify-release-tag.sh "${RELEASE_TAG}" "${EXPECTED_TAG_OBJECT}" origin
           bash .github/scripts/wait-for-crate.sh grafton-visca-macros "$RELEASE_VERSION" 300
           bash .github/scripts/wait-for-crate.sh grafton-visca "$RELEASE_VERSION" 300
+          bash .github/scripts/verify-crate-payload.sh \
+            grafton-visca-macros \
+            "$RELEASE_VERSION" \
+            "target/package/grafton-visca-macros-${RELEASE_VERSION}.crate"
+          bash .github/scripts/verify-crate-payload.sh \
+            grafton-visca \
+            "$RELEASE_VERSION" \
+            "target/package/grafton-visca-${RELEASE_VERSION}.crate"

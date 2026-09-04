@@ -43,7 +43,7 @@ pub enum BoolConvention {
     /// Used by the majority of VISCA commands including:
     /// - AutoFocus, Standby, IrisControl, DefogMode, DigitalPtz
     /// - NightDayMode, NightDaySwitch, AutoTrace, FocusUnlock
-    /// - UsbAudio, Rtmp, Digital, TallyAutoAdjust
+    /// - Rtmp, Digital, TallyAutoAdjust
     /// - IrisUp, IrisDown, FocusNearFar
     /// - ZoomOut, ZoomIn, ZoomTeleWide
     OnIs03,
@@ -53,6 +53,7 @@ pub enum BoolConvention {
     /// - MenuOpenClose (0x02 = open)
     /// - TallyGreen (0x02 = on)
     /// - Power (0x02 = on)
+    /// - UsbAudio (0x02 = on)
     OnIs02,
 }
 
@@ -118,8 +119,8 @@ impl<'a> Payload<'a> {
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The payload is empty (`InvalidResponseLength`)
-    /// - The first byte is not `0x02` or `0x03` (`InvalidParameter`)
+    /// - The payload is not exactly one byte (`InvalidResponseLength`)
+    /// - The byte is not `0x02` or `0x03` (`InvalidParameter`)
     ///
     /// # Examples
     ///
@@ -135,7 +136,7 @@ impl<'a> Payload<'a> {
         param_name: &'static str,
         convention: BoolConvention,
     ) -> Result<bool, Error> {
-        if self.0.is_empty() {
+        if self.0.len() != 1 {
             return Err(Error::invalid_response_length(1, self.0));
         }
         let byte = self.0[0];
@@ -212,6 +213,28 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         self.u16_quad(start) as i16
     }
 
+    /// Combine five nibbles into a 20-bit unsigned value.
+    #[inline]
+    pub(crate) fn u20_penta(&self, start: usize) -> u32 {
+        debug_assert!(start + 4 < N, "u20_penta index out of bounds");
+        (((self.0[start] & 0x0F) as u32) << 16)
+            | (((self.0[start + 1] & 0x0F) as u32) << 12)
+            | (((self.0[start + 2] & 0x0F) as u32) << 8)
+            | (((self.0[start + 3] & 0x0F) as u32) << 4)
+            | ((self.0[start + 4] & 0x0F) as u32)
+    }
+
+    /// Combine five nibbles into a signed two's-complement 20-bit value.
+    #[inline]
+    pub(crate) fn i20_penta(&self, start: usize) -> i32 {
+        let value = self.u20_penta(start);
+        if value & 0x0008_0000 != 0 {
+            value as i32 - 0x0010_0000
+        } else {
+            value as i32
+        }
+    }
+
     /// Get the last nibble in the array.
     #[inline]
     pub fn last_nibble(&self) -> u8 {
@@ -242,8 +265,9 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
 
 /// Variable-length nibble view for responses that support multiple formats.
 ///
-/// Used for responses like Zoom and PanTilt that can return either 4 or 8 nibbles
-/// depending on the camera model and query context.
+/// Used by the Zoom-position response parser, which supports both 4-nibble and
+/// 8-nibble reply forms. Standard pan/tilt replies use an exact eight-nibble
+/// [`Nibbles`] view instead.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Nibbles4Or8<'a> {
     /// 4-nibble response format.
@@ -548,6 +572,23 @@ mod tests {
             Err(Error::InvalidResponseLength {
                 expected: 1,
                 actual: 0,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn test_parse_bool_rejects_trailing_payload_bytes() {
+        let data = [0x02, 0x00];
+        let payload = Payload::new(&data);
+
+        let result = payload.parse_bool("test_param", BoolConvention::OnIs03);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidResponseLength {
+                expected: 1,
+                actual: 2,
                 ..
             })
         ));

@@ -1,115 +1,53 @@
-//! Blocking inquiry quickstart.
+//! Blocking typed-inquiry quickstart.
 //!
-//! This example reads camera state through high-level accessors and typed
-//! inquiry responses. It does not change camera state.
-//!
-//! Run with:
-//! ```sh
-//! cargo run --example inquiry_quickstart -- 192.168.0.110
-//! ```
+//! Every query goes through a borrowed camera view of one owner-backed
+//! blocking session; the session owns transport and request routing.
 
-#[cfg(not(feature = "mode-async"))]
-mod support;
+use std::{env, io};
 
-#[cfg(not(feature = "mode-async"))]
-mod blocking {
-    use std::{env, io};
+use grafton_visca::{blocking::Connect, profiles::PtzOpticsG2, Error};
 
-    use grafton_visca::{
-        camera::{profiles::PtzOpticsG2, Connect},
-        inquiry_conversions::{PanTiltPositionRaw, ZoomDomain},
-        Error, ZoomPositionExt,
-    };
-
-    use super::support::finish_session;
-
-    fn address() -> Result<String, io::Error> {
-        let mut values = env::args().skip(1);
-        let address = match values.next() {
-            Some(value) if value.starts_with('-') => {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("unknown option `{value}`"),
-                ));
-            }
-            Some(value) => value,
-            None => env::var("VISCA_CAMERA_ADDR").unwrap_or_else(|_| "192.168.0.110".to_string()),
-        };
-
-        if let Some(extra) = values.next() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "unexpected extra argument `{extra}`\nusage: cargo run --example inquiry_quickstart -- [address]"
-                ),
-            ));
-        }
-
-        Ok(address)
-    }
-
-    pub fn main() -> Result<(), Box<dyn std::error::Error>> {
-        let _ = tracing_subscriber::fmt::try_init();
-
-        let address = address()?;
-
-        println!("Inquiry quickstart");
-        println!("Address: {address}");
-
-        let camera = Connect::open_tcp_blocking::<PtzOpticsG2>(&address)?;
-        let query_result = (|| -> Result<(), Error> {
-            let capabilities = camera.capabilities();
-            println!("Profile: {}", capabilities.model_name);
-
-            let is_on = camera.power().state()?;
-            println!("Power: {}", if is_on { "on" } else { "off" });
-
-            let position = camera.pan_tilt().position()?;
-            let degrees = PanTiltPositionRaw::new(position.pan, position.tilt).as_degrees();
-            println!(
-                "Pan/tilt: pan={:.1} deg, tilt={:.1} deg",
-                degrees.pan.0, degrees.tilt.0
-            );
-
-            let position = camera.zoom().position()?;
-            let optical_max = *capabilities.zoom_range_optical.end();
-            let digital_max = capabilities
-                .zoom_range_digital
-                .as_ref()
-                .map(|range| *range.end());
-            let optical =
-                position.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)?;
-            println!(
-                "Zoom: 0x{:04X} ({:.1}% optical)",
-                position.value(),
-                optical.value() * 100.0
-            );
-
-            let mode = camera.focus().mode()?;
-            println!("Focus mode: {mode:?}");
-
-            let mode = camera.exposure().mode()?;
-            println!("Exposure mode: {mode:?}");
-
-            let mode = camera.white_balance().mode()?;
-            println!("White balance mode: {mode:?}");
-
-            Ok(())
-        })();
-        let close_result = camera.close();
-
-        finish_session(query_result, close_result)?;
-        Ok(())
-    }
-}
-
-#[cfg(not(feature = "mode-async"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    blocking::main()
+    let address = address()?;
+    let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
+    let result = {
+        let camera = session.camera();
+        let power = camera.power().state()?;
+        let pan_tilt = camera.pan_tilt().position()?;
+        let zoom = camera.zoom().position()?;
+        let focus = camera.focus().position()?;
+        println!("Power: {}", if power { "on" } else { "off" });
+        println!("Pan/tilt: pan={}, tilt={}", pan_tilt.pan, pan_tilt.tilt);
+        println!("Zoom: 0x{:04X}", zoom.value());
+        println!("Focus: {focus:?}");
+        Ok::<(), Error>(())
+    };
+    finish(result, session.close())?;
+    Ok(())
 }
 
-#[cfg(feature = "mode-async")]
-fn main() {
-    eprintln!("This blocking example requires no async runtime feature.");
-    eprintln!("Run with: cargo run --example inquiry_quickstart -- 192.168.0.110");
+fn address() -> Result<String, io::Error> {
+    let mut values = env::args().skip(1);
+    let address = values
+        .next()
+        .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
+        .unwrap_or_else(|| "192.168.0.110".to_string());
+    if let Some(extra) = values.next() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("unexpected extra argument `{extra}`"),
+        ));
+    }
+    Ok(address)
+}
+
+fn finish<T>(operation: Result<T, Error>, close: Result<(), Error>) -> Result<T, Error> {
+    match (operation, close) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(operation), Err(close)) => {
+            eprintln!("session close also failed: {close}");
+            Err(operation)
+        }
+    }
 }

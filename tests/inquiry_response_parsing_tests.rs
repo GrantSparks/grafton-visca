@@ -3,10 +3,67 @@
 //! This module tests the parsing of VISCA inquiry responses using
 //! real-world response patterns from PTZ cameras.
 
-use grafton_visca::{
-    command::{InquiryData, InquiryKind, Response},
-    ResolutionMode,
-};
+use grafton_visca::command::{InquiryData, InquiryKind, Response};
+
+#[test]
+fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
+    use grafton_visca::command::WhiteBalanceMode;
+
+    for (wire, expected) in [
+        (0x00, WhiteBalanceMode::Auto),
+        (0x01, WhiteBalanceMode::Indoor),
+        (0x02, WhiteBalanceMode::Outdoor),
+        (0x03, WhiteBalanceMode::OnePush),
+        (0x04, WhiteBalanceMode::ATW),
+        (0x05, WhiteBalanceMode::Manual),
+        (0x20, WhiteBalanceMode::ColorTemperature),
+    ] {
+        let response =
+            Response::parse_with_type(&[0x90, 0x50, wire, 0xff], &InquiryKind::WhiteBalanceMode)
+                .expect("supported white-balance mode must decode");
+        assert!(matches!(
+            response,
+            Response::Inquiry(InquiryData::WhiteBalanceMode { mode }) if mode == expected
+        ));
+    }
+}
+
+#[test]
+fn sony_fr7_profile_path_advertises_and_decodes_atw() {
+    use grafton_visca::{
+        command::WhiteBalanceMode,
+        profiles::{GenericVisca, SonyFR7},
+        ProfileSpec,
+    };
+
+    let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
+    assert!(
+        fr7.capabilities()
+            .white_balance_modes
+            .contains(&WhiteBalanceMode::ATW),
+        "the FR7 registry advertises its typed ATW wire value"
+    );
+    let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic VISCA profile");
+    assert!(
+        !generic
+            .capabilities()
+            .white_balance_modes
+            .contains(&WhiteBalanceMode::ATW),
+        "ATW remains an FR7-specific advertised mode"
+    );
+
+    let response = Response::parse_with_profile::<SonyFR7>(
+        &[0x90, 0x50, 0x04, 0xff],
+        &InquiryKind::WhiteBalanceMode,
+    )
+    .expect("the Sony FR7 ATW inquiry reply must decode");
+    assert!(matches!(
+        response,
+        Response::Inquiry(InquiryData::WhiteBalanceMode {
+            mode: WhiteBalanceMode::ATW
+        })
+    ));
+}
 
 #[test]
 fn test_parse_power_inquiry_responses() {
@@ -268,24 +325,6 @@ fn test_parse_luminance_inquiry() {
 }
 
 #[test]
-fn test_parse_resolution_inquiry() {
-    let data = vec![0x90, 0x50, 0x00, 0xFF]; // 0x00 = FullHD60
-    let result = Response::parse_with_type(&data, &InquiryKind::Resolution);
-    assert!(
-        result.is_ok(),
-        "Failed to parse resolution response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::Resolution(code)) => {
-            assert_eq!(code, ResolutionMode::FullHD60, "Resolution code mismatch");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-}
-
-#[test]
 fn test_parse_sharpness_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
     let result = Response::parse_with_type(&data, &InquiryKind::Sharpness);
@@ -316,6 +355,24 @@ fn test_parse_iris_inquiry() {
     match result.unwrap() {
         Response::Inquiry(InquiryData::Iris { position }) => {
             assert_eq!(position, 0x0A, "Iris position mismatch");
+        }
+        _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
+fn test_parse_iris_inquiry_preserves_both_position_nibbles() {
+    let data = vec![0x90, 0x50, 0x00, 0x00, 0x01, 0x0E, 0xFF];
+    let result = Response::parse_with_type(&data, &InquiryKind::Iris);
+    assert!(
+        result.is_ok(),
+        "Failed to parse multi-nibble iris response: {:?}",
+        result
+    );
+
+    match result.unwrap() {
+        Response::Inquiry(InquiryData::Iris { position }) => {
+            assert_eq!(position, 0x1E, "Iris position mismatch");
         }
         _ => panic!("Unexpected response type"),
     }
@@ -372,6 +429,20 @@ fn test_parse_noise_reduction_3d_inquiry() {
             assert_eq!(level, 0x05, "3D NR level mismatch");
         }
         _ => panic!("Unexpected response type"),
+    }
+}
+
+#[test]
+fn test_parse_noise_reduction_3d_inquiry_full_public_domain() {
+    for wire in 0x00..=0x08 {
+        let response =
+            Response::parse_with_type(&[0x90, 0x50, wire, 0xFF], &InquiryKind::NoiseReduction3D)
+                .expect("every public 3D NR level must parse");
+
+        assert!(matches!(
+            response,
+            Response::Inquiry(InquiryData::NoiseReduction3D { level }) if level == wire
+        ));
     }
 }
 

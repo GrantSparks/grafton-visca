@@ -24,7 +24,7 @@ macro_rules! visca_test {
     ($name:ident, $test_name:ident, $cmd:expr, $expected:expr) => {
         #[test]
         fn $test_name() {
-            use $crate::command::ViscaCommand;
+            use $crate::command::encode::WireEncode;
             use $crate::CameraId;
 
             let cmd = $cmd;

@@ -1,12 +1,11 @@
-//! Variable speed mode commands for Sony FR7.
+//! Pan/tilt speed-step commands for Sony FR7.
 //!
-//! The FR7 supports switching between 24-step and 50-step speed modes for pan/tilt control.
-//! When in 50-step mode, pan/tilt speed values can range from 1-50 for finer control.
+//! The FR7 supports switching between normal 24-step and extended 50-step
+//! pan/tilt speed ranges.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
 };
 
 /// Variable speed mode setting for Sony FR7.
@@ -22,12 +21,12 @@ pub enum VariableSpeedMode {
     Fine50,
 }
 
-/// Command to set variable speed mode on Sony FR7.
+/// Command to set the pan/tilt speed-step range on Sony FR7.
 ///
 /// # Sony FR7 Specific
-/// Command: `81 01 7E 04 1B 0p FF`
-/// - p = 1 (24-step mode)
-/// - p = 2 (50-step mode)
+/// Command: `81 01 06 45 pp FF`
+/// - pp = `08` (normal 24-step range)
+/// - pp = `18` (extended 50-step range)
 #[derive(Debug, Clone, Copy)]
 pub struct SetVariableSpeedMode {
     /// The speed mode to set.
@@ -41,10 +40,7 @@ impl SetVariableSpeedMode {
     }
 }
 
-impl ViscaCommand for SetVariableSpeedMode {
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for SetVariableSpeedMode {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -53,8 +49,8 @@ impl ViscaCommand for SetVariableSpeedMode {
         use crate::command::bytes::constants;
 
         let mode_byte = match self.mode {
-            VariableSpeedMode::Standard24 => 0x01,
-            VariableSpeedMode::Fine50 => 0x02,
+            VariableSpeedMode::Standard24 => 0x08,
+            VariableSpeedMode::Fine50 => 0x18,
         };
 
         ConstCommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
@@ -75,13 +71,13 @@ mod tests {
         SetVariableSpeedMode,
         test_variable_speed_mode_standard24,
         SetVariableSpeedMode::new(VariableSpeedMode::Standard24),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x01, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x45, 0x08, VISCA_TERMINATOR]
     );
 
     visca_test!(
         SetVariableSpeedMode,
         test_variable_speed_mode_fine50,
         SetVariableSpeedMode::new(VariableSpeedMode::Fine50),
-        &[0x81, 0x01, 0x7E, 0x04, 0x1B, 0x02, VISCA_TERMINATOR]
+        &[0x81, 0x01, 0x06, 0x45, 0x18, VISCA_TERMINATOR]
     );
 }

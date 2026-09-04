@@ -4,9 +4,8 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::ViscaCommand},
+    command::{bytes::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    timeout::CommandCategory,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
     visca_command,
 };
@@ -19,7 +18,6 @@ visca_command! {
     /// white balance to achieve neutral colors.
     pub struct OnePushTriggerCommand;
     bytes = [0x01, 0x04, 0x10, 0x05];
-    category = CommandCategory::Quick;
 }
 
 impl Default for OnePushTriggerCommand {
@@ -52,7 +50,6 @@ visca_command! {
         [0x00, encoded]
     };
     max_param_size = 2;
-    category = CommandCategory::Quick;
 }
 
 impl RedTuningCommand {
@@ -79,7 +76,6 @@ visca_command! {
         [0x00, encoded]
     };
     max_param_size = 2;
-    category = CommandCategory::Quick;
 }
 
 impl BlueTuningCommand {
@@ -101,7 +97,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
     param = level.value();
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl SaturationCommand {
@@ -123,7 +118,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
     param = level.value();
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl HueCommand {
@@ -156,10 +150,7 @@ pub enum ColorTemperature {
     SetTemperature(crate::types::ColorTemp),
 }
 
-impl ViscaCommand for ColorTemperature {
-    const MAX_SIZE: usize = 8;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for ColorTemperature {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -224,10 +215,7 @@ pub enum RedGain {
     SetValue(crate::types::RedChannel),
 }
 
-impl ViscaCommand for RedGain {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for RedGain {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -290,10 +278,7 @@ pub enum BlueGain {
     SetValue(crate::types::BlueChannel),
 }
 
-impl ViscaCommand for BlueGain {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for BlueGain {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -345,9 +330,7 @@ impl ViscaCommand for BlueGain {
 )]
 mod tests {
     use super::*;
-    use crate::{
-        command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test, timeout::CommandTimeout,
-    };
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         OnePushTriggerCommand,
@@ -362,17 +345,13 @@ mod tests {
         for level in -10..=10 {
             let tuning = RedTuning::new(level).unwrap();
             let cmd = RedTuningCommand::new(tuning);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x43, 0x00, 0x00]);
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid RedTuning
@@ -386,17 +365,13 @@ mod tests {
         for level in -10..=10 {
             let tuning = BlueTuning::new(level).unwrap();
             let cmd = BlueTuningCommand::new(tuning);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..6], [0x81, 0x01, 0x04, 0x44, 0x00, 0x00]);
             assert_eq!(bytes[6], 0x00);
             assert_eq!(bytes[7], (level + 10) as u8);
             assert_eq!(bytes[8], 0xFF);
-            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid values - can't create invalid BlueTuning
@@ -410,9 +385,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let sat_level = SaturationLevel::new(level).unwrap();
             let cmd = SaturationCommand::new(sat_level);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(
                 bytes,
@@ -428,8 +401,6 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid SaturationLevel
@@ -442,9 +413,7 @@ mod tests {
         for level in 0x00..=0x0E {
             let hue_level = HueLevel::new(level).unwrap();
             let cmd = HueCommand::new(hue_level);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(
                 bytes,
@@ -460,8 +429,6 @@ mod tests {
                     VISCA_TERMINATOR
                 ]
             );
-            assert!(cmd.behavior().command_kind() == crate::command::CommandKind::Command);
-            assert!(matches!(cmd.timeout_class(), CommandCategory::Quick));
         }
 
         // Test invalid value - can't create invalid HueLevel
@@ -473,27 +440,21 @@ mod tests {
         // Test Reset
         let cmd = ColorTemperature::Reset;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
         let cmd = ColorTemperature::Up;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
         let cmd = ColorTemperature::Down;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x20, 0x03, VISCA_TERMINATOR]
         );
 
@@ -502,9 +463,7 @@ mod tests {
         for temp in test_values {
             let color_temp = crate::types::ColorTemp::new(temp).unwrap();
             let cmd = ColorTemperature::SetTemperature(color_temp);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(bytes.len(), 7);
             assert_eq!(bytes[0..4], [0x81, 0x01, 0x04, 0x20]);
@@ -522,27 +481,21 @@ mod tests {
         // Test Reset
         let cmd = RedGain::Reset;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
         let cmd = RedGain::Up;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
         let cmd = RedGain::Down;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x03, 0x03, VISCA_TERMINATOR]
         );
 
@@ -551,9 +504,7 @@ mod tests {
         for gain in test_values {
             let red_gain = crate::types::RedChannel::new(gain).unwrap();
             let cmd = RedGain::SetValue(red_gain);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x43, 0x00]);
@@ -569,27 +520,21 @@ mod tests {
         // Test Reset
         let cmd = BlueGain::Reset;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x00, VISCA_TERMINATOR]
         );
 
         // Test Up
         let cmd = BlueGain::Up;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x02, VISCA_TERMINATOR]
         );
 
         // Test Down
         let cmd = BlueGain::Down;
         assert_eq!(
-            cmd.to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap(),
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap(),
             vec![0x81, 0x01, 0x04, 0x04, 0x03, VISCA_TERMINATOR]
         );
 
@@ -598,9 +543,7 @@ mod tests {
         for gain in test_values {
             let blue_gain = crate::types::BlueChannel::new(gain).unwrap();
             let cmd = BlueGain::SetValue(blue_gain);
-            let bytes = cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap();
             assert_eq!(bytes.len(), 9);
             assert_eq!(bytes[0..5], [0x81, 0x01, 0x04, 0x44, 0x00]);
@@ -633,13 +576,9 @@ mod tests {
         let red_cmd1 = RedTuningCommand::new(RedTuning::new(5).unwrap());
         let red_cmd2 = red_cmd1;
         assert_eq!(
-            red_cmd1
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&red_cmd1, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap(),
-            red_cmd2
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&red_cmd2, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap()
         );
     }
@@ -648,122 +587,102 @@ mod tests {
     fn test_edge_cases() {
         // Test boundary values for tuning commands
         let red_min = RedTuningCommand::new(RedTuning::new(-10).unwrap());
-        assert!(red_min
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&red_min, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
         assert_eq!(
-            red_min
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&red_min, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap()[7],
             0x00
         );
 
         let red_max = RedTuningCommand::new(RedTuning::MAX);
-        assert!(red_max
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&red_max, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
         assert_eq!(
-            red_max
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&red_max, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap()[7],
             0x14
         );
 
         let blue_min = BlueTuningCommand::new(BlueTuning::new(-10).unwrap());
-        assert!(blue_min
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&blue_min, crate::camera_id::CameraId::CAMERA_1)
+                .is_ok()
+        );
         assert_eq!(
-            blue_min
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&blue_min, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap()[7],
             0x00
         );
 
         let blue_max = BlueTuningCommand::new(BlueTuning::MAX);
-        assert!(blue_max
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&blue_max, crate::camera_id::CameraId::CAMERA_1)
+                .is_ok()
+        );
         assert_eq!(
-            blue_max
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
+            crate::command::test_wire_bytes(&blue_max, crate::camera_id::CameraId::CAMERA_1)
                 .unwrap()[7],
             0x14
         );
 
         // Test boundary values for saturation and hue
         let sat_min = SaturationCommand::new(SaturationLevel::new(0x00).unwrap());
-        assert!(sat_min
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&sat_min, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
 
         let sat_max = SaturationCommand::new(SaturationLevel::new(0x0E).unwrap());
-        assert!(sat_max
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&sat_max, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
 
         let hue_min = HueCommand::new(HueLevel::new(0x00).unwrap());
-        assert!(hue_min
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&hue_min, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
 
         let hue_max = HueCommand::new(HueLevel::new(0x0E).unwrap());
-        assert!(hue_max
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&hue_max, crate::camera_id::CameraId::CAMERA_1).is_ok()
+        );
 
         // Test boundary value for color temperature
         let temp_min =
             ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x00).unwrap());
-        assert!(temp_min
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&temp_min, crate::camera_id::CameraId::CAMERA_1)
+                .is_ok()
+        );
 
         let temp_max =
             ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x37).unwrap());
-        assert!(temp_max
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .is_ok());
+        assert!(
+            crate::command::test_wire_bytes(&temp_max, crate::camera_id::CameraId::CAMERA_1)
+                .is_ok()
+        );
     }
 
     #[test]
     fn test_nibble_encoding() {
         // Test that Direct commands properly encode values as nibbles
         let cmd = ColorTemperature::SetTemperature(crate::types::ColorTemp::new(0x25).unwrap());
-        let bytes = cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
+        let bytes =
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[4], 0x02);
         assert_eq!(bytes[5], 0x05);
 
         let cmd = RedGain::SetValue(crate::types::RedChannel::new(0xAB).unwrap());
-        let bytes = cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
+        let bytes =
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[6], 0x0A);
         assert_eq!(bytes[7], 0x0B);
 
         let cmd = BlueGain::SetValue(crate::types::BlueChannel::new(0xF0).unwrap());
-        let bytes = cmd
-            .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-            .map(|b| b.to_vec())
-            .unwrap();
+        let bytes =
+            crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).unwrap();
         assert_eq!(bytes[6], 0x0F);
         assert_eq!(bytes[7], 0x00);
     }
@@ -776,17 +695,15 @@ mod tests {
             let expected = (level + 10) as u8;
 
             let red_cmd = RedTuningCommand::new(RedTuning::new(level).unwrap());
-            let red_bytes = red_cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap();
+            let red_bytes =
+                crate::command::test_wire_bytes(&red_cmd, crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap();
             assert_eq!(red_bytes[7], expected);
 
             let blue_cmd = BlueTuningCommand::new(BlueTuning::new(level).unwrap());
-            let blue_bytes = blue_cmd
-                .to_bytes(crate::camera_id::CameraId::CAMERA_1)
-                .map(|b| b.to_vec())
-                .unwrap();
+            let blue_bytes =
+                crate::command::test_wire_bytes(&blue_cmd, crate::camera_id::CameraId::CAMERA_1)
+                    .unwrap();
             assert_eq!(blue_bytes[7], expected);
         }
     }

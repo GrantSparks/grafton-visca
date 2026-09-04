@@ -8,6 +8,7 @@ use std::borrow::Cow;
 
 use crate::{
     camera::PanTiltPosition,
+    capabilities::Profile,
     types::{PanPosition, TiltPosition, ZoomPosition},
     units::{Degrees, UnitInterval},
 };
@@ -19,15 +20,15 @@ use crate::{
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltPositionRaw {
-    /// Pan position in raw VISCA units (-2448 to +2448).
-    pub pan: i16,
-    /// Tilt position in raw VISCA units (-432 to +1296).
-    pub tilt: i16,
+    /// Pan position in raw VISCA units.
+    pub pan: i32,
+    /// Tilt position in raw VISCA units.
+    pub tilt: i32,
 }
 
 impl PanTiltPositionRaw {
     /// Creates a new raw pan/tilt position.
-    pub const fn new(pan: i16, tilt: i16) -> Self {
+    pub const fn new(pan: i32, tilt: i32) -> Self {
         Self { pan, tilt }
     }
 
@@ -37,6 +38,11 @@ impl PanTiltPositionRaw {
     /// - Pan: -170° to +170° mapped from -2448 to +2448
     /// - Tilt: -30° to +90° mapped from -432 to +1296
     ///
+    /// An axis outside those standard `i16` ranges returns `NaN` rather than
+    /// silently being treated as the center position. Use
+    /// [`Self::as_degrees_with_profile`] for profile-specific coordinates such
+    /// as Sony BRC-300's signed 20-bit pan values.
+    ///
     /// # Example
     /// ```ignore
     /// let raw_pos = PanTiltPositionRaw::new(1224, 648);
@@ -44,34 +50,35 @@ impl PanTiltPositionRaw {
     /// // deg_pos.pan ≈ 85°, deg_pos.tilt ≈ 45°
     /// ```
     pub fn as_degrees(&self) -> PanTiltPositionDeg {
-        // Use the existing conversion methods from PanPosition and TiltPosition
-        let pan_pos = PanPosition::new(self.pan).unwrap_or(PanPosition::CENTER);
-        let tilt_pos = TiltPosition::new(self.tilt).unwrap_or(TiltPosition::CENTER);
+        let pan = i16::try_from(self.pan)
+            .ok()
+            .and_then(|value| PanPosition::new(value).ok())
+            .map_or(f32::NAN, PanPosition::to_degrees);
+        let tilt = i16::try_from(self.tilt)
+            .ok()
+            .and_then(|value| TiltPosition::new(value).ok())
+            .map_or(f32::NAN, TiltPosition::to_degrees);
 
         PanTiltPositionDeg {
-            pan: Degrees(pan_pos.to_degrees()),
-            tilt: Degrees(tilt_pos.to_degrees()),
+            pan: Degrees(pan),
+            tilt: Degrees(tilt),
         }
     }
 
     /// Converts raw pan/tilt position to degrees with profile-specific adjustments.
     ///
-    /// Some camera profiles may have different conversion factors or ranges.
-    /// This method allows for profile-aware conversion.
+    /// Some camera profiles may have different signed conversion scales or
+    /// ranges. A negative scale preserves a camera's reverse raw-axis
+    /// polarity while keeping the library degree convention unchanged.
     ///
     /// # Parameters
     /// - `profile`: The camera profile to use for conversion
     ///
-    /// # Note
-    /// Currently uses standard VISCA conversion. Profile-specific adjustments
-    /// will be added as needed for different camera models.
-    pub fn as_degrees_with_profile<P: crate::capabilities::Profile>(
-        &self,
-        _profile: &P,
-    ) -> PanTiltPositionDeg {
-        // For now, use standard conversion
-        // In future, profiles can override conversion factors
-        self.as_degrees()
+    pub fn as_degrees_with_profile<P: Profile>(&self, _profile: &P) -> PanTiltPositionDeg {
+        PanTiltPositionDeg {
+            pan: Degrees(self.pan as f32 / P::PAN_DEGREES_TO_UNITS),
+            tilt: Degrees(self.tilt as f32 / P::TILT_DEGREES_TO_UNITS),
+        }
     }
 }
 
@@ -112,9 +119,39 @@ impl PanTiltPositionDeg {
         let tilt_pos = TiltPosition::from_degrees(self.tilt.0)?;
 
         Ok(PanTiltPositionRaw {
-            pan: pan_pos.value(),
-            tilt: tilt_pos.value(),
+            pan: i32::from(pan_pos.value()),
+            tilt: i32::from(tilt_pos.value()),
         })
+    }
+
+    /// Converts degrees to raw units using a profile's signed, profile-specified
+    /// pan/tilt scales and validated raw coordinate ranges.
+    pub fn to_raw_with_profile<P: Profile>(
+        &self,
+        _profile: &P,
+    ) -> Result<PanTiltPositionRaw, crate::Error> {
+        if !self.pan.0.is_finite() || !self.tilt.0.is_finite() {
+            return Err(crate::Error::InvalidRequest(
+                "pan/tilt degree values must be finite".into(),
+            ));
+        }
+        let pan = (self.pan.0 * P::PAN_DEGREES_TO_UNITS).round();
+        let tilt = (self.tilt.0 * P::TILT_DEGREES_TO_UNITS).round();
+        if !(i32::MIN as f32..=i32::MAX as f32).contains(&pan)
+            || !(i32::MIN as f32..=i32::MAX as f32).contains(&tilt)
+        {
+            return Err(crate::Error::InvalidRequest(
+                "converted pan/tilt coordinate exceeds signed 32-bit units".into(),
+            ));
+        }
+        let pan = pan as i32;
+        let tilt = tilt as i32;
+        if !P::PAN_RANGE.contains(pan) || !P::TILT_RANGE.contains(tilt) {
+            return Err(crate::Error::InvalidRequest(
+                "converted pan/tilt units are outside the profile range".into(),
+            ));
+        }
+        Ok(PanTiltPositionRaw { pan, tilt })
     }
 }
 
@@ -318,6 +355,44 @@ mod tests {
 
         assert!((deg.pan.0 - deg2.pan.0).abs() < 1.0);
         assert!((deg.tilt.0 - deg2.tilt.0).abs() < 1.0);
+        Ok(())
+    }
+
+    #[test]
+    fn sony_brc300_profile_conversion_preserves_documented_reverse_axis_polarity(
+    ) -> Result<(), crate::Error> {
+        use crate::profiles::SonyBRC300;
+
+        let degrees = PanTiltPositionDeg::new(Degrees(45.0), Degrees(-15.0));
+        assert_eq!(
+            degrees.to_raw_with_profile(&SonyBRC300)?,
+            PanTiltPositionRaw::new(-0x02490, 0x0C30)
+        );
+        let round_trip =
+            PanTiltPositionRaw::new(-0x02490, 0x0C30).as_degrees_with_profile(&SonyBRC300);
+        assert!((round_trip.pan.0 - 45.0).abs() < f32::EPSILON);
+        assert!((round_trip.tilt.0 + 15.0).abs() < f32::EPSILON);
+
+        // The manual's positive raw endpoints are left/up, so the profile
+        // maps them to negative library degrees. They also exceed i16 for pan.
+        let left_up = PanTiltPositionRaw::new(0x08A58, 0x493D).as_degrees_with_profile(&SonyBRC300);
+        assert!(left_up.pan.0 < 0.0);
+        assert!(left_up.tilt.0 < 0.0);
+        assert!((left_up.pan.0 + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+        assert!((left_up.tilt.0 + 0x493D as f32 / 208.0).abs() < f32::EPSILON);
+
+        // Conversely, negative raw endpoints are right/down and map to
+        // positive library degrees.
+        let right_down =
+            PanTiltPositionRaw::new(-0x08A58, -0x186A).as_degrees_with_profile(&SonyBRC300);
+        assert!(right_down.pan.0 > 0.0);
+        assert!(right_down.tilt.0 > 0.0);
+        assert!((right_down.pan.0 - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+        assert!((right_down.tilt.0 - 0x186A as f32 / 208.0).abs() < f32::EPSILON);
+
+        let standard_only = PanTiltPositionRaw::new(0x08A58, 0x493D).as_degrees();
+        assert!(standard_only.pan.0.is_nan());
+        assert!(standard_only.tilt.0.is_nan());
         Ok(())
     }
 

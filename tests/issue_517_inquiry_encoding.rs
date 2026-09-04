@@ -8,9 +8,9 @@ use std::{
 
 use grafton_visca::{
     command::{
-        PowerInquiry, TallyGreenInquiry, ViscaCommand, ZoomPositionInquiry, VISCA_TERMINATOR,
+        PowerInquiry, TallyGreenInquiry, TallyRedInquiry, ZoomPositionInquiry, VISCA_TERMINATOR,
     },
-    CameraId, Error, ViscaInquiry,
+    CameraId, Error, Request, ViscaInquiry,
 };
 
 struct CountingAllocator;
@@ -115,11 +115,15 @@ fn derived_inquiry_write_into_does_not_allocate() {
         "TallyGreenInquiry.write_into allocated"
     );
 
-    let mut downstream_buffer = [0u8; DownstreamZoomPositionInquiry::MAX_SIZE];
+    let mut downstream_buffer =
+        [0u8; <DownstreamZoomPositionInquiry as grafton_visca::Request>::MAX_SIZE];
     let downstream_allocations = allocations_during(|| {
-        let len = DownstreamZoomPositionInquiry
-            .write_into(CameraId::CAMERA_1, &mut downstream_buffer)
-            .expect("downstream inquiry should encode");
+        let len = <DownstreamZoomPositionInquiry as grafton_visca::Request>::write_into(
+            &DownstreamZoomPositionInquiry,
+            CameraId::CAMERA_1,
+            &mut downstream_buffer,
+        )
+        .expect("downstream inquiry should encode");
         std::hint::black_box(len);
     });
     assert_eq!(
@@ -136,10 +140,38 @@ fn internal_extended_inquiry_remains_extended() {
         .write_into(CameraId::CAMERA_3, &mut buffer)
         .expect("tally inquiry should encode");
 
-    assert_eq!(TallyGreenInquiry::MAX_SIZE, 7);
+    assert_eq!(TallyGreenInquiry::MAX_SIZE, 6);
     assert_eq!(
         &buffer[..len],
-        &[0x83, 0x09, 0x7E, 0x04, 0x1A, 0x00, VISCA_TERMINATOR]
+        &[0x83, 0x09, 0x7E, 0x04, 0x1A, VISCA_TERMINATOR]
+    );
+
+    let mut red = [0u8; TallyRedInquiry::MAX_SIZE];
+    let red_len = TallyRedInquiry
+        .write_into(CameraId::CAMERA_3, &mut red)
+        .expect("red tally inquiry should encode");
+    assert_eq!(TallyRedInquiry::MAX_SIZE, 6);
+    assert_eq!(
+        &red[..red_len],
+        &[0x83, 0x09, 0x7E, 0x01, 0x0A, VISCA_TERMINATOR]
+    );
+
+    let mut camera_1_green = [0u8; TallyGreenInquiry::MAX_SIZE];
+    let camera_1_green_len = TallyGreenInquiry
+        .write_into(CameraId::CAMERA_1, &mut camera_1_green)
+        .expect("camera 1 green tally inquiry should encode");
+    assert_eq!(
+        &camera_1_green[..camera_1_green_len],
+        &[0x81, 0x09, 0x7E, 0x04, 0x1A, VISCA_TERMINATOR]
+    );
+
+    let mut camera_1_red = [0u8; TallyRedInquiry::MAX_SIZE];
+    let camera_1_red_len = TallyRedInquiry
+        .write_into(CameraId::CAMERA_1, &mut camera_1_red)
+        .expect("camera 1 red tally inquiry should encode");
+    assert_eq!(
+        &camera_1_red[..camera_1_red_len],
+        &[0x81, 0x09, 0x7E, 0x01, 0x0A, VISCA_TERMINATOR]
     );
 }
 

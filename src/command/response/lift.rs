@@ -4,9 +4,9 @@ use std::borrow::Cow;
 
 use super::{
     decoders::{dispatch, dispatch_for},
-    types::{RawInquiryPayload, Response},
+    types::Response,
 };
-use crate::command::{encode::InquiryResponseSpec, inquiry_structs::InquiryKind};
+use crate::command::inquiry_structs::InquiryKind;
 use crate::{
     capabilities::{PanTilt, Profile},
     error::Error,
@@ -90,42 +90,6 @@ pub fn lift_inquiry_for<P: Profile + PanTilt>(
                 })
             }
         }
-        BasicKind::Unknown => Ok(Response::Unknown {
-            response_type: None,
-            data: basic.payload.as_slice().to_vec(),
-        }),
-    }
-}
-
-/// Lift a basic protocol response using complete inquiry response routing metadata.
-pub fn lift_response_for_spec<P: Profile + PanTilt>(
-    basic: &BasicResponse<'_>,
-    expected: Option<&InquiryResponseSpec>,
-) -> Result<Response, Error> {
-    match basic.kind {
-        BasicKind::Ack => Ok(Response::CmdAck {
-            socket: basic.socket,
-        }),
-        BasicKind::Completion => Ok(Response::Completion {
-            socket: basic.socket,
-        }),
-        BasicKind::Error(code) => Ok(Response::Error(Error::from_code(code))),
-        BasicKind::NetworkChange => Ok(Response::Unknown {
-            response_type: None,
-            data: vec![],
-        }),
-        BasicKind::DataReply => match expected {
-            Some(InquiryResponseSpec::Builtin(response_type)) => {
-                dispatch_for::<P>(*response_type, basic.payload)
-            }
-            Some(InquiryResponseSpec::Raw) => Ok(Response::RawInquiry(
-                RawInquiryPayload::from_slice(basic.payload.as_slice()),
-            )),
-            None => Ok(Response::Unknown {
-                response_type: None,
-                data: basic.payload.as_slice().to_vec(),
-            }),
-        },
         BasicKind::Unknown => Ok(Response::Unknown {
             response_type: None,
             data: basic.payload.as_slice().to_vec(),

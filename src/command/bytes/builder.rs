@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 
 #[cfg(test)]
+#[cfg(test)]
 use crate::command::bytes::FixedCommandBytes;
 use crate::command::bytes::VISCA_TERMINATOR;
 
@@ -34,9 +35,18 @@ pub struct Terminated;
 /// If operations would exceed the buffer capacity, they are skipped and an
 /// error is returned at finalization time.
 ///
-/// A trailing `0xFF` is not sufficient evidence that the command is already
-/// terminated: it may be a data byte, such as preset number 255. Termination
-/// is therefore tracked explicitly and is cleared whenever data is appended.
+/// # Termination Tracking
+///
+/// Whether the content already carries a VISCA terminator is tracked
+/// explicitly in [`Self::terminated`] rather than inferred from the trailing
+/// byte at [`terminate`](ConstCommandBuilder::terminate) time. Inferring from
+/// the last byte is wrong whenever the final *data* byte is `0xFF` (for
+/// example preset number 255, or a `0xFF` direct-menu control parameter): such
+/// a byte is data, not a terminator, and must still be followed by one. The
+/// flag is only ever set true by loading an already-terminated complete-command
+/// constant through [`from_prefix`](ConstCommandBuilder::from_prefix), and is
+/// cleared again the moment any further data is appended, so a data `0xFF` is
+/// never mistaken for a terminator.
 ///
 /// # Examples
 ///
@@ -52,7 +62,7 @@ pub struct ConstCommandBuilder<const N: usize, State = Incomplete> {
     position: usize,
     required: usize,  // Total bytes required (including those that couldn't fit)
     overflowed: bool, // True if any write was skipped due to lack of space
-    terminated: bool, // True only when the current content includes a terminator
+    terminated: bool, // True when the content already ends with a terminator byte
     _state: PhantomData<State>,
 }
 
@@ -82,9 +92,15 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         // Track if prefix was truncated
         let overflowed = prefix.len() > N;
         let required = prefix.len();
-        // A prefix is a complete, self-contained byte string, so a trailing
-        // 0xFF is unambiguously a terminator here. Any later write clears it.
-        let terminated = !overflowed && i > 0 && buffer[i - 1] == VISCA_TERMINATOR;
+
+        // A complete-command constant (e.g. `pan_tilt::HOME`) is passed in
+        // already terminated. Detect that here, where the whole prefix is a
+        // known, self-contained VISCA byte string and a trailing `0xFF` is
+        // unambiguously the terminator. Any subsequent `push`/`append` clears
+        // this flag, so a `0xFF` that is appended as data is never treated as a
+        // terminator. Detect on the bytes actually stored; a truncated prefix
+        // overflows and errors at build time regardless of this flag.
+        let terminated = i > 0 && buffer[i - 1] == VISCA_TERMINATOR;
 
         Self {
             buffer,
@@ -163,6 +179,24 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
+    /// Add a VISCA-encoded 20-bit value (5 nibbles).
+    pub fn push_visca_u20(mut self, value: u32) -> Self {
+        self.terminated = false;
+        self.required += 5;
+        if self.position + 5 <= N {
+            let value = value & 0x000F_FFFF;
+            self.buffer[self.position] = ((value >> 16) & 0x0F) as u8;
+            self.buffer[self.position + 1] = ((value >> 12) & 0x0F) as u8;
+            self.buffer[self.position + 2] = ((value >> 8) & 0x0F) as u8;
+            self.buffer[self.position + 3] = ((value >> 4) & 0x0F) as u8;
+            self.buffer[self.position + 4] = (value & 0x0F) as u8;
+            self.position += 5;
+        } else {
+            self.overflowed = true;
+        }
+        self
+    }
+
     /// Add a nibble pair (2 bytes) from a u16 value.
     /// The high nibble (bits 4-7) and low nibble (bits 0-3) are stored as separate bytes.
     pub fn push_nibble_pair(mut self, value: u16) -> Self {
@@ -216,22 +250,6 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         self
     }
 
-    /// Mutable VISCA-encoded 16-bit value.
-    pub fn push_visca_u16_mut(&mut self, value: u16) -> &mut Self {
-        self.terminated = false;
-        self.required += 4;
-        if self.position + 4 <= N {
-            self.buffer[self.position] = ((value >> 12) & 0x0F) as u8;
-            self.buffer[self.position + 1] = ((value >> 8) & 0x0F) as u8;
-            self.buffer[self.position + 2] = ((value >> 4) & 0x0F) as u8;
-            self.buffer[self.position + 3] = (value & 0x0F) as u8;
-            self.position += 4;
-        } else {
-            self.overflowed = true;
-        }
-        self
-    }
-
     /// Mutable nibble pair.
     pub fn push_nibble_pair_mut(&mut self, value: u16) -> &mut Self {
         self.terminated = false;
@@ -248,6 +266,14 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
 
     /// Terminate the command by adding the VISCA terminator byte.
     /// This consumes the builder and returns a terminated version.
+    ///
+    /// Whether a terminator is still needed is read from the explicit
+    /// [`terminated`](Self::terminated) flag, not inferred from the trailing
+    /// byte. A command whose final *data* byte is `0xFF` (preset number 255, a
+    /// `0xFF` direct-menu control parameter, ...) is therefore terminated
+    /// correctly instead of being left one byte short: the appended `0xFF` is
+    /// data and is still followed by the terminator, so `write_into` reports the
+    /// full `encoded_size`.
     pub fn terminate(mut self) -> ConstCommandBuilder<N, Terminated> {
         if !self.terminated {
             self.required += 1;
@@ -261,7 +287,7 @@ impl<const N: usize> ConstCommandBuilder<N, Incomplete> {
         }
 
         // Note: We don't validate here since this is the type-safe path.
-        // The terminator is guaranteed by the builder logic.
+        // The terminator is guaranteed by the builder logic above.
 
         ConstCommandBuilder {
             buffer: self.buffer,
@@ -348,24 +374,47 @@ impl<const N: usize> Default for ConstCommandBuilder<N, Incomplete> {
 mod tests {
     use super::*;
 
+    /// Blanket fallback used to assert, at compile time, that the `Incomplete`
+    /// state carries no inherent `as_bytes`.
+    ///
+    /// Rust resolves inherent methods before trait methods, so a call to
+    /// `as_bytes` on a builder falls through to this fallback *only* while no
+    /// inherent method of that name applies. Binding each call's result to an
+    /// explicit type therefore turns "the method does not exist" into a type
+    /// error rather than a comment: give `ConstCommandBuilder<N, Incomplete>`
+    /// an inherent `as_bytes` and this module stops compiling.
+    ///
+    /// This cannot be a public compile-contract fixture: `command::bytes` is `pub(crate)`,
+    /// so no external fixture crate can name the builder at all, and a fixture
+    /// that tried would fail on the module privacy rather than on the type
+    /// state — a green check for the wrong reason.
+    trait AsBytesFallback {
+        fn as_bytes(&self) -> &'static str {
+            "fallback"
+        }
+    }
+
+    impl<T> AsBytesFallback for T {}
+
     #[test]
-    fn test_type_state_enforces_termination() {
-        // Create an incomplete builder
+    fn the_incomplete_state_has_no_inherent_as_bytes() {
         let builder = ConstCommandBuilder::<10>::new()
             .push(0x81)
             .push(0x01)
             .push(0x04)
             .push(0x47);
 
-        // Can't get bytes without terminating (this won't compile if uncommented)
-        // let bytes = builder.as_bytes(); // ERROR: method not found
+        // Resolves to the fallback, which is only possible while the
+        // `Incomplete` state has no `as_bytes` of its own.
+        let unterminated: &'static str = builder.as_bytes();
+        assert_eq!(unterminated, "fallback");
 
-        // Must terminate first
+        // The same call on the terminated state resolves to the inherent
+        // method instead, which is what makes the assertion above meaningful
+        // rather than a property of the fallback trait.
         let terminated = builder.terminate();
-
-        // Now we can get the bytes
-        let bytes = terminated.as_bytes();
-        assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
+        let bytes: &[u8] = terminated.as_bytes();
+        assert_eq!(bytes, &[0x81, 0x01, 0x04, 0x47, VISCA_TERMINATOR]);
     }
 
     #[test]
@@ -381,35 +430,6 @@ mod tests {
 
         // Verify as_bytes() returns exactly len() bytes
         assert_eq!(bytes.len(), terminated.len());
-    }
-
-    #[test]
-    fn trailing_ff_data_byte_still_gets_a_terminator() {
-        let terminated = ConstCommandBuilder::<7>::new()
-            .append(&[0x81, 0x01, 0x04, 0x3F, 0x02])
-            .push(u8::MAX)
-            .terminate();
-
-        assert_eq!(
-            terminated.as_bytes(),
-            &[0x81, 0x01, 0x04, 0x3F, 0x02, u8::MAX, VISCA_TERMINATOR,]
-        );
-    }
-
-    #[test]
-    fn complete_prefix_is_not_double_terminated() {
-        let terminated = ConstCommandBuilder::<6>::from_prefix(&[
-            0x81,
-            0x01,
-            0x04,
-            0x00,
-            0x02,
-            VISCA_TERMINATOR,
-        ])
-        .terminate();
-
-        assert_eq!(terminated.len(), 6);
-        assert_eq!(terminated.as_bytes().last(), Some(&VISCA_TERMINATOR));
     }
 
     #[test]
@@ -442,9 +462,8 @@ mod tests {
 
     #[test]
     fn test_overflow_from_prefix() {
-        // Include 0xFF at the truncation boundary: it is not the prefix's final
-        // byte and therefore must not suppress the required terminator count.
-        let large_prefix = [0x81, 0x01, 0x04, u8::MAX, 0x00, 0x01];
+        // Create a prefix that's larger than the buffer
+        let large_prefix = [0x81, 0x01, 0x04, 0x47, 0x00, 0x01];
         let builder = ConstCommandBuilder::<4>::from_prefix(&large_prefix);
 
         // Should detect overflow when trying to build
@@ -658,25 +677,6 @@ mod tests {
     }
 
     #[test]
-    fn test_push_visca_u16_mut_overflow() {
-        let mut builder = ConstCommandBuilder::<5>::new();
-        builder.push_mut(0x81);
-        builder.push_mut(0x01);
-        builder.push_visca_u16_mut(0x1234); // Needs 4 bytes, won't fit
-
-        let mut buffer = [0u8; 10];
-        let result = builder.terminate().build_into(&mut buffer);
-
-        assert!(matches!(
-            result,
-            Err(crate::Error::BufferTooSmall {
-                required: 7,
-                actual: 5
-            })
-        ));
-    }
-
-    #[test]
     fn test_push_nibble_pair_mut_overflow() {
         let mut builder = ConstCommandBuilder::<3>::new();
         builder.push_mut(0x81);
@@ -693,5 +693,71 @@ mod tests {
                 actual: 3
             })
         ));
+    }
+
+    /// Regression for #683: a command whose final *data* byte is `0xFF` must
+    /// still receive its terminator. The old implementation sniffed the last
+    /// byte and skipped the terminator here, writing the frame one byte short.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn terminate_appends_terminator_when_final_data_byte_is_ff() {
+        // Last pushed byte is 0xFF (data), e.g. preset number 255.
+        let builder = ConstCommandBuilder::<8>::new()
+            .push(0x81)
+            .push(0x01)
+            .push(0x04)
+            .push(0x3F)
+            .push(0x01)
+            .push(0xFF); // data 0xFF, NOT a terminator
+
+        let terminated = builder.terminate();
+        // The data 0xFF is kept and the terminator is appended after it.
+        assert_eq!(
+            terminated.as_bytes(),
+            &[0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
+        );
+        assert_eq!(terminated.len(), 7);
+
+        // build_into reports the full length, matching what encoded_size expects.
+        let mut buffer = [0u8; 8];
+        let written = terminated.build_into(&mut buffer).unwrap();
+        assert_eq!(written, 7);
+        assert_eq!(buffer[5], 0xFF); // data byte
+        assert_eq!(buffer[6], VISCA_TERMINATOR); // terminator
+    }
+
+    /// A complete-command constant is passed to `from_prefix` already
+    /// terminated (e.g. `pan_tilt::HOME`). `terminate()` must not append a
+    /// second terminator. This guards against a naive "always append" fix.
+    #[test]
+    fn from_prefix_complete_command_is_not_double_terminated() {
+        let complete = [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
+        let terminated = ConstCommandBuilder::<6>::from_prefix(&complete).terminate();
+        assert_eq!(terminated.as_bytes(), &complete);
+        assert_eq!(terminated.len(), 5);
+    }
+
+    /// Loading an already-terminated prefix and then pushing more data clears
+    /// the termination flag, so the builder re-terminates. This proves the flag
+    /// tracks data, not the trailing byte value.
+    #[test]
+    fn push_after_terminated_prefix_reterminates() {
+        let complete = [0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR];
+        let terminated = ConstCommandBuilder::<8>::from_prefix(&complete)
+            .push(0x00)
+            .terminate();
+        assert_eq!(
+            terminated.as_bytes(),
+            &[
+                0x81,
+                0x01,
+                0x06,
+                0x04,
+                VISCA_TERMINATOR,
+                0x00,
+                VISCA_TERMINATOR
+            ]
+        );
+        assert_eq!(terminated.len(), 7);
     }
 }

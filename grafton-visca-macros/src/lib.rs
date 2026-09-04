@@ -14,17 +14,30 @@ use syn::{parse_macro_input, DeriveInput};
 
 use proc_macro::TokenStream;
 
-mod forward_control;
+mod crate_path;
 mod inquiry_command;
-mod parser_templates;
+mod range_type;
 mod value_macros;
 mod visca_enum;
 
-/// Derive macro for implementing ViscaValue trait for command value types
+/// Internal expansion adapter used by `grafton_visca::visca_range_type!`.
 ///
-/// This macro automatically generates the `ViscaValue` trait implementation
-/// for types that represent VISCA command values, providing methods for
-/// converting to and from byte representations.
+/// This is exported only because a declarative macro must invoke it after the
+/// main crate has selected its enabled helper features. It is not a supported
+/// standalone API.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __grafton_visca_range_type_decl(input: TokenStream) -> TokenStream {
+    range_type::expand(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Derive macro for generating validated value wrappers for command value types.
+///
+/// This macro generates a checked `new()` constructor, raw-value conversions,
+/// optional `MIN`/`MAX` constants, and `Display` for a single-field tuple
+/// struct. It does not generate VISCA byte encoding or decoding APIs.
 ///
 /// # Example
 ///
@@ -32,7 +45,7 @@ mod visca_enum;
 /// use grafton_visca_macros::ViscaValue;
 ///
 /// #[derive(ViscaValue, Debug, Copy, Clone)]
-/// #[visca_value(bytes = 2)]
+/// #[visca_value(min = "0x0000", max = "0x4000")]
 /// struct ZoomPosition(u16);
 /// ```
 #[proc_macro_derive(ViscaValue, attributes(visca_value))]
@@ -40,23 +53,31 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     value_macros::derive_visca_value(input)
 }
 
-/// Derive macro for generating `ViscaCommand` inquiry implementations with parser support.
+/// Derive macro for generating typed inquiry request implementations with optional
+/// inherent response parsing.
 ///
-/// This macro eliminates boilerplate by automatically generating the `ViscaCommand`
-/// implementation with exact `MAX_SIZE`, zero-allocation `write_into()`, and
-/// `behavior()` returning inquiry response routing metadata. When parser attributes
-/// are provided for a built-in response, it also generates a `parse_response()` method.
+/// This macro eliminates boilerplate by automatically generating the typed
+/// [`Request`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Request.html)
+/// and [`Inquiry`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html)
+/// implementations with exact `MAX_SIZE` and zero-allocation `write_into()`.
+/// When a `parser` attribute is provided for a built-in response, it also
+/// generates a `parse_response()` method. Both that inherent method and
+/// [`Inquiry::decoder`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html#tymethod.decoder)
+/// use one shared generated decoder. Selectors that identify a built-in table
+/// shape delegate to the canonical decoder for `response`; selectors with an
+/// established transformation, such as `Custom` and `BoolConvention`, retain
+/// that behavior on both paths.
 ///
 /// # Basic Usage
 ///
 /// ```rust,ignore
-/// use grafton_visca::{command::ViscaCommand, CameraId, ViscaInquiry};
+/// use grafton_visca::{CameraId, Request, ViscaInquiry};
 ///
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
 /// #[visca(opcode = 0x00, response = Power)]
 /// struct PowerInquiry;
 ///
-/// let mut buffer = [0u8; PowerInquiry::MAX_SIZE];
+/// let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 /// let len = PowerInquiry.write_into(CameraId::CAMERA_1, &mut buffer)?;
 /// assert_eq!(
 ///     &buffer[..len],
@@ -67,7 +88,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///
 /// # With Response Parsing
 ///
-/// Add parser attributes to automatically generate response parsing:
+/// Add a parser attribute to generate the inherent `parse_response()`
+/// convenience method. Its `response` kind selects the canonical decoder:
 ///
 /// ```rust,ignore
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -87,24 +109,24 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// struct HueInquiry;
 /// ```
 ///
-/// # Supported Parser Types
+/// # Parser Selectors
 ///
-/// - `Bool` - Boolean values (0x02 = true, 0x03 = false)
-/// - `Byte` - Direct byte value
-/// - `Position` - 4-nibble position value (converts to u16)
-/// - `Nibble` / `ExtendedNibble` - Extended nibble encoding
-/// - `Flags` / `BitFlags` - Bit flags (for image flip)
-/// - `Mode` / `ModeEnum` - Enum value parsing
-/// - `PanTilt` - Special parser for pan/tilt positions
-/// - `LastNibble` - Last nibble from a nibble-encoded payload
-/// - `BoolConvention` - Boolean parsing with an explicit `BoolConvention`
+/// The established selectors (`Bool`, `Byte`, `Position`, `PanTilt`, and so
+/// on) remain accepted for source compatibility. Selectors that identify a
+/// built-in table shape use the `response` entry as their decoding authority,
+/// including its boolean convention and accepted nibble width. `Custom`
+/// continues to call `parse_with`; selector forms with established
+/// transformations retain them, including `BoolConvention`, and the
+/// selector-supported `data_variant` and `value_type` attributes. Every form
+/// is evaluated by the one shared decoder.
 ///
 /// # Requirements
 ///
 /// - The struct must have the `#[visca(...)]` attribute with required fields
 /// - The `response` attribute must reference an existing `InquiryKind` variant,
-///   or `Raw` for a raw custom inquiry that implements `ResponseParser` manually
-/// - Downstream derives use the standard five-byte inquiry form
+///   or `Raw` for a raw custom inquiry
+/// - Downstream derives use the standard five-byte inquiry form. The selected
+///   `response` kind defines the accepted reply form.
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]
 pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
@@ -187,61 +209,4 @@ pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
 pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(visca_enum::derive_visca_enum_impl(input))
-}
-
-/// Internal attribute macro for generating `CameraSession` forwarding implementations.
-///
-/// This macro is public only because procedural macros cannot be scoped
-/// crate-private. It is an implementation tool for the matching main
-/// `grafton-visca` crate, not a stable downstream extension API.
-///
-/// # Usage
-///
-/// Apply this attribute to control trait definitions:
-///
-/// ```rust,ignore
-/// use grafton_visca_macros::delegate_to_session;
-///
-/// #[delegate_to_session]
-/// pub trait ZoomControl {
-///     type Mode: Mode;
-///
-///     fn zoom_stop(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-///     fn zoom_tele_std(&self) -> <Self::Mode as Mode>::Fut<'_, Result<(), Error>>;
-///     // ... more methods
-/// }
-/// ```
-///
-/// # Generated Code
-///
-/// The macro generates two implementations:
-///
-/// 1. **Async variant** (when `feature = "mode-async"`):
-///    - Forwards calls from `CameraSession<M, P, Tr, Exec>` to the inner camera
-///    - Preserves the generic Mode type `M`
-///
-/// 2. **Blocking variant** (when `feature != "mode-async"`):
-///    - Forwards calls from `CameraSession<Blocking, P, Tr, ()>` to the inner camera
-///    - Uses the concrete `Blocking` mode type
-///
-/// Each forwarding method uses the open session's `camera()`/`camera_mut()`
-/// accessor, adds `#[inline]`, and preserves the original method attributes and
-/// documentation.
-///
-/// # Requirements
-///
-/// - The trait must have a `type Mode: Mode` associated type
-/// - Methods should use `<Self::Mode as Mode>::Fut<'_, T>` for return types
-/// - The trait should be implemented for `Camera` (the actual logic)
-///
-/// # Benefits
-///
-/// - **Eliminates duplication**: No need to manually write forwarding impls
-/// - **Prevents drift**: Changes to trait methods automatically propagate
-/// - **Feature-gate aware**: Handles both async and blocking configurations
-/// - **Zero runtime cost**: Generated code is identical to hand-written forwarding
-#[proc_macro_attribute]
-pub fn delegate_to_session(_attr: TokenStream, input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as syn::ItemTrait);
-    TokenStream::from(forward_control::delegate_to_session_impl(input))
 }

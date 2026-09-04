@@ -7,6 +7,2130 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-09-04
+
+The 2.0.0-rc.1 release candidate. 2.0 is a clean break from the 1.x API;
+`docs/migration_2_0.md` maps every pre-2.0 vocabulary item to its
+destination.
+
+No physical hardware validation has been performed, and no hardware support has been verified for this release candidate.
+
+The last published release is **1.1.0**. The `[1.2.0]` section below records
+the still-unpublished 1.x release branch; it is not a Git tag or a crates.io
+release.
+
+`settled` in this release candidate is a profile-selected protocol settlement
+condition — a profile-declared completion-is-settled signal or two
+affected-axis position samples within tolerance. It is an intended indication
+of target rest, not a bench-verified assertion that physical motion ended;
+exact model/firmware/transport/command evidence remains pending in the
+[hardware release checklist](docs/hardware_release_checklist.md). Historical
+entries below retain their original wording.
+
+### Added
+
+- **Corrected the public failure model for transient transport work** (#755).
+  `Error::TransportError` now has its own retryable `ErrorKind::Transport` and
+  a 50 ms suggested retry delay, matching its live-session contract. Blocking
+  TCP and UDP use best-effort RAII timeout restoration, so a cleanup failure
+  cannot replace a completed write or copied read result. Blocking metrics now
+  read a shared owner-turn snapshot while a request is in flight, rather than
+  competing for the transport turn; the async receive-fairness comment now
+  describes the buffered-receive rule the actor implements.
+
+- **Published and continuously exercised the remaining documentation/example
+  contract** (#730). The private engine transition table, Sony sequence-width
+  decision, raw-correlation rules, and owner invariants now render on docs.rs
+  through the public `architecture` documentation module. Public
+  `InquiryKind`/`InquiryData` variants carry generated rustdoc instead of a
+  blanket `allow(missing_docs)`. A hardware-free blocking cancellation example
+  proves the supported socket-cancel outcome, the Tokio example now defaults to
+  cancel-capable G3 hardware while retaining an explicit G2 rejection mode, and
+  recovery now re-queries before deliberately restoring desired state. CI runs
+  all six hardware-free examples, checks the truly empty feature surface, and
+  compiles the Tokio/dynamic/serial example union at Rust 1.88. The usage,
+  migration, memory-bound, and example guides now match the actual feature,
+  constructor, buffer, timeout, address, and failure behavior; repeated raw
+  recovery rules link to canonical architecture anchors.
+
+- **Added bounded Sony transport-control handling and protocol fuzz coverage**
+  (#727). `SessionConfig` and `CameraConfig` now expose the disabled-by-default
+  `with_sony_sequence_reset_on_connect` opt-in; compatible Sony-encapsulated
+  sessions send the exact `02 00` / `01` RESET packet before the owner accepts
+  work and reset their local sequence allocator to zero. One- and two-byte
+  `02 01` control replies are retained as
+  `DiagnosticResponse::SonyControl { code }` without being mistaken for VISCA
+  correlation evidence. The cargo-fuzz package now drives the raw response
+  parser and complete generated inquiry-decoder inventory, raw/Sony stream
+  framer, Sony envelope, and strict response-target router from committed
+  corpora. That expanded matrix found and now pins an out-of-range centered
+  exposure/red/blue decoder input that previously panicked in debug builds.
+
+- `dyn-api` no longer implies `async`: blocking sessions now expose
+  `camera_dyn()` / `camera_dyn_for(target)` and the native
+  `BlockingDynSessionCamera`, so a custom runtime `ProfileSpec` can execute
+  commands, inquiries, and operations without a compile-time profile marker,
+  futures, or an executor (#720). The async session has matching selectors for
+  `DynSessionCamera`. `ProfileSpecBuilder` and `ProfileTimingBuilder` failures
+  now name the exact field or coupled fields behind every rejected invariant;
+  the custom-request example drives its runtime-built profile end to end.
+
+- **Added a raw reply-shape axis (`raw::RawReplyShape`)** (#700) so a raw caller
+  can declare what the camera will send back, instead of every raw command being
+  assumed to follow the ACK-then-completion protocol. The axis is carried on
+  `raw::Policy`/`raw::Spec` (set with `Policy::with_reply_shape`, read with
+  `reply_shape()`) and lowered through preparation into the engine as a
+  protocol-policy fact — the engine never infers it from the wire bytes:
+  - `AckThenCompletion` is the default, so existing raw code and every built-in
+    command are unchanged.
+  - `CompletionOnly` expresses a vendor frame that completes with no
+    acknowledgement: it earns no socket, skips the unacknowledged-ACK gate (so a
+    missing ACK can neither fail nor poison it, fixing the pre-#671 poison and the
+    post-#671 single-request `UnsequencedCommandUnconfirmed` failure for such
+    frames), terminates on the completion frame or a bounded completion deadline,
+    and holds the target's command channel exclusively so its completion cannot
+    misbind to another command.
+  - `NoReply` expresses a fire-and-forget frame that terminates on a successful
+    transport write; a later reply the camera nonetheless sends is ignored.
+  - A `reply_shape()` accessor is added to `raw::Plain`, `raw::Targeted`,
+    `raw::AppliedOnly`, and the `Request` trait (defaulting to
+    `AckThenCompletion`). `raw::Inquiry` rejects any non-default shape at
+    construction, since an inquiry always awaits its reply. A new
+    `observability::DiagnosticPhase::AwaitingCompletion` reports the new phase.
+    This is a follow-up to #678/#679 (PR #699); owner-only wire primitives (socket
+    cancel / interface clear) remain rejected at construction regardless of reply
+    shape. Public API snapshots regenerated.
+
+- **Published the remaining 2.0 documentation and example deliverables** (#686),
+  the spec's §1193–1204 release items that were still missing. Docs-only; no
+  public API or snapshot change.
+  - The crate docs gain a `## Terminology` section defining the 2.0 lifecycle
+    vocabulary — session, target, prepared, admitted, applied, targeted,
+    applied-only, settled, the three deadline classes, cancel intent, cancelled,
+    completed, cancellation unconfirmed, detach, close, and poison — written to
+    the settled post-#671 behavior (the per-request `UnsequencedCommandUnconfirmed`
+    is distinguished from the pre-ACK cancellation-ambiguity `CancellationUnconfirmed`,
+    and whole-session poison is the strict opt-in / genuine correlation loss).
+  - `docs/architecture_2_0.md` now publishes the engine phase/cancellation
+    transition table (documenting the `pub(crate)` `Phase` and `CancelState`
+    variants that never reach rustdoc) and the §10 operational-invariants list,
+    both derived from `src/runtime/engine`.
+  - Six runnable example programs are added and listed in `docs/examples.md`:
+    `cancellation` (the supported `Cancellation`/`outcome` path and the
+    PTZOptics G2 unsupported-post-send `NotSupported`/`CancelRejected` recovery),
+    `motion_safety` (`is_moving`/`is_moving_axes`/`wait_until_idle`/`stop_all_motion`),
+    `custom_request` (a custom `PlainCommand` and `OperationCommand` plus a runtime
+    `ProfileSpec`), `dyn_quickstart` (a `DynTargetedOperation` and a
+    `DynAppliedOperation`, using the explicit `settled_with_timeout` /
+    `applied_with_timeout` forms), `multi_camera` (`camera_for` over two serial
+    targets), and `recovery` (fresh-session rebuild after `requires_new_session()`
+    with a re-callable transport factory and end-to-end re-query).
+  - `docs/migration_2_0.md` corrects the wrong 1.x-side names (`wait_until_idle`
+    and `AffectedAxes` never existed in 1.x — the real names are the `await_*_idle`
+    family and `Axes`) and maps the previously unmapped 1.x clusters:
+    `CameraBuilder`, `AwaitConfig`, the async cancellation surface
+    (`send_command_with_id`, `cancel(CommandId)`, `cancel_command(ViscaSocket)`,
+    `cancel_socket`), `await_applied`/`await_settled`, `toggle_menu`,
+    `set_normalized`/`set_normalized_in_domain`, the `inquiry_conversions` exports,
+    `Capabilities`, `Runtime::connect_tcp`/`TransportHandle`, and the
+    feature-resolution inversion (1.x's blocking-XOR-async `mode-async` versus
+    2.0's co-enableable `default = ["blocking"]`).
+
+- **Documented idle TCP disconnects and connection liveness** (#544). A new
+  "Idle disconnects and connection liveness" section in
+  `docs/observability_and_recovery.md` explains why an idle TCP control session
+  can be closed by a camera even though the network is healthy: OS-level TCP
+  keepalive (enabled by default, idle 10 s / interval 10 s) detects dead peers
+  and preserves network-path state but is not VISCA traffic, so a firmware
+  application idle timeout can still close a silent session. It gives the two
+  application-side levers — a periodic inquiry as a heartbeat to prevent the
+  close, and a `requires_new_session()` supervisor rebuild to recover from it
+  (with the #680 retained terminal cause keeping later calls informative). The
+  `recovery` example header now frames the same idle-drop supervisor scenario,
+  and the targeted stable hardware checklist's `HW-04` recovery scenario records
+  that hardware evidence (idle interval, heartbeat efficacy, FIN/RST direction).
+  Docs-only; no public API or snapshot change.
+
+- **Added `CommandTimeouts`** (audit #685), the public five-field value
+  (`quick`, `movement`, `preset`, `long_running`, `network`) for a profile's
+  exact command-category completion deadlines. It is the public replacement for
+  the withdrawn `timeout` module's configuration types (see Removed); its
+  default table preserves the 1.x values (Quick 5 s, Movement 30 s, Preset 60 s,
+  LongRunning 300 s, Network 5 s), each built-in profile records its exact
+  values, and they are surfaced through `ProfileMetadata::COMMAND_TIMEOUTS`.
+- **Added `ProfileTimingBuilder` and `ProfileTiming::builder()`** (audit #685),
+  a validated builder for the cohesive `ProfileTiming` value that
+  `ProfileSpecBuilder::timing(ProfileTiming)` now takes, so a profile cannot
+  accidentally mix fields from two timing policies. Every timing fact is
+  required and there are no silent protocol defaults.
+- **Added `AffectedAxes::axis_count`** (audit #685), the renamed `len` (see
+  Removed): a count of the axes a value carries, always `>= 1` because
+  `AffectedAxes` is non-empty by construction (#633).
+- **Added `DEFAULT_ADMISSION_CAPACITY` and the `CameraConfig` tuning/admission
+  builders** (#631, #561), mirroring the documented session-level surface on the
+  standard-transport config: `CameraConfig::{with_tuning, tuning,
+  with_admission_capacity, admission_capacity}` and the
+  `DEFAULT_ADMISSION_CAPACITY` constant behind the bounded-admission default.
+- **Recorded the 2.0 raw-lifecycle `Error` variants** (audit #685).
+  `Error::CancellationUnconfirmed` (a recorded cancellation the engine could not
+  prove either completed or protocol-cancelled before its correlation quarantine
+  expired) and `Error::RuntimeIdentityExhausted` (a private runtime identity
+  space exhausted without a safe non-aliasing value) are part of the 2.0 error
+  taxonomy — both classify `ErrorKind::Other` and report
+  `requires_new_session() == false`. They are new relative to 1.x; the audit
+  found them present in the public surface but unlisted, and records them here
+  for completeness.
+- **Added the `behavioral-parity-1x` CI gate and its 1.x behavioral oracle**
+  (#676). A required CI job runs `tests/fixtures/1x_oracle/validate.py` against
+  the pinned 1.x oracle commit, proving each mapped v2 test still exists and
+  executes and that every approved parity waiver is named in this changelog. See
+  the waiver-ratification entry under Changed and `docs/behavioral_parity_1x.md`.
+- **Added `OperationalTuning::strict_unconfirmed_poison`** (#671), an opt-in
+  (default off) that restores the pre-fix whole-session poison for an
+  unconfirmable raw command. The default per-request behavior (see the Changed
+  entry below) serves the common live-control case; a deployment that would
+  rather hard-fail an entire session than risk a subtle correlation error can set
+  this flag, and the session then poisons and reports `StreamPoisoned`. Like the
+  wire envelope, it is applied when the session is built and is not changed by a
+  later `set_tuning`. This adds one public builder method; the
+  `api/2.0.0-rc.1/*.txt` snapshots are regenerated accordingly.
+
+- **Added the serial single-camera constructors** (#650), so serial reaches a
+  compile-time-bound camera the same way TCP and UDP do. #568 gave the network
+  transports `Connect::open_tcp_camera` / `open_udp_camera` and
+  `CameraConfig::open_camera` / `open_camera_async`, but left serial with only
+  the owner-backed `open_serial`, so a one-camera serial program still had to
+  name its profile a second time through `session.camera::<P>()?` — the
+  runtime-checked naming #568 exists to remove. `Connect::open_serial_camera`
+  (blocking under `transport-serial`, Tokio async under
+  `transport-serial-tokio`) and the configured
+  `CameraConfig::<P>::open_serial_camera` / `open_serial_camera_async` now
+  return a `CameraSession<P>`. This restores 1.x's shape, where serial was a
+  first-class single-camera path on both facades
+  (`Connect::open_serial_blocking` / `open_serial_async` and
+  `CameraConfig::open_serial_blocking` / `open_serial_async`). The async bound
+  is unchanged and deliberately unwidened: async serial remains Tokio-only,
+  carrying the same `RuntimeSerial<SerialTransport = ...>` bound as
+  `Connect::open_serial`. `examples/serial_async_demo.rs` opens through the new
+  constructor, which returns it to the shape its 1.x counterpart had.
+
+- **Added runtime timeout and tuning reconfiguration** (#631), restoring the
+  capability 1.2.0 shipped as `Camera::set_timeout_config` (#575). `set_tuning`
+  and `tuning` are on the blocking and async `Session` and `CameraSession`, so
+  an application that has to widen `ack_timeout` on a congested venue network no
+  longer has to `close()` and reopen, dropping every in-flight command to do it.
+  The update travels through the owner's control boundary — a control message to
+  the async actor, the caller's own owner turn in the blocking mode — so the
+  owner is its only writer and two handles reconfiguring at once resolve
+  last-writer-wins with no torn value in between. The scope is stated plainly
+  because it is narrower than 1.2.0's: **every request prepared after the update
+  uses the new values**, and the owner's session-wide pacing and per-target
+  socket capacity are re-derived immediately, but **a request already in flight
+  keeps the deadlines it was admitted with**. 2.0 stamps a request's deadlines
+  once, at preparation, where 1.2.0 recomputed them on every housekeeping pass;
+  nothing is re-timed underneath a receipt a caller is already holding. Cancel
+  and resubmit to move a running command onto a new deadline. The update is a
+  whole replacement rather than a merge, and it is validated on exactly the
+  grounds `SessionConfig::with_tuning` validates on, so a value construction
+  would have rejected is rejected here too and leaves the live tuning untouched.
+
+- **Added a typed submission-QoS API without exposing the owner's urgent safety
+  lane** (#630), restoring in 2.0 shape the capability 1.2.0 shipped as
+  `runtime::Priority` with `set_command_priority` / `command_priority` /
+  `execute_with_priority`. The engine always had the four lanes and dispatched
+  the highest occupied class first, but the only public route into that choice
+  was `raw::Policy` on hand-assembled bytes, so a typed command could not be
+  raised for one submission and a chatty handle could not be demoted out of an
+  operator's way. `SubmissionClass` is the selector for the lower three lanes;
+  it deliberately has no `Urgent` variant. Every camera handle gained
+  `set_submission_class` / `submission_class` for a per-handle default and
+  `execute_with_submission_class` / `inquire_with_submission_class` /
+  `submit_with_submission_class` for a single submission, on the async
+  `Camera` and `CameraSession`, the blocking `Camera` and `CameraSession`, and
+  `DynSessionCamera` (whose operation twins are
+  `submit_targeted_with_submission_class` and
+  `submit_applied_with_submission_class`). Both override forms preserve a
+  request the crate classifies `ControlClass::Urgent` — the typed stops and
+  owner-issued protocol cancellation — so neither accidental handle configuration nor an explicit
+  per-call override can weaken STOP safety. `SubmissionClass` has no `Urgent`
+  variant, so a QoS override cannot manufacture the safety lane either (the raw
+  policy path into the urgent lane is closed separately; see the #678/#679
+  Changed entry). Unlike 1.x's priority, QoS also covers
+  inquiries, since 2.0 queues them in the same lanes; owner-internal settlement
+  polling and motion observation keep their built-in class.
+  `docs/migration_2_0.md` maps `Priority` to `SubmissionClass` and explains why
+  `Priority::Critical` becomes request-owned safety metadata, and notes that
+  `runtime::testing::Priority` has no 2.0 equivalent.
+
+- Restored `image().disable_noise_reduction_2d()` and
+  `image().disable_noise_reduction_3d()` on all three noun surfaces (#651).
+  The rewrite ledgered `BuiltinCommand::NoiseReduction2d` / `NoiseReduction3d`
+  under the single method spellings `set_noise_reduction_2d` / `_3d`, whose
+  level newtypes are bounded `1..=5` and `1..=8`. The parameter therefore
+  cannot express off, and the `0x00` wire value — produced only by
+  `NoiseReduction2D::off()` / `NoiseReduction3D::off()` — was reachable from no
+  noun method on any profile: once noise reduction was turned on, nothing short
+  of `camera.execute(..)` could turn it back off. 1.x paired each setter with a
+  `disable_noise_reduction_2d` / `_3d`. Each off value now has its own ledger
+  row, `BuiltinCommand::NoiseReduction2dOff` / `NoiseReduction3dOff`, gated on
+  the same `HasNoiseReduction2D` / `HasNoiseReduction3D` markers as the
+  setters, so the per-row gates and the cross-surface parity test enforce both
+  directions the way they already do for the flip and multicast pairs. The
+  frames are `81 01 04 53 00 FF` and `81 01 04 54 00 FF`.
+- Restored `image().disable_horizontal_flip()` on all three noun surfaces
+  (#635). The rewrite ledgered `BuiltinCommand::ImageFlipHorizontal` under the
+  single method spelling `enable_horizontal_flip`, so the noun surfaces only
+  ever emitted `ImageMirrorCommand::new(true)`. On a profile with
+  `HasImageMirror` but no `HasCombinedImageFlip` — SonyFR7, SonyBRCH900,
+  SonyEVIH100 — no noun method could return the mirror to off: `set_flip_mode`
+  is gated on the combined marker and rewrites the vertical axis too. 1.x
+  paired the two directions. The mirror-off opcode value (`81 01 04 61 03 FF`)
+  now has its own ledger row, `BuiltinCommand::ImageFlipHorizontalOff`, so the
+  per-row gates and the cross-surface parity test enforce both directions the
+  way they already do for the vertical flip and multicast pairs. Like every
+  single-axis flip opcode, it invalidates `StateKey::Flip` rather than
+  half-setting the pair.
+- Restored the 1.x convenience helpers the rewrite dropped, on all three noun
+  surfaces (#569). `pan_tilt().up()/down()/left()/right()` are back as thin
+  wrappers over `move_direction`; `zoom().set_normalized(UnitInterval)` and
+  `set_normalized_in_domain(UnitInterval, ZoomDomain)` make `UnitInterval` a
+  real noun input instead of an inquiry-conversion-only type;
+  `nd_filter().set_stops(f32)` restores photographic-stop input;
+  `motion_sync().set_speed(MotionSyncSpeed)` restores the range-checked speed
+  argument; and `menu().toggle_display()` restores the vendor open/close
+  control. `AffectedAxes` gains `ALL`, `MOVEMENT`, and the `BitOr` /
+  `BitOrAssign` operators, so "wait for everything that moves" is one
+  expression again; its representation remains non-empty by construction, and
+  `intersection` returns `Option<AffectedAxes>` when two sets may be disjoint.
+  `IdleWait` gains `Default`, `From<Duration>`,
+  `with_axes`, `with_timeout`, and the named `for_preset_recall` /
+  `for_pan_tilt` / `for_zoom` / `for_focus` presets, and `MotionQuery` gains
+  `Default` and `From<AffectedAxes>`. `motion().is_moving()` is a
+  no-argument query again; the axis-selecting form keeps its 1.x spelling
+  `is_moving_axes(MotionQuery)`. `Camera<P>::capabilities()` is back on the
+  typed cameras, matching the dynamic projection. `StateCache` grows typed
+  getters for all fifteen keys — `auto_slow_shutter()`, `spotlight()`,
+  `flip_state()`, `pan_tilt_limits()`, and the rest — each documenting the
+  per-key decoding of the previously untyped `[i64; 4]` payload, and a new
+  `StateKey::Flip` records the combined horizontal/vertical flip pair (the
+  single-axis flip and mirror opcodes invalidate it rather than half-setting
+  it). The dynamic noun projection no longer carries
+  `#![allow(missing_docs)]`: every method is documented from its async
+  counterpart, and the non-ledger convenience wrappers are declared in
+  `DYN_NOUN_CONVENIENCE_METHODS` so the closed-projection inventory gate
+  still rejects anything undeclared.
+- **Restored the owner metrics counters the rewrite dropped, and made the
+  retry decision observable** (#571). `MetricsSnapshot` carries `ack_timeouts`,
+  `completion_timeouts`, `inquiry_timeouts`, `busy_errors`, `protocol_errors`,
+  `retries_scheduled` and `ignored_unmatched_sequenced_replies` again — the
+  first numbers a field debugging session asks for in a crate whose failure
+  modes are timing- and hardware-dependent. 1.x carried a single `timeouts`
+  counter; the 2.0 engine distinguishes the ACK, completion and inquiry
+  deadlines, so each is counted separately. `busy_errors` covers the codes the
+  scheduler itself treats as transient camera-side backpressure — command
+  buffer full (`0x03`), no socket (`0x05`), and not executable in the current
+  state (`0x41`) — and `protocol_errors` covers every other error frame.
+  1.x bucketed `0x03 | 0x04` as busy instead; `0x04` is this engine's
+  cancellation reply, so counting it would make every successful cancellation
+  look like camera backpressure, and it is now counted as neither. Both error
+  counters count frames as they are decoded, including frames that no longer
+  correlate to an active request. `retries_scheduled` counts wherever the
+  engine emits a permitted retry, so an eligible sequenced receive-fault retry
+  (#565) counts like any other; a raw receive fault while an unacknowledged
+  command awaits ACK poisons instead.
+- Added `DiagnosticEvent::DeadlineExpired` and `DiagnosticDeadline` (#571). A
+  subscriber that needs to know whether an expired deadline led to another
+  attempt reads `will_retry` off the event, instead of inferring it from a
+  `Transition` plus the absence of a following `RetryScheduled` — which is what
+  1.x's `SchedulerAction::Timeout { will_retry }` carried directly. The flag is
+  the decision the engine actually took, not the policy that motivated it: a
+  policy that permits retrying a deadline still fails the request once its
+  attempt or duration budget is spent, and the event reports that honestly.
+- Added owner-backed `Session`/`SessionConfig` construction and typed
+  `Camera<P>` views for heterogeneous multi-camera sessions.
+- Added the final blocking, async, and dynamic noun surfaces with typed
+  completion classes, profile capability gates, and shared operation
+  lifecycle semantics.
+- Added `Error::requires_new_session()`, the spec-normative classifier that
+  separates transport-level session death (`ConnectionClosed`, `StreamPoisoned`,
+  and the transport/channel-unavailable errors) from the deliberate
+  `RuntimeShutdown` (#564). All of these share `ErrorKind::IoClosed`, so
+  applications could not tell a field disconnect apart from a shutdown they
+  requested without matching implementation details. `true` is positive proof
+  that the session is finished and must be rebuilt from the retained
+  `SessionConfig`; `false` only means the error alone does not prove it.
+- Added a hardware release evidence checklist. Hardware, registry, and
+  Synemantic validation remain `Pending (Not run)` until release owners record
+  bench evidence.
+- Added the CI leg that runs the shipped test toolkit, and made a filtered test
+  run fail when its filter matches nothing (#628). `test-utils` was never
+  unioned with a facade in any job — the one `test-utils` leg selects neither
+  `blocking` nor a runtime, and the all-features job is a `cargo check` — so 37
+  tests existed in the tree and executed nowhere: all eight of
+  `tests/issue_566_scripted_error_recovery.rs` (whose header claimed the
+  opposite), five in `tests/inquiry_simulator_test.rs`, three in
+  `tests/timeout_category_tests.rs`, the twenty `testkit`
+  `deterministic_executor` and `scripted_transport` library tests that
+  `CONTRIBUTING.md` tells contributors to build on, and one in
+  `src/blocking.rs`. A `test-utils,blocking,runtime-tokio` leg in
+  `.github/workflows/ci.yml` and `.github/scripts/test-all-features.sh` takes
+  the count of never-executed tests from 37 to 0. Separately, every
+  name-filtered run in `.github/scripts/miri-tests.sh` and the property-test
+  entry in `.github/scripts/test-all-features.sh` now assert that the filter
+  selected at least one test: libtest exits 0 on a filter that matches nothing,
+  so a renamed module would have turned the whole Miri job green and vacuous.
+- Documented the 2.0 request, construction, dynamic API, and release
+  contracts.
+
+### Changed
+
+- **Fixed async raw-correlation release arbitration** (#746). A due raw
+  release now uses the ordinary ordered boundary selection and fairness ceiling,
+  so cancellation, admission (including the Urgent safety lane), control, and
+  timer work remain live under a byte flood. An eagerly-idle custom transport
+  (`AsyncReceive::NoData` or `Error::Timeout`) now reaches the engine-owned
+  retained-prefix grace deadline with bounded polling instead of spinning on a
+  left-biased read; the exact no-input fence remains reachable. If another raw
+  hold becomes due before the selected release Wake, the owner replaces the
+  latched set and earns a fresh receive-first proof before either scope can
+  dispatch a successor. These are owner-internal scheduling corrections; the
+  documented #713 timeout/diagnostic and live-session behavior is unchanged.
+
+- **BREAKING: built-in profile identity again includes every protocol fact**
+  (#751; supersedes #728's runtime-policy override). A runtime `ProfileSpec`
+  that claims a built-in `profile_id` must match that profile's transports,
+  timing, maximum command sockets, operation-complete and command-cancel
+  support, preset-recall axes, and position-inquiry support as well as its
+  capabilities, coordinate codec, and envelope. Clear `profile_id` before
+  customizing any of those facts; the resulting custom profile cannot project
+  a built-in typed facade. In particular, a claimed PTZOptics G2 identity can
+  no longer enable and emit its unsupported `81 21 FF` socket-cancel frame.
+
+- Made the production raw-tombstone boundary integration test independent of
+  sub-millisecond scheduler timing on Windows (#741). Ambiguous source-only,
+  ACK, and socketless-terminal prefixes are now injected at the exact hold
+  deadline, then must receive and exhaust the same engine-owned grace interval
+  before the successor can write; the runtime contract is unchanged.
+
+- **Policy correction (#753): proportional hardware evidence supersedes
+  #738/D8 in #732.** An RC may be published while the hardware checklist
+  remains `Pending (Not run)` or `Unverified`, provided its release notes state
+  plainly: **"No physical hardware validation has been performed, and no hardware support has been verified for this release candidate."** A stable
+  release with major version 2 or higher requires one targeted representative
+  pass covering the five concise rows in `docs/hardware_release_checklist.md`,
+  with exact firmware and transcript or capture evidence. The checklist records
+  only the full `Hardware-tested commit:` SHA, operator/date, evidence index,
+  and final sign-off; the release workflow still checks the exact release tag
+  and exact release-HEAD CI run and compares source/manifests with the stable
+  bench commit. The validator reads that fixed five-row contract directly
+  instead of treating arbitrary Markdown as an adversarial evidence format. No
+  hardware run is claimed for this RC.
+
+- **Historical, superseded policy (#738 / D8 in #732).** An earlier release
+  policy required hardware evidence for every publishable 2.0+ tag, including
+  prereleases, and required a 59-row matrix plus an unpublished qualification
+  tag and its provenance. That policy was never evidence that hardware had been
+  run for this RC; the proportional policy above supersedes it before
+  publication.
+
+- **BREAKING: transport deadlines are now valid before I/O begins** (#736).
+  `TransportConfig` rejects zero connect/read/write timeouts and durations that
+  cannot be added to the platform monotonic clock; an impossible blocking UDP
+  receive deadline can no longer invert into an immediate timeout.
+  `TransportBusy` documentation now names its actual second cause: a blocking
+  operation-handle submission that cannot win the immediate first-dispatch
+  boundary, whether because of socket capacity or an earlier normative
+  scheduler winner. Its fail-fast scheduling behavior is unchanged. This
+  corrects the narrower cause list recorded under #726.
+
+- **BREAKING: bounded blocking transport I/O and owner contract cleanup**
+  (#725). `BlockingTransport` now exposes only deadline-bearing
+  `send_with_timeout` and `recv_into_with_timeout` operations; the unused
+  unbounded receive method is removed, and custom implementations must return
+  from both operations within the supplied bound. Built-in TCP, UDP, and serial
+  writes install and restore that per-call timeout, keep one deadline across
+  partial writes, and serial submission no longer enters an unbounded device
+  drain. Zero read/write timeouts are rejected before socket/device I/O,
+  including for caller-owned transports;
+  a later `Io(InvalidInput)` closes immediately instead of entering the
+  transient-fault run, and zero-byte custom receives retain an explicit EOF
+  cause. Blocking raw-correlation release is wall-clock bounded instead of
+  poisoning after 64 receive turns, verifies actual decoder discard progress,
+  and treats one consumed malformed datagram as its input-first fence. The
+  pre-ACK drain now has direct transient-fault/no-ordinary-dispatch coverage,
+  and the 1.x parity guide records 2.0's sustained-fault close boundary.
+
+- **Hardened the final engine correlation boundaries** (#724). An ACK-bearing
+  raw request remains open during its bounded late-ACK window, so an
+  attributable ACK is accepted consistently with or without later cancel
+  intent; displaced and non-ACK-capable holds remain inert. Once ACK has
+  established an exact socket, cancellation intent, a successful cancel write,
+  or a failed datagram cancel write can extend but never shorten the original
+  command completion deadline. A compatible failed stream write still poisons
+  even when its result arrives after the request budget. Retuning now runs the
+  production debug invariant hook, `AwaitingCompletion` and raw
+  uncorrelatable-shape exclusivity have explicit audits, and the shared
+  invariant generator now covers `CompletionOnly`, `NoReply`, raw
+  quarantine/tombstones, strict poisoning, and single-flight inquiries with
+  coverage floors. The architecture transition table and ambiguity-timing
+  rustdoc record these settled rules.
+
+- **BREAKING** (#729): Collapsed the content-identical `raw::Spec` into the
+  canonical `raw::Policy` and made the two hidden settlement-plan structs
+  owner-private. The per-operation `*_with_submission_class` family is replaced
+  by one `with_submission_class` camera-view adapter shared by typed and dynamic
+  facades. Runtime profiles now expose `ProfileSpec::name()`, raw target
+  mismatches name the selected camera instead of the internal `write_into`
+  hook, and receive-side normalization no longer produces a doubled
+  `Connection closed:` prefix. Blocking `Session` and borrowed `Camera` views
+  are now `Send + Sync`; their internal mutex preserves fail-fast
+  `TransportBusy` turns, while the usage guide documents external
+  `Mutex<Session>` serialization and the async noun-accessor binding idiom.
+  Standard `Connect::open_tcp` / `open_udp` and `CameraConfig::open` /
+  `open_async` now return the profile-bound `CameraSession<P>` directly.
+  `Connect::open::<P>(TransportOptions)` adds the runtime-selected TCP/UDP form
+  without leaking `SupportsTcp` / `SupportsUdp` into generic signatures.
+  Serial and caller-owned transports retain the multi-target `Session` plus
+  `camera_for` model.
+
+- **BREAKING** (#726), tracked in the pre-lock audit #729: Made the public failure model match the owner
+  verdicts before the 2.0 API lock. `ErrorKind::Unconfirmed` now classifies both
+  `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`; neither
+  recoverable per-request ambiguity masquerades as a closed connection.
+  Construction-only `strict_unconfirmed_poison` moved from
+  `OperationalTuning` to
+  `SessionConfig::with_strict_unconfirmed_poison` and the matching
+  `CameraConfig` builder, so every remaining tuning field can be replaced at
+  runtime without rejected policy values or synthetic readback reinjection.
+  `TransportBusy` now documents its two blocking-only causes: owner re-entry
+  and a genuine first-dispatch socket-capacity collision. The `error` module
+  publishes the canonical event × envelope × transport recovery table and the
+  migration guide links to it. This supersedes the interim #631/#671/#718
+  wording that placed immutable policy inside live tuning.
+
+- **Response deadlines now have an explicit inclusive wire boundary** (#731).
+  A correlated ACK, completion, or inquiry reply sampled exactly at its
+  response deadline wins; the same frame sampled strictly later is ignored as
+  stale before the due transition and cannot revive or mutate the expired
+  request. An overdue request does not make a correlated frame for an unrelated
+  live request stale. This records the strict-late behavior introduced while
+  the 2.0 owner-turn ordering was hardened and pins equality and one-nanosecond-
+  late outcomes across raw and Sony response shapes.
+
+- **BREAKING** (#727): Collapsed the byte-identical brightness direct surface
+  onto its one canonical spelling. Use `Brightness::SetLevel` and
+  `brightness_set`; `Brightness::Direct`, `brightness_direct`, and
+  `BuiltinCommand::BrightnessDirect` are removed. The interim RC name
+  `FrameSequence::Lower16` is renamed `MaybeTruncated`, accurately describing
+  the uncertainty of any Sony reply whose upper sequence half is zero.
+  Pan/tilt public and profile-specific position/limit requests now lower through
+  `PanTiltProfiled` as their sole wire encoder, with no byte change. Owner
+  response routing also validates the source once and parses the borrowed
+  payload directly instead of rewriting a `SmallVec` scratch copy.
+
+- **BREAKING** (#714): A raw command left in lost-ACK quarantine now gives an
+  ordinary blocking submission a bounded correlation wait through that
+  predecessor's ambiguity deadline instead of `TransportBusy`; the async owner
+  retains the same queued release. Intrinsically `Urgent` stops bypass the
+  pre-ACK single-candidate gate and the blocking ACK drain, while still
+  honoring command pacing and real socket capacity. If that creates two open
+  raw candidates, an ACK/error binds to neither rather than being guessed by
+  recency, and either command may report `UnsequencedCommandUnconfirmed` even
+  though the stop reached the wire. Two-socket contention and blocking
+  re-entrancy remain `TransportBusy`; blocking/async differential transcripts
+  and lost-ACK public-facade regressions cover the boundary.
+
+- **BREAKING** (#712): Matched raw inquiry replies now release their
+  single-flight lane immediately instead of installing every profile's
+  one-second pre-ACK ambiguity hold. Only timeout, terminal error, or retry
+  release retains a late-reply hold; it uses the new validated
+  `ProfileTiming::raw_inquiry_reply_skew` fact (required by
+  `ProfileTimingBuilder`, and never greater than minimum inquiry spacing) and
+  blocks only a same-target inquiry. ACK-bearing commands and `Urgent` stops
+  remain eligible, and an inquiry no longer starts the urgent command-pacing
+  clock; consecutive commands/cancellations still honor physical pacing.
+  Blocking and async public-facade probes now require six PtzOptics G2 raw
+  position replies at at least 5 Hz and inquiry-to-stop wire latency below 50
+  ms. Public API snapshots regenerated.
+
+- **Changed named raw ACK socket reuse** (2026-09-02; #721; supersedes the raw
+  behavior recorded under #565 and narrows #682). A raw ACK naming a socket
+  still owned locally treats the camera's assignment as authoritative. The
+  stale owner relinquishes that socket and enters an inert, unkeyed ambiguity
+  quarantine; the new request owns the named socket, emits cancellation for
+  that socket, and receives its completion there. The displaced request fails
+  `UnsequencedCommandUnconfirmed` at its ambiguity deadline instead of stealing
+  the successor's completion. Sequence-correlated Sony compatibility retains
+  the bounded #620/#682 other-socket fallback.
+
+- **BREAKING** (#716): Static `camera.exposure().mode()` and `.set_mode(...)`
+  now require `HasExposureMode`. Every built-in profile except `SonyFR7` emits
+  the marker and a matching nonempty shared-mode inventory. Dynamic exposure
+  methods remain available on the erased facade, but reject before encoding
+  unless both typed support and a nonempty documented mode inventory are
+  present. R11 and R12 restore the BRC-H900/BRC-300 operations that were
+  accidentally narrowed during review; Nearus follows BRC-300, Generic VISCA
+  keeps its Sony-standard compatibility contract, and EVI-H100 retains its 1.2
+  breadth pending the direct R8 line-item audit.
+
+- **BREAKING** (#716): Sony FR7 is removed from the shared typed
+  `HasIrisControl` surface after revalidating its primary command list. FR7
+  documents a distinct vendor-relative `7E 04 4B` iris Up/Down family and
+  `05 34` Auto Iris inquiry, not the shared `04 39` AE-mode command/inquiry
+  family, standard absolute Iris Direct command, or `09 04 4B` position inquiry
+  that the shared typed API requires. Shared AE modes and their inquiry now
+  reject before encoding on FR7; the documented vendor frames remain available
+  through the raw-command escape hatch until they receive separate typed
+  models. The standard iris inquiry parser now preserves both position nibbles
+  in its raw response value.
+
+- **BREAKING** (#716): The standard `09 04 2B` iris auto/manual-status inquiry
+  is split from `HasIrisControl`. `iris_control()` now requires
+  `HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; no
+  built-in profile grants that new surface. Every built-in except `SonyFR7`
+  retains `HasIrisControl` for standard iris reset/up/down/direct control and
+  the distinct `09 04 4B` position inquiry. Downstream profiles may opt into
+  the status inquiry only with exact model-specific source evidence.
+
+  The profile capability delta below is relative to the 1.2.0 release branch
+  after #733. “Split” means 2.0 replaced one broad marker with narrower markers;
+  it is not counted as a hardware capability removal when the same operations
+  remain reachable.
+
+  | Profile | 2.0 capability delta from 1.2.0 | Source / decision |
+  | --- | --- | --- |
+  | `PtzOpticsG2` | No supported operation removed. Shared AE/iris are retained under explicit `HasExposureMode`/`HasIrisControl`; broad NR permission is split into 2D/3D inquiry and control markers, and the vendor command families gain explicit markers. | R1 and R14. |
+  | `PtzOpticsG3` | No supported operation removed. Shared AE/iris are retained; NR permission is split; vendor command families gain explicit markers. | R10 and R14. |
+  | `PtzOptics30X` | No supported operation removed. Shared AE/iris are retained; NR permission is split; legacy focus-zone inquiry and USB-audio permission are explicit. | R1, with R14 scoped to the legacy G2/Gen-2 model family by R15. |
+  | `SonyFR7` | Carries forward the #733 release correction: no shared `HasExposureMode`/`HasIrisControl`, brightness, focus-zone, shared autofocus-sensitivity, shared noise-reduction, or picture-effect surface. Model-specific spotlight, push-AF/MF, variable-ND, and variable-speed support remain separately typed. | R7; its iris family is vendor-relative `7E 04 4B` with `05 34` Auto Iris, not the shared family. |
+  | `SonyBRCH900` | Shared AE and `HasIrisControl` are retained/restored. `HasBrightnessControl`, `HasTally`, aggregate/shared `HasNoiseReduction` plus its 2D/3D inquiry markers, and `HasPictureEffect` are removed; their shared command rows are not established for this model. | R11 lines 706–717, 1003, and 1012 establish AE/iris; the audited R11 list does not establish the removed shared families, including the FR7 red/green tally family. |
+  | `SonyEVIH100` | Shared AE and iris remain available (AE now has an explicit marker). The 1.x aggregate noise-reduction inquiry marker has no 2.0 profile-specific replacement. | R8 is the model authority; D4 in #716 preserves the 1.2 AE/iris breadth pending a direct line-item audit. |
+  | `SonyBRC300` | Shared AE and iris are retained/restored. The blanket 1.x `HasImageProcessing` grant is removed because no BRC-300 image subcontrol is established. | R12 lines 440–454 and 609–617 establish AE/iris; the audited R12 list does not establish the broad image noun. |
+  | `NearusBRC300` | Shared AE and iris are retained under its BRC-300 compatibility contract; its sourced saturation/image surface remains. | R12 plus the profile's explicit BRC-300 compatibility assumption; vendor-only exposure extensions remain withheld. |
+  | `GenericVisca` | Shared AE and iris are retained under the profile's “assume the Sony standard set” contract. The blanket 1.x `HasImageProcessing` grant is removed because an unknown camera supplies no image-subcontrol evidence. | Standard Sony rows in R11/R12 plus the documented Generic VISCA compatibility policy. |
+
+- **BREAKING** (#718): With `serde`, `CapabilityRange` now rejects unordered
+  endpoints (`min > max`) during deserialization. Validated public scalar
+  wrappers and `visca_range_type!` values now deserialize through their checked
+  `TryFrom`/`new` paths, rejecting out-of-range scalar values instead of
+  constructing an invalid wrapper.
+
+- **BREAKING** (#718): The phase-4 public-surface inventory records the
+  remaining source-visible delta that earlier snapshot regenerations omitted.
+  The migration guide has a destination for every cluster in this table.
+
+  | Public surface cluster | 2.0 contract |
+  | --- | --- |
+  | Pan/tilt coordinates | `PanTiltPosition`, `PanTiltPositionRaw`, `MovementTolerance`, `PanTiltExt`, inquiry payloads, `ProfileSpecBuilder::pan_tilt`, `Capabilities::{pan_range,tilt_range}`, and all nine built-in `PAN_RANGE`/`TILT_RANGE` constants move from `i16` to `i32`. `Error::CameraMoving` was widened in the intermediate snapshot and then removed under #722. Each profile now also exposes its selected `PAN_TILT_WIRE_CODEC`. |
+  | Operation-returning controls | Movement and other lifecycle-bearing noun calls return a `#[must_use] Result<Operation<K>>` (or an async future yielding it), not a bare completion result. Hold the handle and choose `applied`, `settled`, `cancel`, or `detach`. |
+  | Optional command families | New explicit markers gate the formerly broad methods: `HasExposureMode`, `HasIrisControlInquiry`, `HasFocusZoneInquiry`, `HasNoiseReduction2DControl`, `HasNoiseReduction3DControl`, `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, `HasPtzOpticsSettingsSave`, `HasSonyAutoSlowShutter`, `HasSonySpotlight`, and `HasUsbAudio`. This covers `advanced().multicast_*`/`set_ndi_quality`/`usb_audio_*`, preset recall speed, settings save, flicker/anti-flicker, auto-slow-shutter, spotlight, focus-zone, exposure-mode, iris-status, and NR control. |
+  | Fallible framing inputs | `DirectMenuControl::new` and `Envelope::frame_into` return `Result`; callers propagate validation failure. The raw `Policy`/`Spec` constructor changes are recorded under #678/#679. |
+  | Normalized zoom provenance | `ZoomTarget` retains an optional `ZoomDomain`; construct raw targets with `ZoomTarget::new` and normalized targets with `ZoomTarget::from_normalized` instead of relying on the former one-field tuple shape. |
+  | Async serial runtime pairing | `SerialTransport` moves from an associated type declared by `RuntimeSerial` to `Runtime`; `RuntimeSerial` remains the connector extension. Runtime implementors provide the associated type on the base trait when Tokio serial is enabled. |
+  | Removed ambiguous image/NR vocabulary | `Resolution*`, `BlackWhite*`, the five unsourced named picture effects, aggregate NR inquiries/types/accessors, and the aggregate NR marker/serde tag are removed as detailed under Removed and #715. |
+  | Removed lifecycle/helper vocabulary | The withdrawn `mode`/timeout/retry internals, `ClosedSession`, `ResponseFuture`, `RawSender`, `CachedFlipState`, `PanTiltLimits`, `BackoffStrategy`, `RetryAttempt`, `submit_continuous`, `CommandBehavior`, and `InquiryResponseSpec` have no name-preserving 2.0 alias; use the owner session, operation, cache-view, tuning, and typed request contracts documented in the migration guide. |
+  | Root/prelude aliases and features | The nine legacy `*Cam<T>` aliases and broad prelude contents are removed in favor of explicit `Camera<P>`/`blocking::Camera<P>` and supported root/module imports. `transport-serial` now enables `blocking`; async serial remains `transport-serial-tokio`. |
+
+- **BREAKING** (#718): The noise-reduction inquiry and control permissions are
+  now independent (2026-09-02; supersedes the combined-gate wording under
+  #651). `HasNoiseReduction2D` and `HasNoiseReduction3D` remain inquiry markers;
+  `HasNoiseReduction2DControl` / `HasNoiseReduction3DControl` and their
+  `TypedSupportSurface` variants gate `set_noise_reduction_2d_mode`, the 2D/3D
+  level setters, and both disable helpers. All four permissions are granted
+  only to `PtzOpticsG2`, `PtzOpticsG3`, and the legacy
+  `PtzOptics30X` profile. Aggregate NR aliases and the aggregate serde tag stay
+  removed; use the dimension-specific APIs or a model-evidenced raw request.
+
+- **BREAKING** (#718): `OperationalTuning::strict_unconfirmed_poison` is a
+  construction-only policy (2026-09-02; supersedes the mutable whole-replacement
+  wording under #631). Live `set_tuning` replaces only runtime-mutable fields;
+  leaving this field unset preserves the session policy, while explicitly
+  setting either `true` or `false` at runtime is rejected without changing the
+  installed tuning.
+
+- **Changed raw receive-fault recovery** (#718) (2026-09-02; supersedes the
+  earlier #565 prose). A transient receive fault never authorizes replay of an
+  unsequenced command. By default the request remains awaiting ACK and reaches
+  the #671 per-request unconfirmed outcome only if its ACK deadline expires.
+  `strict_unconfirmed_poison` may instead poison immediately when no cancel is
+  recorded; a cancellation-driven late-ACK state follows its own ambiguity
+  deadline. A read proving transport closure is normalized to
+  `ConnectionClosed` with its cause retained.
+
+- **Changed the replacement-session classifier** (#718) (2026-09-02;
+  supersedes the broad #564 list). Only reachable terminal session outcomes—
+  `ConnectionClosed` and `StreamPoisoned`—return
+  `requires_new_session() == true`. `RuntimeShutdown` and the live-session
+  per-request `UnsequencedCommandUnconfirmed` outcome return `false`; removed
+  channel/socket-manager variants no longer inflate the documented true set.
+
+- **Reaffirmed the executable 1.x parity gate without rewriting #676** (#718)
+  (2026-09-02). The required corpus remains under
+  `.github/behavioral-parity-1x/`, executes every mapped test, pins source/path/
+  command/envelope/profile/receipt evidence, and requires every intentional
+  waiver in this changelog. `docs/behavioral_parity_1x.md` is the human decision
+  record; direct v2 regressions and goldens are the production evidence. This
+  supersedes later prose that incorrectly reduced #676 to a historical guide.
+
+- **Recorded the two formerly local review decisions on their issue trails**
+  (#718) (2026-09-02). The bounded ACK-drain clarification is attached to
+  [#673](https://github.com/GrantSparks/grafton-visca/issues/673#issuecomment-5508129187).
+  The former 64-turn partial-prefix rule and its #713 wall-clock supersession
+  are attached to
+  [#713](https://github.com/GrantSparks/grafton-visca/issues/713#issuecomment-5508129430).
+
+- **Breaking wire corrections versus 1.x** (#715). The phase-4 encoder audit
+  originally compared 491 boundary probes against the pinned 1.2 oracle
+  `6c7a9d3783861189745536372c4d21de24d4252d`, then added three v2-only 2D-NR
+  mode rows for a 494-row snapshot. #727 removed the seven redundant
+  `Brightness::Direct` probes when that byte-identical public variant was
+  collapsed, leaving 484 comparable rows plus the three v2-only rows in the
+  current 487-row snapshot. The original audit found 31 changed output rows;
+  the current fixture retains 29 because its two valid Bright Direct rows are
+  among those removed. Every difference remains accounted for below. The
+  behavioral-parity waiver is `source-backed-wire-corrections`. A checked-in
+  literal snapshot now covers every one of the 149 `BuiltinCommand`
+  semantic-ledger rows and every generated queryable inquiry, so a new command
+  or a one-byte change fails CI until the baseline is explicitly reviewed.
+
+  | Affected audit rows | 1.x behavior | 2.0 behavior | Source / decision |
+  | --- | --- | --- | --- |
+  | 3 autofocus-sensitivity settings | Low/Normal/High sent `04 58 00/01/02`. | Low/Normal/High send `04 58 03/02/01`. | [PTZOptics inquiry table §7.10 / R1](docs/visca_reference.md#710-ptzoptics-inquiry-reference). |
+  | 2 valid Bright Direct probes | Sent the relative-control opcode `04 0D`. | Sends direct opcode `04 4D`. | [Bright Direct erratum §7.5 and Sony R8](docs/visca_reference.md#75-exposure). |
+  | 9 valid UpRight limit set/clear probes | Encoded corner `03`. | Encodes corner `01`. | [Pan/tilt table §7.6](docs/visca_reference.md#76-pantilt), corroborated by R1, R6, and R12. |
+  | `FocusZoneInquiry` | `09 04 3C`. | `09 04 AA`. | [PTZOptics inquiry table §7.10 / R1](docs/visca_reference.md#710-ptzoptics-inquiry-reference). |
+  | `PictureEffectInquiry` | `09 04 32`. | `09 04 63`; the conflicting unsourced resolution interpretation is removed. | [Image processing §§7.8, 7.10 / R1](docs/visca_reference.md#78-image-processing). |
+  | `UsbAudioInquiry` | `09 04 7A`, with a mismatched on-value convention. | `2A 02 A0 04`; replies use `02 = on`, `03 = off`. | [UAC rows §§7.9, 7.10 / R1](docs/visca_reference.md#79-flip-osd-ndi-multicast-and-uac). |
+  | 6 trailing-`FF`/framing probes | Preset `255` and Direct Menu data ending in `FF` lost the real terminator; `FF 81` could form a second addressed frame. | A data byte of `FF` is followed by a distinct terminator, and Direct Menu rejects `FF` followed by a VISCA address. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode) and #683. |
+  | 2 extended tilt-speed probes | `TiltSpeed` rejected `15`–`18` globally. | The value type admits `00`–`18`; preparation still enforces each profile's range (`14` for PTZOptics, `18` for BRC-300). | [Pan/tilt range note §7.6 and Sony R12](docs/visca_reference.md#76-pantilt). |
+  | 6 2D/3D NR value/error probes | Level `0` was rejected and out-of-range diagnostics reported a minimum of `1`. | Level `0` is the documented off value; the domains are `0`–`5` (2D) and `0`–`8` (3D). | [NR command rows §7.8 / R14](docs/visca_reference.md#78-image-processing). |
+  | 3 Sony-over-IP payload types (outside the original 491 encoder rows) | Device setting, control command, and control reply used `01 02` / `01 20` / `01 21`. | The payload types are `01 20` / `02 00` / `02 01`. | Sony framing [§5.2 / R7](docs/visca_reference.md#52-sony-visca-over-ip-mode). |
+
+  The Sony payload-type row sits below the encoder layer and therefore is not
+  counted among the 31 comparable built-in rows. It shares the same parity
+  waiver and has its own literal round-trip pin.
+
+  **Persisted autofocus values need migration.** `AutoFocusSensitivity as u8`
+  was `Low=0`, `Normal=1`, `High=2` in 1.x; it is now the actual wire domain
+  `Low=3`, `Normal=2`, `High=1`. Serde's named values remain stable, but a
+  database or config that stored the old integer cast must translate by the
+  semantic setting, not feed that integer to the 2.0 decoder (`0→Low/3`,
+  `1→Normal/2`, `2→High/1`).
+
+  R12 also settles the separate BRC-300 review question: absolute/relative
+  position frames contain one speed byte followed by fixed `00`, five signed
+  pan nibbles, and four signed tilt nibbles. The 2.0 codec is retained; because
+  the public request has separate pan/tilt speed values but this frame has one
+  `VV`, unequal values are rejected. Exact profile-path position and limit
+  vectors pin that decision.
+
+- Consolidated the engine's owner-specific no-due/no-dispatch entry points into
+  one internal, runtime-neutral `EngineTurn` policy (#723). Async and blocking
+  input batches, standalone write results, deadline-only waits, and ordinary
+  scheduler turns now select the same `COMPLETE`, `DEADLINES_ONLY`, or
+  `INPUT_ONLY` tail instead of calling feature-gated engine methods. The engine
+  has no production `cfg(feature = ...)` paths, and the blocking-only build
+  still links no async runtime or executor. Blocking transport closes and
+  framing failures now enter the engine through the same typed
+  `ShutdownReason::TransportClosed` / `FramingFailure` inputs as async; the
+  duplicate `Input::Close` / `Poison` vocabulary is removed. A deadline-bound
+  blocking submission that expires before its first write is now terminalized
+  even when ordinary queueing was allowed, so it cannot return `Timeout` and
+  then write as an unobserved orphan in a later owner turn. Both shells now use
+  one executor-free `RawReleaseTurn` for release-set latching and retained-prefix
+  waits; its async no-input fence is keyed to that same typed set. Async raw
+  stream release no longer poisons after an arbitrary 64 retained-input turns:
+  every discard must instead make measurable decoder progress, matching the
+  blocking owner's progress-based release contract. Both shells also use
+  one shared idle-receive run: an immediately returning no-data blocking driver
+  receives the same escalating 10–250 ms, next-deadline-clamped pacing as async
+  instead of hot-spinning the caller thread. Every blocking-owner timestamp and
+  pacing wait now passes through one private, std-only monotonic-clock seam;
+  production keeps the system clock while deterministic tests advance virtual
+  time without sleeping. The async owner's 90 inline characterization tests are
+  now divided into release-boundary, fairness, fault, lifecycle, and receipt
+  modules, and its three duplicate raw-boundary fake-driver families share one
+  configurable scripted harness. This is an internal architecture change with
+  no public API change.
+
+- **BREAKING: unified raw uncertainty behind one keyed hold table**
+  (2026-09-02; #723; supersedes the live late-ACK/quarantine wording under
+  #724, #721, and #718). `Socket(S1|S2)`, `PreAck`, `InquiryUnkeyed`, and
+  `AllResponses` are now the only bounded raw-correlation hold scopes; overlaps
+  extend one target/scope entry and erase conflicting owner identity instead of
+  choosing by recency. Once an uncancelled raw ACK, completion, or active-budget
+  deadline makes the result unconfirmable, the request immediately reports
+  `UnsequencedCommandUnconfirmed` and is removed; its inert hold filters late
+  input and gates only compatible successors until expiry, but cannot consume a
+  response or be cancelled. A displaced raw socket owner follows the same
+  immediate-terminal rule. Real cancellation remains a live lifecycle:
+  pre-socket intent may keep `AwaitingAck` open to its ambiguity deadline, while
+  an emitted socket cancel uses `AwaitingCancellationResolution`, which is now
+  invalid with `CancelState::None`. The obsolete engine phase and public
+  `DiagnosticPhase::AwaitingLateAck` variant are removed, and all three public
+  API snapshots are regenerated.
+
+- **Breaking: the custom-transport `FrameMeta::sequence` field changed type**
+  (audit #685; design decision D16). `transport::FrameMeta::sequence` is now
+  `Option<FrameSequence>` instead of `Option<u32>`, and the new public
+  `transport::FrameSequence` enum — `Full32(u32)`, `MaybeTruncated(u16)`, with a
+  `value()` accessor — preserves whether a Sony reply carried a full 32-bit
+  sequence or only a potentially truncated low 16 bits, so the engine applies
+  its collision-safe fallback instead of trusting a zero upper half. The
+  `Envelope` trait is sealed, so there are no out-of-tree implementations; the
+  break falls on advanced callers who read `FrameMeta::sequence` from the public
+  `Envelope::extract_with_meta` / `frame_into` methods (and the `RawVisca` /
+  `SonyEncapsulated` inherent forms), who now match on `FrameSequence` or call
+  `.value()` instead of using a bare `u32`. Ordinary construction and the
+  built-in transports are unaffected.
+- **Finalized submission-QoS semantics: an override can never demote the urgent
+  lane** (#630, #679; decision D1; supersedes the interim #656 rule). The public
+  QoS API is `SubmissionClass`, which exposes only the lower three dispatch
+  lanes; `ControlClass::Urgent` is request-owned safety metadata. The final rule
+  is that **no public route — a per-handle default, a per-call override, or a raw
+  policy — can demote a request the crate classifies `Urgent`, nor manufacture
+  the urgent lane.** This consciously reverses the short-lived #656 preview rule,
+  under which an explicit per-call override could demote `Urgent`; closing that
+  route means neither an accidental handle configuration nor a deliberate
+  override can weaken STOP safety. `docs/migration_2_0.md` states the final
+  `Priority` → `SubmissionClass` mapping.
+- **Documented the async `shutdown` / `close` lifecycle distinction** (decision
+  D14; previously disclosed only in the design self-review). `shutdown` is the
+  idempotent, non-joining signal — safe to call repeatedly and after
+  `RuntimeShutdown`, performing no second I/O — while the consuming `close` is a
+  deterministic transport-teardown barrier: it waits until the sole owner has
+  finished its boundary drain and dropped its driver/transport (without promising
+  an executor-specific task join), maps an explicit `RuntimeShutdown` result to
+  success, and preserves a transport or poison cause that won the source
+  ordering. `docs/migration_2_0.md` records the distinction a lifecycle-sensitive
+  caller feels.
+- **Documented the operational-tuning "more conservative only" ratchet**
+  (decision D15; previously disclosed only in the design self-review).
+  `OperationalTuning` may only make a validated profile's timing facts *more*
+  conservative: an override that would undercut a profile's category deadline,
+  its `ack_timeout` floor, or a pacing minimum is rejected. This extends spec
+  §102's "more conservative only" rule — which by its wording constrains pacing
+  alone — to timeout durations as well, and so consciously removes the 1.x
+  capability to install a *shorter*, fail-fast timeout below the profile value.
+  `docs/migration_2_0.md` records the row a 1.x user feels.
+- **`read_timeout` and `write_timeout` now take effect on async sessions**
+  (#675), superseding the earlier 2.0-preview behavior in which both knobs were
+  silently ignored on every async transport (only the blocking sockets applied
+  them). The runtime-agnostic async transports carry no timer of their own, so
+  the async owner now enforces both around the transport itself: each read is
+  bounded by `read_timeout` and, if it elapses, is treated as an idle no-data
+  receive (nothing was consumed); each write is bounded by `write_timeout` and,
+  if it elapses, is abandoned as a failure under the transport's send semantics
+  (stream poison, or datagram per-request failure). The defaults are unchanged
+  (5 s each). An async application that set a long or short timeout expecting it
+  to matter now gets that behavior; an application that relied — knowingly or
+  not — on async reads/writes never timing out should set the values it wants
+  explicitly. A custom `AsyncTransport` should be cancellation-safe, since a
+  timed-out read/write future is dropped; futures built from the standard async
+  socket readers/writers already are. This is a behavioral fix to a documented
+  knob, not a new API; the `AsyncTransport` trait docs now state the contract.
+- **The raw escape hatch now refuses owner-only wire primitives and the urgent
+  safety lane** (#678, #679), closing two ways ordinary `execute`/`inquire`/
+  `submit` traffic could reach owner-only behavior. `raw`'s wire validation
+  previously checked only length, the header address byte, and the trailing
+  `0xff`, so a caller could submit a socket cancel (`8x 2y ff`) or a per-camera
+  interface clear (`8x 01 00 01 ff`) through `camera.execute()`; the socket
+  cancel could cancel an *unrelated* operation's socket (a victim `FocusStop`
+  came back `CommandCanceled`), and the interface clear reset the shared command
+  buffer — the exact outcome `docs/request_semantics.md` said was impossible.
+  Both shapes are now rejected at construction (the broadcast address-set form
+  was already refused by the target-address check), so `raw::Plain::new`,
+  `raw::Inquiry::*`, `raw::Targeted::new`, and `raw::AppliedOnly::new` return
+  `Error::InvalidRequest` for them; a legitimate custom frame (including USB
+  audio, whose command byte `0x2a` sits in the cancel nibble range but is not
+  the 3-byte cancel frame) is unaffected. Separately, `raw::Policy::new` and
+  `raw::Spec::new` — public `const fn`s that previously accepted any
+  `ControlClass` — now **return `Result` and reject `ControlClass::Urgent`**
+  (the two constructors changed from `-> Self` to `-> Result<Self>`, and the
+  four `raw::*::new` constructors propagate that error). Urgent is FIFO within
+  its class and bypasses admission backlog, so a raw flood in that lane delayed a
+  genuine `PanTiltStop`; a raw caller who needs preemption issues the typed stop
+  (`pan_tilt().stop()`, and the like), which the crate classifies urgent on the
+  caller's behalf. This corrects the #630 entry above, `docs/migration_2_0.md`,
+  and `docs/architecture_inventory.md`, which stated unqualified that ordinary
+  work could not reach the safety lane while this raw path was open. The
+  `api/2.0.0-rc.1/*.txt` snapshots are regenerated for the two changed
+  signatures.
+- **Restored the 1.x acknowledgement default and documented the inquiry
+  deadline** (#689), superseding the 2.0-preview timeout defaults. Every
+  built-in profile shipped an `ack_timeout` of 100 ms (150 ms and 200 ms on two
+  Sony profiles) — as much as 5× tighter than 1.x, whose `TimeoutConfig` default
+  and actual scheduling deadline were both 500 ms — so ordinary network jitter
+  tripped a command far more readily than under 1.x. All nine built-in profiles
+  now use the 1.x 500 ms acknowledgement default again, as an interim value; the
+  final per-profile numbers are to come from the hardware pass. Because an
+  operational override may only widen a profile deadline and never undercut it,
+  raising this floor also means an `ack_timeout` override below 500 ms is now
+  rejected where the tighter preview default would have accepted it. The
+  inquiry-response deadline, by contrast, is a genuine documented 2.0 change and
+  not a restoration: 1.x inquiries had no dedicated deadline and used the 5 s
+  `Quick` category budget, while 2.0 gives inquiries their own deadline, held at
+  an interim 1 s pending the same hardware pass. That divergence is recorded in
+  the parity corpus (`tests/fixtures/1x_oracle/manifest.json`) as the
+  `timeout-category-defaults-selection` row, reclassified from `preserved` to
+  `intentional-change` under the new maintainer-ratified waiver
+  `inquiry-deadline-interim-default`; a new `v2-profile-default-deadlines` test
+  pins both defaults on every profile so neither can drift unnoticed. Since #671
+  a deadline trip fails only the one request, not the session. See
+  `docs/migration_2_0.md` for the row a 1.x user feels.
+
+- **A raw command that cannot be confirmed now fails per request instead of
+  poisoning the whole session** (#671), superseding the earlier 2.0-preview
+  behavior in which a lost ACK/completion datagram, a transient receive fault
+  while a raw command awaited its ACK, an unresolved cancellation, or an active
+  retry-budget expiry ended the entire session with
+  `UnsequencedCommandUnconfirmed`. That preview rule reversed the review-1
+  mandates #565 (transient faults must not poison) and #566 (movement/preset
+  commands survive a lost ACK) on 7 of 9 shipped profiles; this restores them.
+  By default the engine now fails only the affected command with
+  `UnsequencedCommandUnconfirmed` — a per-request outcome the session survives —
+  and quarantines the correlation still at stake (its owned socket, or its place
+  as the sole unacknowledged raw command) until the ambiguity deadline, so a late
+  ACK or completion is ignored rather than misbound to a later command. The
+  session and every unrelated request keep running, and the "never blindly replay
+  an unconfirmed raw command" principle is kept in full. A transient receive
+  fault no longer terminalizes an in-flight raw command at all: it rides to its
+  own ACK deadline. Sony same-sequence retry and conclusive-rejection retry
+  (buffer-full `0x03` / no-socket `0x05` / movement `0x41`) are unchanged. The
+  whole-session poison is retained behind the new opt-in
+  `OperationalTuning::strict_unconfirmed_poison` (default off), which surfaces its
+  session kill as `StreamPoisoned`. Consequently `UnsequencedCommandUnconfirmed`
+  now reports `requires_new_session() == false` (a live session must never hand a
+  caller a replacement-session verdict); a raw integration that reconnected on
+  this error should now retry on the same session. Ratifies design-review
+  decision D8. See `docs/migration_2_0.md` for the row a raw user feels.
+
+- **Restored the #620 bounded other-socket ACK fallback** (#682). At the earlier
+  2.0-preview head an ACK naming a socket another request still owned returned
+  `SocketConflict` and left the command wedged on `AwaitingAck`, which — because
+  the ACK deadline is what #671 poisoned on — turned a single lost completion
+  frame (the camera then reuses the socket) into a session poison. The named-ACK
+  fallback to the target's other free socket is restored: the ACK's candidate is
+  uniquely identified before assignment, so the fallback cannot mis-attribute it;
+  it only keeps the next command from wedging. Composed with the #671 model, no
+  cascade to session death remains.
+
+- **Ratified all three 1.x behavioral-parity waivers and hardened the gate that
+  records them** (#676, ratification per #692). The parity corpus
+  (`tests/fixtures/1x_oracle/manifest.json`) marks three behaviors as
+  intentional 2.0 changes rather than preserved 1.x contracts, and those
+  waivers were originally self-approved in the same commit that introduced the
+  behavior. All three are now maintainer-ratified. Two were sound as written:
+  - `deterministic-equal-jitter` supersedes 1.x's exact, jitter-free
+    exponential backoff: 2.0 starts at a 50 ms delay and applies deterministic
+    equal jitter within a bounded ceiling, so retries stay reproducible but no
+    longer synchronize across cameras.
+  - `evidence-based-raw-correlation` supersedes 1.x's temporal
+    command-completion fallback on the raw envelope: raw VISCA carries no
+    request identity, so a raw command keeps one unacknowledged candidate per
+    target and never attributes an ACK or error by FIFO or recency.
+
+  The third waiver, `evidence-bounded-retry`, is **now ratified as well** (per
+  #692), rewritten under #671 to describe the shipped per-request failure model:
+  an ambiguous successfully sent raw command is never replayed and, by default,
+  fails only that one command with `UnsequencedCommandUnconfirmed` while the
+  session survives (the `strict_unconfirmed_poison` opt-in instead poisons the
+  whole session). Retry counts stay category-based and the single
+  admission-to-terminal budget is unchanged. See `docs/behavioral_parity_1x.md`.
+
+  The gate itself was advisory and is now enforcing (#676): it runs each mapped
+  `cargo test` and asserts every mapped symbol actually executed (not filtered,
+  ignored, or emptied by a `mod tests` rename); it pins the required family set
+  and the per-row transport `envelope`/`profile`/`receipt_class` in the
+  validator and checks each against the test body, so a raw→Sony substitution
+  is a visible, checked diff; and it requires every approved waiver id to appear
+  in this changelog, which is what this entry provides. No library API changes.
+- **The three noun facades are generated from one typed registry** (#617).
+  `command::surface` and the async, blocking, and object-safe `Dyn*` facades now
+  consume the same `src/noun_table.rs` registry. Request expressions are
+  anchored to concrete request types; canonical `BuiltinCommand` IDs and the
+  broadcast/cancellation exceptions are explicit; and independent wire-level
+  tests pin the expected VISCA frames. Maintaining the surface requires one
+  noun-registry row plus the separate semantic `BuiltinCommand` classification.
+  **There is no public API change**: the pinned `api/2.0.0-rc.1/*.txt`
+  snapshots regenerate byte-identically on all three legs, which is the machine
+  proof that every signature, bound, and cfg gate survived. Rendered
+  documentation does change: rustdoc is now a per-row attribute, so the three
+  surfaces can no longer document the same method differently, and the 94
+  method pairs whose prose had drifted are unified on one wording. Inquiry
+  methods now read "Returns …" on every surface, following 1.x's
+  `InquiryControl` prose rather than the async facade's "Inquires …". The #570
+  parity gates, the #651 paired-gate assertion, and the closed-inventory gates
+  all stay in place; the ones that read facade source text now read the shared
+  table instead, and each was re-verified by breaking the property it guards and
+  watching it fail.
+- `image().set_flip_both()` is now gated on `HasCombinedImageFlip` rather than
+  `HasImageFlip` (#651). It sends the *combined* flip opcode, the same one
+  `set_flip_mode` sends, so the split gate let SonyFR7, SonyBRCH900 and
+  SonyEVIH100 — which declare `ImageFlip` but not `CombinedImageFlip` — send
+  that opcode's `Both` while having no way to send its `Off`. 1.x reached the
+  combined opcode only through `set_image_flip(mode)`, gated on
+  `HasCombinedImageFlip`; those three profiles could not send it at all. A new
+  ledger assertion pins both halves of a toggle to one capability gate so the
+  split cannot reappear. Callers on a profile that only declares `ImageFlip`
+  should use `enable_flip()` / `enable_horizontal_flip()` and their disable
+  twins, which move the axes the profile actually documents.
+- Strengthened the weak and vacuous tests the second review round itemized
+  (#641). Each one asserted something that could not fail: a retry counter
+  compared against a count derived from the same event stream, so removing
+  retries engine-wide left it green; a motion-sync helper covered by rebuilding
+  the command it constructs rather than by calling it; `std::ptr::eq` between an
+  accessor and its own definition; a `7 == 7` on a struct the test had just
+  built; a preset terminator check wrapped in an `if let Ok(..)` that skipped
+  itself silently; `StateKey::ALL.len() == 15` on a `#[non_exhaustive]` enum,
+  which could not see a variant missing from the list; an
+  `x.len() == x.len()`; a "type-state prevents this" claim that existed only as
+  a commented-out line; an "other triggers are not capped" test that handed the
+  answer to a pure function instead of checking what the engine selects; a
+  shared-handle test with no assertions at all; retry-budget tests with only the
+  succeeding side; a source scan satisfied by a comment; and fifteen bare
+  per-trait method counts that could not see a delete-one-add-one rename. Each
+  replacement was verified by breaking the code under test and watching it fail.
+  Coverage was added where it was simply absent: decode-side tests for the five
+  typed `StateCache` getters that had none (`focus_lock`, `digital_zoom`,
+  `tally_mode`, `tally_brightness_is_high`, `variable_speed_mode`), a
+  pan/tilt-limit probe away from the `0,0` fixed point where a swapped axis is
+  visible, a normalized-zoom midpoint that tells the two zoom domains apart, and
+  the failing side of both retry budgets. The `_op` forbidden-token gate now
+  matches method declarations rather than the character sequence, which would
+  have false-positived on any innocent `*_optical_*` identifier. The six async
+  transport-fault and retry scenarios that ran inside one `#[tokio::test]` each
+  are now one libtest case per scenario per runtime, so an early panic no longer
+  hides every scenario after it. No gate was relaxed.
+- Every compile-fail fixture now declares the diagnostic it expects, and the
+  fixtures pinning 1.x names that no longer exist are retired (#640). The
+  harness in `tests/common/compile_fail.rs` accepted any of nine error codes or
+  four loose substrings, so the 39 of 45 `fail/` fixtures without a declared
+  compile contract passed on any of them: a fixture importing a wholly bogus
+  path was demonstrably green, because the `E0432` from the rotted path
+  satisfied the same list a genuine `E0603` privacy contract satisfied.
+  A fixture now states its own expectation in its source — `//~ E0603`,
+  `` //~ "module `camera_id` is private" `` — and the harness matches the
+  declared codes against rustc's *exactly*: a declared code rustc does not
+  report fails, and so does a code rustc reports that the fixture does not
+  declare. A fixture declaring an absence code (`E0432`, `E0433`, `E0599`, and
+  the rest of the "cannot find" family — the codes a typo produces just as
+  readily as a real removal) must also pin the message naming the path that has
+  to be missing, and a fixture declaring nothing at all is rejected before it is
+  compiled. Ten fixtures were pinning modules 2.0 does not have
+  (`camera::accessors`, `camera::builder`, `camera::controls`,
+  `camera::convenience`, `camera::inflight`, `camera::session`, `camera_impl`,
+  `cache`, `constants`, `runtime::core`/`runtime::driver`): they failed with
+  "cannot find", not "is private", so they pinned nothing at all. Five are
+  rewritten against modules 2.0 really does keep internal (`camera::movement`,
+  `camera::construction`, `async_nouns`, `async_session`, and
+  `runtime::engine`/`runtime::owner`), five are deleted, and new fixtures pin
+  `blocking::blocking_nouns`, the blocking transport module, and the private
+  modules behind the root re-exports. `cache_module_is_internal` is gone
+  outright: the module it guarded was renamed `state_cache` and is deliberately
+  public. Four fixtures were failing for the wrong reason and are fixed: both
+  `ignored_operation_handle` fixtures submitted a wire-value enum rather than a
+  typed request, so they were rejected by `submit`'s `OperationCommand` bound
+  and never reached the `#[must_use]` lint they exist to pin;
+  `unsupported_optional_support_markers` named two profiles it never imported,
+  so six of its twenty-one capability-bound assertions were unresolved-name
+  errors instead; and `protocol_lift_helpers_are_internal` named a helper path
+  that does not exist, reporting an unresolved value beside the privacy error it
+  is about. `tests/camera_first_contract/`, a directory no test binary
+  referenced and which therefore never ran, is gone; its one live contract moved
+  into the blocking fail set. The #568 single-camera bind fixtures now declare
+  `E0308` and document where the compile-time bind ends: `CameraSession::session()`
+  hands back the profile-generic `Session`, whose `camera::<P>()` is
+  runtime-checked by design and *does* compile with a second profile. Test-only;
+  no public API change.
+- `ProtocolEngine::assert_invariants` now runs from the engine itself (#636). It
+  had no production call site at all — every derived index was audited only
+  where a test happened to remember to ask — so a corruption on an uncovered
+  path could ship. A `debug_assert!` hook now closes every mutation entry point
+  over the full audit, which means it runs after every single input in a debug
+  build and in the whole test suite, and compiles out of a release build.
+- The invariant fuzzers now cover every session shape the engine can be
+  configured into (#636): raw and Sony framing across datagram and stream
+  transports, socketless ACK/completion/error frames, `Input::ReceiveFault` in
+  several error shapes, network-change frames, and both Sony sequence widths.
+  Each run also asserts it actually reached acknowledgement, completion, reply,
+  retry and cancellation, so the generators cannot decay into a stream of inert
+  frames while still passing.
+- Removed the blanket `#![allow(dead_code)]` module attributes that were hiding
+  roughly two hundred unused crate-private items behind stale "phase N will
+  connect this" comments (#636). Genuinely dead code is deleted — an entire
+  uncalled semantic-mapping layer, a superseded scheduler helper, a dead owner
+  policy wrapper chain and several compatibility aliases; everything that
+  survives carries a targeted `#[allow(dead_code)]` naming the consumer it is
+  waiting for. The one remaining exemption is conditional on no facade feature
+  being selected, where the engine and owner are unreferenced by construction.
+- Documented the receive and send error contract on `AsyncTransport` and
+  `BlockingTransport` (#637). The traits previously documented only EOF, while
+  the value a transport's `recv_into` returns decides whether the session
+  survives and whether every in-flight command is retransmitted. Both traits now
+  state exactly what `Ok(0)`, an idle timeout, a session-fatal error and a
+  transient fault each mean, and what the runtime does with them. On the send
+  side, a datagram send failure that reported a session-fatal error value (a
+  custom transport returning `Error::ConnectionClosed`) used to hand the caller
+  a per-request failure that claimed a replacement session was required, while
+  the session kept running; it is now normalized to a per-request
+  `Error::TransportError` preserving the original cause, and the receive side
+  stays the authority on session death.
+- **Every normative issue-542 trace fixture is now replayed through the
+  production engine and owner** (#634). Four lifecycle fixtures — observer late
+  delivery, deadline classes, capacity and failures, and PTZOptics
+  cancellation — previously had no production replay at all, and the two that
+  did were weak: the engine replay rebuilt its expected reply route, reply
+  payload and camera error code from the fixture's *input* columns, so an
+  engine that corrupted every inquiry reply or collapsed every camera error
+  code onto one still passed; the owner replay consumed 17 of 70 records and
+  ignored the expectation columns entirely. All five lifecycle fixtures now
+  replay record for record against the real `OwnerState` — the real protocol
+  engine, admission permit pool, terminal observers and applied-state
+  subscribers — and the protocol replay reads its reply route, payload bytes,
+  attributed socket and error code out of the engine's own effects. The
+  1,357-line hand-written simulator the fixtures used to be checked against is
+  deleted; only the fixture-integrity checks a production replay cannot make
+  (versioned trace format, scoped scenario coverage, one recognized normative
+  #542 clause per expectation) survive, in
+  `tests/issue_542_trace_fixture_contract.rs`. The blocking out-of-order
+  fixture's first ACK block was corrected: it asserted that a raw VISCA ACK —
+  which carries no request identity — could be attributed to the *second* of
+  two outstanding commands. The fixture now exercises the one-candidate raw
+  pre-ACK gate; the ACK's socket establishes target/socket ownership and
+  out-of-order settlement is expressed at completion, while Sony sequence
+  correlation remains explicit. No library behavior changed.
+- **Pinned the movement wire encodings to golden byte vectors, and closed two
+  validation gaps the suite could not see** (#633). Transposing the pan and
+  tilt fields of the absolute pan/tilt encoder, or swapping two rows of the
+  direction table, previously passed the entire test suite: the directional
+  coverage compared a helper frame against an explicit frame that routed
+  through the same table, and the only fixtures naming the bytes outright had
+  been orphaned out of the build. Every pan/tilt direction, the absolute and
+  relative position frames, and the zoom, focus, preset, and power encodings
+  now have absolute byte-vector assertions that no encoder recomputes. The
+  raw frame-size bound gets a fixture that is otherwise valid — legal address
+  byte, legal terminator — so deleting the `raw::MAX_BYTES` branch fails a
+  test instead of being covered by the terminator rule, and
+  `raw::validate_axes` is now exercised through every public axis-carrying
+  constructor.
+- **Made empty `AffectedAxes` values unrepresentable** (#633). The public type
+  now stores a `NonZeroU8`; `from_bits(0)` and deserializing zero fail, there is
+  no `NONE` sentinel, and intersection returns `Option<AffectedAxes>` because
+  disjoint sets have no valid result. Safe constructors, constants, unions,
+  and downstream `OperationCommand::affected_axes()` implementations therefore
+  carry the promised non-empty guarantee without a second preparation-time
+  validation branch. The niche keeps `AffectedAxes` and
+  `Option<AffectedAxes>` compact while preventing a targeted operation from
+  vacuously reporting settled without observing any axis.
+- **Packaging and release-machinery polish** (#642). `grafton-visca-macros`
+  now ships `LICENSE-MIT` and `LICENSE-APACHE` in its published tarball: it
+  declares `MIT OR Apache-2.0` and both licences require their text to
+  accompany the distribution, and its README linked two files the package did
+  not contain. `deny.toml` is excluded from the published main crate — it is
+  CI-only configuration, in the same class as the already-excluded `api/`
+  baselines — and the `exclude` list now states why `CHANGELOG.md` and
+  `CONTRIBUTING.md` are deliberately kept. All third-party workflow actions are
+  pinned to immutable commits, including `actions/checkout`; the publication
+  workflow also pins its toolchain, and refuses to publish
+  unless the remote tag object still matches the validated annotated object and
+  the latest exact-head `ci.yml` workflow run is completed successfully,
+  replacing RELEASING.md's honour-system instruction with gates. CI gains an
+  advisory job that runs the release validator against the real repository
+  with the intended next tag, so manifest and version drift surfaces on the
+  pull request that introduces it rather than at publish time. The fuzz target
+  gains a committed seed corpus of well-formed and malformed frames, so each
+  bounded run starts warm and a crash can be pinned as a permanent regression
+  seed. Two orphaned `.github/scripts` setup scripts that referenced a v0.x
+  milestone and a nonexistent issue template — and that would have created
+  real GitHub issues if run — are deleted. Documentation fixes: the retry
+  budgets in `docs/observability_and_recovery.md` are now stated as retries
+  rather than attempts and carry the missing `Movement`/`Preset` row, the
+  busy-timeout term in the wall-clock budget and the backoff ceiling, the
+  half-open jitter band, and the built-in-inquiry `0x02` retry path; the
+  Windows CI job says that its serial tests drive a mock and that the Win32
+  backend is compiled but never executed; and CONTRIBUTING's nightly install
+  one-liner names the `rustfmt` and `miri` components that `--profile minimal`
+  omits. The Miri script now invokes the pinned nightly explicitly as well, so
+  a developer's default toolchain or directory override cannot silently select
+  a stable toolchain without the Miri component.
+- **Replaced the fake terminator tests with real encode-path coverage** (#627).
+  `tests/no_hardcoded_terminator_test.rs` had regressed to its pre-#586
+  revision: one test asserted that a `const` it declared itself equalled `0xFF`
+  and never touched the crate, another only `println!`ed and could not fail,
+  and the surviving source scanner matched uppercase `0xFF` only — structurally
+  blind to the lowercase literals in `src/` — while exempting any line
+  containing `// `. The file now drives the production encode path
+  (`Request::write_into`) for real typed commands across the power, pan/tilt,
+  zoom, focus, iris, preset and system families, for built-in inquiries, for
+  raw-frame admission, and for both transport envelopes, asserting that every
+  frame ends with the exported `VISCA_TERMINATOR` and carries it exactly once.
+  Because the frames are compared against the imported constant rather than a
+  literal, the constant and the encoders can no longer drift apart. The scanner
+  and `tests/terminator_validation_test.rs` (three file-existence and
+  string-presence assertions) are deleted: a text scan cannot tell a hardcoded
+  terminator from the legitimate `0xff` in response fixtures, simulator
+  scripts, framer comparisons, error codes and the constant's own definition,
+  so it can only be noisy or vacuous.
+- **Single-camera constructors return a camera, with the profile bound at
+  compile time** (#568). Every other entry point returns a `Session`, so a
+  one-camera program had to name its profile a second time through
+  `session.camera::<P>()?` — and that second naming was a runtime check, so
+  opening with `PtzOpticsG2` and asking for `PtzOpticsG3` compiled and failed
+  on the device. `Connect::open_tcp_camera::<P>` / `open_udp_camera::<P>` (and
+  the blocking equivalents) now return a `CameraSession<P>` that owns its
+  session and hands out the `P` camera view with no turbofish and no fallible
+  projection; a mismatch is not expressible, as in 1.x. The configured forms
+  are `CameraConfig::<P>::open_camera` / `open_camera_async`, and
+  `CameraSession::open` takes a caller-owned transport with the same bind.
+  `close` mirrors `Session::close`, and dropping the value tears the session
+  down. The multi-camera `Session`/`camera_for` path is unchanged.
+- Sized the retry budget against the request's own deadline (#566). It was two
+  seconds, shorter than every profile's completion deadline, so re-enabling
+  completion retries alone would have changed nothing. The default budget is
+  now the largest of 1.x's ten seconds, twice the request's governing deadline,
+  and the profile's busy timeout. This leaves room for at least one further
+  full-length attempt whenever retry policy and correlation evidence permit it.
+- Restored the ACK backoff exponent cap and added deterministic backoff jitter
+  (#566). 1.x capped the ACK backoff exponent at five — 32x the initial delay —
+  and left completion, inquiry, protocol-error and transport-fault retries
+  uncapped; that distinction is back. **1.x had no jitter at all**, so the
+  jitter here is new rather than restored: the rewrite's `maximum_backoff`
+  ceiling makes concurrent retries converge on the same instant and stay there,
+  which is the collision a backoff exists to break up. Each wait is now drawn
+  from the half-open equal-jitter band `[ceiling / 2, ceiling)`, so no request waits
+  longer than 1.x would have. The draw is a pure function of the engine's seed,
+  the request identity and the attempt number — never of wall-clock time or
+  process entropy — so the engine remains a total function of its inputs and
+  the exact sequence is pinned by test.
+- Documented the stream write-failure policy explicitly (#565). A failed
+  datagram write fails exactly one request, with its own transport error, and
+  the session keeps running. A failed stream write poisons the session on
+  purpose: no transport trait in this crate reports how many bytes of a frame
+  reached the wire, so a partial write must be assumed and the byte-stream
+  position treated as unknowable. `Error::StreamPoisoned` carries the exact
+  transport cause in its reason and is the one terminal error that answers
+  `Error::requires_new_session()` correctly (#564). 1.x drew the same line.
+- Gated the async noun surface and added a cross-surface parity test (#570).
+  Only `blocking_nouns` carried a per-row ledger gate, so deleting or
+  misclassifying an async noun method failed no test: the published API
+  snapshots diff each facade only against its own baseline and never against
+  each other. `async_nouns` now carries the same gate against the closed
+  `command::surface` ledger, and a new crate-private parity test reads all
+  three noun facades — async, blocking, and the dynamic projection — and
+  asserts they agree method for method on name, semantic return class, and
+  capability bound, all derived from the ledger rather than from a
+  hand-maintained expected table. That gate found eleven exposure rows
+  (`brightness_*` and `compensation_*`) recorded in the ledger with only the
+  noun's own marker while all three facades gate them on
+  `HasBrightnessControl` / `HasExposureCompensation`; the ledger now records
+  those typed markers. The semantic facade comparison and command
+  classifications are derived from `BuiltinCommand::ALL`, the generated
+  inquiry table, and the noun ledger. Closed-universe cardinalities remain
+  intentionally literal review sentinels: the compiled test exposes 149
+  commands (146 target-facing and three protocol exceptions), 62 inquiries,
+  14 nouns, and 217 noun-table rows, while the integration gate mirrors the
+  published constants. Assertions that depended only on another file's
+  rustfmt-sensitive layout were removed. Test-only: the public API is
+  unchanged. This #731 audit corrects the earlier draft's inaccurate claim
+  that every cardinality was derived.
+- Operation-handle drop semantics match 1.x exactly: drop is `detach` and
+  never stops hardware (#567). Dropping a handle relinquishes the observer and
+  nothing else, so an early `?`, a panic unwinding past it, or a forgotten
+  binding leaves physical movement running until an explicit stop ends it.
+  This is documented rather than changed — 1.x behaved identically — so it is
+  not a migration item, and the migration-table row that implied otherwise is
+  corrected. Callers who want motion bounded by a scope write a stop-on-exit
+  guard; the pattern is documented in `docs/migration_2_0.md` and demonstrated
+  in `examples/operation_handles.rs` (and in its async wrapper form in
+  `examples/operation_handles_async.rs`). No new public API.
+- Standardized endpoint defaults, transport configuration, preflight
+  validation, cancellation, retry, and observability behavior across the
+  supported runtime and transport combinations.
+- Pinned every CI toolchain to an exact version (stable 1.98.0, nightly
+  2026-08-26, MSRV 1.88.0) so the byte-compared gates stop breaking on
+  unrelated pull requests whenever rustc releases, kept the declaration-based
+  compile-contract harness on that pinned toolchain, regenerated the
+  `api/2.0.0-rc.1` public API snapshots against it, and installed the nightly
+  explicitly in the snapshot job so `cargo public-api` can build rustdoc JSON
+  instead of failing on a missing `nightly` toolchain (#562).
+- Stopped shipping the public API snapshots to crates.io and shrank them
+  (#572). `api/` was 71% of the published tarball — 1.8 MiB of CI baseline text
+  with no use to consumers — and is now in the `exclude` list, taking the
+  package from 355 files / 2.5 MiB compressed to 347 files / 737 KiB. The seven
+  byte-compared surfaces are reduced to three (`blocking`, `tokio-dyn`,
+  `all-features`), which measurably cover the same items: `blocking` is a
+  strict superset of the retired no-default surface, `tokio-dyn` of the retired
+  async surface, and `all-features` of the rest. `--simplified` drops the
+  compiler-emitted blanket impls that were ~42% of every file and identical for
+  every public type; auto-trait and auto-derived impls are still tracked. The
+  snapshots and their regeneration procedure are now documented in
+  `CONTRIBUTING.md`, which also drops its stale instruction not to tag without
+  "both semver surfaces" — a gate that no longer exists.
+
+### Removed
+
+- **Removed the public no-op send-buffer configuration** (#736).
+  `BufferConfig::send_buffer_size` and
+  `NetTransportBuilder::send_buffer_size` never influenced a production
+  transport or owner: wire encoders already reuse fixed protocol-bounded
+  buffers, and the setting was read only by a test-only allocator. Receive and
+  framing limits remain configurable through `recv_buffer_size` and
+  `max_buffer_size`.
+
+- **Removed the duplicate standard-connection builders and constructor
+  aliases** (#729). `ConnectBuilder`, `TcpConnectBuilder`,
+  `UdpConnectBuilder`, and `SerialConnectBuilder` duplicated the configurable
+  `CameraConfig<P>` surface. `open_tcp_camera`, `open_udp_camera`,
+  `open_camera`, and `open_camera_async` became redundant when their canonical
+  unsuffixed forms began returning `CameraSession<P>`. The serial `_camera`
+  aliases added during #650 are also removed: serial is the multi-target path,
+  so use `open_serial` / `open_serial_async` and `camera_for`.
+
+- **Removed unsourced or ambiguously decoded image inquiries and value
+  vocabularies** (#715). `ResolutionInquiry`, `ResolutionMode`, and
+  `image().resolution()` claimed `09 04 63`, which the source-backed table
+  identifies as Picture Effect. `BlackWhiteInquiry`,
+  `BlackWhiteModeInquiry`, `BlackWhiteMode`, and the corresponding
+  `image().black_white*` accessors used unverified `04 01` / `04 73` registers.
+  There is no typed replacement for either vendor dialect; use a deliberately
+  specified `raw::Inquiry` only with model/firmware evidence. Source-backed
+  black-and-white state remains available as
+  `image().picture_effect()` / `PictureEffectInquiry`.
+
+- **Removed the ambiguous aggregate noise-reduction inquiry vocabulary**
+  (#715): `NrLevelInquiry`, `NrModeInquiry`, `NrSpeedInquiry`,
+  `NoiseReductionLevel`, `NoiseReductionMode`, `NoiseReductionSpeed`, and the
+  aggregate `noise_reduction_level` / `noise_reduction_mode` accessors. Use the
+  dimension-specific `noise_reduction_2d_mode()`, `noise_reduction_2d()`, and
+  `noise_reduction_3d()` queries and their corresponding value types. The new
+  `NoiseReduction2DModeCommand` / `NoiseReduction2DModeInquiry` pair owns the
+  source-backed `04 50` register explicitly.
+
+- **Removed the unverified named picture-effect modes** (#715):
+  `PictureEffectMode::{Negative, Sepia, Sketch, Emboss, Mosaic}`. Built-in
+  profiles retain the sourced `Off` and `BlackAndWhite` modes. A known
+  model-specific value may be represented explicitly as `Unknown(raw)` and
+  sent on a profile with picture-effect support; 2.0 does not assign
+  unsupported names to those bytes.
+
+- **Removed nine more never-constructed public `Error` variants** (#722):
+  `CommandTimeout`, `CameraBusy`, `CameraMoving`, `CameraNotReady`,
+  `CommandRejected`, `PresetNotFound`, `NoResponse`, `ValidationError`, and
+  `UnknownResponseKind`. Runtime and observer deadlines already report the
+  reachable `Error::Timeout`; camera protocol errors use their exact VISCA
+  variants, and capability validation continues to return the public
+  `capabilities::ValidationError` directly. Removing `Error::ValidationError`
+  also removes its unused `From<capabilities::ValidationError>` conversion.
+  The Tokio error-handling example now classifies only outcomes the library can
+  produce, and CI inventories every remaining `Error` variant against a
+  production construction site. Because `Error` is `#[non_exhaustive]`, callers
+  already require a wildcard arm; only code that explicitly constructed or
+  matched one of these unreachable variants needs adjustment. Public API
+  snapshots regenerated.
+
+- **Withdrew the public `timeout` module** (audit #685; the change landed in the
+  newest rc commits with no changelog note). `pub mod timeout` is now
+  `pub(crate)`, removing `timeout::{TimeoutConfig, TimeoutConfigBuilder,
+  TimeoutPolicy, CommandCategory, Deadline, TimeoutGuard}`, the
+  `timeout::TimeoutManager` trait and its implementations, and the
+  `CameraConfig::timeouts(TimeoutConfig)` builder setter from the public API.
+  A profile's command-category completion deadlines are now expressed by the
+  public `CommandTimeouts` value (see Added) and reconfigured through
+  `OperationalTuning`; `docs/migration_2_0.md` maps `TimeoutConfig` to that
+  surface.
+- **Removed the public transport retry-configuration surface** (audit #685).
+  `transport::{RetryConfig, BackoffStrategy, RetryAttempt}`, the
+  `transport::DEFAULT_MAX_PENDING_QUEUE_DEPTH` constant, the
+  `CameraConfig::retry_config(RetryConfig)` builder setter, and the
+  `NetTransportBuilder` setters `retry_config`, `backoff_strategy`,
+  `max_retries`, `max_retry_duration`, `retry_delay`, and
+  `max_pending_queue_depth` are gone. Retry counts, backoff, and the wall-clock
+  budget are owner policy derived from the request's timeout category and
+  reconfigured through `OperationalTuning::{retry_limit, retry_timing}`;
+  `docs/migration_2_0.md` maps the old `RetryConfig` fields to it.
+- **Removed the public owner-only wire-primitive request types** (#678, #679).
+  `request::builtin::{AddressSet, CommandCancel, InterfaceClear}` — Address Set,
+  socket cancel, and interface clear — are no longer public: they are
+  owner-coordinated lifecycle controls, not target-scoped `execute` payloads,
+  and the raw escape hatch already refuses their wire shapes (see the #678/#679
+  Changed entry). Public cancellation stays available through the operation
+  handle, and the rest of `request::builtin` is unchanged.
+- **Removed the eight-`Duration` profile-timing construction surface** (audit
+  #685). The `ProfileSpecBuilder::timing(...)` form that took eight positional
+  `Duration`s, the `ProfileTiming::completion_timeout` /
+  `OperationalTuning::completion_timeout` accessors, and the
+  `ProfileMetadata::COMPLETION_TIMEOUT` / `GenericVisca::COMPLETION_TIMEOUT`
+  constants are removed in favor of the validated `ProfileTiming` value carrying
+  a `CommandTimeouts` (see Added).
+- **Removed `AffectedAxes::len` and `AffectedAxes::is_empty`** (audit #685).
+  `len` is renamed `axis_count` (see Added) because the value counts axes, not a
+  collection length, and `is_empty` is gone: `AffectedAxes` had already been made
+  non-empty by construction (#633), so it could only ever have returned `false`.
+- **Removed eight never-constructed public `Error` variants** (#687):
+  `Error::LockPoisoned`, `Error::ChannelClosed`,
+  `Error::SocketManagerUnavailable`, `Error::SocketManagerChannelClosed`,
+  `Error::ResponseChannelClosed`, `Error::TransportMismatch`,
+  `Error::NoTransport`, and `Error::TransportChannelClosed`. None was ever
+  constructed, matched, or converted into anywhere in `src/`, `tests/`,
+  `examples/`, or `fuzz/` — the only uses were the enum declaration, `kind()`,
+  `requires_new_session()`, and unit tests that built them by hand. Six of them
+  (`ChannelClosed`, `SocketManagerUnavailable`, `SocketManagerChannelClosed`,
+  `ResponseChannelClosed`, `NoTransport`, `TransportChannelClosed`) were
+  classified `requires_new_session() == true`, so the terminal session-recovery
+  taxonomy advertised conditions the runtime cannot produce, and the
+  `docs/migration_2_0.md` recovery table told migrating callers to match
+  `NoTransport` and `TransportChannelClosed` — recovery arms that could never
+  fire. `SocketManager*` was 1.x vocabulary for a component 2.0 deleted, and
+  `LockPoisoned` cannot occur because every lock recovers its guard with
+  `into_inner()` instead of surfacing a poison error. The reachable
+  session-death variants are unchanged: `ConnectionClosed` and `StreamPoisoned`
+  still report `requires_new_session() == true` (`UnsequencedCommandUnconfirmed`
+  is no longer one of them — since #671 it is a per-request failure a live
+  session survives and reports `false`), and an internally closed boundary
+  channel still normalizes to
+  `Error::RuntimeShutdown` (never `ChannelClosed`) at the point of failure.
+  Because `Error` is `#[non_exhaustive]` a wildcard arm was already required;
+  only callers that named a removed variant explicitly need to drop that arm.
+- **Removed the 1.2.0 command-priority *vocabulary*** (#630).
+  `runtime::Priority`, `Camera::set_command_priority` / `command_priority` /
+  `execute_with_priority`, their `BlockingClient` mirrors, and
+  `runtime::testing::Priority` are all gone. Public submission QoS now uses
+  `SubmissionClass`, which exposes only the lower three dispatch lanes; the
+  owner's urgent safety lane remains intrinsic request metadata and cannot be
+  selected or demoted by callers. See the submission-priority entry under
+  Added and the `Priority` → `SubmissionClass` mapping in
+  `docs/migration_2_0.md`. `runtime::testing::Priority` has no replacement.
+- **Removed `BlockingClient`** (#542). The blocking facade is owner-backed:
+  `blocking::Connect`, `blocking::CameraConfig`, and
+  `blocking::Session::open` build a `blocking::Session`, and
+  `blocking::CameraSession<P>` is the single-camera handle. 1.2.0 had
+  deprecated the blocking `CameraSession` methods and pointed callers at
+  `BlockingClient`, so 2.0 inverts that advice and a caller who acted on the
+  deprecation warning has the furthest to travel. `docs/migration_2_0.md`
+  spells out the route.
+- **Removed `CameraBuilder`** (#542). Construction is `Connect` for the
+  simple cases, `CameraConfig` for configured standard transports,
+  `SessionConfig` for reusable multi-target registration, and `Session::open`
+  or `CameraSession::open` for a caller-owned transport. There is no separate
+  builder type and no builder-only construction path.
+- Removed the 1.x compatibility feature aliases.
+- **Removed the `tcp` feature** (#573). It was in the default set but gated no
+  code — there was never a `cfg(feature = "tcp")` anywhere in the crate — so
+  enabling or omitting it built exactly the same library while implying that
+  standard TCP was optional. Standard TCP and UDP are not features: they are
+  built from `std` and the runtime adapters and compile with whichever facade
+  is enabled. Manifests that name `tcp` explicitly (`features = ["tcp"]`, or
+  `default-features = false` plus `tcp`) must drop it; nothing else changes,
+  because the default feature set is now `["blocking"]` and builds the same
+  code it did before. This is a feature-list change made while 2.0.0-rc.1 is
+  unpublished.
+- Removed dead CI machinery and restored the coverage 2.0 had silently dropped
+  (#573). Deleted `.github/workflows/test-features.yml`, a `workflow_call`-only
+  workflow nothing invoked, and `.github/actions/setup-sccache/`, referenced by
+  no workflow. `deny.toml` is now executed by a pinned `cargo-deny` job instead
+  of sitting in the tree unenforced, and `cargo audit` runs again. Added a
+  Windows job (the blocking serial transport is a different `serialport`
+  implementation there) and a macOS check job. The `removed-features` job,
+  which re-proved against a live compiler what the manifest inventory test
+  already pins, was folded into `tests/issue_548_supported_surface_inventory.rs`.
+  The README feature-union table promised automated validation of
+  `runtime-tokio,transport-serial`, which no matrix leg covered; that leg is
+  back, and the table now names the CI job that checks each union.
+- **Removed `Error::to_public_error()`** (#614). The helper was a 1.x
+  carry-over with zero callers anywhere in the 2.0 tree, and its one mapping
+  with a reachable input was wrong for 2.0: it folded `Error::NoSocket` into
+  `Error::NoTransport`. `NoSocket` is the camera's `0x05` answer — transient
+  socket-table capacity on a healthy session, classified `ErrorKind::BufferFull`
+  and retryable (#501, #566) — while `NoTransport` was one of the variants
+  `Error::requires_new_session()` reported as session death (itself since
+  removed as never-constructed, #687), so anything that had started calling the
+  helper would have turned a retry into a spurious reconnect. Its remaining arms
+  mapped variants 2.0 never constructs.
+  Nothing is lost: in 1.x the helper had a single call site,
+  `RuntimeHandle::normalize_boundary_error`, whose preceding match arm already
+  claimed the whole channel-closed family, and 2.0 normalizes a closed
+  boundary channel to `Error::RuntimeShutdown` at the point of failure instead.
+  Callers that want the coarse view should match on `Error::kind()`, and
+  callers deciding whether to reconnect should use `requires_new_session()`.
+
+### Fixed
+
+- **Default command and operation observers now cover their complete retry
+  budget** (#749). The shared observer rule used by inquiries now also governs
+  ordinary commands and operation handles: the default wait is the larger of
+  the governing completion/reply/settlement deadline and
+  `retry.total_budget`. A lost ACK, `CommandBufferFull`, or a sequence-correlated
+  Sony completion retry therefore
+  cannot physically replay a command after the default observer returned
+  `Timeout`. Explicit `*_with_timeout` calls and `detach` retain their existing
+  observer-only semantics; neither cancels the engine entry nor sends STOP.
+
+- **Aligned typed value domains with advertised profile ranges and metadata**
+  (#754). `IrisLevel` now accepts the built-in `0x00..=0x1E` wire union and
+  `GainLevel` the full `0x00..=0x0F` nibble domain; profile admission still
+  applies each camera's narrower range. Iris/gain inquiry readback and
+  completionless iris settlement can therefore accept BRC-H900/FR7 values in
+  the formerly unreachable upper halves. Percentage conversions now derive
+  from each typed maximum and round consistently, so 100% reaches every
+  supported level. Coarse pan/tilt `Fastest` clamps to the selected profile's
+  maxima, including EVI-H100 and Nearus BRC-300. BRC-H900 and EVI-H100 no
+  longer advertise unsupported shared noise-reduction metadata; the profile
+  validator rejects future typed-range or NR metadata/typed-support drift.
+
+- **Unified public `ViscaInquiry` derive decoding** (#752). A derive with
+  `parser = ...` now gives its inherent `parse_response()` method the exact
+  same canonical `InquiryKind` decoder used by `Inquiry::decoder()`, rather
+  than a separately generated parser template. The two public paths therefore
+  agree on every supported parser selector, including `Digital`'s `OnIs03`
+  convention (`[0x03]` means enabled) and 4- or 8-nibble zoom-position
+  replies. Explicit override attributes (`Custom`/`parse_with`,
+  `BoolConvention`, `data_variant`, and `value_type`) retain their established
+  behavior through the same shared decoder; selectors that identify a built-in
+  table shape use the response-kind table as the single authority for wire
+  decoding.
+
+- Incomplete raw stream prefixes with an invalid response source are now
+  discarded as `Ignored(MalformedFrame)` at a raw-correlation release, matching
+  the existing complete-frame behavior. Blocking and async owners remain
+  running after `80 50 dd`, passed-through `88 30 02`, or stray noise; only a
+  genuine framer overflow remains terminal (#745).
+
+- Blocking raw-correlation tombstone waits now stop at the submitting caller's
+  absolute observer deadline even while every receive attempt faults (#747).
+  Deadline expiry returns `Timeout` with the session intact instead of polling
+  until the permanent-fault threshold and closing the session; a genuinely
+  permanent fault proven while observer budget remains still closes normally.
+
+- **Restored raw emergency-stop reachability during cancellation and recovery**
+  (#744). A pending socket cancellation now gates only ordinary first writes on
+  its own camera target; an intrinsic `Urgent` stop reserves the next physical
+  pacing slot instead of failing `TransportBusy` or letting the deferred cancel
+  take that slot. A raw `PreAck` tombstone now releases an ACK to the sole live
+  urgent candidate, so a stop admitted through lost-ACK recovery is confirmed
+  instead of being falsely reported `UnsequencedCommandUnconfirmed`. Blocking
+  and async owner tests pin both the safety write and ACK binding.
+
+- A raw ACK that names a socket held only by an expired predecessor now treats
+  the camera's assignment as authoritative (#750). The stale exact-socket
+  quarantine is downgraded to the same unkeyed `PreAck` hold used for a
+  displaced live owner, retaining its original ambiguity deadline while
+  allowing the uniquely resolved successor to own, cancel, and complete on the
+  camera-named socket. Blocking and Tokio owner regressions cover the matching
+  live-owner and inert-hold cases.
+
+- Blocking serial writes now report success when the final low-level write
+  accepted the complete frame, even if that syscall returned after the logical
+  deadline (#748). A delivered command—including an emergency stop—therefore
+  cannot be misreported as `Timeout` and poison an otherwise usable stream
+  session; genuinely partial writes still fail under the fixed whole-frame
+  deadline.
+
+- **Hardened both serial startup paths and command submission** (#756).
+  Blocking commands and handshakes now share one whole-frame, deadline-bounded
+  write loop: interrupted device writes retry, poll expiry maps to `Timeout`,
+  and Address Set uses its remaining attempts after either condition. Address
+  Set discards and resynchronizes after an oversized delimiter-framed noise
+  burst instead of aborting connection setup. Every timeout sent to a serial
+  device is rounded up to one millisecond, avoiding Windows' zero-millisecond
+  no-timeout mode while preserving the owner's precise logical deadline.
+  Finally, Tokio serial commands and startup handshakes no longer call
+  `flush`/device drain (`tcdrain` on POSIX), which could block an async runtime
+  thread indefinitely despite its configured timeout.
+
+- **Made the public-error reachability release gate non-vacuous** (#736). The
+  gate now inventories one explicit production constructor for every public
+  `Error` variant instead of accepting pattern matches and documentation as
+  evidence. A mutation fixture deletes the real `SyntaxError` constructor
+  while retaining its engine match and proves that CI fails.
+
+- **Corrected three Sony FR7 wire identities exposed by the #730 reference
+  audit.** Push AF/MF now uses R7's distinct `7E 04 58` press/release family
+  instead of colliding with `7E 01 0A` red tally; normal/extended 24/50-step
+  pan/tilt speed selection now uses `06 45 08/18` instead of the unrelated
+  `7E 04 1B` preset-speed selector; and ND-preset inquiry now uses
+  `09 7E 01 53` instead of legacy `09 04 66` picture-flip state. The exhaustive
+  wire fixture and consolidated reference pin all three corrections.
+
+- Built-in inquiries now treat camera syntax error `0x02` as a retryable
+  rejection and consume their configured retry budget before failing (#731),
+  restoring the 1.x behavior. The exception is keyed by the prepared
+  built-in-inquiry fact: a custom inquiry receiving the same error remains
+  terminal and is never replayed implicitly.
+
+- The terminator regression now pins both legal final-`FF` data cases from
+  #683: `PresetSet(255)` emits `... 01 FF FF`, and
+  `DirectMenuControl::new(00, FF)` emits `... 00 FF FF` (#727). The
+  `DirectMenuControl` rejection of `FF 81..88` remains deliberate and is now
+  recorded in the protocol reference: after a delimiter-valued byte, an
+  address-shaped byte could be interpreted as a second addressed VISCA frame.
+
+- Runtime profiles that retain a built-in profile's capabilities, pan/tilt
+  coordinate codec, and envelope may now tune operational timing, transports,
+  socket/cancellation policy, settlement axes, and inquiry availability while
+  still projecting the matching compile-time camera facade (#728). Reply
+  domains remain capability-owned and never depend on mutable profile identity.
+  The shared `04 39` exposure-mode command and inquiry now report one
+  `shared exposure-mode family` rejection on every unsupported profile. The 55
+  optional typed surfaces, their private dense bits, stable serde spellings,
+  public marker traits, registry marker impls, and contributor vocabulary table
+  are generated from one declarative registry; the old bit-30 persistence claim
+  was removed because `TypedSupportSet` serializes names and exposes no numeric
+  representation. The intentional `HasExposure`/`HasImageProcessing` baseline
+  asymmetry is now documented. The generated contributor-table assertion also
+  normalizes checked-out CRLF line endings so the same registry-derived
+  documentation passes on Windows.
+
+- Silent open peers are now covered by the recovery contract (#719).
+  `MetricsSnapshot::received_frames` provides positive liveness evidence for
+  application-owned heartbeats; recovery docs and the runnable example explain
+  why `Timeout` and `UnsequencedCommandUnconfirmed` do not themselves require a
+  new session. Raw OS `io::ErrorKind::TimedOut` receive failures are no longer
+  swallowed as idle reads, so TCP keepalive exhaustion is normalized promptly
+  to terminal `ConnectionClosed`. Custom transport idle timers continue to use
+  `Error::Timeout`.
+
+- Raw stream correlation release now gives an ambiguous partial frame one
+  engine-owned grace interval, bounded by the configured read timeout and 100
+  ms, on both async and blocking facades (#713). A tail arriving in that window
+  is processed under the old correlation scope; at expiry the orphan prefix is
+  discarded and reported as malformed while the session remains usable. This
+  replaces the async 64 zero-time-poll `StreamPoisoned` failure and the
+  blocking-only ~64 ms poll-count behavior.
+
+- PTZOptics G2 and G3 3D noise-reduction inquiries now decode every value in
+  the public `NoiseReduction3DLevel` domain (`0..=8`), matching the values their
+  typed `04 54` setter admits (#717). The archived inquiry table also records
+  `0..=8`; a well-formed level `6`, `7`, or `8` is no longer rejected as an
+  invalid response merely because the current portal's inquiry row lists
+  `0..=5`. Blocking and async round-trip regressions cover G2, G3, and 30X.
+
+- **Corrected the red/blue tuning and NDI-mode wire bytes in
+  `docs/visca_reference.md`, and added a test that pins the reference to the
+  encoders** (#688). The reference — cited in `README.md` as the evidence base
+  for built-in profile decisions — documented red/blue tuning as a fabricated
+  6-byte `0A 01 12`/`0A 01 13` vendor extension and NDI mode as a 5-byte
+  `0B 01 01/02/03/04` frame. Both contradicted the shipped (1.x-identical)
+  encoders, which emit `81 01 04 43/44 00 00 00 pq FF` for tuning and
+  `81 0B 01 01 01/02/03/04 FF` for NDI mode. The rows now match the encoders, a
+  new erratum records that red/blue *tuning* and *gain* share the `04 43`/`04 44`
+  opcode and byte-identical inquiries (`81 09 04 43`/`44`), and
+  `command::tests::visca_reference_wire_rows_match_encoders` now cross-checks a
+  set of the reference's wire rows against the live encoder output so the two
+  cannot silently drift apart again. Documentation only; no encoder behavior
+  changed.
+- **A babbling peer can no longer starve async shutdown, `close()`, admission,
+  or an emergency stop** (#675). Decision D2 (#625) bounded only the *failing*
+  arm of the receive/boundary livelock. The *succeeding* arm was unbounded: a
+  peer that returned a valid frame on every poll won the left-biased
+  `future::or(receive, boundaries)` selection forever, so the boundary sources —
+  shutdown, cancellation, admission, control, timer — were never polled.
+  `shutdown()` returned `Ok` (the signal entered its one-slot lane) yet the
+  session was simultaneously unusable and unkillable: `close()` never returned,
+  an emergency stop could not be admitted, and reads continued after shutdown.
+  This was fatal on smol and on a custom `AsyncTransport`; tokio survived only by
+  an accident of its cooperative budget. The async actor now keeps D2's
+  progress-sensitivity but adds a **fairness ceiling**: after a run of
+  consecutive receive-first wins (tied to `frames_per_receive`) it forces one
+  boundary-first turn regardless of progress, restoring #625's own acceptance
+  criterion that the boundary channels are always eventually polled. When no
+  boundary is queued the receive still wins the forced turn, so a busy transport
+  is never stalled — only guaranteed to yield the front periodically. Liveness
+  tests on both tokio and smol pin that a babbling transport cannot prevent
+  admission or shutdown/close, and the D2 ordering property (a buffered valid
+  frame settles engine state before a simultaneously-ready control observer sees
+  it) is retained.
+- **A stalled async write can no longer park the actor and hang `close()`**
+  (#675). `driver.write(...).await` had no timeout: a peer that accepted the
+  connection but never drained (a zero receive window, serial flow control)
+  parked the actor inside the write, where no boundary can preempt, so `close()`
+  blocked forever. Each write is now bounded by the session's `write_timeout`; if
+  it elapses the write is abandoned as a failure — a byte-stream write that can
+  no longer be confirmed poisons the session, a datagram write fails only its own
+  request — and the actor returns to servicing boundaries.
+- **The async `read_timeout` and `write_timeout` builder knobs are now live**
+  (#675); see the Changed entry below. They were inert on every async transport
+  (`async_tcp`, `async_serial`, `async_udp`, `tokio/serial`) even though the
+  public builder sells them as 5 s defaults — only the blocking sockets applied
+  them.
+- **An immediately-returning no-data async read no longer hot-spins the actor**
+  (#675). A transport that reported "no data" without blocking drove the receive
+  loop at hundreds of thousands of reads a second. A run of consecutive no-data
+  receives is now paced by the same escalating, next-wake-clamped pause the
+  transient-fault path uses, recording no fault and spending no retry budget, so
+  an indefinitely idle transport is throttled without ever being mistaken for a
+  broken one.
+- **A quirky-but-delimited stream frame no longer poisons the session** (#672),
+  restoring the 1.x log-and-continue tolerance the rewrite lost on byte streams.
+  On a stream transport (TCP, and serial), a single frame the framer already
+  delimited at its `FF` boundary but that the strict decoder does not classify —
+  a padded ACK (`90 41 00 FF`), a vendor socket nibble (`90 43 FF`), an RS-485
+  echo of the controller's own frame (`81 01 04 07 00 FF`), a late address-set
+  reply (`88 30 02 FF`), a truncated frame (`90 FF`), a stray `FF` line-noise
+  byte, and the other shapes the review demonstrated fatal — turned an
+  `InvalidResponse` classifier verdict into a framing poison that killed the
+  whole session and every in-flight request. The datagram path already discarded
+  such a frame as `Ignored(MalformedFrame)`, and 1.x logged and continued in
+  both runners; the classifier verdict is now decoupled from the session
+  consequence, so a delimited-but-unclassifiable frame is discarded and counted
+  (new `OwnerMetrics::ignored_malformed_frames`) on streams too while the session
+  stays running and the command is settled by the next well-formed reply. Only a
+  genuine loss of the framing position (cumulative buffer overflow, or a
+  boundary-free read past `max_buffer_size`) still poisons a stream. A
+  `malformed-frame-tolerance` family and a production stream replay are pinned in
+  the 1.x behavioral-parity oracle.
+
+- **More than 64 decodable frames in one stream read no longer poisons the
+  session** (#674). A single read that decoded past `frames_per_receive`
+  (default 64) returned `Error::ResponseTooLarge` — treated as a fatal framing
+  failure — and a 256-byte receive buffer holds up to ~85 three-byte VISCA
+  frames, so any burst of ≥65 replies (well within the admission window of
+  outstanding ACK+completion frames) killed the session. The decode now stops at
+  the frame limit and leaves the remaining complete frames buffered for the next
+  receive (the framer already retains bytes across reads, bounded by
+  `max_buffer_size`, which still fails loudly on a genuine overflow) instead of
+  poisoning over a large-but-valid burst. The remainder is drained promptly on
+  the next owner turn without waiting for more bytes. The frame-count error also
+  no longer mislabels a frame *count* as a byte count.
+
+- **A misaddressed IP camera answering with its chain address no longer poisons a
+  single-target session** (#681), restoring the #590/#598 compatibility the
+  rewrite dropped. A single-target IP session required the reply source to be
+  exactly `0x90`, so a camera configured with VISCA address 2 answering
+  `A0 41 FF` got `StreamPoisoned` (stream) or `UnsequencedCommandUnconfirmed`
+  (datagram). 1.x attributed any reply to the sole outstanding command
+  (camera-blind), because an IP reply carries no routable source. A single-target
+  IP session now accepts any `0x9y..=0xFy` reply source and attributes it to the
+  sole target; the strict `0x90` check is kept when more than one target is
+  registered, where the source cannot disambiguate.
+- **A blocking emergency stop reaches the wire on a raw profile even while an
+  operation handle is still un-awaited** (#673). A public blocking operation
+  handle must name a request whose first transport write already succeeded, and
+  on a raw profile the engine keeps at most one command in its unacknowledged
+  window (the single-candidate gate). Together these meant that while a caller
+  held one un-awaited raw operation handle, a second operation submit — including
+  `motion().stop_all_motion()` and typed `Urgent` stops (`PanTiltStop`,
+  `ZoomStop`, `FocusStop`) — lost the first-dispatch race and was rejected
+  `Error::TransportBusy` with **zero** bytes written while the camera kept
+  moving, an unbounded window not closed by any ACK deadline. The blocking owner
+  now drains that pre-ACK gate before the first write: when the gate is the sole
+  obstacle and a command socket would be free once the pending ACK lands, it
+  pumps the peer's ACK — bounded by the submitting request's own ACK budget — so
+  the stop's first write wins and the returned handle still names a written
+  request. Genuine socket-capacity contention (every command socket occupied by a
+  distinct in-flight command) still fails fast with `TransportBusy`, since
+  pumping an ACK there would not free a socket. The async facade already pumped
+  the ACK through its always-running actor and never exhibited the stall.
+- **An engine-initiated session poison is surfaced by `shutdown()`/`close()`
+  instead of masked as a deliberate `RuntimeShutdown`** (#680). The owner's
+  session error was set only for owner-supplied `Close`/`Poison`/`Shutdown`
+  inputs and a stream write failure. An engine-initiated terminal transition — a
+  deadline expiry, the strict `strict_unconfirmed_poison` opt-in, or a
+  stream/framing self-poison — reaches the owner only as a payload-free
+  `SessionChanged` effect, so the session error stayed unset: a subsequent
+  `shutdown()`/`close()` returned `Ok(())` and then re-latched `RuntimeShutdown`
+  (`requires_new_session() == false`), defeating a cleanup path or supervisor
+  that keys its rebuild on that result, and the `SessionChanged` diagnostic
+  `reason` collapsed to `Other`. The owner now learns the engine's actual
+  terminal error on the first non-`Running` transition and latches it, so
+  `shutdown()`/`close()` return the true cause (e.g. `StreamPoisoned`, which
+  `requires_new_session()`), the diagnostic reason is the real `ErrorKind`
+  (`IoClosed`), and the documented recovery loop rebuilds.
+- **`set_tuning` on a poisoned or closed blocking session returns the session's
+  terminal error instead of silently succeeding** (#690). The blocking
+  `reconfigure` path mutated owner state directly and never consulted the
+  boundary/terminal gate every other blocking entry point takes, so
+  `Session::set_tuning` returned `Ok(())` on a poisoned or shut-down session —
+  contradicting its documented contract that it "returns the session's terminal
+  error if the owner is gone." It now takes the same `enter` turn a submission
+  does: a live session still reconfigures, a re-entrant call is `TransportBusy`,
+  and a terminated session yields its terminal error. (Together with #680 the
+  poisoned-session case now surfaces the true poison rather than nothing.)
+- **BREAKING: static, erased, and direct typed routes now enforce the same
+  row-specific evidence gates** (#684). Broad noun gates previously admitted
+  operations whose exact command rows were not established for a profile:
+  - *Tally families.* Sony FR7's sourced red/green commands and inquiries remain
+    behind `HasTally`. PTZOptics packed status and mode/auto-adjust rows now use
+    the distinct `HasPtzOpticsTally` gate, while brightness rows use
+    `HasTallyBrightness`. No built-in profile grants either candidate-extension
+    gate. BRC-H900 loses `HasTally` and tally metadata because R11 does not
+    establish the FR7 tally family. Unsupported static, erased, and direct
+    typed calls all reject before transport I/O; confirmed vendor extensions
+    remain reachable through the raw-command escape hatch.
+  - *Image subcontrols.* Image-freeze control and the vendor defog-level inquiry
+    no longer inherit permission from broad `HasImageProcessing`. They use
+    `HasImageFreeze` and `HasDefogLevel`, respectively, and no built-in profile
+    grants either surface without exact model-specific source evidence.
+  - *Base-domain inquiries.* Fifteen inquiries (`power().state()`,
+    `zoom().position()`, `focus().position()`/`mode()`/`range()`, the base
+    `exposure()` and `image()` and `white_balance()` inquiries) carried no
+    runtime capability gate, so a caller-built `ProfileSpec` with e.g.
+    `has_power = false` could reach `dyn power().state()` though static `power()`
+    cannot be named without `HasPower`. Each base-domain inquiry is now gated at
+    runtime on its noun's base-domain capability, derived from the same
+    `noun_marker!` the static accessors use. This is a no-op for the nine
+    built-in profiles (all declare every base domain) and only tightens
+    caller-built runtime profiles. A `noun_parity` test now asserts the erased
+    and static inquiry gate sets are identical so they cannot drift again.
+
+- **Preset number 255 and a `0xFF` direct-menu control parameter can be sent
+  again** (#683). The stack builder that assembles every command terminated a
+  frame by inferring, from the trailing byte, whether a VISCA terminator was
+  already present — so whenever the last *data* byte was `0xFF` it mistook that
+  data for the terminator and appended nothing, leaving the frame one byte
+  short. `write_into` then reported fewer bytes than `encoded_size()` and the
+  encoder rejected the command with an internal contract-string error, making
+  `presets().set/reset/recall(255)` unsendable on `SonyFR7` (the one built-in
+  profile whose `max_presets` reaches 255) and `menu().direct(_, 0xFF)`
+  unsendable on every `HasDirectMenuControl` profile, across all three noun
+  surfaces. The builder now tracks termination explicitly instead of sniffing
+  the last byte: the flag is set only when an already-terminated
+  complete-command constant is loaded through `from_prefix`, and it is cleared
+  the moment any further data is appended, so an appended `0xFF` is always data
+  and is always followed by the terminator. No currently-correct frame changes —
+  the complete-command constants (`pan_tilt::HOME`, `zoom::STOP`, ...) that were
+  the reason the last-byte inference existed are still emitted exactly once. A
+  value-domain sweep over every preset number and direct-menu parameter, plus an
+  end-to-end preparation check on `SonyFR7`, is pinned permanently.
+- **`blocking` + `test-utils` no longer links an async executor** (#691),
+  making the README's "native synchronous I/O with no async runtime/executor
+  dependency" guarantee true for every blocking feature set rather than only the
+  network and serial ones the gate already covered. `test-utils` unconditionally
+  enabled `async-executor` and `futures-lite`, so
+  `cargo tree --no-default-features --features blocking,test-utils --edges normal`
+  linked `async-executor`, `async-task`, and `futures-lite` into a blocking-only
+  graph — the exact dependency the blocking facade promises to avoid. Those two
+  crates back only the async testkit (`DeterministicExecutor` and the async
+  `ScriptedTransport`), which already compiles solely under `async`, so they now
+  ride on the `async` feature and `test-utils` links neither. A blocking consumer
+  that enables `test-utils` for `ScriptedBlockingTransport`, `Step`, and the
+  `helpers` gets the same native synchronous graph as plain `blocking`; the async
+  testkit is unchanged under `async`/`runtime-*`. The dependency-boundary gate
+  (`.github/scripts/check-blocking-dependency-boundary.sh`) now also checks
+  `blocking,test-utils` — the leg that fails before this change and passes after
+  — resolves the graph with `--target all` so a `cfg(windows)`-only async crate
+  cannot hide on the Linux CI host, asserts a known dependency is present so a
+  change in `cargo tree` output can no longer make every check match nothing and
+  pass green, and denies `futures-executor`, `async-std`, and
+  `async-global-executor` alongside the existing names.
+- **A UDP session opened through the async `TransportHandle` wrapper is governed
+  by datagram rules, not stream-poison rules** (#677). `impl AsyncTransport for
+  TransportHandle<R>` forwarded `send`, `recv_into`, and `addressing_mode_hint`
+  but omitted `send_semantics`, so `TransportHandle::Udp(_)` silently inherited
+  the trait default `SendSemantics::Stream` even though the wrapped `Udp`
+  transport reports `Datagram` and the blocking `BlockingTransportHandle` twin
+  forwards it correctly. A UDP session built the way `TransportHandle`'s own
+  rustdoc shows — `TransportHandle::Udp(rt.connect_udp(...).await?)` — was then
+  treated as a byte stream: one failed `send_to` or one malformed/truncated
+  datagram poisoned the whole session (failing every in-flight command with
+  `Error::StreamPoisoned`) instead of failing a single command, and partial
+  bytes from one datagram were retained as the prefix of the next. The wrapper
+  now forwards `send_semantics` to its inner transport, mirroring the blocking
+  twin, and the `AsyncTransport`/`BlockingTransport` `send_semantics` docs now
+  warn that a forwarding wrapper must forward this method or silently fall back
+  to the `Stream` default. The trait keeps its `Stream` default (the safe,
+  ergonomic choice for the common stream transport and for custom
+  implementations); only the wrapper's missing forward was the defect. This is a
+  2.0-only wrapper, so no 1.x program is affected. The public API is unchanged.
+
+- **Superseded tally-gating correction** (#661; final contract in #684). An
+  intermediate fix aligned `TallyOn`, `TallyOff`, and `TallyFlash` with the
+  shared `HasTally` marker and briefly admitted the three PTZOptics profile ids.
+  The final source audit separates the vendor families instead: Sony FR7 keeps
+  only its sourced red/green `HasTally` surface; no built-in profile grants the
+  PTZOptics mode/status/auto-adjust `HasPtzOpticsTally` surface or the
+  `HasTallyBrightness` surface; and BRC-H900 loses `HasTally` because its model
+  reference does not establish the FR7 rows. Confirmed firmware-specific
+  extensions remain available through raw commands.
+- **A refused `cancel` no longer consumes the operation handle** (#612).
+  Cancelling an already-written command needs profile support for the standard
+  VISCA socket-cancel command; `PtzOpticsG2` is the one built-in profile without
+  it, and there the owner refuses with `Error::NotSupported` and deliberately
+  leaves the original request scheduled and able to complete. `cancel` is a
+  consuming terminal method, so the refusal used to destroy the caller's only
+  observer for a command the engine had just promised to keep running — with
+  drop being exactly `detach` and no STOP emitted, a caller could be left
+  watching a moving axis with nothing to observe or retry through. `cancel` now
+  consumes the handle only when it succeeds: a refusal returns the new
+  `CancelRejected<H>`, which carries the handle back (`error()`,
+  `has_operation()`, `into_operation()`, `into_error()`, `into_parts()`).
+  `?` in a function returning `Error` is unchanged — the `From` conversion keeps
+  the reason and detaches the handle. This restores the recovery 1.x's async and
+  dyn surfaces had, where `InFlight::cancel(&self)` borrowed
+  (`src/camera/inflight.rs:344`, documented at `:337`), and declines to
+  reproduce 1.x's blocking asymmetry, where `BlockingInFlight::cancel(self)`
+  consumed (`src/camera/inflight.rs:615`) and `blocking_runner.rs:413` discarded
+  the retained result with it. Applies to `Operation::cancel` on the async and
+  blocking facades and to `DynTargetedOperation` / `DynAppliedOperation`.
+  Cancelling a still-queued command is unaffected: it succeeds locally on every
+  profile and consumes the handle as before.
+- **Hardened raw/envelope admission and response framing.** Raw VISCA now
+  allows only one unacknowledged command per target; socket concurrency opens
+  after ACK, while Sony sequence-based pipelines remain intact. A raw command
+  whose successful send leaves its outcome ambiguous is never replayed: this
+  includes ACK/completion/cancellation ambiguity, a receive fault while
+  awaiting ACK, and active retry-budget expiry in `Sending`, `AwaitingAck`, or
+  `Executing`. By default (since #671) it fails only that one command with
+  `Error::UnsequencedCommandUnconfirmed` while the session survives — the
+  whole-session poison is the `strict_unconfirmed_poison` opt-in; fixed ACK,
+  completion, and error frames now require their exact lengths and reject
+  trailing bytes. Raw errors use exact socket/inquiry evidence rather than
+  command recency.
+- **Kept transport progress and retry/cancel timing bounded.** Empty UDP
+  datagrams are discarded without closing the session and share a single timed
+  receive deadline; async UDP yields cooperatively after each discard. The
+  total retry budget remains enforced through every later noncancelled phase,
+  including active ACK, execution, reply, and active-budget expiry; cancellation
+  quarantine is never shortened, and owner-issued cancellation uses the shared
+  pacing gate for writes.
+- **Closed profile and owner-control escape hatches.** Applied-only commands
+  and optional built-in inquiries now enforce per-profile support before
+  admission. Blocking shutdown is idempotent after `RuntimeShutdown` and
+  performs no second I/O or resolution. Address/interface setup and socket
+  cancellation remain owner-issued wire controls, with owner-issued
+  cancellation intrinsically urgent; private request/transmission IDs do not
+  recycle retired numeric values.
+- **Strengthened release provenance and retry recovery.** Publication resolves
+  only an immutable annotated tag whose peeled commit is `HEAD`, and an exact
+  existing crates.io version must match the locally packaged `.crate` by
+  SHA-256 and byte-for-byte comparison before publication or retry succeeds.
+- **Hardened the deferred-ACK path during raw admission tightening** (#636).
+  The unique-candidate latch for an ACK arriving before its write result (#297)
+  was an intermediate hardening: it engaged only with exactly one candidate in
+  `Phase::Sending` and never replaced an ACK already latched for that attempt.
+  The stricter raw-VISCA gate now allows only one unacknowledged command per
+  target, so that latch is subsumed for raw frames; Sony sequence-correlated
+  envelopes retain their pipeline handling. An unattributable racing ACK stays
+  inert instead of guessing.
+- An absurd retry budget no longer inverts into *fewer* retries than the default
+  (#636). `OperationalTuning::retry_timing` accepted a budget near
+  `Duration::MAX`, which the engine turns into `submitted_at + budget`; that
+  addition saturates back to `submitted_at`, so the deadline meant to mean "keep
+  retrying essentially forever" landed in the past and the request got zero
+  retries. Retry backoff ceilings and budgets are now bounded at one hour, far
+  beyond any real VISCA retry window and safely inside `Instant` arithmetic.
+
+- **The noun parity gate now catches the five divergences a review demonstrated
+  it could not** (#638). `src/noun_parity.rs` compares the async, blocking and
+  dynamic noun facades against the closed ledger, and five classes of
+  cross-surface divergence were applied to the real sources, shown to pass every
+  gate, and reverted: a non-`async` public method added to an async accessor was
+  invisible because the reader keyed on the literal `pub async fn`; an
+  `impl SomeExt for XxxAccessor` added public methods no inherent-impl reader
+  sees; argument types, arity and receiver were not recorded at all, so an
+  `f32`/`f64` divergence between two facades passed; the `where` reader returned
+  on the *first* `P:` predicate, so `where P: A, P: B` silently dropped `B`; and
+  capability bounds were normalized to their terminal path segment, so a
+  blanket-implemented `shadow::HasDirectZoom` erased a capability gate. All five
+  now fail. The reader was also rewritten from column-exact needles to a
+  brace/paren-depth scanner over comment- and literal-stripped source, so legal
+  reformatting — a one-liner `accessor!` invocation, an attribute inside one, an
+  indented `impl` — no longer derails it with bogus errors, and anything the
+  scanner cannot read (a macro invocation inside an accessor impl, for instance)
+  is a hard failure rather than a silent skip. The dynamic facade carries no
+  compile-time bounds by construction; the gate now says so where it is defined
+  instead of comparing an empty set. Test-only; no public API change.
+- **Removed no-op and self-satisfying assertions from the inventory gates**
+  (#638). Several gates asserted things that could not fail: the class totals in
+  `src/command/surface.rs` were summed back to the ledger size across an
+  exhaustive match, and the noun count was added to its own complement. They are
+  replaced by a pinned class distribution and a derived check that no noun
+  method may reuse a reserved broadcast or cancellation spelling. The surface
+  files name their own accessors as string literals inside their in-file test
+  modules, so every positive `contains` gate now reads the declaration region
+  only; the `BuiltinCommand::ALL` row count is anchored on the `impl
+  BuiltinCommand` block instead of depending on being the last such slice in the
+  file; the dynamic inquiry-method count is checked against the generated
+  accessor table in `src/command/inquiry_structs.rs` rather than against the
+  file declaring it; and the dead `EXPECTED_CONTROL_TRAITS` table and
+  `macro_and_struct_names` helper are gone.
+- Corrected the shipped documentation against the real 2.0 API (#639). The
+  docs.rs front page carried 1.x shapes: `TimeoutConfig` and `MotionQuery`
+  imported from the crate root, `is_moving(query)` on a method that takes no
+  argument, `NdFilterMode::Clear`, `FocusLock` at the root, a noun accessor
+  called on a `Session`, and a `BlockingTransport` sketch whose
+  `recv() -> Bytes` the trait never had. Every one of the sixteen `ignore`
+  fences in `src/lib.rs` is now a compiled doctest, feature-gated per block
+  the way the README gate already is, so the front page cannot drift again.
+  `docs/migration_2_0.md` is compiled the same way, which is what pins the
+  canonical stop-on-exit guard to the API. Wrong claims fixed: the
+  heterogeneous-envelope sentence in `docs/architecture_2_0.md` (envelope
+  mismatches are always rejected; what is accepted is heterogeneous profiles
+  over one raw-VISCA envelope on a serial-addressed transport, built-in serial
+  included), the memory-bounds table in
+  `docs/observability_and_recovery.md` (two of its eleven rows are sized from
+  the transport's `BufferConfig`, so the receive row was never 4096), four
+  `cargo test --test` targets in `docs/camera_profile_support.md` that exist
+  only on the 1.x line, and 1.x module paths and test names cited as release
+  gates in `docs/allocation_and_validation.md` and
+  `docs/architecture_inventory.md`. The async stop-on-exit wrapper no longer
+  claims to cover what a synchronous `Drop` guard covers: it runs on the
+  body's `Ok` and `Err` returns, not on a panic or a dropped future.
+  `examples/quickstart.rs` and `examples/concurrent_control.rs` no longer leak
+  motion on an early `?`. Two migration gaps are filled — the `BlockingClient`
+  inversion, and `AffectedAxes::ALL` growing from three axes to five, which
+  makes a mechanical port fail with `Error::FeatureNotSupported` on eight of
+  the nine built-in profiles. This 2.0 section is now organized in the
+  Keep a Changelog subsections the file's own header promises.
+- Put `docs/usage_2_0.md` under the same compile gate as the README (#613).
+  The primary usage and construction guide fenced all five of its Rust
+  snippets `rust,ignore`, so the page most likely to be copied verbatim was
+  the one page nothing compiled — exactly the hole #563 came out of. A third
+  `cfg(doctest)` `include_str!` module in `src/lib.rs` now compiles the guide
+  under `cargo test --doc`, with the same per-block `#[cfg(feature = "...")]`
+  rule the README and migration guide use: the Tokio, caller-owned-executor,
+  and dynamic-view snippets carry `runtime-tokio`, `async`, and `dyn-api`
+  respectively. Compiling them exposed two things the guide had wrong: the
+  caller-owned `Session::open` snippet named an executor no bound tied to
+  `Executor`, and the `SessionConfig` snippet tuned `inquiry_spacing` down to
+  50 ms on a `PtzOpticsG2` target whose profile floor is 150 ms — a value the
+  same page's own "tuning cannot weaken a profile's minimum pacing" rule
+  rejects at run time. No snippet on the page is exempt from the gate.
+- **Fixed a livelock that made an async session unkillable when a transport
+  failed every read** (#625). The actor's readiness race is left-biased towards
+  the transport by design, so a read that failed *immediately* — a disconnected
+  USB-serial adapter surfacing `EIO`/`ENXIO`, for example — kept the receive
+  branch permanently ready and shutdown, cancellation, admission and control
+  were never polled at all. `submit` never returned, `shutdown` only queued a
+  message nobody read, and the actor kept reading hundreds of times a second
+  with no way to stop it. Four things changed. Source arbitration now keeps
+  valid non-empty protocol frames strictly receive-first, but a receive that
+  makes no progress (idle/no-data, a partial frame, a transient fault, or a
+  discarded malformed datagram) gives ordered boundary-first polling
+  (shutdown, cancellation, admission, control, timer) the next turn. This
+  removes the old arbitrary eight-receive history rule, retains the required
+  frame-before-observer ordering, and prevents an always-idle or always-failing
+  transport from starving control. An idle read timeout
+  (`Error::Timeout`, or `Io` carrying `TimedOut`/`WouldBlock`/`Interrupted`) is
+  now classified as *no data* rather than as a fault, so a custom transport with
+  an internal read timeout no longer burns every in-flight command's retry
+  budget in milliseconds. The pause after a transient fault is clamped to the
+  next scheduler wake, exactly as the blocking owner clamps to its caller's
+  deadline, so a fault can no longer delay a due deadline by the length of the
+  pause. And consecutive faults now escalate: the pause grows from 10 ms to a
+  250 ms ceiling, and a read that has failed twelve times in a row over at least
+  a second is no longer treated as transient — the session ends with the
+  underlying transport error instead of retrying against a dead adapter forever.
+  A successful read, or a gap of five seconds between faults, clears the run.
+- **Fixed a boundary request racing actor teardown hanging its caller forever**
+  (#626). The actor answered every queued admission, cancellation and control
+  message as it exited and then dropped its receivers, but a message that landed
+  in between was stranded: the handle's own sender keeps flume's queue alive,
+  and with it the reply sender inside the stranded message, so the caller's wait
+  never disconnected. This hit exactly the caller who had just watched the
+  session die from its own operation and immediately asked a follow-up question
+  — `metrics`, `snapshot`, `subscribe_applied`, `subscribe_diagnostics`,
+  `cancel` or `submit`. Every boundary wait is now raced against a liveness lane
+  that disconnects after the actor finishes its boundary drain and drops its
+  driver, and re-checks the reply once it does, so a message the drain *did*
+  answer still returns its real answer while a stranded one returns the
+  session's terminal error promptly. The drain itself now loops until one whole
+  pass finds every lane empty.
+- **The async owner no longer kills the session over one malformed datagram**
+  (#637). A single undecodable datagram — a stray `01 41 ff` carrying a
+  controller source byte no camera ever sends — terminated the whole async
+  session, while the blocking owner had always failed it per request and kept
+  pumping. A datagram that does not decode is one bad datagram: nothing else was
+  consumed and the next one frames independently, so it is now discarded and
+  recorded as an ignored malformed frame. The byte-stream verdict is unchanged,
+  because there a decode failure means the stream position is unknowable.
+- **Restored the 1.x retry coverage the rewrite narrowed** (#566). Lost-ACK and
+  post-ACK completion-timeout replay now applies only to sequence-correlated
+  Sony traffic, where the same sequence permits recovery; raw timeout replay
+  after a successful send is intentionally superseded by
+  `Error::UnsequencedCommandUnconfirmed`. Conclusive camera rejections remain
+  retryable. In that sequence-correlated path, a lost ACK retries for every
+  retry class except `Never`, instead of only `Standard`, which had left all 32
+  movement requests and every preset dying on a single dropped ACK frame.
+  Per-category retry budgets are back in 1.x's shape — quick and inquiry work
+  gets two attempts more than the base, network work one fewer, and a
+  long-running command exactly one — replacing three flat numbers keyed on the
+  retry class. `OperationalTuning::retry_limit` overrides that *base*, which is
+  the knob 1.x exposed, so a request's effective count is derived from its
+  timeout category rather than taken literally.
+- **Restored the 1.x transport fault tolerance the rewrite dropped** (#565).
+  A transient receive failure no longer destroys the session for
+  sequence-correlated Sony traffic: the owner classifies the read error, and a
+  transient one — the classic case is a UDP `recv` reporting ECONNREFUSED after
+  an ICMP port-unreachable — retries Sony commands still awaiting their ACK
+  under their bounded policy and keeps the session running. A raw command
+  awaiting ACK has no sequence evidence, so the same fault poisons the session
+  with `Error::UnsequencedCommandUnconfirmed` rather than replaying a possibly
+  executed action. Inquiries are not retried on this path. Only a read that
+  proves the connection is gone still ends the session, and it now ends it as a
+  close rather than a byte-stream poison, because a failed read consumes
+  nothing and cannot desynchronize framing.
+- Socketless VISCA ACKs and completions work again (#565). A camera answering
+  `90 40 FF` / `90 50 FF` carries no socket nibble; the transport adapter turned
+  that into a hard `Error::InvalidResponse` that killed the whole session. The
+  socket is now optional all the way to the scheduler, which assigns the first
+  free command socket to a socketless ACK — 1.x behavior — and attributes a
+  socketless completion by envelope sequence, or by sole socket ownership on
+  raw VISCA. Genuinely malformed frames are still rejected.
+- Named ACK sockets are exact (#565). If a camera names a command socket
+  another request already holds, the ACK stays inert with `SocketConflict`
+  rather than being remapped to the target's other free socket. Only a
+  socketless ACK may select the first free registered socket.
+- Closed the #297 ACK race at the engine level (#565). An ACK that reaches the
+  engine before the write result for the frame it answers is now latched on
+  that request and applied the instant the write is confirmed, instead of being
+  dropped. The defense no longer depends on owner call ordering, so a future
+  concurrent reader and writer cannot silently reopen the race.
+- A blocking pump that ends the session now reports the session's boundary
+  error, not the raw transport cause (#629). A fatal read closed the session
+  and then returned the underlying `Error::Io` to whoever was pumping. `Io`
+  classifies as survivable, so a caller driving an auto-reconnect loop off
+  `Error::requires_new_session()` was told to keep using a session the owner
+  had already closed, and only learned the truth from the *next* call. The
+  observation paths that wait on a receipt hid this — a closed session fails
+  the request they are waiting on, and that terminal outcome carries the right
+  error — but the paths with no receipt to consult did not: settlement polling
+  between two position samples, above all. The verdict is now translated once,
+  where every pump caller shares it, so a settlement wait, a cancellation
+  observation, or any future pump caller sees `ConnectionClosed` (or
+  `StreamPoisoned` for a framing failure on a stream), with the transport cause
+  preserved in the reason. The async owner already reported boundary errors
+  this way.
+- Ported the README and `prelude` quick starts to the 2.0 API and made them
+  compile (#563). The README used the async-only `camera::Connect` path and
+  called noun accessors and `submit` on `Session`; it now uses
+  `blocking::Connect`, selects a typed view with `session.camera::<P>()`, and
+  submits `request::builtin` commands. The `prelude` snippets now observe the
+  `#[must_use]` operation handles with `applied()`/`settled()`, and the stale
+  claim that `UnitInterval` carries normalized control values is corrected to
+  the inquiry-conversion helpers that actually use it. A `cfg(doctest)`
+  `include_str!` gate in `src/lib.rs` compiles every README snippet under
+  `cargo test --doc`, so the front page can no longer drift from the API.
+- Clarified blocking submission behavior around a lost dispatch race (#561).
+  Public blocking operation handles now require their own initial transport
+  write to succeed: when all eligible command sockets are occupied, the
+  newly admitted request is terminalized as `Error::TransportBusy` and no
+  handle escapes. Ordinary blocking commands, inquiries, and owner-internal
+  requests retain bounded queueing; async operation submissions remain
+  queue-allowed as before. `SessionConfig::admission_capacity` still bounds
+  that queue and reports `Error::RuntimeQueueFull` when genuinely exhausted.
+- Fixed the async owner terminating a session when a byte-stream read carried
+  bytes without finishing a VISCA frame (#560). The actor treated the resulting
+  empty decoded batch as end of stream and failed every in-flight request, so a
+  reply split across two TCP or serial reads — routine on stream transports —
+  closed the session. Only a zero-length transport read now signals a close; a
+  short read that only advances a partial frame keeps the owner pumping, which
+  matches the blocking owner.
+- Closed the release version-gate bypasses in
+  `.github/scripts/validate-release.sh` (#632). The hardware-evidence
+  requirement keyed off a literal `2.x.y` match, so `v2.0.0+meta` — identical in
+  semver precedence to `v2.0.0` — and every later major (`v3.0.0`, `v12.0.0`)
+  published a stable release with an all-`Pending` hardware checklist. Tags
+  carrying build metadata are now refused outright, and the evidence gate
+  applies to every stable release with major version 2 or higher while
+  pre-releases keep their candidate exemption. The checklist parser no longer
+  loses the `Status` column to Markdown emphasis or letter case, rejects a
+  checklist with no `Status` rows instead of passing it by omission, and treats
+  `pending`/`TBD`/`TODO` sign-off records as placeholders. The tag shape check
+  also rejects leading zeroes. `test-validate-release.sh` gains fixtures for
+  both bypasses, later-major stable and pre-release controls, and the adjacent
+  checklist and tag-shape holes.
+
 ## [1.2.0] - 2026-09-02
 
 ### Added

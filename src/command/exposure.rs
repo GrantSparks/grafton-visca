@@ -6,14 +6,17 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::encode::ViscaCommand,
+    command::encode::WireEncode,
     error::Error,
-    timeout::CommandCategory,
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
     visca_command,
 };
+
+/// Shared diagnostic vocabulary for the standard `04 39` command/inquiry
+/// family. Both direct requests and generated noun accessors use this label.
+pub(crate) const SHARED_EXPOSURE_MODE_FEATURE: &str = "shared exposure-mode family";
 
 /// Camera exposure control modes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
@@ -45,7 +48,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x39];
     param = *mode as u8;
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl ExposureCommand {
@@ -75,10 +77,7 @@ pub enum ExposureCompensation {
     SetLevel(ExposureCompensationLevel),
 }
 
-impl ViscaCommand for ExposureCompensation {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for ExposureCompensation {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -140,7 +139,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
     param = level.value();
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl DynamicRange {
@@ -168,10 +166,7 @@ pub enum Iris {
     SetAperture(IrisLevel),
 }
 
-impl ViscaCommand for Iris {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for Iris {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -225,10 +220,7 @@ pub enum Shutter {
     SetSpeed(ShutterSpeed),
 }
 
-impl ViscaCommand for Shutter {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for Shutter {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -275,15 +267,9 @@ pub enum Brightness {
     Down,
     /// Set brightness to specific level.
     SetLevel(BrightnessLevel),
-    /// Set brightness directly (Bright Direct mode).
-    /// This is supported on Sony models but not on FR7.
-    Direct(BrightnessLevel),
 }
 
-impl ViscaCommand for Brightness {
-    const MAX_SIZE: usize = 9;
-    const TIMEOUT_CATEGORY: CommandCategory = CommandCategory::Quick;
-
+impl WireEncode for Brightness {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
@@ -307,15 +293,6 @@ impl ViscaCommand for Brightness {
                     .build_into(buffer)
             }
             Self::SetLevel(level) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(level.value());
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Direct(level) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
                 builder.push_nibble_pair_mut(level.value());
@@ -357,7 +334,6 @@ visca_command! {
     prefix = [0x01, 0x04, 0x23];
     param = *mode as u8;
     max_param_size = 1;
-    category = CommandCategory::Quick;
 }
 
 impl AntiFlickerCommand {
@@ -373,7 +349,6 @@ visca_command! {
     /// Controls the spotlight feature which enhances exposure for specific subjects.
     pub struct SpotlightOn;
     bytes = [0x01, 0x04, 0x3A, 0x02];
-    category = CommandCategory::Quick;
 }
 
 impl Default for SpotlightOn {
@@ -395,7 +370,6 @@ visca_command! {
     /// Controls the spotlight feature which enhances exposure for specific subjects.
     pub struct SpotlightOff;
     bytes = [0x01, 0x04, 0x3A, 0x03];
-    category = CommandCategory::Quick;
 }
 
 impl Default for SpotlightOff {
@@ -415,11 +389,10 @@ visca_command! {
         /// Turn auto slow shutter on.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
-    /// in low light conditions to maintain proper exposure. This feature is supported
-    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
+    /// in low light conditions to maintain proper exposure. The typed surface is
+    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOn;
     bytes = [0x01, 0x04, 0x5A, 0x02];
-    category = CommandCategory::Quick;
 }
 
 impl Default for AutoSlowShutterOn {
@@ -439,11 +412,10 @@ visca_command! {
         /// Turn auto slow shutter off.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
-    /// in low light conditions to maintain proper exposure. This feature is supported
-    /// on Sony cameras and FR7, but PtzOptics only supports it via HTTP API.
+    /// in low light conditions to maintain proper exposure. The typed surface is
+    /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOff;
     bytes = [0x01, 0x04, 0x5A, 0x03];
-    category = CommandCategory::Quick;
 }
 
 impl Default for AutoSlowShutterOff {
@@ -464,9 +436,7 @@ impl AutoSlowShutterOff {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
     use crate::macros::test_utils::visca_test;
-    use crate::timeout::CommandTimeout;
 
     visca_test!(
         ExposureCommand,
@@ -993,74 +963,6 @@ mod tests {
         ]
     );
 
-    visca_test!(
-        Bright,
-        test_bright_direct_00,
-        Brightness::Direct(BrightnessLevel::new(0x00).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x00,
-            0x00,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_08,
-        Brightness::Direct(BrightnessLevel::new(0x08).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x00,
-            0x08,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_10,
-        Brightness::Direct(BrightnessLevel::new(0x10).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x01,
-            0x00,
-            VISCA_TERMINATOR
-        ]
-    );
-
-    visca_test!(
-        Bright,
-        test_bright_direct_11,
-        Brightness::Direct(BrightnessLevel::new(0x11).unwrap()),
-        &[
-            0x81,
-            0x01,
-            0x04,
-            0x4D,
-            0x00,
-            0x00,
-            0x01,
-            0x01,
-            VISCA_TERMINATOR
-        ]
-    );
-
     #[test]
     fn test_brightness_valid_values() {
         for value in 0x00..=0x11 {
@@ -1068,62 +970,6 @@ mod tests {
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let _cmd = Brightness::SetLevel(level);
         }
-    }
-
-    #[test]
-    fn test_command_categories() {
-        assert_eq!(
-            ExposureCommand {
-                mode: ExposureMode::Auto
-            }
-            .timeout_class(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            ExposureCompensation::On.timeout_class(),
-            CommandCategory::Quick
-        );
-        assert_eq!(
-            DynamicRange::new(
-                DynamicRangeLevel::new(5)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .timeout_class(),
-            CommandCategory::Quick
-        );
-        assert_eq!(Iris::Reset.timeout_class(), CommandCategory::Quick);
-        assert_eq!(Shutter::Reset.timeout_class(), CommandCategory::Quick);
-        assert_eq!(Brightness::Reset.timeout_class(), CommandCategory::Quick);
-    }
-
-    #[test]
-    fn test_response_types() {
-        assert!(
-            ExposureCommand {
-                mode: ExposureMode::Auto
-            }
-            .behavior()
-            .command_kind()
-                == crate::command::CommandKind::Command
-        );
-        assert!(
-            ExposureCompensation::On.behavior().command_kind()
-                == crate::command::CommandKind::Command
-        );
-        assert!(
-            DynamicRange::new(
-                DynamicRangeLevel::new(5)
-                    .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"))
-            )
-            .behavior()
-            .command_kind()
-                == crate::command::CommandKind::Command
-        );
-        assert!(Iris::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(Shutter::Reset.behavior().command_kind() == crate::command::CommandKind::Command);
-        assert!(
-            Brightness::Reset.behavior().command_kind() == crate::command::CommandKind::Command
-        );
     }
 
     visca_test!(

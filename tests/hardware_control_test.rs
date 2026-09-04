@@ -1,4 +1,4 @@
-#![cfg(not(feature = "mode-async"))]
+#![cfg(feature = "blocking")]
 //! Hardware integration test: validates VISCA SET commands against a real PTZOptics G2 camera.
 //!
 //! **WARNING: These tests change camera settings.** Each test follows a safe pattern:
@@ -23,32 +23,34 @@
 use std::thread;
 use std::time::Duration;
 
-use grafton_visca::camera::profiles::PtzOpticsG2;
-use grafton_visca::camera::Connect;
-use grafton_visca::transport::BlockingTransportHandle;
+use grafton_visca::blocking::{CameraSession, Connect};
+use grafton_visca::profiles::PtzOpticsG2;
 use grafton_visca::types::{ContrastLevel, GammaLevel, LuminanceLevel};
-use grafton_visca::BlockingClient;
 
 /// Delay between set and readback to allow camera processing.
 const SETTLE_DELAY: Duration = Duration::from_millis(500);
 
-fn connect() -> Option<BlockingClient<PtzOpticsG2, BlockingTransportHandle>> {
+fn connect() -> Option<CameraSession<PtzOpticsG2>> {
     let ip = std::env::var("VISCA_CAMERA_IP").ok()?;
     let addr = format!("{ip}:5678");
     eprintln!("Connecting to camera at {addr}...");
-    Some(Connect::open_tcp_blocking::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
+    Some(Connect::open_tcp::<PtzOpticsG2>(addr).expect("Failed to connect to camera"))
 }
 
 #[test]
 #[ignore]
 fn test_gamma_round_trip() {
-    let Some(camera) = connect() else {
+    let Some(session) = connect() else {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
+    let camera = session.camera();
 
     // Step 1: Read current gamma
-    let original = camera.gamma().expect("Failed to read initial gamma value");
+    let original = camera
+        .image()
+        .gamma()
+        .expect("Failed to read initial gamma value");
     eprintln!("  Original gamma: {original:?}");
 
     // Step 2: Choose a different value
@@ -61,22 +63,30 @@ fn test_gamma_round_trip() {
 
     // Step 3: Set it
     camera
+        .image()
         .set_gamma(test_value)
         .expect("Failed to set gamma value");
     thread::sleep(SETTLE_DELAY);
 
     // Step 4: Read back and verify
-    let readback = camera.gamma().expect("Failed to read back gamma after set");
+    let readback = camera
+        .image()
+        .gamma()
+        .expect("Failed to read back gamma after set");
     eprintln!("  Readback gamma: {readback:?}");
 
     // Step 5: Restore original
     camera
+        .image()
         .set_gamma(original)
         .expect("Failed to restore original gamma");
     thread::sleep(SETTLE_DELAY);
 
     // Step 6: Verify restoration
-    let restored = camera.gamma().expect("Failed to read restored gamma value");
+    let restored = camera
+        .image()
+        .gamma()
+        .expect("Failed to read restored gamma value");
     eprintln!("  Restored gamma: {restored:?}");
 
     assert_eq!(
@@ -92,12 +102,14 @@ fn test_gamma_round_trip() {
 #[test]
 #[ignore]
 fn test_contrast_round_trip() {
-    let Some(camera) = connect() else {
+    let Some(session) = connect() else {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
+    let camera = session.camera();
 
     let original = camera
+        .image()
         .contrast()
         .expect("Failed to read initial contrast value");
     eprintln!("  Original contrast: {original:?}");
@@ -110,21 +122,25 @@ fn test_contrast_round_trip() {
     eprintln!("  Setting contrast to: {test_value:?}");
 
     camera
+        .image()
         .set_contrast(test_value)
         .expect("Failed to set contrast value");
     thread::sleep(SETTLE_DELAY);
 
     let readback = camera
+        .image()
         .contrast()
         .expect("Failed to read back contrast after set");
     eprintln!("  Readback contrast: {readback:?}");
 
     camera
+        .image()
         .set_contrast(original)
         .expect("Failed to restore original contrast");
     thread::sleep(SETTLE_DELAY);
 
     let restored = camera
+        .image()
         .contrast()
         .expect("Failed to read restored contrast value");
     eprintln!("  Restored contrast: {restored:?}");
@@ -142,12 +158,14 @@ fn test_contrast_round_trip() {
 #[test]
 #[ignore]
 fn test_luminance_round_trip() {
-    let Some(camera) = connect() else {
+    let Some(session) = connect() else {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
+    let camera = session.camera();
 
     let original = camera
+        .image()
         .luminance()
         .expect("Failed to read initial luminance value");
     eprintln!("  Original luminance: {original:?}");
@@ -160,21 +178,25 @@ fn test_luminance_round_trip() {
     eprintln!("  Setting luminance to: {test_value:?}");
 
     camera
+        .image()
         .set_luminance(test_value)
         .expect("Failed to set luminance value");
     thread::sleep(SETTLE_DELAY);
 
     let readback = camera
+        .image()
         .luminance()
         .expect("Failed to read back luminance after set");
     eprintln!("  Readback luminance: {readback:?}");
 
     camera
+        .image()
         .set_luminance(original)
         .expect("Failed to restore original luminance");
     thread::sleep(SETTLE_DELAY);
 
     let restored = camera
+        .image()
         .luminance()
         .expect("Failed to read restored luminance value");
     eprintln!("  Restored luminance: {restored:?}");
@@ -196,10 +218,11 @@ fn test_luminance_round_trip() {
 #[test]
 #[ignore]
 fn test_all_image_processing_round_trips() {
-    let Some(camera) = connect() else {
+    let Some(session) = connect() else {
         eprintln!("Skipped: VISCA_CAMERA_IP not set");
         return;
     };
+    let camera = session.camera();
 
     let mut passed = 0u32;
     let mut failed = 0u32;
@@ -207,20 +230,20 @@ fn test_all_image_processing_round_trips() {
     macro_rules! round_trip {
         ($label:expr, $inquiry:ident, $setter:ident, $type:ident, $alt:expr) => {{
             eprint!("  {:<20} ", $label);
-            match camera.$inquiry() {
+            match camera.image().$inquiry() {
                 Ok(original) => {
                     let test_val = if original.value() == $alt {
                         <$type>::new(0).unwrap()
                     } else {
                         <$type>::new($alt).unwrap()
                     };
-                    match camera.$setter(test_val) {
+                    match camera.image().$setter(test_val) {
                         Ok(()) => {
                             thread::sleep(SETTLE_DELAY);
-                            match camera.$inquiry() {
+                            match camera.image().$inquiry() {
                                 Ok(readback) => {
                                     // Restore regardless of readback result
-                                    let _ = camera.$setter(original);
+                                    let _ = camera.image().$setter(original);
                                     thread::sleep(SETTLE_DELAY);
                                     if readback == test_val {
                                         eprintln!(
@@ -235,7 +258,7 @@ fn test_all_image_processing_round_trips() {
                                     }
                                 }
                                 Err(e) => {
-                                    let _ = camera.$setter(original);
+                                    let _ = camera.image().$setter(original);
                                     eprintln!("FAIL readback inquiry failed: {e}");
                                     failed += 1;
                                 }

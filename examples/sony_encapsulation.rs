@@ -1,8 +1,9 @@
 //! Sony encapsulated VISCA protocol example.
 //!
-//! Sony professional profiles use an 8-byte encapsulation header with sequence
-//! numbers. The profile selects that protocol automatically; application code
-//! uses the same accessors as raw VISCA profiles.
+//! Sony professional profiles select the encapsulation and sequence handling
+//! automatically. Application code neither constructs the eight-byte header
+//! nor manages sequence numbers; it uses the same accessors as raw VISCA
+//! profiles.
 //!
 //! Run with:
 //! ```sh
@@ -14,10 +15,7 @@ mod support;
 use std::{env, io};
 
 use grafton_visca::{
-    camera::{profiles::SonyFR7, Connect},
-    capabilities::ProfileMetadata,
-    runtime::TokioRuntime,
-    Error,
+    camera::profiles::SonyFR7, capabilities::ProfileMetadata, runtime::TokioRuntime, Connect, Error,
 };
 
 use support::finish_session;
@@ -33,7 +31,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Address: {address}");
 
     let runtime = TokioRuntime::from_current()?;
-    let camera = Connect::open_udp_async::<SonyFR7, _>(&address, runtime).await?;
+    let session = Connect::open_udp::<SonyFR7, _>(&address, runtime).await?;
+    let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
         let is_on = camera.power().state().await?;
@@ -47,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     .await;
 
-    let close_result = camera.close().await;
+    let close_result = session.close().await;
     finish_session(inquiry_result, close_result)?;
     Ok(())
 }

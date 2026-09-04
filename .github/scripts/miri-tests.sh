@@ -1,103 +1,108 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Miri safety testing script
-# Tests for undefined behavior in different feature configurations.
+# Miri checks for the runtime-neutral engine and applicable library surfaces.
 #
-# This script is a real gate: any Miri failure makes it exit non-zero. Do not
-# reintroduce an unconditional `exit 0` — a Miri job that cannot fail reports
-# safety it has not checked.
-#
-# Scope: library tests only, matching the `miri` job in ci.yml. The integration
-# tests intentionally exercise real socket I/O and OS resolution paths, which
-# belong in the normal CI matrix rather than Miri's isolation model.
+# Scope, stated so this job is not read as more than it is: the crate is
+# `#![forbid(unsafe_code)]`, so there is no unsafe block here for Miri to find
+# undefined behaviour in. What the filtered runs below actually buy is
+# interpreter-level checking of the pure, synchronous, I/O-free domain —
+# arithmetic, slicing, provenance in the borrowed buffers the engine and the
+# parsers pass around — over a small named subset of the library tests, not the
+# suite. Nothing concurrent, no owner, no transport, and no async runtime is
+# executed under Miri at all; those are covered by the ordinary test matrix.
 
 set -euo pipefail
+
+readonly YELLOW='\033[1;33m'
+readonly GREEN='\033[0;32m'
+readonly RED='\033[0;31m'
+readonly NC='\033[0m'
+readonly GRAFTON_VISCA_MIRI_TOOLCHAIN='nightly-2026-08-26'
+
+cargo_miri_nightly() {
+    command cargo +"${GRAFTON_VISCA_MIRI_TOOLCHAIN}" "$@"
+}
+
+# Every run below is filtered by module path. A libtest filter that matches
+# nothing exits 0 — the binary prints "running 0 tests" and reports success —
+# so renaming or moving a module would quietly turn this whole job vacuous
+# instead of turning it red. Each run therefore asserts that its filter
+# selected at least one test.
+run_miri() {
+    local description="$1"
+    shift
+
+    local log
+    log="${TMPDIR:-/tmp}/grafton-miri-${description//[^[:alnum:]]/_}.log"
+
+    printf '%bMiri testing: %s%b\n' "$YELLOW" "$description" "$NC"
+    if ! cargo_miri_nightly miri test "$@" 2>&1 | tee "$log"; then
+        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
+        return 1
+    fi
+    if ! grep -Eq '^running [1-9][0-9]* tests?$' "$log"; then
+        printf '%b✗ %s matched zero tests%b\n' "$RED" "$description" "$NC"
+        printf 'The name filter selected nothing, so this check was vacuous.\n'
+        printf 'A renamed or moved module is the usual cause; update the filter.\n'
+        return 1
+    fi
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+}
+
+run_check() {
+    local description="$1"
+    shift
+
+    printf '%bFeature compile checking: %s%b\n' "$YELLOW" "$description" "$NC"
+    cargo_miri_nightly check --lib "$@"
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+}
 
 echo "=========================================="
 echo "Starting Miri safety checks"
 echo "=========================================="
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
+cargo_miri_nightly miri setup
 
-# Track if any issues were found
-ISSUES_FOUND=0
-FAILED_CONFIGS=()
+# Miri is applicable to the synchronous, I/O-free domain boundary.  A library
+# test target still compiles every unit-test module once, so keep that expensive
+# compilation to one no-default build and bound execution to pure modules.  The
+# long deterministic trace and generated property test remain covered by the
+# ordinary engine/property CI jobs, not by an unbounded Miri run.
+run_miri "deterministic protocol engine" \
+    --no-default-features --lib 'runtime::engine::tests::' -- \
+    --test-threads=1 \
+    --skip arbitrary_stale_and_reordered_inputs_preserve_invariants \
+    --skip arbitrary_ordered_and_stale_inputs_preserve_invariants_property
+run_miri "prepared request domain" --no-default-features --lib 'prepared::tests::' -- --test-threads=1
+run_miri "raw request contracts" --no-default-features --lib 'raw::tests::' -- --test-threads=1
+run_miri "VISCA frame parsing" \
+    --no-default-features --lib 'protocol::framer::tests::' -- --test-threads=1
+run_miri "VISCA response decoding" \
+    --no-default-features --lib 'protocol::response::tests::' -- --test-threads=1
+run_miri "Sony envelope parsing" \
+    --no-default-features --lib 'protocol::sony::tests::' -- --test-threads=1
 
-LOG_DIR="$(mktemp -d)"
-trap 'rm -rf "$LOG_DIR"' EXIT
+# Runtime adapters, transports, serialization, and test utilities are not
+# meaningful Miri executions here (they either require OS I/O or third-party
+# runtime internals). The checks below compile a bounded, representative set of
+# feature combinations; they are not an exhaustive check of every supported
+# feature union.
+run_check "no-default pure library" --no-default-features
+run_check "blocking library" --no-default-features --features blocking
+run_check "runtime-neutral async library" --no-default-features --features async
+run_check "Tokio library" --no-default-features --features runtime-tokio
+run_check "smol library" --no-default-features --features runtime-smol
+run_check "Tokio + dyn-api library" \
+    --no-default-features --features runtime-tokio,dyn-api
+run_check "smol + dyn-api library" \
+    --no-default-features --features runtime-smol,dyn-api
+run_check "blocking + async library" --no-default-features --features blocking,async
+run_check "test-utils library" --no-default-features --features test-utils
+run_check "serde + schemars + ts-rs library" \
+    --no-default-features --features serde,schemars,ts-rs
 
-# Function to run miri test
-run_miri_test() {
-    local description="$1"
-    local features="$2"
-    local log_file
-    log_file="$LOG_DIR/$(echo "$description" | tr -cs '[:alnum:]' '-').log"
-
-    echo -e "${YELLOW}Miri testing: ${description}${NC}"
-
-    local -a cmd
-    if [ -z "$features" ]; then
-        cmd=(cargo miri test --lib --no-default-features)
-    else
-        cmd=(cargo miri test --lib --no-default-features --features "$features")
-    fi
-
-    # Run with miri flags for comprehensive checking.
-    export MIRIFLAGS="-Zmiri-disable-isolation -Zmiri-strict-provenance"
-
-    # `set -o pipefail` makes the pipeline report the cargo exit status rather
-    # than tee's, so a Miri failure is not swallowed by the log pipe.
-    if "${cmd[@]}" 2>&1 | tee "$log_file"; then
-        echo -e "${GREEN}OK ${description} - no undefined behavior detected${NC}"
-    else
-        echo -e "${RED}FAIL ${description} - see findings below${NC}"
-        ISSUES_FOUND=$((ISSUES_FOUND + 1))
-        FAILED_CONFIGS+=("$description")
-
-        echo -e "${BLUE}Key findings:${NC}"
-        grep -E "error:|undefined behavior" "$log_file" || true
-    fi
-
-    echo ""
-}
-
-# Setup miri
-echo "Setting up Miri..."
-cargo miri setup
-
-# Test different feature configurations
-echo -e "${BLUE}Testing core library (no features)${NC}"
-run_miri_test "Blocking mode (no features)" ""
-
-echo -e "${BLUE}Testing async features${NC}"
-run_miri_test "Mode-async feature" "mode-async"
-
-echo -e "${BLUE}Testing runtime implementations${NC}"
-run_miri_test "Tokio runtime" "runtime-tokio"
-run_miri_test "Smol runtime" "runtime-smol"
-
-echo -e "${BLUE}Testing utility features${NC}"
-run_miri_test "Test utilities" "test-utils"
-
-echo -e "${BLUE}Testing combined features${NC}"
-run_miri_test "Tokio + test-utils" "runtime-tokio,test-utils"
-
-# Summary
 echo "=========================================="
-if [ "$ISSUES_FOUND" -eq 0 ]; then
-    echo -e "${GREEN}All Miri safety checks passed.${NC}"
-    echo "=========================================="
-    exit 0
-fi
-
-echo -e "${RED}Miri failed in $ISSUES_FOUND configuration(s):${NC}"
-for config in "${FAILED_CONFIGS[@]}"; do
-    echo "  - $config"
-done
+printf '%bAll bounded Miri and feature checks passed%b\n' "$GREEN" "$NC"
 echo "=========================================="
-exit 1

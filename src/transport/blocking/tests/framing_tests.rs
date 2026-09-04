@@ -87,27 +87,28 @@ impl MockTcp {
             writer: stream,
         }
     }
+
+    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        match self.reader.read(dst) {
+            Ok(0) => Err(Error::ConnectionClosed {
+                reason: Some("peer closed connection".into()),
+            }),
+            Ok(n) => Ok(n),
+            Err(error) => Err(error.into()),
+        }
+    }
 }
 
 impl BlockingTransport for MockTcp {
-    fn send_with_kind(&mut self, data: &[u8], _kind: CommandKind) -> Result<(), Error> {
+    fn send_with_timeout(
+        &mut self,
+        data: &[u8],
+        _kind: CommandKind,
+        _timeout: std::time::Duration,
+    ) -> Result<(), Error> {
         self.writer.write_all(data)?;
         self.writer.flush()?;
         Ok(())
-    }
-
-    fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        // Read directly into the provided buffer
-        match self.reader.read(dst) {
-            Ok(0) => {
-                // Connection closed
-                Err(Error::ConnectionClosed {
-                    reason: Some("peer closed connection".into()),
-                })
-            }
-            Ok(n) => Ok(n),
-            Err(e) => Err(e.into()),
-        }
     }
 
     fn recv_into_with_timeout(
@@ -115,8 +116,11 @@ impl BlockingTransport for MockTcp {
         dst: &mut [u8],
         _duration: std::time::Duration,
     ) -> Result<usize, Error> {
-        // For testing, just use regular recv_into
         self.recv_into(dst)
+    }
+
+    fn addressing_mode_hint(&self) -> Option<crate::transport::AddressingMode> {
+        Some(crate::transport::AddressingMode::Ip)
     }
 }
 

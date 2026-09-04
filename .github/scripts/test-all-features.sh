@@ -1,206 +1,194 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# 1.x support-matrix testing script.
+# Canonical 2.0 feature-matrix test script.
 #
-# Keep this list in sync with README.md and CONTRIBUTING.md. Entries below are
-# part of the documented support contract unless they are explicitly labelled
-# compatibility-only.
+# Keep this matrix aligned with the support contract in CI. Removed feature
+# names are exercised only by the explicit rejection checks below.
 
-set -e
+set -euo pipefail
 
-echo "=========================================="
-echo "Starting comprehensive feature tests"
-echo "=========================================="
+readonly GREEN='\033[0;32m'
+readonly RED='\033[0;31m'
+readonly YELLOW='\033[1;33m'
+readonly NC='\033[0m'
+readonly GRAFTON_VISCA_STABLE_TOOLCHAIN='1.98.0'
 
-# Color output for better readability
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+cargo_stable() {
+    command cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" "$@"
+}
 
-# Function to run a test with nice output
 run_test() {
     local description="$1"
-    local command="$2"
+    shift
 
-    echo -e "${YELLOW}Testing: ${description}${NC}"
-    if eval "$command"; then
-        echo -e "${GREEN}✓ ${description} passed${NC}"
+    printf '%bTesting: %s%b\n' "$YELLOW" "$description" "$NC"
+    if "$@"; then
+        printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
     else
-        echo -e "${RED}✗ ${description} failed${NC}"
-        exit 1
+        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
+        return 1
     fi
-    echo ""
 }
 
-run_expected_unknown_feature() {
+# A libtest name filter that matches nothing exits 0: the binary prints
+# "running 0 tests" and reports success. A renamed, moved or cfg-ed-out test
+# would silently turn a gate into a no-op instead of turning it red, so every
+# run that carries a filter asserts that it selected at least one test.
+run_filtered_test() {
     local description="$1"
-    local command="$2"
-    local output
-    local status
+    shift
 
-    echo -e "${YELLOW}Testing expected failure: ${description}${NC}"
-    set +e
-    output=$(eval "$command" 2>&1)
-    status=$?
-    set -e
+    local log
+    log="${TMPDIR:-/tmp}/grafton-filtered-${description//[^[:alnum:]]/_}.log"
 
-    if [ "$status" -eq 0 ]; then
-        echo -e "${RED}✗ ${description} unexpectedly succeeded${NC}"
-        exit 1
+    printf '%bTesting: %s%b\n' "$YELLOW" "$description" "$NC"
+    if ! "$@" 2>&1 | tee "$log"; then
+        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
+        return 1
     fi
-
-    case "$output" in
-        *"does not contain this feature: mode-blocking"*)
-            echo -e "${GREEN}✓ ${description} failed with Cargo's unknown-feature error${NC}"
-            ;;
-        *)
-            echo "$output"
-            echo -e "${RED}✗ ${description} failed for the wrong reason${NC}"
-            exit 1
-            ;;
-    esac
-    echo ""
+    if ! grep -Eq '^running [1-9][0-9]* tests?$' "$log"; then
+        printf '%b✗ %s matched zero tests%b\n' "$RED" "$description" "$NC"
+        printf 'The name filter selected nothing, so this check was vacuous.\n'
+        printf 'A renamed or moved test is the usual cause; update the filter.\n'
+        return 1
+    fi
+    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
 }
 
-clean_target_checkpoint() {
-    local description="$1"
+run_reexported_range_helper_test() (
+    local export_dir
+    export_dir="$(mktemp -d "${TMPDIR:-/tmp}/grafton-range-reexport.XXXXXX")"
+    trap 'find "$export_dir" -depth -delete' EXIT
 
-    if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
-        return 0
+    TS_RS_EXPORT_DIR="$export_dir" cargo_stable test \
+        --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
+        -p range-macro-consumer --features range-helper-derives
+
+    test -s "${export_dir}/ReexportedRange.ts"
+    grep -Fq 'export type ReexportedRange = number;' \
+        "${export_dir}/ReexportedRange.ts"
+)
+
+expect_unknown_feature() {
+    local feature="$1"
+    local output_file
+    output_file="${TMPDIR:-/tmp}/grafton-removed-feature-${feature//[^[:alnum:]]/_}.log"
+
+    printf '%bChecking removed feature rejection: %s%b\n' "$YELLOW" "$feature" "$NC"
+    if cargo_stable check --no-default-features --features "$feature" >"$output_file" 2>&1; then
+        cat "$output_file"
+        printf '%b✗ removed feature %s unexpectedly succeeded%b\n' "$RED" "$feature" "$NC"
+        return 1
     fi
-
-    echo -e "${YELLOW}Cleaning cargo target after ${description} to keep CI disk usage bounded${NC}"
-    du -sh target 2>/dev/null || true
-    cargo clean --quiet
-    echo ""
+    if ! grep -Fq "does not contain this feature: ${feature}" "$output_file"; then
+        cat "$output_file"
+        printf '%b✗ removed feature %s failed for the wrong reason%b\n' "$RED" "$feature" "$NC"
+        return 1
+    fi
+    printf '%b✓ removed feature %s is rejected by Cargo%b\n\n' "$GREEN" "$feature" "$NC"
 }
 
-# Test default features
-run_test "default features" \
-    "cargo test"
+echo "=========================================="
+echo "Starting canonical 2.0 feature tests"
+echo "=========================================="
 
-# Test no default features (blocking mode)
-run_test "no default features (blocking mode)" \
-    "cargo test --no-default-features"
+# The compatibility names must remain unknown rather than silently selecting a
+# second implementation. This is the only live-compiler proof of that; CI relies
+# on `ecosystem_feature_inventory_matches_cargo_manifest` and
+# `removed_1x_feature_aliases_are_absent_from_the_manifest` in
+# `tests/issue_548_supported_surface_inventory.rs`, which pin the same fact
+# against the manifest without paying for three extra `cargo check` runs.
+expect_unknown_feature "mode-async"
+expect_unknown_feature "async-core"
+expect_unknown_feature "mode-blocking"
 
-# Assert the removed blocking marker feature stays removed. These should fail
-# with Cargo's unknown-feature error rather than compiling any public surface.
-run_expected_unknown_feature "mode-blocking feature is rejected" \
-    "cargo check --no-default-features --features mode-blocking"
-
-run_expected_unknown_feature "mode-async + mode-blocking is rejected" \
-    "cargo check --no-default-features --features mode-async,mode-blocking"
-
-run_expected_unknown_feature "runtime-tokio + mode-blocking is rejected" \
-    "cargo check --no-default-features --features runtime-tokio,mode-blocking"
-
-# Test mode-async feature (runtime-agnostic)
-run_test "mode-async feature (runtime-agnostic)" \
-    "cargo test --no-default-features --features mode-async"
-
-# Test individual runtime features
-run_test "runtime-tokio runtime" \
-    "cargo test --no-default-features --features runtime-tokio"
-
-run_test "runtime-smol runtime" \
-    "cargo test --no-default-features --features runtime-smol"
-
-# Test test-utils feature
-run_test "test-utils feature" \
-    "cargo test --no-default-features --features test-utils"
-
-# Test runtime + test-utils combinations
-run_test "runtime-tokio + test-utils" \
-    "cargo test --no-default-features --features runtime-tokio,test-utils"
-
-run_test "runtime-smol + test-utils" \
-    "cargo test --no-default-features --features runtime-smol,test-utils"
-
-# Operation-handle release gates (#539). Keep these explicit so a cfg change
-# cannot silently turn a runtime's semantic suite into zero executed tests.
-run_test "#539 blocking operation handles" \
-    "cargo test --no-default-features --features test-utils --test issue_539_blocking_handle_test"
-
-run_test "#539 mode-async command-metadata contracts" \
-    "cargo test --no-default-features --features mode-async,test-utils --test issue_539_async_handle_test"
-
-run_test "#539 Tokio operation handles" \
-    "cargo test --no-default-features --features runtime-tokio,test-utils --test issue_539_async_handle_test"
-
-run_test "#539 smol operation handles" \
-    "cargo test --no-default-features --features runtime-smol,test-utils --test issue_539_async_handle_test"
-
-clean_target_checkpoint "runtime/test-utils feature group"
-
-# Test transport features
+run_test "no-default pure engine/domain + smoke" \
+    cargo_stable test --no-default-features --lib --test no_default_smoke
+run_test "default blocking" \
+    cargo_stable test --workspace --all-targets
+run_test "blocking-only" \
+    cargo_stable test --no-default-features --features blocking --all-targets
+run_test "blocking + dyn-api" \
+    cargo_stable test --no-default-features --features blocking,dyn-api --all-targets
+run_test "native blocking dependency boundary" \
+    bash .github/scripts/check-blocking-dependency-boundary.sh
+run_test "runtime-neutral async" \
+    cargo_stable test --no-default-features --features async --all-targets
+run_test "Tokio runtime" \
+    cargo_stable test --no-default-features --features runtime-tokio --all-targets
+run_test "smol runtime" \
+    cargo_stable test --no-default-features --features runtime-smol --all-targets
+run_test "Tokio + smol runtimes" \
+    cargo_stable test --no-default-features --features runtime-tokio,runtime-smol --all-targets
+run_test "blocking + Tokio" \
+    cargo_stable test --no-default-features --features blocking,runtime-tokio --all-targets
+run_test "blocking + smol" \
+    cargo_stable test --no-default-features --features blocking,runtime-smol --all-targets
+run_test "blocking + Tokio + smol runtimes" \
+    cargo_stable test --no-default-features --features blocking,runtime-tokio,runtime-smol --all-targets
+run_test "Tokio + dyn-api" \
+    cargo_stable test --no-default-features --features runtime-tokio,dyn-api --all-targets
+run_test "smol + dyn-api" \
+    cargo_stable test --no-default-features --features runtime-smol,dyn-api --all-targets
+run_test "blocking + async + dyn-api" \
+    cargo_stable test --no-default-features --features blocking,async,dyn-api --all-targets
 run_test "blocking serial transport" \
-    "cargo test --no-default-features --features transport-serial"
-
-run_test "runtime-tokio + transport-serial compatibility-only union" \
-    "cargo test --no-default-features --features runtime-tokio,transport-serial"
-
-run_test "runtime-tokio + transport-serial-tokio" \
-    "cargo test --no-default-features --features runtime-tokio,transport-serial-tokio"
-
-clean_target_checkpoint "transport feature group"
-
-# Test optional public contract features
+    cargo_stable test --no-default-features --features transport-serial --all-targets
+run_test "Tokio serial transport" \
+    cargo_stable test --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
+run_test "smol + Tokio serial API contract" \
+    cargo_stable test --no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test
+run_test "Tokio + blocking serial transport" \
+    cargo_stable test --no-default-features --features runtime-tokio,transport-serial --all-targets
 run_test "serde + schemars + ts-rs" \
-    "cargo test --no-default-features --features serde,schemars,ts-rs"
+    cargo_stable test --no-default-features --features serde,schemars,ts-rs --all-targets
+# `test-utils` alone proves the toolkit compiles with no facade selected; it
+# cannot run it, because `ScriptedBlockingTransport` needs `blocking` and
+# `ScriptedTransport`/`DeterministicExecutor` need `async`. The union below is
+# the entry that actually executes the shipped toolkit and the tests built on
+# it; without it the 40 test-utils tests (10 issue-566 scripted, 5 inquiry
+# simulator, 4 timeout, 15 deterministic-executor, 5 scripted-transport, and
+# 1 blocking test) run in no CI job at all.
+run_test "test-utils" \
+    cargo_stable test --no-default-features --features test-utils --all-targets
+run_test "test-utils + blocking + Tokio" \
+    cargo_stable test --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
+run_test "macro derives" \
+    cargo_stable test -p grafton-visca-macros
+# The workspace/default leg leaves this fixture's optional serde, schemars,
+# and ts-rs oracle cfg'd out; the all-features leg is only a check. Run this
+# fixture explicitly so its `renamed_dependency_derive_and_profile_contract_runs`
+# behavioral contract is not merely compile-checked.
+run_test "renamed range helper derives" \
+    cargo_stable test -p phase4-renamed-dependency --features range-helper-derives --all-targets
+run_test "re-exported range macro without helpers" \
+    cargo_stable test --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
+        -p range-macro-consumer
+run_test "re-exported range macro with helpers" \
+    run_reexported_range_helper_test
 
-run_test "runtime-tokio + dyn-api + test-utils" \
-    "cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test"
-
-run_test "runtime-smol + dyn-api compatibility-only union" \
-    "cargo test --no-default-features --features runtime-smol,dyn-api"
-
-run_test "runtime-smol + dyn-api + test-utils integration" \
-    "cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test"
-
-# Test runtime coexistence explicitly.
-run_test "tokio + smol runtime coexistence" \
-    "cargo check --no-default-features --features runtime-tokio,runtime-smol"
-
-# Test the macro crate
-run_test "grafton-visca-macros crate" \
-    "cargo test -p grafton-visca-macros"
-
-clean_target_checkpoint "optional feature group"
-
-# Build examples for different configurations
-echo -e "${YELLOW}Building examples...${NC}"
+run_test "all-features and all-targets check" \
+    cargo_stable check --workspace --all-features --all-targets
 
 run_test "blocking examples" \
-    "cargo build --examples --no-default-features"
+    cargo_stable check --examples --no-default-features --features blocking
+run_test "Tokio examples" \
+    cargo_stable check --examples --no-default-features --features runtime-tokio
+run_test "smol examples" \
+    cargo_stable check --examples --no-default-features --features runtime-smol
+run_test "all-feature examples" \
+    cargo_stable check --examples --all-features
 
-run_test "mode-async examples (runtime-agnostic)" \
-    "cargo build --examples --no-default-features --features mode-async"
+run_test "no-default doctests" \
+    cargo_stable test --doc --no-default-features
+run_test "async doctests" \
+    cargo_stable test --doc --no-default-features --features async
+run_test "all-feature doctests" \
+    cargo_stable test --doc --all-features
 
-run_test "tokio examples" \
-    "cargo build --examples --no-default-features --features runtime-tokio"
+run_filtered_test "generated engine invariant property" \
+    cargo_stable test --no-default-features --lib arbitrary_ordered_and_stale_inputs_preserve_invariants_property
 
-# Summary
 echo "=========================================="
-echo -e "${GREEN}All feature tests passed successfully!${NC}"
+printf '%bCanonical 2.0 feature matrix passed%b\n' "$GREEN" "$NC"
 echo "=========================================="
-
-# Optional: Show feature matrix coverage
-echo ""
-echo "Feature Matrix Coverage:"
-echo "------------------------"
-echo "✓ Default features"
-echo "✓ Blocking mode (no features)"
-echo "✓ Removed mode-blocking feature rejected"
-echo "✓ Mode-async (runtime-agnostic)"
-echo "✓ Tokio runtime"
-echo "✓ Smol runtime"
-echo "✓ Test utilities"
-echo "✓ Runtime + test-utils combinations"
-echo "✓ Blocking and Tokio serial transport features"
-echo "✓ Serialization/schema/type-generation features"
-echo "✓ Dyn-api feature"
-echo "✓ Tokio + smol runtime coexistence"
-echo "✓ Compatibility-only feature unions"
-echo "✓ Macro crate"
-echo "✓ Examples compilation"

@@ -201,7 +201,7 @@ mod tests {
             [0xFF, 0xFF], // All bits set
             [0x01, 0x01], // Invalid sub-type
             [0x01, 0x12], // Out of range sub-type
-            [0x02, 0x02], // Invalid control sub-type
+            [0x02, 0x02], // Invalid control subtype
             [0x01, 0xFF], // Invalid sub-type with correct major
             [0x80, 0x80], // High bit set
         ];

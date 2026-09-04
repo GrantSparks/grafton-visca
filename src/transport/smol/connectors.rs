@@ -9,6 +9,9 @@ use smol::{
     net::{TcpStream, UdpSocket},
 };
 
+#[cfg(any(unix, windows))]
+use crate::transport::async_io::recv_datagram_with_outcome;
+
 use crate::{
     timeout::Deadline,
     transport::{
@@ -17,6 +20,7 @@ use crate::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
+        ReceiveOutcome,
     },
     Error,
 };
@@ -77,7 +81,7 @@ pub async fn connect_tcp(
 /// does not exceed `config.connect_timeout`.
 pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
     // Create a single deadline for the entire operation
-    let deadline = Deadline::from_timeout(config.connect_timeout);
+    let deadline = Deadline::from_timeout(config.connect_timeout)?;
 
     // Perform DNS resolution with remaining budget using unblock (smol doesn't have native async DNS)
     let remaining = deadline.remaining_at(Instant::now());
@@ -148,6 +152,26 @@ impl AsyncDatagram for UdpSocket {
     async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
         Ok(UdpSocket::recv(self, buf).await?)
     }
+
+    async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        #[cfg(any(unix, windows))]
+        {
+            let socket: std::sync::Arc<async_io::Async<std::net::UdpSocket>> = self.clone().into();
+            Ok(socket
+                .read_with(|socket| recv_datagram_with_outcome(socket, buf))
+                .await?)
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let bytes = UdpSocket::recv(self, buf).await?;
+            Ok(if bytes == buf.len() {
+                ReceiveOutcome::PossiblyTruncated { copied: bytes }
+            } else {
+                ReceiveOutcome::Complete { bytes }
+            })
+        }
+    }
 }
 
 // Miri skip: every test in this module drives `smol::Timer`, whose reactor calls
@@ -157,9 +181,78 @@ impl AsyncDatagram for UdpSocket {
 // `#[cfg_attr(miri, ignore = ...)]`. They still run in the normal CI matrix.
 // See https://github.com/GrantSparks/grafton-visca/issues/585.
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
+    fn udp_receive_reports_truncation_without_accepting_the_prefix() {
+        smol::block_on(async {
+            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
+            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
+            receiver
+                .connect(sender.local_addr().expect("sender address"))
+                .await
+                .expect("connect receiver");
+
+            sender
+                .send_to(
+                    &[0x90, 0x41, 0xff, 0x00],
+                    receiver.local_addr().expect("receiver address"),
+                )
+                .await
+                .expect("send datagram");
+
+            let mut destination = [0; 3];
+            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
+                .await
+                .expect("receive datagram");
+
+            assert_eq!(
+                received,
+                ReceiveOutcome::Truncated { copied: 3 },
+                "a valid ACK prefix must not certify a larger UDP datagram"
+            );
+            assert_eq!(destination, [0x90, 0x41, 0xff]);
+        });
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
+    )]
+    fn udp_receive_accepts_an_exact_buffer_sized_datagram() {
+        smol::block_on(async {
+            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
+            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
+            receiver
+                .connect(sender.local_addr().expect("sender address"))
+                .await
+                .expect("connect receiver");
+
+            sender
+                .send_to(
+                    &[0x90, 0x41, 0xff],
+                    receiver.local_addr().expect("receiver address"),
+                )
+                .await
+                .expect("send datagram");
+
+            let mut destination = [0; 3];
+            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
+                .await
+                .expect("receive datagram");
+
+            assert_eq!(received, ReceiveOutcome::Complete { bytes: 3 });
+            assert_eq!(destination, [0x90, 0x41, 0xff]);
+        });
+    }
 
     /// Test that verifies deadline budget consumption across sequential steps.
     ///
@@ -177,7 +270,7 @@ mod tests {
             let total_timeout = Duration::from_millis(200);
             let step_duration = Duration::from_millis(120); // 60% of total
 
-            let deadline = Deadline::from_timeout(total_timeout);
+            let deadline = Deadline::from_timeout(total_timeout).expect("finite test timeout");
 
             // Step A: Should succeed with ~60% of budget
             let remaining = deadline.remaining_at(Instant::now());
@@ -234,7 +327,7 @@ mod tests {
     fn test_deadline_expired_returns_zero() {
         smol::block_on(async {
             let timeout = Duration::from_millis(10);
-            let deadline = Deadline::from_timeout(timeout);
+            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
             // Wait for deadline to expire
             Timer::after(Duration::from_millis(20)).await;
@@ -256,7 +349,7 @@ mod tests {
     fn test_deadline_remaining_decreases() {
         smol::block_on(async {
             let timeout = Duration::from_millis(100);
-            let deadline = Deadline::from_timeout(timeout);
+            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
 
             let remaining_before = deadline.remaining_at(Instant::now());
 

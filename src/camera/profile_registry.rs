@@ -48,6 +48,10 @@ pub(crate) struct BuiltinProfileFacts {
     pub(crate) serial: Option<SerialTransportFacts>,
     pub(crate) default_camera_id: u8,
     pub(crate) inquiry_support: crate::capabilities::InquirySupport,
+    pub(crate) position_inquiries: crate::profile::PositionInquirySupport,
+    pub(crate) image_base_support: bool,
+    pub(crate) focus_zone_inquiry: bool,
+    pub(crate) usb_audio: bool,
     pub(crate) typed_support: crate::capabilities::TypedSupportSet,
     pub(crate) evidence: &'static [ProfileEvidence],
 }
@@ -68,6 +72,20 @@ macro_rules! __transport_is_supported {
     };
     ({ $($fields:tt)* }) => {
         true
+    };
+}
+
+/// Expands an omitted optional registry fact to the conservative `false`.
+///
+/// The registry grammar makes new source-backed facts opt-in so downstream
+/// rows cannot accidentally gain a capability while the per-profile evidence
+/// is being collected.
+macro_rules! __optional_support_bool {
+    () => {
+        false
+    };
+    ($supported:expr) => {
+        $supported
     };
 }
 
@@ -182,126 +200,61 @@ macro_rules! __impl_supports_serial {
     };
 }
 
-macro_rules! __impl_typed_support_marker {
-    (DirectZoom for $profile:ty) => {
-        impl $crate::capabilities::HasDirectZoom for $profile {}
+/// Emits the base image-noun marker from the same registry fact that supplies
+/// `ImageProcessing::SUPPORTS_IMAGE_PROCESSING` for a built-in profile.
+///
+/// `ImageProcessing` itself is metadata required by every `Profile`, so a
+/// blanket marker would turn an all-`None` metadata implementation into typed
+/// permission. Keep the positive and negative cases declarative in each
+/// profile row instead.
+macro_rules! __impl_image_processing_marker {
+    (true for $profile:ty) => {
+        impl $crate::capabilities::HasImageProcessing for $profile {}
     };
-    (DigitalZoomToggle for $profile:ty) => {
-        impl $crate::capabilities::HasDigitalZoomToggle for $profile {}
+    (false for $profile:ty) => {};
+}
+
+#[cfg(test)]
+macro_rules! __assert_image_processing_marker {
+    (true for $profile:ty, $assert_marker:ident) => {
+        $assert_marker::<$profile>();
     };
-    (DigitalZoomRange for $profile:ty) => {
-        impl $crate::capabilities::HasDigitalZoomRange for $profile {}
-    };
-    (IrisControl for $profile:ty) => {
-        impl $crate::capabilities::HasIrisControl for $profile {}
-    };
-    (OnePushFocus for $profile:ty) => {
-        impl $crate::capabilities::HasOnePushFocus for $profile {}
-    };
-    (PtzOpticsSnapFocus for $profile:ty) => {
-        impl $crate::capabilities::HasPtzOpticsSnapFocus for $profile {}
-    };
-    (FocusLock for $profile:ty) => {
-        impl $crate::capabilities::HasFocusLock for $profile {}
-    };
-    (PushAutoFocus for $profile:ty) => {
-        impl $crate::capabilities::HasPushAutoFocus for $profile {}
-    };
-    (FocusZone for $profile:ty) => {
-        impl $crate::capabilities::HasFocusZone for $profile {}
-    };
-    (AutoFocusSensitivity for $profile:ty) => {
-        impl $crate::capabilities::HasAutoFocusSensitivity for $profile {}
-    };
-    (FocusNearLimitInquiry for $profile:ty) => {
-        impl $crate::capabilities::HasFocusNearLimitInquiry for $profile {}
-    };
-    (BacklightCompensation for $profile:ty) => {
-        impl $crate::capabilities::HasBacklightCompensation for $profile {}
-    };
-    (WideDynamicRange for $profile:ty) => {
-        impl $crate::capabilities::HasWideDynamicRange for $profile {}
-    };
-    (ExposureCompensation for $profile:ty) => {
-        impl $crate::capabilities::HasExposureCompensation for $profile {}
-    };
-    (BrightnessControl for $profile:ty) => {
-        impl $crate::capabilities::HasBrightnessControl for $profile {}
-    };
-    (OnePushWhiteBalance for $profile:ty) => {
-        impl $crate::capabilities::HasOnePushWhiteBalance for $profile {}
-    };
-    (AutoTrackingWhiteBalance for $profile:ty) => {
-        impl $crate::capabilities::HasAutoTrackingWhiteBalance for $profile {}
-    };
-    (AutoWhiteBalanceSensitivity for $profile:ty) => {
-        impl $crate::capabilities::HasAutoWhiteBalanceSensitivity for $profile {}
-    };
-    (ColorTemperature for $profile:ty) => {
-        impl $crate::capabilities::HasColorTemperature for $profile {}
-    };
-    (RgbGain for $profile:ty) => {
-        impl $crate::capabilities::HasRgbGain for $profile {}
-    };
-    (RgbTuning for $profile:ty) => {
-        impl $crate::capabilities::HasRgbTuning for $profile {}
-    };
-    (ImageFlip for $profile:ty) => {
-        impl $crate::capabilities::HasImageFlip for $profile {}
-    };
-    (ImageMirror for $profile:ty) => {
-        impl $crate::capabilities::HasImageMirror for $profile {}
-    };
-    (CombinedImageFlip for $profile:ty) => {
-        impl $crate::capabilities::HasCombinedImageFlip for $profile {}
-    };
-    (ContrastControl for $profile:ty) => {
-        impl $crate::capabilities::HasContrastControl for $profile {}
-    };
-    (SharpnessControl for $profile:ty) => {
-        impl $crate::capabilities::HasSharpnessControl for $profile {}
-    };
-    (SaturationControl for $profile:ty) => {
-        impl $crate::capabilities::HasSaturationControl for $profile {}
-    };
-    (HueControl for $profile:ty) => {
-        impl $crate::capabilities::HasHueControl for $profile {}
-    };
-    (LuminanceControl for $profile:ty) => {
-        impl $crate::capabilities::HasLuminanceControl for $profile {}
-    };
-    (GammaControl for $profile:ty) => {
-        impl $crate::capabilities::HasGammaControl for $profile {}
-    };
-    (NoiseReduction for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction for $profile {}
-    };
-    (NoiseReduction2D for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction2D for $profile {}
-    };
-    (NoiseReduction3D for $profile:ty) => {
-        impl $crate::capabilities::HasNoiseReduction3D for $profile {}
-    };
-    (PictureEffect for $profile:ty) => {
-        impl $crate::capabilities::HasPictureEffect for $profile {}
-    };
-    (Tally for $profile:ty) => {
-        impl $crate::capabilities::HasTally for $profile {}
-    };
-    (DirectMenu for $profile:ty) => {
-        impl $crate::capabilities::menu_control::HasDirectMenuControl for $profile {}
-    };
-    (NdFilter for $profile:ty) => {
-        impl $crate::capabilities::HasNdFilter for $profile {}
-    };
-    (VariableSpeed for $profile:ty) => {
-        impl $crate::capabilities::HasVariableSpeed for $profile {}
-    };
-    (MotionSync for $profile:ty) => {
-        impl $crate::capabilities::HasMotionSync for $profile {}
+    (false for $profile:ty, $assert_marker:ident) => {};
+}
+
+macro_rules! define_typed_support_marker_impls {
+    (
+        $dollar:tt
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    bit: $bit:literal,
+                    wire: $wire:literal,
+                    area: $area:literal,
+                    api: $api:literal,
+                    surface_doc: $surface_doc:literal,
+                    marker_doc: $marker_doc:literal,
+                    diagnostic: $diagnostic:literal,
+                },
+            )*
+        ]
+    ) => {
+        macro_rules! __impl_typed_support_marker {
+            $(
+                ($surface for $dollar profile:ty) => {
+                    impl $crate::capabilities::$marker for $dollar profile {}
+                };
+            )*
+        }
     };
 }
 
+crate::capabilities::typed_support_registry::typed_support_registry!(
+    define_typed_support_marker_impls,
+    $
+);
 macro_rules! __define_builtin_profiles {
     (
         groups {
@@ -340,12 +293,42 @@ macro_rules! __define_builtin_profiles {
                     metadata: {
                         model_name: $model_name:literal,
                         default_camera_id: $default_camera_id:expr,
+                        // Acknowledgement deadline. Every built-in profile
+                        // uses 500 ms, restored to the 1.x `TimeoutConfig`
+                        // default as an interim value (issue #689); the final
+                        // per-profile numbers are to come from the hardware
+                        // pass. `validate_tuning` lets an override only widen
+                        // this, never undercut the profile floor.
                         ack_timeout_ms: $ack_timeout_ms:expr,
-                        completion_timeout_ms: $completion_timeout_ms:expr,
+                        command_timeouts_ms: {
+                            quick: $quick_timeout_ms:expr,
+                            movement: $movement_timeout_ms:expr,
+                            preset: $preset_timeout_ms:expr,
+                            long_running: $long_running_timeout_ms:expr,
+                            network: $network_timeout_ms:expr,
+                        },
+                        // Inquiry-response deadline. Every built-in profile
+                        // uses 1000 ms: an intentional interim change from 1.x,
+                        // where inquiries had no dedicated deadline and used the
+                        // 5 s `Quick` category budget (issue #689, parity waiver
+                        // `inquiry-deadline-interim-default`). Hardware pass to
+                        // finalize per profile.
+                        inquiry_timeout_ms: $inquiry_timeout_ms:expr,
+                        cancellation_timeout_ms: $cancellation_timeout_ms:expr,
+                        ambiguity_timeout_ms: $ambiguity_timeout_ms:expr,
                         busy_timeout_ms: $busy_timeout_ms:expr,
                         inquiry_support: $inquiry_support:expr,
                         supports_operation_complete: $supports_operation_complete:expr,
                         supports_command_cancel: $supports_command_cancel:expr,
+                        maximum_command_sockets: $maximum_command_sockets:expr,
+                        position_inquiries: {
+                            pan_tilt: $pan_tilt_position_inquiry:expr,
+                            zoom: $zoom_position_inquiry:expr,
+                            focus: $focus_position_inquiry:expr,
+                            iris: $iris_position_inquiry:expr,
+                            nd_filter: $nd_filter_position_inquiry:expr $(,)?
+                        },
+                        preset_recall_axes: $preset_recall_axes:expr,
                         min_inquiry_spacing_ms: $min_inquiry_spacing_ms:expr,
                         min_command_spacing_ms: $min_command_spacing_ms:expr,
                     },
@@ -359,6 +342,7 @@ macro_rules! __define_builtin_profiles {
                         pan_degrees_to_units: $pan_degrees_to_units:expr,
                         tilt_degrees_to_units: $tilt_degrees_to_units:expr,
                         coordinate_system: $coordinate_system:expr,
+                        wire_codec: $pan_tilt_wire_codec:expr,
                     },
                     zoom: {
                         optical_max: $optical_zoom_max:expr,
@@ -374,6 +358,7 @@ macro_rules! __define_builtin_profiles {
                         auto_focus: $supports_auto_focus:expr,
                         one_push: $supports_one_push_focus:expr,
                         focus_zone: $supports_focus_zone:expr,
+                        focus_zone_inquiry: $supports_focus_zone_inquiry:expr,
                         max_speed: $max_focus_speed:expr,
                         af_sensitivity: $supports_af_sensitivity:expr,
                         near_limit_inquiry: $supports_focus_near_limit_inquiry:expr,
@@ -401,6 +386,10 @@ macro_rules! __define_builtin_profiles {
                         blue_gain_range: $blue_gain_range:expr,
                     },
                     image: {
+                        // Source-backed permission for the base `image()` noun.
+                        // This is distinct from the metadata facts below: every
+                        // profile implements `ImageProcessing` for discovery.
+                        base_support: $supports_image_processing:tt,
                         contrast_range: $contrast_range:expr,
                         sharpness_range: $sharpness_range:expr,
                         saturation_range: $saturation_range:expr,
@@ -453,6 +442,9 @@ macro_rules! __define_builtin_profiles {
                     variable_speed: {
                         supported: $supports_variable_speed:expr $(,)?
                     },
+                    $(usb_audio: {
+                        supported: $supports_usb_audio:expr $(,)?
+                    },)?
                     typed_support: [$( $support:ident ),* $(,)?],
                     evidence: [$(($evidence_key:literal, $evidence_text:literal)),* $(,)?],
                 }
@@ -472,22 +464,37 @@ macro_rules! __define_builtin_profiles {
                 type Envelope = $envelope;
                 const ACK_TIMEOUT: std::time::Duration =
                     std::time::Duration::from_millis($ack_timeout_ms);
-                const COMPLETION_TIMEOUT: std::time::Duration =
-                    std::time::Duration::from_millis($completion_timeout_ms);
+                const COMMAND_TIMEOUTS: $crate::CommandTimeouts = $crate::CommandTimeouts::new(
+                    std::time::Duration::from_millis($quick_timeout_ms),
+                    std::time::Duration::from_millis($movement_timeout_ms),
+                    std::time::Duration::from_millis($preset_timeout_ms),
+                    std::time::Duration::from_millis($long_running_timeout_ms),
+                    std::time::Duration::from_millis($network_timeout_ms),
+                );
                 const BUSY_TIMEOUT: std::time::Duration =
                     std::time::Duration::from_millis($busy_timeout_ms);
                 const INQUIRY_SUPPORT: $crate::capabilities::InquirySupport = $inquiry_support;
+                const POSITION_INQUIRY_SUPPORT: $crate::profile::PositionInquirySupport =
+                    $crate::profile::PositionInquirySupport::new_with_iris_nd(
+                        $pan_tilt_position_inquiry,
+                        $zoom_position_inquiry,
+                        $focus_position_inquiry,
+                        $iris_position_inquiry,
+                        $nd_filter_position_inquiry,
+                    );
                 const SUPPORTS_OPERATION_COMPLETE: bool = $supports_operation_complete;
                 const SUPPORTS_COMMAND_CANCEL: bool = $supports_command_cancel;
                 const MIN_INQUIRY_SPACING: std::time::Duration =
                     std::time::Duration::from_millis($min_inquiry_spacing_ms);
                 const MIN_COMMAND_SPACING: std::time::Duration =
                     std::time::Duration::from_millis($min_command_spacing_ms);
+                const SUPPORTS_USB_AUDIO: bool =
+                    __optional_support_bool!($($supports_usb_audio)?);
             }
 
             impl $crate::capabilities::PanTilt for $profile {
-                const PAN_RANGE: $crate::capabilities::CapabilityRange<i16> = $pan_range;
-                const TILT_RANGE: $crate::capabilities::CapabilityRange<i16> = $tilt_range;
+                const PAN_RANGE: $crate::capabilities::CapabilityRange<i32> = $pan_range;
+                const TILT_RANGE: $crate::capabilities::CapabilityRange<i32> = $tilt_range;
                 const MAX_PAN_SPEED: u8 = $max_pan_speed;
                 const MAX_TILT_SPEED: u8 = $max_tilt_speed;
                 const PAN_TILT_SIMULTANEOUS: bool = $pan_tilt_simultaneous;
@@ -496,6 +503,8 @@ macro_rules! __define_builtin_profiles {
                 const PAN_DEGREES_TO_UNITS: f32 = $pan_degrees_to_units;
                 const TILT_DEGREES_TO_UNITS: f32 = $tilt_degrees_to_units;
                 const COORDINATE_SYSTEM: $crate::capabilities::CoordinateSystem = $coordinate_system;
+                const PAN_TILT_WIRE_CODEC: $crate::capabilities::PanTiltWireCodec =
+                    $pan_tilt_wire_codec;
             }
 
             impl $crate::capabilities::Zoom for $profile {
@@ -513,6 +522,7 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_AUTO_FOCUS: bool = $supports_auto_focus;
                 const SUPPORTS_ONE_PUSH_FOCUS: bool = $supports_one_push_focus;
                 const SUPPORTS_FOCUS_ZONE: bool = $supports_focus_zone;
+                const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = $supports_focus_zone_inquiry;
                 const MAX_FOCUS_SPEED: u8 = $max_focus_speed;
                 const SUPPORTS_AF_SENSITIVITY: bool = $supports_af_sensitivity;
                 const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool =
@@ -563,6 +573,7 @@ macro_rules! __define_builtin_profiles {
                 const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = $requires_settings_save_for_flip;
                 const SUPPORTS_GAMMA: bool = $supports_gamma;
                 const GAMMA_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gamma_range;
+                const SUPPORTS_IMAGE_PROCESSING: bool = $supports_image_processing;
             }
 
             impl $crate::capabilities::Presets for $profile {
@@ -616,9 +627,35 @@ macro_rules! __define_builtin_profiles {
                     ]);
             }
 
+            impl $crate::profile::CompileTimeProfile for $profile {
+                const TRANSPORTS: $crate::profile::TransportCompatibility =
+                    $crate::profile::TransportCompatibility::new(
+                        __transport_default_port!($tcp),
+                        __transport_default_port!($udp),
+                        __transport_is_supported!($serial),
+                    );
+                const INQUIRY_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis($inquiry_timeout_ms);
+                const CANCELLATION_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis($cancellation_timeout_ms);
+                const AMBIGUITY_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis($ambiguity_timeout_ms);
+                const MAXIMUM_COMMAND_SOCKETS: u8 = $maximum_command_sockets;
+                const PRESET_RECALL_AXES: Option<$crate::AffectedAxes> = Some($preset_recall_axes);
+                const POSITION_INQUIRIES: $crate::profile::PositionInquirySupport =
+                    $crate::profile::PositionInquirySupport::new_with_iris_nd(
+                        $pan_tilt_position_inquiry,
+                        $zoom_position_inquiry,
+                        $focus_position_inquiry,
+                        $iris_position_inquiry,
+                        $nd_filter_position_inquiry,
+                    );
+            }
+
             __impl_supports_tcp!($profile, $tcp);
             __impl_supports_udp!($profile, $udp);
             __impl_supports_serial!($profile, $serial);
+            __impl_image_processing_marker!($supports_image_processing for $profile);
             $(__impl_typed_support_marker!($support for $profile);)*
         )*
 
@@ -667,6 +704,10 @@ macro_rules! __define_builtin_profiles {
                     serial: __serial_transport_facts!($serial),
                     default_camera_id: $default_camera_id,
                     inquiry_support: $inquiry_support,
+                    position_inquiries: <$profile as $crate::capabilities::ProfileMetadata>::POSITION_INQUIRY_SUPPORT,
+                    image_base_support: $supports_image_processing,
+                    focus_zone_inquiry: $supports_focus_zone_inquiry,
+                    usb_audio: __optional_support_bool!($($supports_usb_audio)?),
                     typed_support: <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT,
                     evidence: &[
                         $(profile_registry::ProfileEvidence {
@@ -679,6 +720,23 @@ macro_rules! __define_builtin_profiles {
         ];
 
         impl ProfileId {
+            /// Returns whether the runtime profile carries this built-in
+            /// profile's complete protocol identity.
+            ///
+            /// `profile_id` is public so downstream callers can mutate a
+            /// discovered inventory.  It is therefore an identity claim,
+            /// not an authority token; vendor-specific request validation
+            /// must only rely on it after every protocol identity fact has
+            /// been checked against the generated profile row.
+            pub(crate) fn matches_profile_spec(
+                &self,
+                profile: &$crate::ProfileSpec,
+            ) -> bool {
+                match self {
+                    $(ProfileId::$id => profile.matches_compile_time_profile::<$profile>(),)*
+                }
+            }
+
             /// Returns the human-readable display name for this profile.
             pub const fn display_name(&self) -> &'static str {
                 match self {
@@ -872,67 +930,8 @@ macro_rules! __define_builtin_profiles {
         fn typed_support_marker_trait_name(
             surface: $crate::capabilities::TypedSupportSurface,
         ) -> &'static str {
-            match surface {
-                $crate::capabilities::TypedSupportSurface::DirectZoom => "HasDirectZoom",
-                $crate::capabilities::TypedSupportSurface::DigitalZoomToggle => {
-                    "HasDigitalZoomToggle"
-                }
-                $crate::capabilities::TypedSupportSurface::DigitalZoomRange => "HasDigitalZoomRange",
-                $crate::capabilities::TypedSupportSurface::IrisControl => "HasIrisControl",
-                $crate::capabilities::TypedSupportSurface::OnePushFocus => "HasOnePushFocus",
-                $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus => {
-                    "HasPtzOpticsSnapFocus"
-                }
-                $crate::capabilities::TypedSupportSurface::FocusLock => "HasFocusLock",
-                $crate::capabilities::TypedSupportSurface::PushAutoFocus => "HasPushAutoFocus",
-                $crate::capabilities::TypedSupportSurface::FocusZone => "HasFocusZone",
-                $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity => {
-                    "HasAutoFocusSensitivity"
-                }
-                $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry => {
-                    "HasFocusNearLimitInquiry"
-                }
-                $crate::capabilities::TypedSupportSurface::BacklightCompensation => {
-                    "HasBacklightCompensation"
-                }
-                $crate::capabilities::TypedSupportSurface::WideDynamicRange => "HasWideDynamicRange",
-                $crate::capabilities::TypedSupportSurface::ExposureCompensation => {
-                    "HasExposureCompensation"
-                }
-                $crate::capabilities::TypedSupportSurface::BrightnessControl => "HasBrightnessControl",
-                $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance => {
-                    "HasOnePushWhiteBalance"
-                }
-                $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance => {
-                    "HasAutoTrackingWhiteBalance"
-                }
-                $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
-                    "HasAutoWhiteBalanceSensitivity"
-                }
-                $crate::capabilities::TypedSupportSurface::ColorTemperature => "HasColorTemperature",
-                $crate::capabilities::TypedSupportSurface::RgbGain => "HasRgbGain",
-                $crate::capabilities::TypedSupportSurface::RgbTuning => "HasRgbTuning",
-                $crate::capabilities::TypedSupportSurface::ImageFlip => "HasImageFlip",
-                $crate::capabilities::TypedSupportSurface::ImageMirror => "HasImageMirror",
-                $crate::capabilities::TypedSupportSurface::CombinedImageFlip => "HasCombinedImageFlip",
-                $crate::capabilities::TypedSupportSurface::ContrastControl => "HasContrastControl",
-                $crate::capabilities::TypedSupportSurface::SharpnessControl => "HasSharpnessControl",
-                $crate::capabilities::TypedSupportSurface::SaturationControl => "HasSaturationControl",
-                $crate::capabilities::TypedSupportSurface::HueControl => "HasHueControl",
-                $crate::capabilities::TypedSupportSurface::LuminanceControl => "HasLuminanceControl",
-                $crate::capabilities::TypedSupportSurface::GammaControl => "HasGammaControl",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction => "HasNoiseReduction",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction2D => "HasNoiseReduction2D",
-                $crate::capabilities::TypedSupportSurface::NoiseReduction3D => "HasNoiseReduction3D",
-                $crate::capabilities::TypedSupportSurface::PictureEffect => "HasPictureEffect",
-                $crate::capabilities::TypedSupportSurface::Tally => "HasTally",
-                $crate::capabilities::TypedSupportSurface::DirectMenu => "HasDirectMenuControl",
-                $crate::capabilities::TypedSupportSurface::NdFilter => "HasNdFilter",
-                $crate::capabilities::TypedSupportSurface::VariableSpeed => "HasVariableSpeed",
-                $crate::capabilities::TypedSupportSurface::MotionSync => "HasMotionSync",
-            }
+            surface.marker_trait_name()
         }
-
         #[cfg(test)]
         mod registry_tests {
             use super::*;
@@ -942,9 +941,38 @@ macro_rules! __define_builtin_profiles {
                 id: ProfileId,
             )
             where
-                P: $crate::capabilities::Profile + Default,
+                P: $crate::profile::CompileTimeProfile + Default,
             {
                 let caps = $crate::capabilities::Capabilities::from_profile::<P>();
+                assert_eq!(caps.profile_id, P::PROFILE_ID);
+                let spec = $crate::ProfileSpec::from_compile_time::<P>()
+                    .unwrap_or_else(|error| panic!("{id:?} ProfileSpec failed: {error}"));
+
+                assert_eq!(spec.capabilities(), &caps);
+                assert_eq!(
+                    spec.pan_tilt_coordinates().map(|conversion| (
+                        conversion.coordinate_system(),
+                        conversion.wire_codec(),
+                        conversion.pan_degrees_to_units(),
+                        conversion.tilt_degrees_to_units(),
+                    )),
+                    Some((
+                        P::COORDINATE_SYSTEM,
+                        P::PAN_TILT_WIRE_CODEC,
+                        P::PAN_DEGREES_TO_UNITS,
+                        P::TILT_DEGREES_TO_UNITS,
+                    ))
+                );
+                assert_eq!(spec.transports(), P::TRANSPORTS);
+                assert_eq!(spec.preset_recall_axes(), P::PRESET_RECALL_AXES);
+                assert_eq!(
+                    spec.envelope(),
+                    if <P::Envelope as $crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION {
+                        $crate::ProfileEnvelope::SonyEncapsulated
+                    } else {
+                        $crate::ProfileEnvelope::RawVisca
+                    }
+                );
 
                 assert_eq!(facts.id, id);
                 assert_eq!(facts.group, id.profile_group());
@@ -961,9 +989,74 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(facts.default_camera_id, id.default_camera_id());
                 assert_eq!(facts.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(facts.inquiry_support, id.inquiry_support());
+                assert_eq!(facts.position_inquiries, P::POSITION_INQUIRY_SUPPORT);
+                assert_eq!(spec.position_inquiries(), P::POSITION_INQUIRY_SUPPORT);
+                assert_eq!(
+                    facts.image_base_support,
+                    P::SUPPORTS_IMAGE_PROCESSING,
+                    "{id:?} image base-support registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_image_processing,
+                    facts.image_base_support,
+                    "{id:?} runtime image permission must come from the registry fact"
+                );
+                assert_eq!(
+                    facts.focus_zone_inquiry,
+                    P::SUPPORTS_FOCUS_ZONE_INQUIRY,
+                    "{id:?} focus-zone inquiry registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_focus_zone_inquiry,
+                    facts.focus_zone_inquiry,
+                    "{id:?} runtime focus-zone inquiry fact must come from the registry"
+                );
+                assert_eq!(
+                    facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::FocusZoneInquiry
+                    ),
+                    facts.focus_zone_inquiry,
+                    "{id:?} focus-zone inquiry marker must follow its registry fact"
+                );
+                assert_eq!(
+                    facts.usb_audio,
+                    P::SUPPORTS_USB_AUDIO,
+                    "{id:?} USB-audio registry fact and metadata must match"
+                );
+                assert_eq!(
+                    caps.has_usb_audio,
+                    facts.usb_audio,
+                    "{id:?} runtime USB-audio fact must come from the registry"
+                );
+                assert_eq!(
+                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::UsbAudio),
+                    facts.usb_audio,
+                    "{id:?} USB-audio marker must follow its registry fact"
+                );
+                assert!(
+                    !facts.position_inquiries.iris()
+                        || facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::IrisControl
+                        ),
+                    "{id:?} iris inquiry facts must be backed by typed-support evidence"
+                );
+                assert!(
+                    !facts.position_inquiries.nd_filter()
+                        || facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::NdFilter
+                        ),
+                    "{id:?} ND inquiry facts must be backed by typed-support evidence"
+                );
                 assert_eq!(
                     facts.typed_support,
                     <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                );
+                assert_eq!(
+                    facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::ExposureMode
+                    ),
+                    !P::EXPOSURE_MODES.is_empty(),
+                    "{id:?} shared exposure-mode typed support and its source-backed mode inventory must agree"
                 );
                 assert_eq!(
                     facts.envelope == profile_registry::EnvelopeKind::SonyEncapsulated,
@@ -1071,11 +1164,12 @@ macro_rules! __define_builtin_profiles {
                     P::SHARPNESS_RANGE.is_some(),
                     "{id:?} sharpness marker and metadata must match"
                 );
-                assert_eq!(
-                    facts.has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl),
-                    P::IRIS_RANGE.is_some(),
-                    "{id:?} iris marker and metadata must match"
-                );
+                if facts.has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl) {
+                    assert!(
+                        P::IRIS_RANGE.is_some(),
+                        "{id:?} iris typed support requires an iris metadata range"
+                    );
+                }
                 assert_eq!(
                     facts.has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect),
                     P::SUPPORTS_PICTURE_EFFECT,
@@ -1091,6 +1185,7 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.pan_range, P::PAN_RANGE.as_inclusive());
                 assert_eq!(caps.tilt_range, P::TILT_RANGE.as_inclusive());
                 assert_eq!(caps.pan_tilt_simultaneous, P::PAN_TILT_SIMULTANEOUS);
+                assert_eq!(caps.preset_recovery_time, P::PRESET_RECOVERY_TIME);
                 assert_eq!(caps.has_digital_zoom, P::DIGITAL_ZOOM_MAX.is_some());
                 assert_eq!(caps.zoom_range_optical, 0..=P::OPTICAL_ZOOM_MAX);
                 assert_eq!(
@@ -1105,6 +1200,10 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.focus_range, P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT);
                 assert_eq!(caps.focus_speed, 0..=P::MAX_FOCUS_SPEED);
                 assert_eq!(caps.has_focus_zone, P::SUPPORTS_FOCUS_ZONE);
+                assert_eq!(
+                    caps.has_focus_zone_inquiry,
+                    P::SUPPORTS_FOCUS_ZONE_INQUIRY
+                );
                 assert_eq!(caps.has_af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
                 assert_eq!(
                     caps.has_focus_near_limit_inquiry,
@@ -1116,11 +1215,19 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.has_wdr, P::SUPPORTS_WDR);
                 assert_eq!(caps.has_exposure_comp, P::SUPPORTS_EXPOSURE_COMP);
                 assert_eq!(
+                    caps.exposure_comp_profile_range,
+                    P::EXPOSURE_COMP_RANGE.as_inclusive()
+                );
+                assert_eq!(
                     caps.iris_range,
                     P::IRIS_RANGE.map(|range| range.as_inclusive())
                 );
                 assert_eq!(caps.gain_range, P::GAIN_RANGE.as_inclusive());
-                assert_eq!(caps.shutter_speed_count, P::SHUTTER_SPEEDS.len());
+                assert_eq!(caps.shutter_speeds.len(), P::SHUTTER_SPEEDS.len());
+                for (runtime, static_speed) in caps.shutter_speeds.iter().zip(P::SHUTTER_SPEEDS) {
+                    assert_eq!(runtime.label, static_speed.label);
+                    assert_eq!(runtime.value, static_speed.value);
+                }
                 assert_eq!(
                     caps.exposure_brightness_range,
                     P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive())
@@ -1152,7 +1259,7 @@ macro_rules! __define_builtin_profiles {
                     caps.blue_gain_range,
                     P::BLUE_GAIN_RANGE.map(|range| range.as_inclusive())
                 );
-                assert_eq!(caps.wb_mode_count, P::WB_MODES.len());
+                assert_eq!(caps.white_balance_modes, P::WB_MODES);
                 assert_eq!(
                     caps.contrast_range,
                     P::CONTRAST_RANGE.map(|range| range.as_inclusive())
@@ -1179,6 +1286,9 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_eq!(caps.supports_flip, P::SUPPORTS_FLIP);
                 assert_eq!(caps.supports_mirror, P::SUPPORTS_MIRROR);
+                assert_eq!(caps.supports_hue, P::SUPPORTS_HUE);
+                assert_eq!(caps.uses_combined_flip_command, P::USES_COMBINED_FLIP_COMMAND);
+                assert_eq!(caps.requires_settings_save_for_flip, P::REQUIRES_SETTINGS_SAVE_FOR_FLIP);
                 assert_eq!(caps.has_noise_reduction, P::SUPPORTS_NOISE_REDUCTION);
                 assert_eq!(caps.has_2d_nr, P::SUPPORTS_2D_NR);
                 assert_eq!(caps.has_3d_nr, P::SUPPORTS_3D_NR);
@@ -1193,17 +1303,27 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_eq!(caps.supports_preset_tour, P::SUPPORTS_PRESET_TOUR);
                 assert_eq!(caps.supports_preset_thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
+                assert_eq!(caps.preset_recall_delay, P::PRESET_RECALL_DELAY);
+                assert_eq!(caps.supports_preset_names, P::SUPPORTS_PRESET_NAMES);
+                assert_eq!(caps.max_preset_name_length, P::MAX_PRESET_NAME_LENGTH);
                 assert_eq!(caps.supports_standby, P::SUPPORTS_STANDBY);
                 assert_eq!(caps.supports_wake_on_lan, P::SUPPORTS_WAKE_ON_LAN);
-                assert_eq!(caps.power_on_time_secs, P::POWER_ON_TIME.as_secs());
+                assert_eq!(caps.power_on_time, P::POWER_ON_TIME);
+                assert_eq!(caps.standby_time, P::STANDBY_TIME);
+                assert_eq!(caps.retains_settings_on_power_off, P::RETAINS_SETTINGS_ON_POWER_OFF);
+                assert_eq!(caps.home_on_power_up, P::HOME_ON_POWER_UP);
                 assert_eq!(
                     caps.has_nd_filter,
                     !matches!(P::ND_MODE, $crate::capabilities::NdFilterMode::None)
                 );
+                assert_eq!(caps.nd_filter_mode, P::ND_MODE);
+                assert_eq!(caps.nd_filter_steps, P::ND_STEPS);
                 assert_eq!(caps.has_motion_sync, P::SUPPORTS_MOTION_SYNC);
+                assert_eq!(caps.max_motion_sync_speed_profile, P::MAX_MOTION_SYNC_SPEED);
                 assert_eq!(caps.max_motion_sync_speed, P::SUPPORTS_MOTION_SYNC.then_some(P::MAX_MOTION_SYNC_SPEED));
                 assert_eq!(caps.has_direct_menu_control, P::SUPPORTS_DIRECT_CONTROL);
                 assert_eq!(caps.has_variable_speed, P::SUPPORTS_VARIABLE_SPEED);
+                assert_eq!(caps.has_usb_audio, P::SUPPORTS_USB_AUDIO);
                 assert_eq!(caps.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(caps.supports_operation_complete, P::SUPPORTS_OPERATION_COMPLETE);
                 assert_eq!(
@@ -1236,8 +1356,185 @@ macro_rules! __define_builtin_profiles {
                 )*
             }
 
+            /// The built-in registry's `image.base_support` fact emits both the
+            /// runtime permission and the static `HasImageProcessing` marker.
+            /// Negative marker assertions live in public compile-contract
+            /// fixtures, because Rust has no stable negative-trait assertion.
+            #[test]
+            fn image_processing_markers_follow_base_support() {
+                fn assert_image_processing_marker<P: $crate::capabilities::HasImageProcessing>() {}
+
+                $(
+                    __assert_image_processing_marker!(
+                        $supports_image_processing for $profile,
+                        assert_image_processing_marker
+                    );
+                )*
+            }
+
+            /// Pins the per-profile protocol *defaults* the parity row
+            /// `timeout-category-defaults-selection` depends on. Every built-in
+            /// profile's acknowledgement deadline must equal the 1.x
+            /// `TimeoutConfig` default of 500 ms, restored as the interim value
+            /// (issue #689); its inquiry-response deadline must be the interim
+            /// 1000 ms. The mapped selection test installs explicit tuning, so
+            /// it cannot see these defaults drift — this sweep can, and covers
+            /// every profile automatically so a newly added one cannot slip in
+            /// a tighter default unnoticed.
+            #[test]
+            fn builtin_profile_default_deadlines_match_the_1x_ack_and_interim_inquiry() {
+                // 1.x `TimeoutConfig::default().ack_timeout` — the deadline every
+                // 1.x profile actually scheduled under (the per-profile
+                // `ACK_TIMEOUT` const was defined but never read).
+                const ONE_X_ACK_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis(500);
+                // Interim inquiry-response deadline. 1.x inquiries carried no
+                // dedicated deadline and used the 5 s `Quick` category budget;
+                // v2 holds this at 1000 ms pending the hardware pass (waiver
+                // `inquiry-deadline-interim-default`).
+                const INTERIM_INQUIRY_TIMEOUT: std::time::Duration =
+                    std::time::Duration::from_millis(1000);
+                $(
+                    let timing = $crate::ProfileSpec::from_compile_time::<$profile>()
+                        .unwrap_or_else(|error| {
+                            panic!("{} ProfileSpec failed: {error}", stringify!($profile))
+                        })
+                        .timing();
+                    assert_eq!(
+                        timing.ack_timeout(),
+                        ONE_X_ACK_TIMEOUT,
+                        "{} ACK deadline must match the restored 1.x 500 ms default",
+                        stringify!($profile)
+                    );
+                    assert_eq!(
+                        timing.inquiry_timeout(),
+                        INTERIM_INQUIRY_TIMEOUT,
+                        "{} inquiry deadline must be the interim 1000 ms value",
+                        stringify!($profile)
+                    );
+                )*
+            }
+
+            #[test]
+            fn scalar_position_inquiry_matrix_is_conservative_and_explicit() {
+                let expected = [
+                    (ProfileId::PtzOpticsG2, true, false),
+                    (ProfileId::PtzOpticsG3, true, false),
+                    (ProfileId::PtzOptics30X, true, false),
+                    (ProfileId::SonyFr7, false, true),
+                    (ProfileId::SonyBrcH900, true, false),
+                    (ProfileId::SonyEviH100, true, false),
+                    (ProfileId::SonyBrc300, true, false),
+                    (ProfileId::NearusBrc300, true, false),
+                    (ProfileId::GenericVisca, true, false),
+                ];
+                for (id, iris, nd_filter) in expected {
+                    let facts = id.registry_facts();
+                    assert_eq!(facts.position_inquiries.iris(), iris, "{id:?} iris inquiry");
+                    assert_eq!(
+                        facts.position_inquiries.nd_filter(),
+                        nd_filter,
+                        "{id:?} ND-filter inquiry"
+                    );
+                }
+            }
+
+            #[test]
+            fn sony_fr7_has_no_shared_ae_mode_inventory() {
+                let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFR7>()
+                    .expect("Sony FR7 profile");
+                let capabilities = profile.capabilities();
+                assert!(capabilities.has_exposure);
+                assert!(capabilities.exposure_modes.is_empty());
+                assert!(!capabilities.supports_typed(
+                    $crate::capabilities::TypedSupportSurface::ExposureMode
+                ));
+                for mode in [
+                    $crate::command::exposure::ExposureMode::Auto,
+                    $crate::command::exposure::ExposureMode::Manual,
+                    $crate::command::exposure::ExposureMode::Shutter,
+                    $crate::command::exposure::ExposureMode::Iris,
+                    $crate::command::exposure::ExposureMode::Bright,
+                ] {
+                    assert!(!capabilities.supports_exposure_mode(mode));
+                }
+            }
+
+            #[test]
+            fn shared_exposure_mode_support_is_exact_and_inventory_backed() {
+                fn assert_shared_ae_mode_profile<P>()
+                where
+                    P: $crate::capabilities::Profile + $crate::capabilities::HasExposureMode,
+                {
+                    assert!(
+                        !P::EXPOSURE_MODES.is_empty(),
+                        "shared exposure-mode marker requires a source-backed mode inventory"
+                    );
+                    assert!(
+                        <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT.contains(
+                            $crate::capabilities::TypedSupportSurface::ExposureMode
+                        ),
+                        "shared exposure-mode marker and typed support must come from the same registry row"
+                    );
+                }
+
+                assert_shared_ae_mode_profile::<PtzOpticsG2>();
+                assert_shared_ae_mode_profile::<PtzOpticsG3>();
+                assert_shared_ae_mode_profile::<PtzOptics30X>();
+                assert_shared_ae_mode_profile::<SonyBRCH900>();
+                assert_shared_ae_mode_profile::<SonyEVIH100>();
+                assert_shared_ae_mode_profile::<SonyBRC300>();
+                assert_shared_ae_mode_profile::<NearusBRC300>();
+                assert_shared_ae_mode_profile::<GenericVisca>();
+
+                for facts in BUILTIN_PROFILE_FACTS {
+                    let expected = facts.id != ProfileId::SonyFr7;
+                    assert_eq!(
+                        facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::ExposureMode
+                        ),
+                        expected,
+                        "{:?} shared exposure-mode support must exactly follow the source-backed mode inventory",
+                        facts.id
+                    );
+                }
+            }
+
             #[test]
             fn typed_support_registry_has_evidence_for_surprising_gaps() {
+                for facts in BUILTIN_PROFILE_FACTS {
+                    assert!(
+                        !facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::IrisControlInquiry,
+                        ),
+                        "{} must not expose `09 04 2B` iris status inquiry without model-specific evidence",
+                        facts.type_name,
+                    );
+                    if !facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::IrisControl,
+                    ) {
+                        assert!(
+                            !facts.position_inquiries.iris(),
+                            "{} must not expose a typed iris settlement inquiry without typed iris support",
+                            facts.type_name
+                        );
+                        assert!(
+                            facts.evidence.iter().any(|item| item.key == "iris"),
+                            "{} must document why iris typed support is absent",
+                            facts.type_name
+                        );
+                    }
+                    if !facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::NdFilter,
+                    ) {
+                        assert!(
+                            !facts.position_inquiries.nd_filter(),
+                            "{} must not expose an ND settlement inquiry without typed ND support",
+                            facts.type_name
+                        );
+                    }
+                }
+
                 for id in [
                     ProfileId::PtzOpticsG2,
                     ProfileId::PtzOpticsG3,
@@ -1248,13 +1545,6 @@ macro_rules! __define_builtin_profiles {
                         facts.evidence.iter().any(|item| item.key == "digital_zoom"),
                         "{id:?} must document why digital zoom typed support is absent"
                     );
-                    if !facts.has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl)
-                    {
-                        assert!(
-                            facts.evidence.iter().any(|item| item.key == "iris"),
-                            "{id:?} must document why iris typed support is absent"
-                        );
-                    }
                 }
             }
 
@@ -1276,8 +1566,8 @@ macro_rules! __define_builtin_profiles {
                         <P as $crate::capabilities::SupportsUdp>::DEFAULT_UDP_PORT,
                         1259
                     );
-                    assert_eq!(P::PAN_RANGE, range!(i16, -2448, 2448));
-                    assert_eq!(P::TILT_RANGE, range!(i16, -432, 1296));
+                    assert_eq!(P::PAN_RANGE, range!(i32, -2448, 2448));
+                    assert_eq!(P::TILT_RANGE, range!(i32, -432, 1296));
                     assert_eq!(P::MAX_PAN_SPEED, 24);
                     assert_eq!(P::MAX_TILT_SPEED, 20);
                     assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
@@ -1323,51 +1613,77 @@ macro_rules! __define_builtin_profiles {
                     assert!(facts.has_typed_support($crate::capabilities::TypedSupportSurface::FocusZone));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl));
+                    assert!(!facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::IrisControlInquiry
+                    ));
+                    assert!(facts.has_typed_support(
+                        $crate::capabilities::TypedSupportSurface::ExposureMode
+                    ));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::PictureEffect));
                     assert!(!facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry
                     ));
+                    for surface in [
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
+                    ] {
+                        assert!(facts.has_typed_support(surface), "{id:?} {surface:?}");
+                    }
                 }
-            }
 
-            #[test]
-            fn sony_fr7_does_not_claim_the_shared_exposure_and_image_families() {
-                use $crate::capabilities::{Exposure, Focus, ImageProcessing};
-
-                let facts = ProfileId::SonyFr7.registry_facts();
-                assert!(SonyFR7::EXPOSURE_MODES.is_empty());
-                assert_eq!(SonyFR7::IRIS_RANGE, None);
-                assert_eq!(SonyFR7::BRIGHTNESS_RANGE, None);
-                assert!(!SonyFR7::SUPPORTS_FOCUS_ZONE);
-                assert!(!SonyFR7::SUPPORTS_AF_SENSITIVITY);
-                assert!(!SonyFR7::SUPPORTS_NOISE_REDUCTION);
-                assert!(!SonyFR7::SUPPORTS_2D_NR);
-                assert!(!SonyFR7::SUPPORTS_3D_NR);
-                assert!(!SonyFR7::SUPPORTS_PICTURE_EFFECT);
-
+                const R14_NR_EVIDENCE: &str = "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain.";
+                for id in [ProfileId::PtzOpticsG2, ProfileId::PtzOpticsG3] {
+                    let evidence = id
+                        .registry_facts()
+                        .evidence
+                        .iter()
+                        .find(|item| item.key == "noise_reduction")
+                        .expect("G2 and G3 must record the R14 NR evidence");
+                    assert_eq!(evidence.rationale, R14_NR_EVIDENCE, "{id:?}");
+                }
+                let legacy_30x_evidence = ProfileId::PtzOptics30X
+                    .registry_facts()
+                    .evidence
+                    .iter()
+                    .find(|item| item.key == "noise_reduction")
+                    .expect("legacy 30X must record separate inquiry and control sources");
+                assert_eq!(
+                    legacy_30x_evidence.rationale,
+                    "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."
+                );
+                let nr_profiles = "`PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`";
                 for surface in [
-                    $crate::capabilities::TypedSupportSurface::IrisControl,
-                    $crate::capabilities::TypedSupportSurface::BrightnessControl,
-                    $crate::capabilities::TypedSupportSurface::FocusZone,
-                    $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction,
                     $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                     $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
-                    $crate::capabilities::TypedSupportSurface::PictureEffect,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
                 ] {
-                    assert!(!facts.has_typed_support(surface), "unexpected FR7 {surface:?}");
+                    assert_eq!(registry_profile_type_names_for(surface), nr_profiles, "{surface:?}");
                 }
 
-                for evidence_key in [
-                    "iris",
-                    "brightness",
-                    "focus_zone",
-                    "af_sensitivity",
-                    "noise_reduction",
-                    "picture_effect",
+                for (id, focus_zone_inquiry, usb_audio) in [
+                    (ProfileId::PtzOpticsG2, true, true),
+                    (ProfileId::PtzOpticsG3, false, false),
+                    (ProfileId::PtzOptics30X, true, true),
                 ] {
-                    assert!(facts.evidence.iter().any(|item| item.key == evidence_key));
+                    let facts = id.registry_facts();
+                    assert_eq!(facts.focus_zone_inquiry, focus_zone_inquiry, "{id:?}");
+                    assert_eq!(
+                        facts.has_typed_support(
+                            $crate::capabilities::TypedSupportSurface::FocusZoneInquiry
+                        ),
+                        focus_zone_inquiry,
+                        "{id:?} focus-zone inquiry marker"
+                    );
+                    assert_eq!(facts.usb_audio, usb_audio, "{id:?}");
+                    assert_eq!(
+                        facts.has_typed_support($crate::capabilities::TypedSupportSurface::UsbAudio),
+                        usb_audio,
+                        "{id:?} USB-audio marker"
+                    );
                 }
             }
 
@@ -1388,8 +1704,13 @@ macro_rules! __define_builtin_profiles {
                         surface,
                         $crate::capabilities::TypedSupportSurface::OnePushFocus
                             | $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
-                            | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
                             | $crate::capabilities::TypedSupportSurface::MotionSync
+                            | $crate::capabilities::TypedSupportSurface::IrisControlInquiry
+                            | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
+                            | $crate::capabilities::TypedSupportSurface::ImageFreeze
+                            | $crate::capabilities::TypedSupportSurface::DefogLevel
+                            | $crate::capabilities::TypedSupportSurface::TallyBrightness
+                            | $crate::capabilities::TypedSupportSurface::PtzOpticsTally
                     ) {
                         assert!(
                             profiles.is_empty(),
@@ -1443,6 +1764,41 @@ macro_rules! __define_builtin_profiles {
                     "Direct menu controls",
                     $crate::capabilities::TypedSupportSurface::DirectMenu,
                 );
+                assert_row(
+                    readme,
+                    "PTZOptics anti-flicker control and inquiry",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics settings-save command",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics preset-recall speed control",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed,
+                );
+                assert_row(
+                    readme,
+                    "Sony spotlight controls",
+                    $crate::capabilities::TypedSupportSurface::SonySpotlight,
+                );
+                assert_row(
+                    readme,
+                    "Sony automatic slow-shutter controls",
+                    $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics multicast-streaming controls",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming,
+                );
+                assert_row(
+                    readme,
+                    "PTZOptics NDI-quality control",
+                    $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality,
+                );
                 assert_literal_row(
                     readme,
                     "Motion Sync controls and inquiries",
@@ -1469,8 +1825,18 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Iris control, iris-priority mode, and iris inquiry",
+                    "Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry",
                     $crate::capabilities::TypedSupportSurface::IrisControl,
+                );
+                assert_literal_row(
+                    readme,
+                    "Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`)",
+                    "No built-in profile currently marks this typed capability",
+                );
+                assert_row(
+                    readme,
+                    "Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`)",
+                    $crate::capabilities::TypedSupportSurface::ExposureMode,
                 );
                 assert_literal_row(
                     readme,
@@ -1494,8 +1860,13 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Focus zone",
+                    "Focus zone control",
                     $crate::capabilities::TypedSupportSurface::FocusZone,
+                );
+                assert_row(
+                    readme,
+                    "Focus zone inquiry",
+                    $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
                 );
                 assert_literal_row(
                     readme,
@@ -1607,8 +1978,8 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "Aggregate noise-reduction inquiry",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction,
+                    "2D mode and 2D/3D noise-reduction level inquiries",
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
                 );
                 assert_eq!(
                     registry_profile_type_names_for(
@@ -1620,13 +1991,62 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert_row(
                     readme,
-                    "2D/3D noise reduction",
-                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                    "2D mode and 2D/3D noise-reduction level controls",
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                );
+                assert_eq!(
+                    registry_profile_type_names_for(
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl
+                    ),
+                    registry_profile_type_names_for(
+                        $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl
+                    )
                 );
                 assert_row(
                     readme,
                     "Picture effects",
                     $crate::capabilities::TypedSupportSurface::PictureEffect,
+                );
+                assert_row(
+                    readme,
+                    "USB audio control and inquiry",
+                    $crate::capabilities::TypedSupportSurface::UsbAudio,
+                );
+            }
+
+            #[test]
+            fn camera_profile_support_vocabulary_table_is_generated_from_the_registry() {
+                const BEGIN: &str = "<!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->";
+                const END: &str = "<!-- END GENERATED TYPED SUPPORT VOCABULARY -->";
+
+                let guide = include_str!("../../docs/camera_profile_support.md");
+                let mut expected = String::from(BEGIN);
+                expected.push_str(
+                    "\n| Area | Marker | Typed surface |\n| ---- | ------ | ------------- |",
+                );
+                for surface in $crate::capabilities::TypedSupportSurface::ALL {
+                    expected.push_str(&format!(
+                        "\n| {} | `{}` | {} |",
+                        surface.documentation_area(),
+                        surface.marker_trait_name(),
+                        surface.documentation_api(),
+                    ));
+                }
+                expected.push('\n');
+                expected.push_str(END);
+
+                let start = guide
+                    .find(BEGIN)
+                    .expect("typed-support vocabulary table start marker");
+                let relative_end = guide[start..]
+                    .find(END)
+                    .expect("typed-support vocabulary table end marker");
+                let end = start + relative_end + END.len();
+                let actual = guide[start..end].replace("\r\n", "\n");
+                assert_eq!(
+                    actual,
+                    expected,
+                    "regenerate the typed-support contributor table from the declarative registry"
                 );
             }
 
@@ -1729,18 +2149,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics G2",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
                         supports_command_cancel: false,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -1748,6 +2188,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -1763,6 +2204,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: true,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -1786,10 +2228,11 @@ macro_rules! define_builtin_profiles {
                         color_temp: true,
                         color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
-                        red_gain_range: None,
-                        blue_gain_range: None,
+                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
+                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -1830,13 +2273,22 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: true },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
                         DirectZoom,
                         IrisControl,
                         FocusZone,
+                        FocusZoneInquiry,
+                        UsbAudio,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -1853,14 +2305,19 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
-                        ("command_cancel", "Tested G2 hardware rejects the standard VISCA socket-cancel command; use an explicit STOP command for bounded motion control."),
-                        ("digital_zoom", "Hardware rejects VISCA digital zoom control on tested G2 firmware."),
+                        ("command_cancel", "No model- and firmware-identified source-backed evidence establishes standard VISCA socket-cancel support for G2; keep it unavailable pending documented validation."),
+                        ("digital_zoom", "No model- and firmware-identified source-backed evidence establishes VISCA digital-zoom control for G2; keep it unavailable pending documented validation."),
+                        ("iris", "R1 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) document G2 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
+                        ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the G2 family."),
+                        ("usb_audio", "The PTZOptics Gen-2 UAC table documents the 81 2A 02 A0 04 USB-audio command and matching inquiry for G2 models."),
+                        ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
                     ],
                 }
 
@@ -1882,18 +2339,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics G3",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -1901,6 +2378,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -1916,6 +2394,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -1939,10 +2418,11 @@ macro_rules! define_builtin_profiles {
                         color_temp: true,
                         color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
-                        red_gain_range: None,
-                        blue_gain_range: None,
+                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
+                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -1983,7 +2463,14 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: false },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
@@ -2006,25 +2493,32 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
+                        ("iris", "R10 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) independently document G3 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
+                        ("vendor_controls", "The PTZOptics Move 4K G3 command manual (R10 in docs/visca_reference.md) documents the anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained for G3."),
+                        ("focus_zone_inquiry", "The G3 command list establishes focus-zone selection, but its query table does not establish the matching 81 09 04 AA response; keep the inquiry untyped."),
+                        ("usb_audio", "The UAC command/query table is source-backed for the Gen-2 entries, not G3; keep USB audio conservative pending a G3-specific source."),
+                        ("picture_effect", "PTZOptics' official Developer Portal identifies its current VISCA list for G2 and G3 and documents the 04 63 picture-effect command and inquiry there."),
+                        ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
                     ],
                 }
 
                 profile PtzOptics30X {
-                    doc: "PtzOptics 30X camera profile.",
+                    doc: "PtzOptics legacy PT30X SDI/NDI G2 raw-VISCA camera profile.",
                     id: PtzOptics30X,
-                    id_doc: "PtzOptics 30X cameras",
+                    id_doc: "PTZOptics legacy PT30X SDI/NDI G2 (Gen-2 raw-VISCA) camera",
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "ptzoptics-30x"))]],
                     group: PtzOpticsG2,
                     vendor: "PtzOptics",
-                    description: "High-end 30x optical zoom PTZ camera with extended optical range",
+                    description: "Legacy PT30X SDI/NDI G2 raw-VISCA profile with 30x optical zoom",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -2035,18 +2529,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "PtzOptics 30X",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: true,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 150,
                         min_command_spacing_ms: 100,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2448, 2448),
-                        tilt_range: range!(i16, -432, 1296),
+                        pan_range: range!(i32, -2448, 2448),
+                        tilt_range: range!(i32, -432, 1296),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2054,6 +2568,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 14.4,
                         tilt_degrees_to_units: 14.4,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2069,6 +2584,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: true,
+                        focus_zone_inquiry: true,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2092,10 +2608,11 @@ macro_rules! define_builtin_profiles {
                         color_temp: true,
                         color_temp_range: Some(range!(u16, 2500, 8000)),
                         rgb_gain: true,
-                        red_gain_range: None,
-                        blue_gain_range: None,
+                        red_gain_range: Some(range!(u8, 0x00, 0xFF)),
+                        blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 15)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2136,13 +2653,22 @@ macro_rules! define_builtin_profiles {
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
+                    usb_audio: { supported: true },
                     typed_support: [
+                        PtzOpticsAntiFlicker,
+                        PtzOpticsSettingsSave,
+                        PtzOpticsPresetRecallSpeed,
+                        PtzOpticsMulticastStreaming,
+                        PtzOpticsNdiQuality,
+                        ExposureMode,
                         ExposureCompensation,
                         BrightnessControl,
                         FocusLock,
                         DirectZoom,
                         IrisControl,
                         FocusZone,
+                        FocusZoneInquiry,
+                        UsbAudio,
                         BacklightCompensation,
                         WideDynamicRange,
                         ColorTemperature,
@@ -2159,14 +2685,19 @@ macro_rules! define_builtin_profiles {
                         HueControl,
                         LuminanceControl,
                         GammaControl,
-                        NoiseReduction,
                         NoiseReduction2D,
                         NoiseReduction3D,
+                        NoiseReduction2DControl,
+                        NoiseReduction3DControl,
                         PictureEffect,
                     ],
                     evidence: [
                         ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
+                        ("iris", "The shared PTZOptics Gen-2 source documents iris priority, relative controls, direct `04 4B`, and matching `09 04 4B` position inquiry for the raw 30X profile. It does not establish a model-specific `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
+                        ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the raw 30X model."),
+                        ("usb_audio", "The PTZOptics Gen-2 UAC table documents the USB-audio command and matching inquiry for the raw 30X model."),
+                        ("noise_reduction", "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."),
                     ],
                 }
 
@@ -2192,18 +2723,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony FR7",
                         default_camera_id: 1,
-                        ack_timeout_ms: 200,
-                        completion_timeout_ms: 8000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 8000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 8000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 240,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: false,
+                            nd_filter: true,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2700, 2700),
-                        tilt_range: range!(i16, -300, 1200),
+                        pan_range: range!(i32, -2700, 2700),
+                        tilt_range: range!(i32, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2211,6 +2762,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 15.88,
                         tilt_degrees_to_units: 15.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2226,6 +2778,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2253,6 +2806,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: Some(range!(u8, 0x00, 0xFF)),
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 14)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2294,6 +2848,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable, steps: None },
                     variable_speed: { supported: true },
                     typed_support: [
+                        SonySpotlight,
                         ExposureCompensation,
                         PushAutoFocus,
                         DirectZoom,
@@ -2319,14 +2874,17 @@ macro_rules! define_builtin_profiles {
                         VariableSpeed,
                     ],
                     evidence: [
+                        ("sony_spotlight", "The FR7 command list (R7 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
-                        ("iris", "Sony's FR7 command list documents vendor-relative iris Up/Down under 7E 04 4B and Auto Iris under 05 34, but not the shared 04 39 exposure-mode family, standard absolute iris-direct command, or 09 04 4B position inquiry."),
-                        ("brightness", "Sony's FR7 command list does not establish the shared exposure-brightness control or inquiry; keep the range and typed marker absent."),
-                        ("focus_zone", "Sony's FR7 command list does not establish focus-zone selection or inquiry; keep the shared typed surface absent."),
-                        ("af_sensitivity", "Sony's FR7 command list documents Push AF/MF under 7E 04 58, but not the shared 04 58 autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),
-                        ("noise_reduction", "Sony's FR7 command list does not establish the shared 04 50/53/54 noise-reduction family; keep the shared typed surfaces absent."),
-                        ("picture_effect", "Sony's FR7 command list does not establish the shared picture-effect control or inquiry; keep the typed surface absent."),
+                        ("iris", "The FR7 command list documents vendor-relative iris Up/Down commands under 7E 04 4B and an Auto Iris inquiry under 05 34, but not the shared 04 39 AE-mode commands/inquiry, standard absolute iris-direct command, or 09 04 4B position inquiry; keep those shared typed surfaces absent until the distinct protocol families have their own models."),
+                        ("nd_filter", "The FR7 registry is the only built-in entry with variable-ND metadata, typed ND controls, and the exact 0x64 position inquiry documented in the Sony command table."),
+                        ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
+                        ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
+                        ("af_sensitivity", "The FR7 command list R7 documents Push AF/MF under `7E 04 58`, but not the shared `04 58` autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),
+                        ("variable_speed", "The FR7 command list R7 documents the `06 45` normal/extended pan/tilt speed-step range. Its separate `7E 04 1B` family selects preset-speed behavior and is not used by this typed surface."),
+                        ("noise_reduction", "The FR7 command list R7 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family; keep the shared metadata and typed surfaces absent."),
+                        ("picture_effect", "The FR7 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
 
@@ -2352,18 +2910,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony BRC-H900",
                         default_camera_id: 1,
-                        ack_timeout_ms: 150,
-                        completion_timeout_ms: 6000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 6000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 6000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Full,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 35,
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2700, 2700),
-                        tilt_range: range!(i16, -300, 1200),
+                        pan_range: range!(i32, -2700, 2700),
+                        tilt_range: range!(i32, -300, 1200),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2371,6 +2949,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 15.88,
                         tilt_degrees_to_units: 15.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2386,16 +2965,17 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
                     },
                     exposure: {
-                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
+                        modes: profile_constants::BRC_H900_EXPOSURE_MODES,
                         iris_range: Some(range!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::GENERIC_VISCA_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 15),
-                        brightness_range: Some(range!(u16, 0, 17)),
+                        brightness_range: None,
                         backlight_comp: true,
                         exposure_comp: false,
                         exposure_comp_range: range!(i8, -7, 7),
@@ -2413,6 +2993,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: Some(range!(u8, 0, 14)),
                         sharpness_range: Some(range!(u8, 0, 14)),
                         saturation_range: Some(range!(u8, 0, 14)),
@@ -2420,11 +3001,11 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: false,
                         hue_range: None,
-                        noise_reduction: true,
-                        nr_2d: true,
-                        nr_3d: true,
+                        noise_reduction: false,
+                        nr_2d: false,
+                        nr_3d: false,
                         luminance: false,
-                        picture_effect: true,
+                        picture_effect: false,
                         luminance_range: None,
                         combined_flip: false,
                         save_after_flip: false,
@@ -2449,12 +3030,13 @@ macro_rules! define_builtin_profiles {
                         home_on_power_up: false,
                     },
                     menu: { direct: false },
-                    tally: { supported: true },
+                    tally: { supported: false },
                     motion_sync: { supported: false, max_speed: 24 },
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
-                        BrightnessControl,
+                        SonySpotlight,
+                        ExposureMode,
                         DirectZoom,
                         DigitalZoomToggle,
                         DigitalZoomRange,
@@ -2471,14 +3053,15 @@ macro_rules! define_builtin_profiles {
                         SharpnessControl,
                         SaturationControl,
                         GammaControl,
-                        NoiseReduction,
-                        NoiseReduction2D,
-                        NoiseReduction3D,
-                        PictureEffect,
-                        Tally,
                     ],
                     evidence: [
-                        ("tally", "Sony professional profile metadata and typed controls expose tally for BRC-H900."),
+                        ("sony_spotlight", "The BRC-H900 command list (R11 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
+                        ("tally", "The BRC-H900 source-backed command list does not establish the FR7 red/green tally family; typed tally remains unavailable."),
+                        ("exposure_mode", "The BRC-H900 command list R11 lines 706-717 and 1003 documents the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri commands and `09 04 39` inquiry. Bright mode is not listed and is therefore absent from this profile's inventory."),
+                        ("iris", "The BRC-H900 command list R11 lines 706-717 and 1012 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
+                        ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
+                        ("noise_reduction", "The BRC-H900 model command list R11 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family, so both discovery metadata and typed surfaces remain unavailable."),
+                        ("picture_effect", "The BRC-H900 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
 
@@ -2500,18 +3083,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony EVI-H100",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1440, 1440),
-                        tilt_range: range!(i16, -480, 480),
+                        pan_range: range!(i32, -1440, 1440),
+                        tilt_range: range!(i32, -480, 480),
                         max_pan_speed: 18,
                         max_tilt_speed: 18,
                         simultaneous: true,
@@ -2519,6 +3122,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 16.0,
                         tilt_degrees_to_units: 16.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2534,6 +3138,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2561,6 +3166,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -2568,7 +3174,7 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: false,
                         hue_range: None,
-                        noise_reduction: true,
+                        noise_reduction: false,
                         nr_2d: false,
                         nr_3d: false,
                         luminance: false,
@@ -2602,6 +3208,8 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonyAutoSlowShutter,
+                        ExposureMode,
                         DirectZoom,
                         IrisControl,
                         FocusNearLimitInquiry,
@@ -2612,9 +3220,13 @@ macro_rules! define_builtin_profiles {
                         ImageFlip,
                         ImageMirror,
                         GammaControl,
-                        NoiseReduction,
                     ],
-                    evidence: [],
+                    evidence: [
+                        ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
+                        ("exposure_mode", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for the standard `04 39` family pending a direct line-item audit of the model authority R8; do not remove it without a contradictory model-specific citation."),
+                        ("iris", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for standard iris reset/up/down, direct `04 4B`, and the position inquiry pending a direct R8 line-item audit. The distinct `09 04 2B` status inquiry remains unavailable."),
+                        ("noise_reduction", "The EVI-H100 sources do not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family, so both discovery metadata and typed surfaces remain unavailable."),
+                    ],
                 }
 
                 profile SonyBRC300 {
@@ -2624,7 +3236,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "sony-brc300"))]],
                     group: GenericVisca,
                     vendor: "Sony",
-                    description: "Legacy PTZ camera with unsigned coordinate system",
+                    description: "Legacy PTZ camera with signed-centered 20-bit pan and 16-bit tilt coordinates",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -2635,25 +3247,57 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Sony BRC-300",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1170, 1170),
-                        tilt_range: range!(i16, -390, 390),
-                        max_pan_speed: 18,
-                        max_tilt_speed: 17,
+                        // Sony BRC-300 technical manual, pp. 12 and 22:
+                        // signed 20-bit pan (`08A58` left / `F75A8` right)
+                        // and signed 16-bit tilt (`493D` up / `E796` down).
+                        // The library's positive-pan/right and negative-tilt/up
+                        // degree convention is therefore opposite both raw axes.
+                        pan_range: range!(i32, -0x08A58, 0x08A58),
+                        tilt_range: range!(i32, -0x186A, 0x493D),
+                        max_pan_speed: 0x18,
+                        // BRC-300 position frames have one speed byte. The
+                        // profile-aware coarse-speed lowering mirrors it into
+                        // both public wrappers; explicit paired speeds must
+                        // agree and use this same documented maximum.
+                        max_tilt_speed: 0x18,
                         simultaneous: true,
                         preset_recovery_ms: 0,
-                        pan_degrees_to_units: 13.0,
-                        tilt_degrees_to_units: 13.0,
-                        coordinate_system: $crate::capabilities::CoordinateSystem::UnsignedCentered,
+                        // The manual approximates one degree as `0xD0`; the
+                        // negative sign is the documented raw-axis polarity.
+                        pan_degrees_to_units: -208.0,
+                        tilt_degrees_to_units: -208.0,
+                        coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyBrc300,
                     },
                     zoom: {
                         optical_max: 0x1068,
@@ -2669,6 +3313,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2696,6 +3341,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: false,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -2715,8 +3361,13 @@ macro_rules! define_builtin_profiles {
                         gamma_range: None,
                     },
                     presets: {
-                        max: 16,
-                        speed_range: range!(u8, 1, 17),
+                        // Sony BRC-300 technical manual, pp. 11–14:
+                        // CAM_Memory accepts p = 0..=5, and Cmd_PT_M_Speed
+                        // documents q = 1..=24. These discovery facts do not
+                        // establish compatibility with the PTZOptics typed
+                        // preset-recall-speed command family.
+                        max: 5,
+                        speed_range: range!(u8, 1, 24),
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
@@ -2737,12 +3388,18 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        SonyAutoSlowShutter,
+                        ExposureMode,
                         DirectZoom,
                         IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                     ],
-                    evidence: [],
+                    evidence: [
+                        ("sony_auto_slow_shutter", "The BRC-300 technical manual (R12 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
+                        ("exposure_mode", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri/Bright commands and `09 04 39` inquiry."),
+                        ("iris", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
+                    ],
                 }
 
                 profile NearusBRC300 {
@@ -2752,7 +3409,7 @@ macro_rules! define_builtin_profiles {
                     id_attrs: [#[cfg_attr(feature = "serde", serde(rename = "nearus-brc300"))]],
                     group: GenericVisca,
                     vendor: "Nearus",
-                    description: "Rebranded Sony BRC-300 with image processing features",
+                    description: "Nearus PTZ camera profile with conservatively modeled standard VISCA pan/tilt framing",
                     envelope: $crate::transport::RawVisca,
                     envelope_kind: RawVisca,
                     transport: {
@@ -2763,18 +3420,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Nearus BRC-300",
                         default_camera_id: 1,
-                        ack_timeout_ms: 100,
-                        completion_timeout_ms: 5000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 5000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 5000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -1170, 1170),
-                        tilt_range: range!(i16, -390, 390),
+                        pan_range: range!(i32, -1170, 1170),
+                        tilt_range: range!(i32, -390, 390),
                         max_pan_speed: 18,
                         max_tilt_speed: 17,
                         simultaneous: true,
@@ -2782,6 +3459,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 13.0,
                         tilt_degrees_to_units: 13.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::UnsignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0x1068,
@@ -2797,6 +3475,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2824,9 +3503,10 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
-                        saturation_range: Some(range!(u8, 0, 15)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: false,
                         mirror: false,
                         hue: false,
@@ -2865,13 +3545,20 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        ExposureMode,
                         DirectZoom,
                         IrisControl,
                         FocusNearLimitInquiry,
                         BacklightCompensation,
                         SaturationControl,
                     ],
-                    evidence: [],
+                    evidence: [
+                        ("pan_tilt_wire", "No independent Nearus model source establishes Sony BRC-300's one-speed, five-pan-nibble position frame. The profile therefore exposes conservative standard 4+4 VISCA pan/tilt framing pending model-specific validation."),
+                        ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
+                        ("exposure_mode", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard shared `04 39` family documented by Sony R12 while model-specific vendor exposure extensions remain withheld."),
+                        ("iris", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard iris `04 0B`/`04 4B` controls and `09 04 4B` position inquiry documented by Sony R12. The distinct status inquiry remains unavailable."),
+                        ("saturation", "The standard saturation wire table records the documented 0x00..=0x0E range; the BRC-300 compatibility surface does not advertise the syntactically unused 0x0F value."),
+                    ],
                 }
 
                 profile GenericVisca {
@@ -2892,18 +3579,38 @@ macro_rules! define_builtin_profiles {
                     metadata: {
                         model_name: "Generic VISCA Camera",
                         default_camera_id: 1,
-                        ack_timeout_ms: 200,
-                        completion_timeout_ms: 10000,
+                        ack_timeout_ms: 500,
+                        command_timeouts_ms: {
+                            quick: 10000,
+                            movement: 30000,
+                            preset: 60000,
+                            long_running: 300000,
+                            network: 10000,
+                        },
+                        inquiry_timeout_ms: 1000,
+                        cancellation_timeout_ms: 1000,
+                        ambiguity_timeout_ms: 1000,
                         busy_timeout_ms: 0,
                         inquiry_support: $crate::capabilities::InquirySupport::Partial,
                         supports_operation_complete: false,
                         supports_command_cancel: true,
+                        maximum_command_sockets: 2,
+                        position_inquiries: {
+                            pan_tilt: true,
+                            zoom: true,
+                            focus: true,
+                            iris: true,
+                            nd_filter: false,
+                        },
+                        preset_recall_axes: $crate::AffectedAxes::PAN_TILT
+                            .union($crate::AffectedAxes::ZOOM)
+                            .union($crate::AffectedAxes::FOCUS),
                         min_inquiry_spacing_ms: 0,
                         min_command_spacing_ms: 0,
                     },
                     pan_tilt: {
-                        pan_range: range!(i16, -2880, 2880),
-                        tilt_range: range!(i16, -1440, 1440),
+                        pan_range: range!(i32, -2880, 2880),
+                        tilt_range: range!(i32, -1440, 1440),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -2911,6 +3618,7 @@ macro_rules! define_builtin_profiles {
                         pan_degrees_to_units: 16.0,
                         tilt_degrees_to_units: 16.0,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
                     },
                     zoom: {
                         optical_max: 0xFFFF,
@@ -2926,6 +3634,7 @@ macro_rules! define_builtin_profiles {
                         auto_focus: true,
                         one_push: false,
                         focus_zone: false,
+                        focus_zone_inquiry: false,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2953,6 +3662,7 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
+                        base_support: false,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -2994,12 +3704,15 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        ExposureMode,
                         IrisControl,
                         FocusNearLimitInquiry,
                         OnePushWhiteBalance,
                     ],
                     evidence: [
                         ("direct_zoom", "Generic profile keeps absolute zoom positioning unavailable despite baseline zoom movement."),
+                        ("exposure_mode", "Generic VISCA deliberately assumes the standard Sony `04 39` exposure-mode family documented by R11/R12, matching its 1.2 compatibility contract."),
+                        ("iris", "Generic VISCA deliberately assumes the standard Sony `04 0B`/`04 4B` iris controls and `09 04 4B` position inquiry documented by R11/R12, matching its 1.2 compatibility contract."),
                     ],
                 }
             }

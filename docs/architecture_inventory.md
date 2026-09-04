@@ -1,0 +1,162 @@
+# 2.0 preservation inventory
+
+This is the release-candidate preservation baseline. It records behavior that
+the 2.0 architecture must retain. The supported-surface inventory test checks
+the closed lists below against the current registry and source; an intentional
+change must update the implementation, this inventory, and that test together.
+
+Historical 1.x behavior decisions and the retained direct v2 regressions and
+goldens are documented in
+[`behavioral_parity_1x.md`](behavioral_parity_1x.md).
+
+## Profiles, envelopes, and transports
+
+The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`,
+`SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and
+`GenericVisca`. The first three and last four support raw VISCA over TCP, UDP,
+and serial, with default network ports 5678 and 1259. `SonyFR7` and
+`SonyBRCH900` support Sony-encapsulated VISCA over UDP on port 52381. The
+profile-specific capability and transport matrix remains checked in
+`camera::profile_registry` against `camera_profile_support.md`.
+
+The transport contract includes TCP, UDP, blocking serial, Tokio serial,
+`RawVisca`, `SonyEncapsulated`, `BlockingTransport`, `AsyncTransport`,
+`BlockingTransportHandle`, and `TransportHandle`. Custom transports retain
+send semantics (`Stream` versus `Datagram`), transport configuration, and the
+same framing/correlation behavior as built-in transports.
+
+## Capability gates
+
+Every profile retains the baseline profile facets `ProfileMetadata`,
+`PanTilt`, `Zoom`, `Focus`, `Exposure`, `WhiteBalance`, `ImageProcessing`,
+`Presets`, `Power`, `MenuCapability`, `Tally`, `MotionSyncMetadata`,
+`NdFilterMetadata`, `VariableSpeedMetadata`, and `ProfileTypedSupport`.
+Standard transport gates are `SupportsTcp`, `SupportsUdp`, and
+`SupportsSerial`.
+
+The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
+`DigitalZoomRange`, `IrisControl`, `OnePushFocus`, `PtzOpticsSnapFocus`,
+`FocusLock`, `PushAutoFocus`, `FocusZone`, `AutoFocusSensitivity`,
+`FocusNearLimitInquiry`, `BacklightCompensation`, `WideDynamicRange`,
+`ExposureCompensation`, `BrightnessControl`, `OnePushWhiteBalance`,
+`AutoTrackingWhiteBalance`, `AutoWhiteBalanceSensitivity`, `ColorTemperature`,
+`RgbGain`, `RgbTuning`, `ImageFlip`, `ImageMirror`, `CombinedImageFlip`,
+`ContrastControl`, `SharpnessControl`, `SaturationControl`, `HueControl`,
+`LuminanceControl`, `GammaControl`, `NoiseReduction2D`,
+`NoiseReduction3D`, `PictureEffect`, `Tally`, `DirectMenu`, `NdFilter`,
+`VariableSpeed`, `MotionSync`, `FocusZoneInquiry`, `UsbAudio`,
+`PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
+`PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
+`PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
+`IrisControlInquiry`, `NoiseReduction2DControl`, and
+`NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`, and
+`PtzOpticsTally`. The generated profile registry remains the single source for
+marker implementations and runtime discovery facts.
+
+## Static nouns and controls
+
+The noun inventory is `PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
+`PanTiltAccessor`, `FocusAccessor`, `ExposureAccessor`,
+`WhiteBalanceAccessor`, `ImageAccessor`, `PresetsAccessor`, `TallyAccessor`,
+`NdFilterAccessor`, `MotionSyncAccessor`, `MenuAccessor`, and
+`AdvancedAccessor`, plus the `MotionAccessor`. Blocking and async use the same
+noun names with mode-native return types. The authoritative method inventory is
+the closed semantic ledger and the generated static noun surface; profile-gated
+methods require their corresponding `Has*` marker.
+In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
+`HasExposureMode` rather than inheriting broad `HasExposure` permission.
+
+## Dynamic controls
+
+The native blocking runtime-profile surface is `BlockingDynSessionCamera`.
+It erases the compile-time profile marker while retaining typed request values,
+synchronous results, blocking lifecycle handles, motion observation, state
+cache, and submission-class controls. The `dyn-api` feature does not imply
+`async`, so this projection adds no futures, executor, or async-runtime
+dependency.
+
+The async dynamic surface is `DynSessionCamera` plus the object-safe
+`DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
+and `DynMotion`. It also exposes `DynTargetedOperation`,
+`DynAppliedOperation`, and `DynCancellation`. Its checked inventory covers
+146 target-facing command methods and 62 typed inquiry methods, with the same
+semantic classes as the static surface. Dynamic projection erases profile and
+request types only; it does not introduce another runtime, owner, cancellation,
+deadline, outcome, or settling policy. Because it carries no compile-time
+marker bounds, it reproduces the static surface's capability gates at runtime
+through `validate_for_profile`, admitting exactly the operations the static
+`<noun>()` accessor could name — including the base-domain inquiries, which are
+gated on the same base marker as their noun accessor. A `noun_parity` test pins
+the erased and static command/inquiry gate sets equal so the two cannot drift.
+
+## Connection paths
+
+The supported paths are:
+
+- `Connect` convenience construction for blocking TCP/UDP/serial and async
+  TCP/UDP/Tokio-serial. TCP/UDP return `CameraSession<P>`; serial returns the
+  multi-target `Session`. `Connect::open(TransportOptions)` is the
+  runtime-selected network form.
+- `CameraConfig` as the sole configurable standard-transport form, with
+  runtime-selected Tokio or smol async execution.
+- `blocking::Session::open` or async `Session::open` construction from a
+  caller-owned transport and shared `SessionConfig`.
+- `Session` camera views and the explicit `raw` request escape hatches.
+
+Profile/transport incompatibility must still fail before protocol startup.
+Blocking, runtime-neutral async, Tokio, smol, runtime coexistence, and the
+documented serial feature combinations remain build-matrix requirements.
+
+## Ecosystem, derives, testing, and extensions
+
+The ecosystem features are `blocking`, `async`, `runtime-tokio`, `runtime-smol`,
+`transport-serial`, `transport-serial-tokio`, `serde`, `schemars`, `ts-rs`,
+`dyn-api`, and `test-utils`. Serialization, JSON Schema, and TypeScript exports
+remain supported for the documented public value/configuration types. Internal
+implementation-only feature flags are omitted from this public inventory.
+
+The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
+`ViscaValue`. Stable test utilities are `Step`, `helpers`,
+`ScriptedBlockingTransport`, `ScriptedTransport`, `DeterministicExecutor`,
+`DeterministicClock`, `DeterministicExecutorExt`, `TestExecutorSelector`,
+`TestExecutorType`, `TestExecutors`, and the Tokio `ViscaCameraSimulator`.
+
+The preserved extension semantics are custom command encoding, typed and raw
+inquiry decoding, caller-owned blocking/async transports, raw/protocol command
+and inquiry escape hatches, custom profiles with typed capability gates, and
+runtime-neutral executor integration. The final 2.0 generic request surface is
+on the profile-bound `Camera` view (async `Camera<P>` or blocking
+`Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
+`submit` for typed operations. `with_submission_class` derives one camera view
+whose complete request/noun surface uses the selected ordinary-work
+`SubmissionClass`. A `CameraSession<P>` is the
+single-camera owner wrapper; its `camera()` method hands out that actual
+profile-bound `Camera` surface, while its submission-class helpers forward the
+default to that camera rather than defining a separate request API. Callers
+cannot manufacture or demote the intrinsic urgent safety class —
+`SubmissionClass` has no `Urgent` variant and the raw escape hatch rejects
+`ControlClass::Urgent` at construction — or inject lifecycle IDs, target,
+completion class, retry class, or settlement metadata at submission time.
+
+## Allocation baselines
+
+Allocation behavior is characterized at the narrowest stable boundary:
+
+- `issue_548_allocation_baselines` checks zero-allocation built-in
+  `write_into` encoding and warmed raw/Sony framing-buffer reuse.
+- `command::encode` keeps built-in encoded bytes inline for the current hot
+  path; the runtime engine unit test
+  `inert_wire_is_inline_and_reused_across_retry_without_reallocation`
+  proves retries reuse the exact encoded `Arc` rather than rebuilding wire
+  data, and the owner unit test
+  `warmed_raw_and_sony_retries_reuse_owner_buffers` proves the framing buffers
+  are reused with it.
+- `tests/issue_561_blocking_queue.rs` and the bounded owner-submission and
+  completion-subscriber unit tests in `runtime::owner` establish the current
+  lifecycle/storage bounds.
+- `dyn_api_integration_test::tokio_dynamic_future_construction_matches_one_explicit_static_box`
+  establishes the dyn/static future-construction baseline.
+- `issue_517_inquiry_encoding` retains the downstream derive encoding baseline.
+
+These are characterization floors, not permission for 2.0 to add per-retry,
+per-frame, per-handle, or unbounded lifecycle allocation.

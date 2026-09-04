@@ -5,15 +5,15 @@
 //! scalability while exercising every timing/task primitive that a
 //! caller-provided grafton-visca executor must implement.
 //!
-//! A real camera integration would pass `CustomExecutor` to
-//! `CameraBuilder::with_executor` together with a caller-owned `AsyncTransport`,
+//! A real camera integration would pass `CustomExecutor` to the async
+//! `Session::open` constructor together with a caller-owned async transport,
 //! then drive application futures with `CustomExecutor::block_on`. Production
 //! integrations should adapt their existing runtime instead of creating a thread
 //! for every spawned task.
 //!
 //! Run with:
 //! ```sh
-//! cargo run --example runtime_agnostic --features mode-async
+//! cargo run --example runtime_agnostic --features async
 //! ```
 
 use std::{future::Future, pin::Pin, time::Duration};

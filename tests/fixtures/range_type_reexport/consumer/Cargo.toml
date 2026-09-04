@@ -1,0 +1,12 @@
+[package]
+name = "range-macro-consumer"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+range-helper-derives = ["range-macro-provider/range-helper-derives"]
+
+[dependencies]
+range-macro-provider = { path = "../provider" }

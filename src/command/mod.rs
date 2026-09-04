@@ -23,7 +23,14 @@ pub(crate) mod power;
 pub(crate) mod preset;
 pub(crate) mod resolution;
 pub(crate) mod response;
+/// Authoritative semantic classification ledger for built-in commands.
+pub(crate) mod semantics;
 pub(crate) mod streaming;
+/// Crate-private noun/method mapping for the final static camera surface.
+///
+/// The mapping is an in-crate audit authority; production request preparation
+/// consumes typed request implementations directly.
+pub(crate) mod surface;
 pub(crate) mod system;
 pub(crate) mod tally;
 pub(crate) mod typed;
@@ -35,14 +42,24 @@ pub(crate) mod zoom;
 // from this module root rather than through implementation submodules.
 pub(crate) mod bytes;
 
-// Unified ViscaCommand implementation internals.
+// Wire encoding implementation. Semantic request policy lives in `Request`.
 pub(crate) mod encode;
+
+#[cfg(test)]
+pub(crate) fn test_wire_bytes<C: encode::WireEncode>(
+    command: &C,
+    camera_id: crate::CameraId,
+) -> Result<Vec<u8>, crate::Error> {
+    let mut buffer = [0u8; 256];
+    let len = command.write_into(camera_id, &mut buffer)?;
+    Ok(buffer[..len].to_vec())
+}
 
 // Re-export command types
 pub use self::{
-    bytes::{FixedCommandBytes, VISCA_TERMINATOR},
+    bytes::VISCA_TERMINATOR,
     color::*,
-    encode::{CommandBehavior, CommandKind, InquiryResponseSpec, ViscaCommand},
+    encode::CommandKind,
     exposure::*,
     flip::{Flip, ImageFreeze},
     focus::*,
@@ -57,8 +74,11 @@ pub use self::{
     pan_tilt::*,
     power::*,
     preset::*,
-    resolution::{NdFilterPosition, PictureEffectMode, ResolutionMode},
-    response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload, Response},
+    resolution::{NdFilterPosition, PictureEffectMode},
+    response::{
+        parse_inquiry_payload, BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload,
+        Response,
+    },
     streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
     system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
     tally::{
@@ -75,11 +95,11 @@ pub use self::{
 mod tests {
     use crate::camera_id::CameraId;
     use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::encode::ViscaCommand;
+    use crate::command::encode::WireEncode;
 
     /// Helper to encode a command and verify it has a terminator
     #[allow(clippy::expect_used, clippy::unwrap_used)]
-    fn assert_command_has_terminator<C: ViscaCommand>(command: C, name: &str) {
+    fn assert_command_has_terminator<C: WireEncode>(command: C, name: &str) {
         let mut buffer = [0u8; 256];
         let result = command.write_into(CameraId::CAMERA_1, &mut buffer);
 
@@ -184,26 +204,28 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::expect_used)]
     fn test_preset_commands_have_terminator() {
         use crate::command::preset::PresetCommand;
         use crate::command::preset::PresetNumber;
 
-        if let Ok(preset) = PresetNumber::new(1) {
-            assert_command_has_terminator(
-                PresetCommand {
-                    action: crate::command::preset::PresetAction::Recall,
-                    preset_number: preset,
-                },
-                "Preset::Recall(1)",
-            );
-            assert_command_has_terminator(
-                PresetCommand {
-                    action: crate::command::preset::PresetAction::Set,
-                    preset_number: preset,
-                },
-                "Preset::Set(1)",
-            );
-        }
+        // Not `if let Ok(..)`: a preset range that stopped admitting 1 would
+        // silently skip both assertions instead of failing.
+        let preset = PresetNumber::new(1).expect("preset 1 is inside every supported preset range");
+        assert_command_has_terminator(
+            PresetCommand {
+                action: crate::command::preset::PresetAction::Recall,
+                preset_number: preset,
+            },
+            "Preset::Recall(1)",
+        );
+        assert_command_has_terminator(
+            PresetCommand {
+                action: crate::command::preset::PresetAction::Set,
+                preset_number: preset,
+            },
+            "Preset::Set(1)",
+        );
     }
 
     #[test]
@@ -225,11 +247,15 @@ mod tests {
         );
     }
 
+    /// Only the positive half lives here: that a terminated builder yields a
+    /// terminated frame. The negative half — that the *unterminated* state has
+    /// no `as_bytes` at all — is a compile-time assertion in
+    /// `bytes::builder::tests::the_incomplete_state_has_no_inherent_as_bytes`,
+    /// because a commented-out line asserts nothing.
     #[test]
-    fn test_type_state_prevents_unterminated_commands() {
+    fn test_terminated_builder_yields_a_terminated_frame() {
         use crate::command::bytes::ConstCommandBuilder;
 
-        // Create a builder and terminate it
         let builder = ConstCommandBuilder::<8>::new()
             .push(0x81)
             .push(0x01)
@@ -238,14 +264,8 @@ mod tests {
             .push(0x02)
             .terminate();
 
-        // Verify the terminated command has the terminator
         let bytes = builder.as_bytes();
-        assert_eq!(bytes[bytes.len() - 1], VISCA_TERMINATOR);
-
-        // Verify we can't access bytes without terminating (compile-time check)
-        // The following would not compile:
-        // let unterminated = ConstCommandBuilder::<8>::new().push(0x81);
-        // let bytes = unterminated.as_bytes(); // ERROR: method not found
+        assert_eq!(bytes, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
     }
 
     #[test]
@@ -301,6 +321,120 @@ mod tests {
                 VISCA_TERMINATOR,
                 "{test_case_name} missing terminator",
                 test_case_name = test_case.name
+            );
+        }
+    }
+
+    /// Guard the wire-byte rows in `docs/visca_reference.md` against the actual
+    /// encoders.
+    ///
+    /// `docs/visca_reference.md` is cited in `README.md` as the evidence base for
+    /// built-in profile decisions, yet nothing tied its documented bytes to the
+    /// code. Issue #688 found the red/blue tuning rows and the NDI-mode row
+    /// carrying wire bytes that contradicted the encoders. Each case below asserts
+    /// both that the documented hex prefix still appears verbatim in the reference
+    /// and that the live encoder emits a frame starting with those exact bytes, so
+    /// the two cannot silently drift apart again.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn visca_reference_wire_rows_match_encoders() {
+        use crate::command::color::{
+            BlueGain, BlueTuningCommand, HueCommand, RedGain, RedTuningCommand, SaturationCommand,
+        };
+        use crate::command::streaming::{MulticastStreaming, SetNdiQuality, UsbAudio};
+        use crate::types::{
+            BlueChannel, BlueTuning, HueLevel, NdiQuality, RedChannel, RedTuning, SaturationLevel,
+        };
+
+        const REFERENCE: &str = include_str!("../../docs/visca_reference.md");
+
+        fn parse_hex(spec: &str) -> Vec<u8> {
+            spec.split_whitespace()
+                .map(|h| u8::from_str_radix(h, 16).unwrap())
+                .collect()
+        }
+
+        // (row label, documented hex prefix that must appear verbatim in the
+        //  reference, live wire frame from the encoder).
+        let cases = [
+            (
+                "red tuning direct",
+                "81 01 04 43 00 00 00",
+                super::test_wire_bytes(
+                    &RedTuningCommand::new(RedTuning::NEUTRAL),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "blue tuning direct",
+                "81 01 04 44 00 00 00",
+                super::test_wire_bytes(
+                    &BlueTuningCommand::new(BlueTuning::NEUTRAL),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "red gain direct (shares 04 43 with red tuning)",
+                "81 01 04 43 00 00",
+                super::test_wire_bytes(
+                    &RedGain::SetValue(RedChannel::new(0x00).unwrap()),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "blue gain direct (shares 04 44 with blue tuning)",
+                "81 01 04 44 00 00",
+                super::test_wire_bytes(
+                    &BlueGain::SetValue(BlueChannel::new(0x00).unwrap()),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "NDI mode",
+                "81 0B 01 01 01",
+                super::test_wire_bytes(&SetNdiQuality::new(NdiQuality::High), CameraId::CAMERA_1)
+                    .unwrap(),
+            ),
+            (
+                "multicast mode",
+                "81 0B 01 23",
+                super::test_wire_bytes(&MulticastStreaming::On, CameraId::CAMERA_1).unwrap(),
+            ),
+            (
+                "USB audio / UAC",
+                "81 2A 02 A0 04",
+                super::test_wire_bytes(&UsbAudio::On, CameraId::CAMERA_1).unwrap(),
+            ),
+            (
+                "saturation direct",
+                "81 01 04 49 00 00 00",
+                super::test_wire_bytes(
+                    &SaturationCommand::new(SaturationLevel::MIN),
+                    CameraId::CAMERA_1,
+                )
+                .unwrap(),
+            ),
+            (
+                "hue direct",
+                "81 01 04 4F 00 00 00",
+                super::test_wire_bytes(&HueCommand::new(HueLevel::MIN), CameraId::CAMERA_1)
+                    .unwrap(),
+            ),
+        ];
+
+        for (label, documented, frame) in &cases {
+            assert!(
+                REFERENCE.contains(*documented),
+                "docs/visca_reference.md is missing the documented wire bytes `{documented}` for {label}"
+            );
+            let prefix = parse_hex(documented);
+            assert!(
+                frame.starts_with(&prefix),
+                "{label}: encoder emits {frame:02X?}, which does not start with the documented `{documented}` in docs/visca_reference.md"
             );
         }
     }

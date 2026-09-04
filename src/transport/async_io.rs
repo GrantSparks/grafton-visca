@@ -5,7 +5,7 @@
 
 use std::future::Future;
 
-use crate::Error;
+use crate::{transport::ReceiveOutcome, Error};
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -48,6 +48,84 @@ pub trait AsyncDatagram: Send + Sync {
     ///
     /// Returns the number of bytes read on success.
     fn recv(&self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
+
+    /// Receive one datagram with its truncation status.
+    ///
+    /// This is the metadata-aware companion to [`AsyncDatagram::recv`]. The
+    /// default keeps existing implementations source-compatible, but treats a
+    /// buffer-filling receive as [`ReceiveOutcome::PossiblyTruncated`] rather
+    /// than guessing that it was an exact fit. Implementations backed by a
+    /// runtime or OS API that exposes truncation must override this method so
+    /// an exact-size datagram can remain valid.
+    fn recv_with_outcome<'a>(
+        &'a self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
+        async move {
+            let capacity = buf.len();
+            let bytes = self.recv(buf).await?;
+            if bytes == capacity {
+                Ok(ReceiveOutcome::PossiblyTruncated { copied: bytes })
+            } else {
+                Ok(ReceiveOutcome::Complete { bytes })
+            }
+        }
+    }
+}
+
+/// Receive one datagram through an OS socket and retain its truncation flag.
+///
+/// A one-byte stack sentinel extends the caller's destination. If the receive
+/// reaches that sentinel, the datagram was larger than `dst`; no heap scratch
+/// or raw buffer conversion is needed. The caller supplies runtime-specific
+/// readiness handling; this helper performs exactly one nonblocking receive.
+#[cfg(unix)]
+pub(crate) fn recv_datagram_with_outcome<S>(
+    socket: &S,
+    dst: &mut [u8],
+) -> std::io::Result<ReceiveOutcome>
+where
+    S: std::os::fd::AsFd,
+{
+    let socket = socket2::SockRef::from(socket);
+    let capacity = dst.len();
+    let mut sentinel = [0_u8; 1];
+    let mut buffers = [
+        std::io::IoSliceMut::new(dst),
+        std::io::IoSliceMut::new(&mut sentinel),
+    ];
+    let mut socket = &*socket;
+    let received = std::io::Read::read_vectored(&mut socket, &mut buffers)?;
+    Ok(if received > capacity {
+        ReceiveOutcome::Truncated { copied: capacity }
+    } else {
+        ReceiveOutcome::Complete { bytes: received }
+    })
+}
+
+/// Windows counterpart to [`recv_datagram_with_outcome`].
+#[cfg(windows)]
+pub(crate) fn recv_datagram_with_outcome<S>(
+    socket: &S,
+    dst: &mut [u8],
+) -> std::io::Result<ReceiveOutcome>
+where
+    S: std::os::windows::io::AsSocket,
+{
+    let socket = socket2::SockRef::from(socket);
+    let mut socket = &*socket;
+    // Winsock reports an over-size UDP receive as WSAEMSGSIZE. `Socket2`'s
+    // plain `Read` implementation preserves that error (unlike its vectored
+    // compatibility adapter, which intentionally suppresses it), so no raw
+    // buffer conversion or platform-specific socket call is needed here.
+    const WSAEMSGSIZE: i32 = 10_040;
+    match std::io::Read::read(&mut socket, dst) {
+        Ok(bytes) => Ok(ReceiveOutcome::Complete { bytes }),
+        Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
+            Ok(ReceiveOutcome::Truncated { copied: dst.len() })
+        }
+        Err(error) => Err(error),
+    }
 }
 
 /// Unified helper for writing data with proper flushing.

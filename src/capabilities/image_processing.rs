@@ -42,7 +42,8 @@ pub trait ImageProcessing {
     /// Whether camera supports luminance control.
     const SUPPORTS_LUMINANCE: bool = false;
 
-    /// Whether camera supports picture effect modes (negative, B&W, sepia, etc.).
+    /// Whether camera supports source-backed picture effects (Off and Black & White).
+    /// Model-specific values remain available through `PictureEffectMode::Unknown`.
     const SUPPORTS_PICTURE_EFFECT: bool = false;
 
     /// Luminance range if supported.
@@ -68,6 +69,18 @@ pub trait ImageProcessing {
 
     /// Valid range for gamma curve selection, if supported.
     const GAMMA_RANGE: Option<CapabilityRange<u8>> = None;
+
+    /// Whether the profile permits the base typed image noun.
+    ///
+    /// This is the runtime counterpart of
+    /// [`HasImageProcessing`](crate::capabilities::HasImageProcessing), not a
+    /// substitute for its compile-time marker. Built-in profiles override this
+    /// from the source-backed profile registry, which also emits the marker.
+    /// A downstream profile defaults to `false`; it must opt in here and
+    /// implement `HasImageProcessing` together for a documented base image
+    /// surface such as a freeze-only implementation. Image metadata alone is
+    /// never fallback permission for the typed or dynamic surface.
+    const SUPPORTS_IMAGE_PROCESSING: bool = false;
 }
 
 /// Extension trait that adds validation methods to cameras with image processing support.
@@ -186,7 +199,7 @@ pub trait ImageProcessingExt: ImageProcessing {
 // Automatic implementation for all types that support image processing
 impl<T: ImageProcessing> ImageProcessingExt for T {}
 
-// Note: ImageFlipMode, SharpnessMode, and NoiseReductionLevel enums are defined
+// Note: ImageFlipMode, SharpnessMode, and NoiseReduction2DMode enums are defined
 // in the command module and re-exported from the crate root. This avoids duplication.
 
 #[cfg(test)]
@@ -194,6 +207,7 @@ mod tests {
     use super::*;
 
     struct TestCamera;
+    struct MetadataOnlyCamera;
 
     impl ImageProcessing for TestCamera {
         const CONTRAST_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
@@ -205,6 +219,15 @@ mod tests {
         const SUPPORTS_MIRROR: bool = true;
         const SUPPORTS_HUE: bool = true;
         const HUE_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
+        const SUPPORTS_IMAGE_PROCESSING: bool = true;
+    }
+
+    impl ImageProcessing for MetadataOnlyCamera {
+        const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
+        const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
+        const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
+        const SUPPORTS_FLIP: bool = true;
+        const SUPPORTS_MIRROR: bool = false;
     }
 
     #[test]
@@ -231,5 +254,15 @@ mod tests {
 
         assert!(camera.can_flip());
         assert!(camera.can_mirror());
+    }
+
+    #[test]
+    fn explicit_base_permission_reports_the_image_domain() {
+        const { assert!(<TestCamera as ImageProcessing>::SUPPORTS_IMAGE_PROCESSING) };
+    }
+
+    #[test]
+    fn image_metadata_does_not_default_to_base_permission() {
+        const { assert!(!<MetadataOnlyCamera as ImageProcessing>::SUPPORTS_IMAGE_PROCESSING) };
     }
 }

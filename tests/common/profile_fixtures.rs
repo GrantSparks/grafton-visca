@@ -2,14 +2,15 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, ImageProcessing,
-        InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power,
-        Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface,
-        VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, HasMotionSync,
+        ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata,
+        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
+        TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::ExposureMode,
     transport::RawVisca,
-    WhiteBalanceMode,
+    AffectedAxes, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
+    TransportCompatibility, WhiteBalanceMode,
 };
 
 const EXPOSURE_MODES: &[ExposureMode] = &[
@@ -22,23 +23,52 @@ const EXPOSURE_MODES: &[ExposureMode] = &[
 const SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
 const WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
 
-macro_rules! synthetic_profile {
-    ($profile:ident, $model:literal, $typed_support:expr) => {
-        #[derive(Debug, Default, Clone, Copy)]
+macro_rules! synthetic_profile_default {
+    (default, $profile:ident) => {
+        impl Default for $profile {
+            fn default() -> Self {
+                Self
+            }
+        }
+    };
+    (no_default, $profile:ident) => {};
+}
+
+macro_rules! synthetic_command_timeouts {
+    () => {
+        CommandTimeouts::new(
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            Duration::from_secs(60),
+            Duration::from_secs(300),
+            Duration::from_secs(5),
+        )
+    };
+    ($command_timeouts:expr) => {
+        $command_timeouts
+    };
+}
+
+macro_rules! synthetic_profile_impl {
+    ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr $(, $command_timeouts:expr)?) => {
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, Copy)]
         pub struct $profile;
+
+        synthetic_profile_default!($default, $profile);
 
         impl ProfileMetadata for $profile {
             const MODEL_NAME: &'static str = $model;
             const DEFAULT_CAMERA_ID: u8 = 1;
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
-            const COMPLETION_TIMEOUT: Duration = Duration::from_millis(1_000);
+            const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);
             const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
         }
 
         impl PanTilt for $profile {
-            const PAN_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-1700, 1700);
-            const TILT_RANGE: CapabilityRange<i16> = CapabilityRange::<i16>::new(-300, 900);
+            const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
+            const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-300, 900);
             const MAX_PAN_SPEED: u8 = 24;
             const MAX_TILT_SPEED: u8 = 20;
             const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -98,13 +128,49 @@ macro_rules! synthetic_profile {
 
         impl MenuCapability for $profile {}
         impl Tally for $profile {}
-        impl MotionSyncMetadata for $profile {}
         impl NdFilterMetadata for $profile {}
         impl VariableSpeedMetadata for $profile {}
 
         impl ProfileTypedSupport for $profile {
             const TYPED_SUPPORT: TypedSupportSet = $typed_support;
         }
+
+        impl CompileTimeProfile for $profile {
+            const TRANSPORTS: TransportCompatibility =
+                TransportCompatibility::new(Some(5678), Some(1259), true);
+            const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
+            const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
+            const AMBIGUITY_TIMEOUT: Duration = $ambiguity_timeout;
+            const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
+            const PRESET_RECALL_AXES: Option<AffectedAxes> = Some(
+                AffectedAxes::PAN_TILT
+                    .union(AffectedAxes::ZOOM)
+                    .union(AffectedAxes::FOCUS),
+            );
+            const POSITION_INQUIRIES: PositionInquirySupport =
+                PositionInquirySupport::new(true, true, true);
+        }
+    };
+}
+
+macro_rules! synthetic_profile {
+    ($profile:ident, $model:literal, $typed_support:expr) => {
+        synthetic_profile_impl!(
+            $profile,
+            $model,
+            $typed_support,
+            default,
+            Duration::from_secs(1)
+        );
+    };
+    ($profile:ident, $model:literal, $typed_support:expr, no_default) => {
+        synthetic_profile_impl!(
+            $profile,
+            $model,
+            $typed_support,
+            no_default,
+            Duration::from_secs(1)
+        );
     };
 }
 
@@ -120,4 +186,66 @@ synthetic_profile!(
     TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
 );
 
+synthetic_profile!(
+    NonDefaultCompileTimeProfile,
+    "Non-Default Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default
+);
+
+// Motion-owner tests intentionally chain successful raw position inquiries
+// under exact one-second observer deadlines. Keep the production-style
+// one-second pre-ACK ambiguity fact: matched inquiries no longer misuse it as
+// a post-success dispatch hold (#712).
+synthetic_profile_impl!(
+    MotionOwnerCompileTimeProfile,
+    "Motion Owner Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default,
+    Duration::from_secs(1)
+);
+
+// Socket-reuse integration tests need a real owner timeout to install an
+// exact-socket quarantine without making the test wait for a production-scale
+// movement deadline. The distinct fixture keeps that timing fact local to
+// those tests.
+synthetic_profile_impl!(
+    QuarantinedSocketCompileTimeProfile,
+    "Quarantined Socket Compile-Time Profile",
+    TypedSupportSet::EMPTY,
+    no_default,
+    Duration::from_millis(250),
+    CommandTimeouts::new(
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+        Duration::from_millis(100),
+    )
+);
+
+// No built-in profile declares motion sync (see the profile registry's
+// `MotionSync` note), so the typed accessor is only reachable from a profile
+// that opts in — which is what makes a behavioural test of the helper possible
+// at all.
+synthetic_profile!(
+    MotionSyncTypedSupport,
+    "Motion Sync Typed Support Only",
+    TypedSupportSet::from_surface(TypedSupportSurface::MotionSync)
+);
+
+impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
+impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
+impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
+impl MotionSyncMetadata for MotionOwnerCompileTimeProfile {}
+impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
+
+/// The one fixture that documents the physical capability, so the typed
+/// `MotionSync` surface above has something real to gate.
+impl MotionSyncMetadata for MotionSyncTypedSupport {
+    const SUPPORTS_MOTION_SYNC: bool = true;
+}
+
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
+
+impl HasMotionSync for MotionSyncTypedSupport {}

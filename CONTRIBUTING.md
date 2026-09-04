@@ -11,6 +11,7 @@ Thank you for your interest in contributing to grafton-visca! This guide will he
 - [Command Development](#command-development)
 - [Camera Profile Support](#camera-profile-support)
 - [Testing](#testing)
+- [Public API Snapshots](#public-api-snapshots)
 - [Documentation](#documentation)
 - [Pull Request Process](#pull-request-process)
 - [Release Process](#release-process)
@@ -25,18 +26,42 @@ Before contributing, please:
 
 ## Development Setup
 
+### Toolchains
+
+CI pins every toolchain to an exact version in `.github/workflows/ci.yml`.
+Compile-contract fixtures declare exact error codes and stable diagnostic
+anchors in their source, while the `api/2.0.0-rc.1/*.txt` public API snapshots
+are compared byte for byte. Reproducing a CI failure locally means using the
+same versions:
+
+```bash
+rustup toolchain install 1.98.0          # stable jobs and compile contracts
+# `--profile minimal` installs rustc/cargo/rust-std only, so the components the
+# nightly jobs actually use must be named explicitly. `--component` takes one
+# comma-separated list; a space-separated second name is parsed as another
+# toolchain, not as a component.
+rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfmt,miri  # fmt, Miri, fuzz, API snapshots
+rustup toolchain install 1.88.0          # MSRV job
+```
+
+A newer stable can change diagnostic prose. Update a fixture's in-source
+message anchor only when the workflow's pinned stable is bumped in the same
+change and the new diagnostic still proves the intended contract. Regenerating
+the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
+
 ```bash
 # Clone your fork
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the declared 1.x support matrix
+# Run the canonical local/release validation matrix. CI runs equivalent
+# feature-matrix entries as separate jobs; it does not invoke this script.
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
 cargo test
 cargo test --no-default-features
-cargo test --no-default-features --features mode-async
+cargo test --no-default-features --features async
 cargo test --no-default-features --features runtime-tokio
 cargo test --no-default-features --features runtime-smol
 cargo check --no-default-features --features runtime-tokio,runtime-smol
@@ -49,16 +74,15 @@ cargo test --no-default-features --features runtime-smol,test-utils
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
 cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
 
-# Compatibility-only checks for feature unions that may appear downstream
+# Feature-union checks for combinations that may appear downstream
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
 # Run clippy checks
 cargo clippy --all-targets --all-features -- -D warnings
 
-# Optional safety checks
-cargo +nightly miri setup
-cargo +nightly miri test --lib --no-default-features
+# Bounded named pure-library Miri suite plus feature compile checks
+bash .github/scripts/miri-tests.sh
 
 # Format code
 cargo fmt
@@ -104,6 +128,7 @@ PTZ cameras involve physical movement that can cause damage or injury if not han
 4. **Emergency Stop**: Ensure stop commands are easily accessible
 
 Example safety documentation:
+
 ```rust
 /// Moves the camera to absolute pan/tilt position.
 ///
@@ -119,53 +144,66 @@ Example safety documentation:
 
 When implementing new VISCA commands:
 
-### 1. Use CommandBuilder for Safe Encoding
+The owner-facing API is built from the typed `Request`, `Inquiry`, and
+`OperationCommand` contracts. Custom wire values should implement `Request`
+directly; the protocol encoder is an internal implementation detail and does
+not by itself select a completion class or lifecycle. Keep new semantic
+classifications in the authoritative request/command ledger.
 
-The `CommandBuilder` pattern ensures type-safe, zero-allocation command construction:
+### 1. Use a typed Request for Safe Encoding
+
+Typed `Request` implementations make semantic admission explicit while keeping
+wire encoding bounded and allocation-free:
 
 ```rust
-use crate::command::bytes::{ConstCommandBuilder, constants};
+use grafton_visca::{CameraId, Request};
 
-impl ViscaCommand for MyCommand {
+impl Request for MyCommand {
+    type Class = grafton_visca::request::Plain;
+    const MAX_SIZE: usize = 8;
+    const TIMEOUT_CLASS: grafton_visca::TimeoutClass = grafton_visca::TimeoutClass::Quick;
+    const RETRY_CLASS: grafton_visca::RetryClass = grafton_visca::RetryClass::Standard;
+    const CONTROL_CLASS: grafton_visca::ControlClass = grafton_visca::ControlClass::Normal;
+
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        let builder = ConstCommandBuilder::<8>::new()
-            .append(constants::COMMAND_PREFIX)
-            .append_u16(self.value)
-            .with_camera_id(camera_id)
-            .terminate();
-
-        builder.build_into(buffer)
+        // Encode the complete terminated VISCA frame into `buffer`.
+        let _ = (camera_id, buffer);
+        todo!("encode MyCommand with the bounded command-byte helpers")
     }
 }
 ```
 
 ### 2. Define Proper Buffer Sizes
 
-Each command must define its maximum size:
-
-```rust
-impl MyCommand {
-    /// Maximum size includes all bytes plus VISCA_TERMINATOR
-    pub const MAX_SIZE: usize = 8;
-}
-```
+Each request declares `Request::MAX_SIZE`; it includes every byte through the
+final `VISCA_TERMINATOR`.
 
 ### 3. Implement Inquiry Pattern
 
-For inquiry commands, follow the established pattern:
+For inquiry commands, implement `Request<Class = request::Inquiry>` and
+`Inquiry`:
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MyInquiry;
 
-impl ViscaCommand for MyInquiry {
-    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        // Use CommandBuilder for safe construction
-    }
+impl Request for MyInquiry {
+    type Class = request::Inquiry;
+    const MAX_SIZE: usize = 5;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-    fn behavior(&self) -> CommandBehavior {
-        CommandBehavior::Inquiry(InquiryResponseSpec::Builtin(InquiryKind::MyInquiry))
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        // Use the bounded command-byte helpers for safe construction
     }
+}
+
+impl Inquiry for MyInquiry {
+    type Response = MyResponse;
+
+    fn route(&self) -> InquiryRoute { /* select the response route */ }
+    fn decoder(&self) -> ResponseDecoder<Self::Response> { /* decode response */ }
 }
 ```
 
@@ -231,7 +269,8 @@ tests for maintained patterns.
 # Default test suite
 cargo test
 
-# Declared 1.x runtime and transport feature combinations
+# Canonical local/release validation commands. CI runs the feature matrix as
+# separate jobs rather than this command block verbatim.
 bash .github/scripts/test-all-features.sh
 cargo test
 cargo test --no-default-features --features runtime-tokio
@@ -242,24 +281,113 @@ cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
 cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
 cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
 
-# Compatibility-only feature-union checks
+# Feature-union checks
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
 
-# Optional interpreter-based UB checks for library tests
-cargo +nightly miri test --lib --no-default-features
+# Bounded named pure-library Miri suite plus feature compile checks
+bash .github/scripts/miri-tests.sh
 
 # With output for debugging
 cargo test -- --nocapture
 ```
 
+## Public API Snapshots
+
+`api/2.0.0-rc.1/` holds the approved public-surface baseline for the 2.0
+release candidate: one `cargo public-api` listing per tracked feature surface.
+The `public API RC snapshot` CI job regenerates each listing and byte-compares
+it with the committed file, so any change to the crate's public API — including
+one you did not intend, such as a type escaping its feature gate or a public
+type quietly losing `Send` — fails the job with a readable diff instead of
+reaching downstream users.
+
+Three surfaces are tracked, and they are deliberately few: `blocking` subsumes
+the bare no-default-features surface, `tokio-dyn` subsumes the async surface,
+and `all-features` covers everything else. `--simplified` drops compiler-emitted
+blanket impls, which are ~42% of the raw output and identical for every public
+type. The baselines are CI-only; `api/` is excluded from the published crate.
+
+**If the job fails on your PR**, decide which case you are in:
+
+- The API change is intended. Regenerate the snapshots and commit them
+  alongside the change, so the diff is reviewed with the code that caused it.
+- The API change is not intended. Fix the code — the snapshot is telling you
+  something leaked.
+
+Regenerate with the pinned toolchain, never with a floating `+nightly`; the
+exact commands and the pins live in
+[api/2.0.0-rc.1/README.md](api/2.0.0-rc.1/README.md). Snapshot bytes depend on
+the nightly rustdoc that produced them, so bumping the pinned nightly in
+`.github/workflows/ci.yml` requires regenerating all three files in the same
+commit.
+
 ## Documentation
 
-For 1.x milestone work, update the Unreleased section of `CHANGELOG.md` in the
+For 2.0 release-candidate work, update the Unreleased section of `CHANGELOG.md` in the
 same change as the implementation. If behavior, setup, examples, or contributor
 workflow changes, update the matching README, example, or contributor docs
 before closing the task. `submit` examples must distinguish lifecycle management
 from profile-aware input validation and applied completion from physical settling.
+
+### Changelog discipline for reversals and waivers
+
+A decision must not reuse the issue number of the finding it reverses. When a
+change reverts or supersedes earlier behavior — an earlier 2.0 preview decision
+or a prior review verdict included — it gets its own `### Changed` or
+`### Removed` entry in `CHANGELOG.md` that names the superseded finding by its
+issue number, plus a migration-guide row wherever a 1.x or prior user would feel
+it. Rewriting the original entry in place, or filing the reversal under the same
+issue number, hides the reversal from the record and is not allowed.
+
+The `release-validation` CI job enforces four parts of this record mechanically:
+
+- Text outside the top `## [Unreleased]` body is byte-for-byte immutable
+  relative to the pull request's merge base, except for a release cut that
+  moves the prior Unreleased lines in order into one new strict dated section
+  below an otherwise empty Unreleased heading. Every pre-existing released
+  section remains byte-for-byte immutable. Correct an old statement with a
+  dated superseding entry under Unreleased; do not edit the released entry.
+- A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
+  same pull request.
+- Every top-level Unreleased bullet carrying the exact `**BREAKING**` label must
+  include an issue reference in the form `(#NNN)`.
+- Every new commit that touches `src/` must have a non-empty explanatory body,
+  not only a subject. The policy-boundary files under `.github/` bootstrap the
+  repaired historical text and grandfather the already-audited PR #559 commit
+  ledger; they must not be advanced to excuse later changes.
+
+From a full-history checkout, run the validator and its four deliberate-failure
+fixtures with:
+
+```bash
+python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
+bash .github/scripts/test-validate-change-record.sh
+```
+
+For historical 1.x behavior decisions, add or update a direct v2 regression or
+wire/decode golden in the production owner, engine, or parser path and update
+`docs/behavioral_parity_1x.md` when the decision is useful to future
+maintainers. Those direct v2 tests and goldens are authoritative and the twelve
+historical families are enforced by the executable 1.x provenance corpus. From
+a full (non-shallow) clone, run:
+
+```bash
+bash .github/scripts/validate-behavioral-parity.sh
+```
+
+The gate reads the pinned 1.x source object and checks every current mapping
+against validator-owned source, exact libtest-path, command,
+envelope/profile/receipt pins. It removes comments and literals before checking
+code evidence, then proves each exact path reported `ok` rather than accepting
+Cargo's zero-match, ignored-test, or suffix-collision exit status. This is
+audited traceability, not a protocol semantic model, so review the pinned test's
+assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
+substitute. A new behavior needs direct review in the implementation, tests,
+and changelog; update the corpus and its validator-pinned family and target sets
+together when it changes the covered 1.x contract. CI independently pins the
+expected family count and publishes the required-family, manifest-row, and
+mapped-v2-test-row counts in its job summary.
 
 ### Code Documentation
 
@@ -270,18 +398,17 @@ from profile-aware input validation and applied completion from physical settlin
 
 ### Example Documentation
 
-```rust
+````rust
 /// Return a camera to its home position and wait for physical settling.
 ///
 /// # Examples
 ///
 /// ```no_run
-/// # use std::time::Duration;
-/// # use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2};
-/// let camera = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
-/// camera.submit(&PanTilt::Home)?
-///     .await_settled(Duration::from_secs(20))?;
-/// camera.close()?;
+/// # use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
+/// let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+/// let camera = session.camera();
+/// camera.pan_tilt().home()?.settled()?;
+/// session.close()?;
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```
 ///
@@ -289,7 +416,7 @@ from profile-aware input validation and applied completion from physical settlin
 ///
 /// Returns an error if submission, protocol completion, fallback settling, or
 /// shutdown fails.
-```
+````
 
 ## Pull Request Process
 
@@ -313,6 +440,7 @@ from profile-aware input validation and applied completion from physical settlin
    - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
    - [ ] Formatted: `cargo +nightly fmt --all -- --check`
    - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
+   - [ ] 1.x provenance corpus passes from full Git history: `bash .github/scripts/validate-behavioral-parity.sh`
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)
    - [ ] Safety documented for movement commands
@@ -324,12 +452,18 @@ from profile-aware input validation and applied completion from physical settlin
 
 ## Release Process
 
-Releases use a two-crate publish sequence because the main crate depends on the
-same-version `grafton-visca-macros` package. Follow [RELEASING.md](RELEASING.md)
-for version selection, changelog finalization, validation, tagging, crates.io
-index verification, and recovery if the macro package publishes but the main
-package does not. Never create a release tag from a commit that has not passed
-both semver surfaces and the complete 1.x matrix on a pull request.
+Releases use a two-crate prerelease/final publish sequence because the main crate
+depends on the same-version `grafton-visca-macros` package. Follow
+[RELEASING.md](RELEASING.md) for `2.0.0-rc.1` versioning, changelog
+finalization, validation, tagging, crates.io index verification, and recovery if
+the macro package publishes but the main package does not. Never create a
+release tag from a commit that has not passed the complete 2.0 matrix — public
+API snapshots included — on a pull request.
+
+`cargo-semver-checks` is not part of that matrix while 2.0 is a release
+candidate: 2.0.0-rc.1 is unpublished, so there is no crates.io baseline to
+compare against, and comparing with 1.x would only re-report the intended major
+break. It returns once 2.0.0 is published.
 
 ## Feature Flags
 

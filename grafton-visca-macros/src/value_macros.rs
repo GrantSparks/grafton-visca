@@ -7,10 +7,220 @@
 //! This module contains the ViscaValue derive macro and related value type helpers
 //! for generating validated value types with range checking and display formatting.
 
-use quote::quote;
-use syn::{parse_macro_input, DeriveInput};
-
 use proc_macro::TokenStream;
+use proc_macro2::Span;
+use quote::{quote, ToTokens};
+use syn::{
+    meta::ParseNestedMeta, parse_macro_input, spanned::Spanned, DeriveInput, Error, Expr, Lit,
+    LitStr, Result, Token, UnOp,
+};
+
+const VISCA_VALUE_ATTRIBUTE_KEYS: &str =
+    "`min`, `max`, `valid_values`, `display_format`, or `display_prefix`";
+
+struct AttributeValue<T> {
+    value: T,
+    key_span: Span,
+}
+
+#[derive(Default)]
+struct ViscaValueAttributes {
+    min: Option<AttributeValue<proc_macro2::TokenStream>>,
+    max: Option<AttributeValue<proc_macro2::TokenStream>>,
+    valid_values: Option<AttributeValue<String>>,
+    display_format: Option<AttributeValue<String>>,
+    display_prefix: Option<AttributeValue<String>>,
+}
+
+fn set_attribute<T>(
+    slot: &mut Option<AttributeValue<T>>,
+    value: T,
+    name: &str,
+    key_span: Span,
+) -> Result<()> {
+    if let Some(previous) = slot.as_ref() {
+        let mut error = Error::new(
+            key_span,
+            format!("duplicate `visca_value` attribute `{name}`"),
+        );
+        error.combine(Error::new(
+            previous.key_span,
+            format!("first `{name}` specified here"),
+        ));
+        return Err(error);
+    }
+
+    *slot = Some(AttributeValue { value, key_span });
+    Ok(())
+}
+
+fn parse_string_value(meta: &ParseNestedMeta<'_>, name: &str) -> Result<LitStr> {
+    if !meta.input.peek(Token![=]) {
+        return Err(meta.error(format!(
+            "`{name}` requires a string literal value, for example `{name} = \"...\"`"
+        )));
+    }
+
+    let value = meta.value()?;
+    let value_span = value.span();
+    value.parse::<LitStr>().map_err(|_| {
+        Error::new(
+            value_span,
+            format!("`{name}` must be provided as a string literal"),
+        )
+    })
+}
+
+fn invalid_bound_error(literal: &LitStr, name: &str) -> Error {
+    Error::new(
+        literal.span(),
+        format!("`{name}` must be an unsuffixed integer literal string"),
+    )
+}
+
+fn parse_bound(literal: &LitStr, name: &str) -> Result<proc_macro2::TokenStream> {
+    let tokens = literal
+        .value()
+        .parse::<proc_macro2::TokenStream>()
+        .map_err(|_| invalid_bound_error(literal, name))?;
+    let expression =
+        syn::parse2::<Expr>(tokens.clone()).map_err(|_| invalid_bound_error(literal, name))?;
+
+    let integer = match &expression {
+        Expr::Lit(expr) => match &expr.lit {
+            Lit::Int(integer) => integer,
+            _ => return Err(invalid_bound_error(literal, name)),
+        },
+        Expr::Unary(expr) if matches!(expr.op, UnOp::Neg(_)) => match expr.expr.as_ref() {
+            Expr::Lit(expr) => match &expr.lit {
+                Lit::Int(integer) => integer,
+                _ => return Err(invalid_bound_error(literal, name)),
+            },
+            _ => return Err(invalid_bound_error(literal, name)),
+        },
+        _ => return Err(invalid_bound_error(literal, name)),
+    };
+
+    if !integer.suffix().is_empty() {
+        return Err(invalid_bound_error(literal, name));
+    }
+
+    Ok(tokens)
+}
+
+fn unknown_attribute_error(meta: &ParseNestedMeta<'_>) -> Error {
+    let name = meta.path.to_token_stream().to_string();
+    Error::new_spanned(
+        &meta.path,
+        format!(
+            "unknown `visca_value` attribute `{name}`; expected one of {VISCA_VALUE_ATTRIBUTE_KEYS}"
+        ),
+    )
+}
+
+fn parse_visca_value_attributes(attributes: &[syn::Attribute]) -> Result<ViscaValueAttributes> {
+    let mut attrs = ViscaValueAttributes::default();
+
+    for attr in attributes {
+        if !attr.path().is_ident("visca_value") {
+            continue;
+        }
+
+        attr.parse_nested_meta(|meta| {
+            let key_span = meta.path.span();
+            if meta.path.is_ident("min") {
+                let literal = parse_string_value(&meta, "min")?;
+                set_attribute(
+                    &mut attrs.min,
+                    parse_bound(&literal, "min")?,
+                    "min",
+                    key_span,
+                )
+            } else if meta.path.is_ident("max") {
+                let literal = parse_string_value(&meta, "max")?;
+                set_attribute(
+                    &mut attrs.max,
+                    parse_bound(&literal, "max")?,
+                    "max",
+                    key_span,
+                )
+            } else if meta.path.is_ident("valid_values") {
+                let literal = parse_string_value(&meta, "valid_values")?;
+                let values = syn::parse_str::<syn::ExprArray>(&literal.value()).map_err(|_| {
+                    Error::new(
+                        literal.span(),
+                        "`valid_values` must be a non-empty array literal",
+                    )
+                })?;
+                if values.elems.is_empty() {
+                    return Err(Error::new(
+                        literal.span(),
+                        "`valid_values` must be a non-empty array literal",
+                    ));
+                }
+                set_attribute(
+                    &mut attrs.valid_values,
+                    literal.value(),
+                    "valid_values",
+                    key_span,
+                )
+            } else if meta.path.is_ident("display_format") {
+                let literal = parse_string_value(&meta, "display_format")?;
+                let value = literal.value();
+                match value.as_str() {
+                    "hex" | "binary" | "decimal" => {}
+                    _ => {
+                        return Err(Error::new(
+                            literal.span(),
+                            "display_format must be 'hex', 'binary', or 'decimal'",
+                        ))
+                    }
+                }
+                set_attribute(&mut attrs.display_format, value, "display_format", key_span)
+            } else if meta.path.is_ident("display_prefix") {
+                let literal = parse_string_value(&meta, "display_prefix")?;
+                set_attribute(
+                    &mut attrs.display_prefix,
+                    literal.value(),
+                    "display_prefix",
+                    key_span,
+                )
+            } else if meta.path.is_ident("model_constraints") {
+                Err(meta
+                    .error("`model_constraints` was removed; use profile capability validation"))
+            } else {
+                Err(unknown_attribute_error(&meta))
+            }
+        })?;
+    }
+
+    match (&attrs.min, &attrs.max) {
+        (Some(min), None) => {
+            return Err(Error::new(
+                min.key_span,
+                "`min` requires `max`; specify both bounds or use `valid_values`",
+            ))
+        }
+        (None, Some(max)) => {
+            return Err(Error::new(
+                max.key_span,
+                "`max` requires `min`; specify both bounds or use `valid_values`",
+            ))
+        }
+        _ => {}
+    }
+
+    if let Some(valid_values) = &attrs.valid_values {
+        if attrs.min.is_some() || attrs.max.is_some() {
+            return Err(Error::new(
+                valid_values.key_span,
+                "`valid_values` cannot be combined with `min` or `max`",
+            ));
+        }
+    }
+
+    Ok(attrs)
+}
 
 /// Derive macro for generating value types with validation
 ///
@@ -22,8 +232,8 @@ use proc_macro::TokenStream;
 ///
 /// # Attributes
 ///
-/// - `min` - Minimum allowed value
-/// - `max` - Maximum allowed value
+/// - `min` and `max` - Paired minimum and maximum allowed values, written as
+///   unsuffixed integer literal strings
 /// - `valid_values` - List of valid values (alternative to min/max)
 /// - `display_format` - Display format: "hex", "binary", or "decimal" (default)
 /// - `display_prefix` - Optional prefix for display output
@@ -70,73 +280,42 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         }
     };
 
-    // Parse attributes
-    let mut min_value = None;
-    let mut max_value = None;
-    let mut valid_values = None;
-    let mut display_format = "decimal";
-    let mut display_prefix = "";
-    for attr in &input.attrs {
-        if attr.path().is_ident("visca_value") {
-            if let Err(error) = attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("min") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    min_value = Some(value.value());
-                } else if meta.path.is_ident("max") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    max_value = Some(value.value());
-                } else if meta.path.is_ident("valid_values") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    valid_values = Some(value.value());
-                } else if meta.path.is_ident("display_format") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    display_format = match value.value().as_str() {
-                        "hex" => "hex",
-                        "binary" => "binary",
-                        "decimal" => "decimal",
-                        _ => {
-                            return Err(
-                                meta.error("display_format must be 'hex', 'binary', or 'decimal'")
-                            )
-                        }
-                    };
-                } else if meta.path.is_ident("display_prefix") {
-                    let value: syn::LitStr = meta.value()?.parse()?;
-                    display_prefix = Box::leak(value.value().into_boxed_str());
-                } else if meta.path.is_ident("model_constraints") {
-                    return Err(meta.error(
-                        "`model_constraints` was removed; use profile capability validation",
-                    ));
-                }
-                Ok(())
-            }) {
-                return error.to_compile_error().into();
-            }
-        }
-    }
+    let attributes = match parse_visca_value_attributes(&input.attrs) {
+        Ok(attributes) => attributes,
+        Err(error) => return error.to_compile_error().into(),
+    };
+    let crate_path = crate::crate_path::grafton_visca();
+    let display_format = attributes
+        .display_format
+        .as_ref()
+        .map_or("decimal", |format| format.value.as_str());
+    let display_prefix = attributes
+        .display_prefix
+        .as_ref()
+        .map_or("", |prefix| prefix.value.as_str());
 
     // Generate validation code
-    let validation = if let Some(valid_list) = &valid_values {
+    let validation = if let Some(valid_list) = &attributes.valid_values {
         // Parse the valid values list
         let values_tokens: proc_macro2::TokenStream =
-            valid_list.parse().unwrap_or_else(|_| quote! { &[] });
+            valid_list.value.parse().unwrap_or_else(|_| quote! { &[] });
         quote! {
             const VALID_VALUES: &[#inner_type] = &#values_tokens;
             if !VALID_VALUES.contains(&value) {
-                return Err(crate::Error::InvalidParameter {
-                    parameter: stringify!(#name),
-                    value: ::std::borrow::Cow::Owned(format!("{value}")),
-                    reason: ::std::borrow::Cow::Owned(format!("must be one of {:?}", VALID_VALUES)),
+                return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
+                    parameter: ::core::stringify!(#name),
+                    value: ::std::borrow::Cow::Owned(::std::format!("{value}")),
+                    reason: ::std::borrow::Cow::Owned(::std::format!("must be one of {:?}", VALID_VALUES)),
                 });
             }
         }
-    } else if let (Some(min), Some(max)) = (&min_value, &max_value) {
-        let min_tokens: proc_macro2::TokenStream = min.parse().unwrap_or_else(|_| quote! { 0 });
-        let max_tokens: proc_macro2::TokenStream = max.parse().unwrap_or_else(|_| quote! { 255 });
+    } else if let (Some(min), Some(max)) = (&attributes.min, &attributes.max) {
+        let min_tokens = &min.value;
+        let max_tokens = &max.value;
         quote! {
             if !(#min_tokens..=#max_tokens).contains(&value) {
-                return Err(crate::Error::ParameterOutOfRange {
-                    parameter: stringify!(#name),
+                return ::core::result::Result::Err(#crate_path::Error::ParameterOutOfRange {
+                    parameter: ::core::stringify!(#name),
                     value: value as i32,
                     min: #min_tokens as i32,
                     max: #max_tokens as i32,
@@ -148,9 +327,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     };
 
     // Generate min/max constants if provided
-    let constants = if let (Some(min), Some(max)) = (&min_value, &max_value) {
-        let min_tokens: proc_macro2::TokenStream = min.parse().unwrap_or_else(|_| quote! { 0 });
-        let max_tokens: proc_macro2::TokenStream = max.parse().unwrap_or_else(|_| quote! { 255 });
+    let constants = if let (Some(min), Some(max)) = (&attributes.min, &attributes.max) {
+        let min_tokens = &min.value;
+        let max_tokens = &max.value;
         quote! {
             /// Minimum value.
             pub const MIN: Self = Self(#min_tokens);
@@ -158,10 +337,10 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             /// Maximum value.
             pub const MAX: Self = Self(#max_tokens);
         }
-    } else if let Some(valid_list) = &valid_values {
+    } else if let Some(valid_list) = &attributes.valid_values {
         // When we have valid_values, compute MIN and MAX from the list
         let values_tokens: proc_macro2::TokenStream =
-            valid_list.parse().unwrap_or_else(|_| quote! { &[] });
+            valid_list.value.parse().unwrap_or_else(|_| quote! { &[] });
         quote! {
             /// Minimum value (computed from valid values).
             pub const MIN: Self = {
@@ -200,33 +379,33 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         "hex" => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{:#02x}", self.#inner_field_index)
+                    ::core::write!(f, "{:#02x}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {:#02x}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {:#02x}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
         "binary" => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{:#b}", self.#inner_field_index)
+                    ::core::write!(f, "{:#b}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {:#b}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {:#b}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
         _ => {
             if display_prefix.is_empty() {
                 quote! {
-                    write!(f, "{}", self.#inner_field_index)
+                    ::core::write!(f, "{}", self.#inner_field_index)
                 }
             } else {
                 quote! {
-                    write!(f, "{} {}", #display_prefix, self.#inner_field_index)
+                    ::core::write!(f, "{} {}", #display_prefix, self.#inner_field_index)
                 }
             }
         }
@@ -240,9 +419,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             ///
             /// # Errors
             /// Returns an error if the value is out of range or invalid.
-            pub fn new(value: #inner_type) -> Result<Self, crate::Error> {
+            pub fn new(value: #inner_type) -> ::core::result::Result<Self, #crate_path::Error> {
                 #validation
-                Ok(Self(value))
+                ::core::result::Result::Ok(Self(value))
             }
 
             /// Get the raw value.
@@ -252,22 +431,25 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
             }
         }
 
-        impl TryFrom<#inner_type> for #name {
-            type Error = crate::Error;
+        impl ::core::convert::TryFrom<#inner_type> for #name {
+            type Error = #crate_path::Error;
 
-            fn try_from(value: #inner_type) -> Result<Self, Self::Error> {
+            fn try_from(value: #inner_type) -> ::core::result::Result<Self, Self::Error> {
                 Self::new(value)
             }
         }
 
-        impl From<#name> for #inner_type {
+        impl ::core::convert::From<#name> for #inner_type {
             fn from(val: #name) -> Self {
                 val.value()
             }
         }
 
-        impl std::fmt::Display for #name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        impl ::core::fmt::Display for #name {
+            fn fmt(
+                &self,
+                f: &mut ::core::fmt::Formatter<'_>,
+            ) -> ::core::fmt::Result {
                 #display_impl
             }
         }

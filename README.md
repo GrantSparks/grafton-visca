@@ -7,57 +7,58 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
-> **Read the 1.0 release announcement**
-> Learn how `grafton-visca` brings camera-first APIs, profile-gated controls, and runtime-agnostic PTZ camera control to Rust: [grafton-visca 1.0: Type-safe control of PTZ cameras in Rust](https://blog.grafton.ai/grafton-visca-1-0-type-safe-control-of-ptz-cameras-in-rust-d027e6f9802f)
+> **2.0.0-rc.1** — The prerelease owner-backed API is available for review. It
+> keeps one protocol owner per session and exposes typed static, blocking, async,
+> and dynamic views over that owner.
+>
+> **Hardware status** — No physical hardware validation has been performed, and
+> no hardware support has been verified for this release candidate. Software
+> contract coverage is not physical-camera evidence; see the
+> [hardware release checklist](docs/hardware_release_checklist.md).
 
 ---
 
-## 1.x Support Matrix
+## 2.0.0-rc.1 Support Matrix
 
-The 1.x contract is the camera-first API, the documented transport/runtime
-configuration types, root-level control trait and raw command extension
-surfaces, and the optional feature surfaces listed below. Hardware validation is
-narrower than software support: the library contract is tested automatically,
-while device-specific firmware quirks are handled as reproducible bugs.
+The 2.0 contract is owner-backed construction, mode-native sessions, typed
+profile views, and one request path for each semantic class. Hardware validation
+is narrower than software support: the library contract is checked in CI, while
+device-specific firmware behavior is tracked in the
+[hardware release checklist](docs/hardware_release_checklist.md).
 
-Version 1.1 keeps the 1.0 camera-first surface stable while
-completing the additive operation-handle model across blocking, async, and
-dynamic use. Concrete async `_op` methods remain compatibility shims throughout
-1.x; their coherent typed replacement is intentionally deferred to 2.0.
-
-The rows below are the support promise. CI also includes compatibility checks
-for feature unions that can appear in downstream dependency graphs; those checks
-keep combinations buildable without expanding the public contract beyond the
-documented rows they combine.
+The release candidate is intentionally a clean break from the pre-2.0 API. Use
+`SessionConfig` for reusable target/profile registration, `Connect` or
+`CameraConfig` for standard transports, and `Session::open` for caller-owned
+transports.
 
 ### APIs and runtimes
 
-| Area | Supported 1.x contract | Automated validation |
+| Area | Supported 2.0 contract | Automated validation |
 | ---- | ---------------------- | -------------------- |
-| Blocking API | Baseline build when `mode-async` is not enabled | `cargo test --no-default-features` |
-| Runtime-agnostic async | `mode-async` with caller-provided executor/runtime | `cargo test --no-default-features --features mode-async` |
-| Tokio async | `runtime-tokio`, `TokioRuntime`, Tokio TCP/UDP adapters | `cargo test --no-default-features --features runtime-tokio` |
-| smol async | `runtime-smol`, `SmolRuntime`, smol TCP/UDP adapters | `cargo test --no-default-features --features runtime-smol` |
-| Runtime coexistence | `runtime-tokio` and `runtime-smol` may be enabled together; camera construction still chooses one runtime explicitly | `cargo check --no-default-features --features runtime-tokio,runtime-smol` |
-| Dynamic API | `dyn-api` object-safe camera traits for async cameras, with runtime capabilities and in-flight handles supporting applied/settled waits, cancellation, and detach | `cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test`, `cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test` |
-| Raw command extension | Custom command and inquiry implementations through `grafton_visca::command::{ViscaCommand, CommandBehavior, InquiryResponseSpec, InquiryKind, ResponseParser}` plus root command value re-exports. `ViscaCommand` covers encoding and response routing; typed built-in and raw inquiry responses are supplied by `ResponseParser`. | API contract tests |
+| Blocking API | `blocking::Session`, `blocking::Camera<P>`, and blocking noun views; native synchronous I/O with no async runtime/executor dependency | Blocking API contracts plus dependency-graph gate |
+| Runtime-neutral async | `Session`, `Camera<P>`, and a caller-provided `Executor` | Async API contract tests |
+| Tokio async | `runtime-tokio`, `TokioRuntime`, and Tokio TCP/UDP adapters | Tokio construction and noun suites |
+| smol async | `runtime-smol`, `SmolRuntime`, and smol TCP/UDP adapters | smol construction and noun suites |
+| Runtime coexistence | Tokio and smol may be enabled together; each session receives one explicit runtime | Coexistence API contract |
+| Runtime-profile API | `dyn-api` adds native `BlockingDynSessionCamera` with `blocking`, and object-safe `DynSessionCamera` with `async`; both share their facade's owner | Blocking-only plus dynamic Tokio/smol suites |
+| Request extension | Typed `Request`, `PlainCommand`, `Inquiry`, and `OperationCommand` contracts; `ResponseParser` handles custom inquiry decoding | Request/API contract tests |
 
 ### Transports
 
-| Transport | Supported 1.x contract | Automated validation |
+| Transport | Supported 2.0 contract | Automated validation |
 | --------- | ---------------------- | -------------------- |
-| TCP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
-| UDP | Blocking, Tokio, and smol camera connections through `Connect`, `CameraConfig`, and transport config types | Runtime matrix above |
-| Blocking serial | RS-232/422 configuration and blocking serial transport APIs behind `transport-serial` | `cargo test --no-default-features --features transport-serial` |
-| Tokio serial | Async serial transport APIs behind `transport-serial-tokio` | `cargo test --no-default-features --features runtime-tokio,transport-serial-tokio` |
-| Custom transports | Public transport traits and handles documented under `grafton_visca::transport` | API contract tests |
+| TCP | Blocking, Tokio, and smol owner sessions through `Connect`/`CameraConfig` | Runtime matrix above |
+| UDP | Blocking, Tokio, and smol owner sessions through `Connect`/`CameraConfig` | Runtime matrix above |
+| Blocking serial | RS-232/422 through `transport-serial` and `blocking::Session` | Serial feature matrix |
+| Tokio serial | Tokio serial through `transport-serial-tokio` and `Session` | Tokio serial feature matrix |
+| Custom transports | Caller-owned `BlockingTransport`/`AsyncTransport` with `Session::open` | Custom transport contract tests |
 
 ### Profiles
 
-| Profile family | Protocol | 1.x support |
+| Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported; G2/G3 TCP and UDP behavior is hardware-validated |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; all physical profile/transport validation remains pending, including G2, G3, and 30X (every [hardware release checklist](docs/hardware_release_checklist.md) row is `Pending (Not run)`) |
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
 | `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
 
@@ -72,9 +73,24 @@ custom integrations.
 | --------------------- | -------- |
 | ND filter controls and inquiries | `SonyFR7` |
 | Variable speed mode controls | `SonyFR7` |
-| Tally controls and inquiries | `SonyFR7`, `SonyBRCH900` |
+| Tally controls and inquiries | `SonyFR7` |
+| Image-freeze control | No built-in profile currently marks this typed capability |
+| Vendor defog-level inquiry | No built-in profile currently marks this typed capability |
+| Extended tally-brightness commands | No built-in profile currently marks this typed capability |
+| PTZOptics tally extensions | No built-in profile currently marks this typed capability |
 | Direct menu controls | `SonyFR7` |
+| PTZOptics anti-flicker control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Sony spotlight controls | `SonyFR7`, `SonyBRCH900` |
+| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300` |
+| PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
+
+The Sony FR7 tally row refers to the source-backed red/green tally controls and
+inquiries; packed status, mode, auto-adjust, and extended brightness remain
+separate row-specific surfaces and have no built-in profile grant.
 
 ### Profile-Gated Sub-Capabilities
 
@@ -93,18 +109,21 @@ operations.
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
-| Iris control, iris-priority mode, and iris inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | No built-in profile currently marks this typed capability |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Push auto focus | `SonyFR7` |
-| Focus zone | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 | Auto focus sensitivity | No built-in profile currently marks this typed capability |
 | Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -119,9 +138,60 @@ operations.
 | Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Aggregate noise-reduction inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100` |
-| 2D/3D noise reduction | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
-| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| 2D mode and 2D/3D noise-reduction level inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D mode and 2D/3D noise-reduction level controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| USB audio control and inquiry | `PtzOpticsG2`, `PtzOptics30X` |
+
+`HasExposure` remains the broad exposure-domain marker. The shared `04 39`
+exposure-mode command and inquiry are separately guarded by `HasExposureMode`;
+every built-in profile except `SonyFR7` has a nonempty shared-mode inventory and
+grants this typed surface. The PTZOptics profiles use R1/R10/R14 evidence;
+`SonyBRCH900` and `SonyBRC300` use R11/R12; `NearusBRC300` follows its BRC-300
+compatibility contract; `GenericVisca` deliberately assumes the standard Sony
+family; and `SonyEVIH100` retains its 1.2 compatibility breadth pending the R8
+line-item audit. A discovery inventory and the marker agree for every built-in;
+custom runtime profiles must still supply both before encoding.
+
+`HasIrisControl` covers standard iris reset/up/down/direct control and the
+distinct `09 04 4B` position inquiry exposed as `iris()`. R10 sources that
+surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
+Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
+for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
+PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
+R11/R12/R8 and compatibility evidence described above. `iris_control()` instead
+sends the separate `09 04 2B` auto/manual-status inquiry and requires
+`HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
+checked sources establishes that distinct row, so no built-in profile enables
+it. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
+iris Up/Down family and `05 34` Auto Iris inquiry, not the shared `04 39`
+AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
+04 4B` position inquiry. Those FR7 protocol families remain available through
+the raw command escape hatch until they receive their own typed APIs.
+
+`IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
+profiles, and `GainLevel` represents the VISCA `0x00..=0x0F` nibble domain.
+The selected profile's advertised range remains the final admission check, so
+constructing a syntactically valid value never grants it to a camera that does
+not document it. Coarse `SpeedLevel` position requests similarly clamp to each
+profile's documented pan and tilt maxima; `Fastest` therefore means the fastest
+valid speed for that selected camera.
+
+Noise-reduction inquiries remain independently gated by
+`HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate
+`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers. The
+control surface restores `set_noise_reduction_2d_mode`,
+`set_noise_reduction_2d`, `disable_noise_reduction_2d`,
+`set_noise_reduction_3d`, and `disable_noise_reduction_3d` only for the three
+profiles in the table. This is exact source-backed scope, not a grant inferred
+from a PTZOptics family grouping: `PtzOptics30X` is the explicitly legacy
+PT30X SDI/NDI G2/Gen-2 profile, and it does not extend to Move, Link, or newer
+30X models. See the separate R14 command-input and query-output domains in
+[`docs/visca_reference.md`](docs/visca_reference.md); a successful set is not
+promised to round-trip through an inquiry with the same numeric value.
+Built-in discovery metadata is kept in lockstep with those paired inquiry and
+control markers, so it cannot advertise an NR family that the typed layer
+rejects.
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the
@@ -131,20 +201,27 @@ matrix fit together.
 
 ### Optional features
 
-| Feature | 1.x support |
+| Feature | 2.0 support |
 | ------- | ----------- |
+| `blocking` | Canonical native blocking facade (enabled by default); it does not enable or link Tokio or another async runtime/executor |
+| `async` | Canonical owner-backed async facade; may be enabled with `blocking` |
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Stable object-safe async camera traits with applied/settled waits, command timeouts, cancellation, and detach |
-| `test-utils` | Stable deterministic test transports, executors, and Tokio camera simulator under `grafton_visca::testing`; `runtime-tokio` alone does not expose test helpers |
+| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async` |
+| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
-### Compatibility-only checks
+### Feature-union checks
+
+Each union below is a CI matrix leg, named by its job title in the feature
+matrix of `.github/workflows/ci.yml`.
 
 | Feature union | Scope | Automated validation |
 | ------------- | ----- | -------------------- |
-| `runtime-tokio,transport-serial` | Dependency-graph compatibility only. The supported serial APIs are the blocking `transport-serial` row and the Tokio `transport-serial-tokio` row above. | `cargo test --no-default-features --features runtime-tokio,transport-serial` |
-| `runtime-smol,dyn-api` | Build/API compatibility for dyn-api with smol without test helpers. Runtime behavior is covered by the smol dyn-api integration row above. | `cargo test --no-default-features --features runtime-smol,dyn-api` |
+| `blocking,dyn-api` | Native runtime-profile camera view without futures, an executor, or an async-runtime dependency. | `blocking + dyn-api` matrix leg |
+| `runtime-tokio,transport-serial` | Blocking serial plus Tokio async dependency coexistence; use `transport-serial-tokio` for Tokio serial. | `Tokio + blocking serial` matrix leg |
+| `runtime-smol,dyn-api` | Dynamic API with smol and no test helpers. | `smol + dyn-api` matrix leg |
+| `test-utils,blocking,runtime-tokio` | The shipped test toolkit driven through a real facade. `test-utils` alone enables neither `blocking` nor a runtime, so the scripted transports, deterministic executor, and camera simulator only *execute* under a union like this one. | `test-utils + blocking + Tokio` matrix leg |
 
 ---
 
@@ -154,7 +231,7 @@ matrix fit together.
 - **Multi-runtime support** — Pluggable adapters for Tokio and smol
 - **Type-safe profiles** — Compile-time protocol selection (raw VISCA vs Sony encapsulation) with capability-based APIs
 - **Flexible transports** — TCP, UDP, and serial (RS-232/422) with configurable timeouts, retries, and TCP keepalive
-- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees`, `Percentage`, `UnitInterval`), built-in inquiry conversions
+- **Ergonomic API** — One-line connection helpers, checked unit types (`Degrees` for typed pan/tilt input, `Percentage` and `UnitInterval` for checked value conversions), built-in inquiry conversions
 - **Optional serialization** — Serde and JSON Schema support for public value and configuration types
 - **Zero-allocation hot path** — Stack-allocated command buffers for standard VISCA commands
 
@@ -166,42 +243,57 @@ The quickstart snippets are read-only. They connect to a camera, query state,
 and close the session. Movement and configuration changes are shown in focused
 examples that opt in to hardware changes explicitly.
 
+Standard TCP and UDP sessions support one camera. `Connect::open_tcp::<P>` and
+`open_udp::<P>` return an owner-backed `CameraSession<P>`: the profile is named
+once and bound at compile time, and `session.camera()` hands out the typed
+`Camera` view that carries the noun accessors. Multi-target sessions use the
+serial or caller-owned transport paths and select each view with
+`session.camera_for::<P>(target)`.
+
+Every Rust snippet in this README is compiled by the crate's own test suite, so
+the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
+Cargo feature a snippet needs.
+
 ### Blocking
 
 ```rust
-use grafton_visca::camera::Connect;
-use grafton_visca::profiles::PtzOpticsG2;
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::PtzOpticsG2;
 
-fn main() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+fn quick_start() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
 
-    let power_is_on = cam.power().state()?;
-    let zoom = cam.zoom().position()?;
+    let power_is_on = camera.power().state()?;
+    let zoom = camera.zoom().position()?;
     println!("Power: {}", if power_is_on { "on" } else { "off" });
     println!("Zoom position: 0x{:04X}", zoom.value());
 
-    cam.close()
+    session.close()
 }
 ```
 
 ### Async (Tokio)
 
+Enable the `runtime-tokio` feature and call this from inside a Tokio runtime.
+
 ```rust
-use grafton_visca::camera::Connect;
-use grafton_visca::profiles::PtzOpticsG2;
-use grafton_visca::runtime::TokioRuntime;
+#[cfg(feature = "runtime-tokio")]
+async fn quick_start() -> Result<(), grafton_visca::Error> {
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::Connect;
 
-#[tokio::main]
-async fn main() -> Result<(), grafton_visca::Error> {
     let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera();
 
-    let power_is_on = cam.power().state().await?;
-    let zoom = cam.zoom().position().await?;
+    let power_is_on = camera.power().state().await?;
+    let zoom = camera.zoom().position().await?;
     println!("Power: {}", if power_is_on { "on" } else { "off" });
     println!("Zoom position: 0x{:04X}", zoom.value());
 
-    cam.close().await
+    session.close().await
 }
 ```
 
@@ -212,84 +304,155 @@ For smol, enable `runtime-smol` and use `SmolRuntime`.
 ## Bounded Movement Operations
 
 Ordinary noun methods remain the simplest command-completion surface. When a
-caller needs a per-command deadline, cancellation, or a physical settle signal,
+caller needs a per-command deadline, cancellation, or a profile-selected
+protocol-settlement wait,
 submit a built-in movement command and drive its operation handle explicitly.
 
 `submit` manages lifecycle; it does not add profile capability or range
 validation beyond the command's own checks. Prefer typed noun controls for
 profile-validated ergonomic input. Built-in commands provide exact completion
-metadata. In 1.x, custom commands without metadata use a conservative targeted,
-all-axes fallback; use `submit_continuous` for a custom applied-only command.
+metadata. Custom operation requests must declare their targeted or applied-only
+class explicitly.
 
 ```rust
-use std::time::Duration;
-use grafton_visca::{camera::Connect, command::{PanTilt, Zoom}, profiles::PtzOpticsG2};
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
 
 fn move_home() -> Result<(), grafton_visca::Error> {
-    let cam = Connect::open_tcp_blocking::<PtzOpticsG2>("192.168.0.110")?;
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
 
     // Blocking submit performs initial synchronous dispatch before returning.
-    cam.submit(&PanTilt::Home)?
-        .await_settled(Duration::from_secs(20))?;
+    camera.submit(&PanTiltHome)?.settled()?;
 
     // Applied-only commands have no meaningful settled state.
-    cam.submit(&Zoom::Stop)?
-        .await_applied(Duration::from_secs(2))?;
+    camera.submit(&ZoomStop)?.applied()?;
 
-    cam.close()
+    session.close()
 }
 ```
+
+The typed noun accessors return the same handles, so
+`camera.pan_tilt().home()?.settled()?` and `camera.zoom().stop()?.applied()?`
+are the profile-validated equivalents of the two `submit` calls above.
 
 The async form has the same vocabulary and awaits submission and terminal
 operations:
 
 ```rust
-use std::time::Duration;
-use grafton_visca::{camera::Connect, command::PanTilt, profiles::PtzOpticsG2, runtime::TokioRuntime};
-
+#[cfg(feature = "runtime-tokio")]
 async fn move_home() -> Result<(), grafton_visca::Error> {
+    use grafton_visca::camera::profiles::PtzOpticsG2;
+    use grafton_visca::request::builtin::{PanTiltHome, ZoomStop};
+    use grafton_visca::runtime::TokioRuntime;
+    use grafton_visca::Connect;
+
     let runtime = TokioRuntime::from_current()?;
-    let cam = Connect::open_tcp_async::<PtzOpticsG2, _>(
-        "192.168.0.110",
-        runtime,
-    ).await?;
+    let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
+    let camera = session.camera();
 
-    let handle = cam.submit(&PanTilt::Home).await?;
-    handle.await_settled(Duration::from_secs(20)).await?;
+    let handle = camera.submit(&PanTiltHome).await?;
+    handle.settled().await?;
 
-    cam.close().await?;
-    Ok(())
+    camera.submit(&ZoomStop).await?.applied().await?;
+
+    session.close().await
 }
 ```
 
-- `await_applied` means the exact command was accepted and protocol-completed.
-- `await_settled` additionally means targeted physical motion ended. Profiles
-  with an operation-complete signal use it; other profiles poll only the affected
-  axes under the same total deadline.
-- `cancel` requests scheduler-owned, ID/socket-safe cancellation. Queued work is
+- `applied` means the exact command was accepted and protocol-completed.
+- `settled` additionally means the targeted operation meets the profile-selected
+  protocol settlement condition: a profile-declared completion-is-settled
+  signal, or two affected-axis position samples within tolerance. It is an
+  intended indication of target rest, not a 2.0.0-rc.1 bench-verified assertion
+  that physical motion ended; exact model/firmware/transport/command evidence
+  remains in the [hardware release checklist](docs/hardware_release_checklist.md).
+- `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
   removable locally; sent work requires profile support and otherwise returns
   `Error::NotSupported`. Success does not prove physical motion stopped, so use
   a bounded STOP for continuous movement.
-- `detach` is explicit fire-and-forget. Dropping a handle has the same
-  non-canceling behavior; the submitted command remains scheduler-owned and may
-  still be dispatched and complete. `#[must_use]` warns only when a returned
-  handle is ignored directly.
+- Dropping a handle never stops hardware. Drop is `detach`: the submitted
+  command remains owner-owned, may still be dispatched and complete, and
+  physical movement continues, so an early `?` or a panic leaves the camera
+  driving until something ends it. This matches 1.x and is not a 2.0 change.
+  To bound movement by a scope, write a guard whose `Drop` submits the typed
+  STOP — see the pattern in
+  [`docs/migration_2_0.md`](docs/migration_2_0.md#drop-never-stops-hardware).
+- `detach` is explicit fire-and-forget, the spelled-out form of what drop
+  already does. `#[must_use]` warns only when a returned handle is ignored
+  directly.
 
 See the maintained [blocking](examples/operation_handles.rs) and
 [Tokio](examples/operation_handles_async.rs) examples for complete programs that
-snapshot and restore the complete camera pose around movement.
+close the session on every path and bound movement with a stop-on-exit guard.
+
+### Checked normalized input
+
+`UnitInterval` is the checked `0.0..=1.0` value the zoom noun accepts directly.
+`set_normalized` always maps across the profile's documented optical range;
+`set_normalized_in_domain` selects the domain explicitly and refuses
+`OpticalPlusDigital` on a profile with no documented digital maximum.
+
+```rust
+use grafton_visca::blocking::Connect;
+use grafton_visca::camera::profiles::{PtzOpticsG2, SonyFR7};
+use grafton_visca::units::UnitInterval;
+use grafton_visca::ZoomDomain;
+
+fn half_zoom() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
+    let camera = session.camera();
+
+    camera
+        .zoom()
+        .set_normalized(UnitInterval::new(0.5)?)?
+        .settled()?;
+
+    session.close()
+}
+
+// `set_normalized_in_domain` requires `HasDirectZoom`; only
+// `OpticalPlusDigital` additionally requires `HasDigitalZoomRange` at runtime.
+fn full_range_zoom() -> Result<(), grafton_visca::Error> {
+    let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
+    let camera = session.camera();
+
+    camera
+        .zoom()
+        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
+        .settled()?;
+
+    session.close()
+}
+```
 
 ---
 
 ## Public API Boundaries
 
-- Use `grafton_visca::camera::{Connect, CameraConfig, CameraBuilder, Camera}`
-  for camera construction and session types. Implementation submodules under
-  `camera` are internal.
-- Import static control traits from the crate root, for example
-  `grafton_visca::{PowerControl, ZoomControl}`.
-- Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for
-  normalized `0.0..=1.0` control values.
+- Use `Connect`, `CameraConfig`, and `SessionConfig` for construction. Standard
+  TCP and UDP sessions have one target: `Connect::open_tcp::<P>` /
+  `open_udp::<P>` (or `CameraConfig::<P>::open` / `open_async`) return a
+  `CameraSession<P>` whose `camera()` view is bound to `P` at compile time.
+  `Connect::open::<P>(TransportOptions)` provides the runtime-selected network
+  form. Multi-target `Session::camera_for::<P>(target)` is for raw-VISCA
+  serial-addressed or compatible custom transports.
+- Use the 14 inherent noun accessors on `Camera<P>`; profile-gated methods are
+  checked by `Has*` marker bounds, the compile-time profile-permission surface,
+  and runtime `ProfileSpec` validation. Direct generic `execute`/`inquire`
+  intentionally have no request-specific `P` bounds: they are the uniform
+  typed/downstream extension boundary. Preparation runs
+  `Request::validate_for_profile` before encoding, owner admission, or I/O, so
+  crate-provided direct requests report `FeatureNotSupported` before writing
+  when unsupported. Raw and other downstream requests remain explicit
+  low-level extensions and may supply their own validation.
+- Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
+  checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
+  `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as
+  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. Other typed
+  control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
+  values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
   a raw VISCA camera number from configuration.
 
@@ -299,27 +462,27 @@ snapshot and restore the complete camera pose around movement.
 
 ```toml
 [dependencies]
-grafton-visca = "1"
+grafton-visca = "=2.0.0-rc.1"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "1", features = ["mode-async"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["async"] }
 
 # Async with Tokio
-grafton-visca = { version = "1", features = ["runtime-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "1", features = ["serde"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "1", features = ["transport-serial"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "1", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior
@@ -343,16 +506,24 @@ let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
 and may keep idle network-path state active, but it does not send VISCA commands
-or guarantee that camera firmware will retain an idle application session. If an
-operation reports a terminal connection failure such as `ConnectionClosed` or
-`StreamPoisoned`, discard that session and establish a new one before submitting
-more work. Do not automatically replay an operation whose completion is
-uncertain.
+or guarantee that camera firmware will retain an idle application session. When
+an operation fails, ask `Error::requires_new_session()`: it reports `true` for
+terminal connection failures such as `ConnectionClosed` and `StreamPoisoned`; it
+reports `false` for a `RuntimeShutdown` this application requested and for the raw
+ambiguity error `UnsequencedCommandUnconfirmed`. The canonical raw-correlation
+and strict opt-in rules are in the
+[architecture guide](docs/architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
+On `true`, discard that session
+and establish a replacement from the retained configuration. Its state cache
+starts `Unknown`, so re-query and reconcile camera state before any deliberate
+resubmission. Never blindly replay an operation whose completion is uncertain.
 
 ### Feature flags
 
 | Feature                | Enables                                    |
 | ---------------------- | ------------------------------------------ |
+| `blocking`             | Canonical owner-backed blocking facade (default) |
+| `async`                | Canonical owner-backed async facade        |
 | `runtime-tokio`        | Tokio async runtime adapter                |
 | `runtime-smol`         | smol runtime adapter                       |
 | `transport-serial`     | Blocking serial (RS-232/422)               |
@@ -360,7 +531,7 @@ uncertain.
 | `serde`                | Serialize/deserialize public value and configuration types |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
-| `dyn-api`              | Object-safe async camera traits            |
+| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits) |
 
 ---
 
@@ -389,7 +560,15 @@ before any socket or serial device is opened.
 
 - **[API Reference](https://docs.rs/grafton-visca)** — Complete type and method documentation
 - **[Examples](examples/)** — Maintained examples for common scenarios
-- **[Example Policy](docs/examples.md)** — 1.x examples contract and maintenance rules
+- **[2.0 Example Policy](docs/examples.md)** — Example contract and maintenance rules
+- **[2.0 Usage and Construction](docs/usage_2_0.md)** — Sessions, profiles, transports, and noun views
+- **[2.0 Architecture](docs/architecture_2_0.md)** — Ownership, target registration, and lifecycle invariants
+- **[Preservation Inventory](docs/architecture_inventory.md)** — Closed profile, transport, noun, and extension inventory
+- **[Request Semantics](docs/request_semantics.md)** — Plain, inquiry, targeted, and applied-only request classes
+- **[Allocation and Validation](docs/allocation_and_validation.md)** — Release gates for bounded work and preflight validation
+- **[Observability and Recovery](docs/observability_and_recovery.md)** — Metrics, diagnostics, cache, and recovery behavior
+- **[Hardware Release Checklist](docs/hardware_release_checklist.md)** — Assigned physical validation rows and evidence status
+- **[2.0 Migration Guide](docs/migration_2_0.md)** — Destination APIs for pre-2.0 applications
 - **[VISCA Protocol Reference](docs/visca_reference.md)** — Consolidated PTZOptics, Axis, and protocol evidence used for built-in profile decisions
 - **[Camera Profile Support Guide](docs/camera_profile_support.md)** — Workflow and testing rules for adding camera capabilities
 - **[CHANGELOG](CHANGELOG.md)** — Version history and migration guides
@@ -412,7 +591,7 @@ before any socket or serial device is opened.
 
 ---
 
-## Compatibility
+## Platform and MSRV
 
 - **MSRV:** Rust 1.88
 - **Platforms:** Linux, macOS, Windows

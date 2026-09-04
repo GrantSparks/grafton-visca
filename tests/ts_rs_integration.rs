@@ -10,9 +10,22 @@ use ts_rs::{Config, TS};
 
 use grafton_visca::{
     camera::{profiles::ProfileId, TransportOptions},
+    command::{FocusSpeed as CommandFocusSpeed, PresetRecallSpeed},
     types::{SpeedLevel, ZoomPosition},
-    PanTiltDirection, PresetNumber,
+    AffectedAxes, PanTiltDirection, PresetNumber, SubmissionClass,
 };
+
+#[test]
+fn test_request_contract_exports() {
+    let cfg = Config::default();
+    let axes = AffectedAxes::export_to_string(&cfg).expect("Failed to export AffectedAxes");
+    let qos = SubmissionClass::export_to_string(&cfg).expect("Failed to export SubmissionClass");
+    assert!(!axes.is_empty());
+    assert!(qos.contains("\"Background\""));
+    assert!(qos.contains("\"Normal\""));
+    assert!(qos.contains("\"User\""));
+    assert!(!qos.contains("\"Urgent\""));
+}
 
 #[test]
 fn test_transport_options_export() {
@@ -48,14 +61,59 @@ fn test_speed_level_export() {
 fn test_zoom_position_export() {
     let cfg = Config::default();
     let ts = ZoomPosition::export_to_string(&cfg).expect("Failed to export ZoomPosition");
-    assert!(!ts.is_empty());
+    assert!(
+        ts.contains("export type ZoomPosition = number;"),
+        "serde validation must not change the scalar TypeScript representation: {ts}"
+    );
 }
 
 #[test]
 fn test_preset_number_export() {
     let cfg = Config::default();
     let ts = PresetNumber::export_to_string(&cfg).expect("Failed to export PresetNumber");
-    assert!(!ts.is_empty());
+    assert!(ts.contains("Preset number with validation."));
+    assert!(ts.contains("export type PresetNumber = number;"));
+}
+
+#[test]
+fn test_range_macro_types_use_real_newtype_derive_semantics() {
+    let cfg = Config::default();
+
+    for (name, decl, docs, output) in [
+        (
+            PresetNumber::name(&cfg),
+            PresetNumber::decl(&cfg),
+            PresetNumber::docs(),
+            PresetNumber::output_path(),
+        ),
+        (
+            PresetRecallSpeed::name(&cfg),
+            PresetRecallSpeed::decl(&cfg),
+            PresetRecallSpeed::docs(),
+            PresetRecallSpeed::output_path(),
+        ),
+        (
+            CommandFocusSpeed::name(&cfg),
+            CommandFocusSpeed::decl(&cfg),
+            CommandFocusSpeed::docs(),
+            CommandFocusSpeed::output_path(),
+        ),
+    ] {
+        assert_eq!(decl, format!("type {name} = number;"));
+        assert!(docs.as_deref().is_some_and(|docs| !docs.is_empty()));
+        assert_eq!(output, Some(std::path::PathBuf::from(format!("{name}.ts"))));
+    }
+
+    assert!(PresetNumber::docs()
+        .as_deref()
+        .is_some_and(|docs| docs.contains("Preset number with validation.")));
+    assert!(PresetRecallSpeed::docs()
+        .as_deref()
+        .is_some_and(|docs| docs.contains("Preset recall speed.")));
+    assert!(CommandFocusSpeed::docs()
+        .as_deref()
+        .is_some_and(|docs| docs.contains("Variable focus speed.")));
+    assert!(std::panic::catch_unwind(|| PresetNumber::inline_flattened(&cfg)).is_err());
 }
 
 #[test]
@@ -119,7 +177,7 @@ fn test_value_types_export() {
 
 #[test]
 fn test_enum_types_export() {
-    use grafton_visca::types::{FStop, NdiQuality, NoiseReductionStrength};
+    use grafton_visca::types::{FStop, NdiQuality};
 
     let cfg = Config::default();
 
@@ -128,8 +186,5 @@ fn test_enum_types_export() {
         .is_empty());
     assert!(!NdiQuality::export_to_string(&cfg)
         .expect("Failed to export NdiQuality")
-        .is_empty());
-    assert!(!NoiseReductionStrength::export_to_string(&cfg)
-        .expect("Failed to export NoiseReductionStrength")
         .is_empty());
 }

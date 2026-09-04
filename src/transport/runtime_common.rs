@@ -102,6 +102,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    config.validate()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -193,7 +194,6 @@ macro_rules! declare_net_transport {
                     socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
-                    RetryConfig,
                 },
                 Error,
             };
@@ -218,19 +218,6 @@ macro_rules! declare_net_transport {
                     Self::connect_with_config(address, config).await
                 }
 
-                /// Create a new UDP transport with custom retry configuration.
-                pub async fn connect_with_retry(
-                    address: &str,
-                    retry_config: RetryConfig,
-                ) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        retry_config,
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
-                    Self::connect_with_config(address, config).await
-                }
-
                 /// Connect with a full configuration.
                 ///
                 /// This method provides full control over connection and socket parameters.
@@ -238,12 +225,33 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    let socket = Self::preflight_udp_setup(
+                        address,
+                        config,
+                        |canonical_addr, udp_config| async move {
+                            $udp_connect(&canonical_addr, udp_config).await
+                        },
+                    )
+                    .await?;
+
+                    Ok(Self::new(socket, config))
+                }
+
+                /// Run endpoint parsing and connector setup only after buffer preflight.
+                pub(super) async fn preflight_udp_setup<T, F, Fut>(
+                    address: &str,
+                    config: TransportConfig,
+                    setup: F,
+                ) -> Result<T, Error>
+                where
+                    F: FnOnce(String, UdpSocketConfig) -> Fut,
+                    Fut: std::future::Future<Output = Result<T, Error>>,
+                {
+                    config.validate()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
-                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
-
-                    Ok(Self::new(socket, config))
+                    setup(canonical_addr, udp_config).await
                 }
             }
         }
@@ -310,6 +318,7 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    config.validate()?;
                     let tcp_config = TcpConnectionConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
@@ -401,7 +410,6 @@ macro_rules! declare_net_transport {
                     socket_options::UdpSocketConfig,
                     buffer::BufferConfig,
                     builder::TransportConfig,
-                    RetryConfig,
                 },
                 Error,
             };
@@ -426,19 +434,6 @@ macro_rules! declare_net_transport {
                     Self::connect_with_config(address, config).await
                 }
 
-                /// Create a new UDP transport with custom retry configuration.
-                pub async fn connect_with_retry(
-                    address: &str,
-                    retry_config: RetryConfig,
-                ) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        retry_config,
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
-                    Self::connect_with_config(address, config).await
-                }
-
                 /// Connect with a full configuration.
                 ///
                 /// This method provides full control over connection and socket parameters.
@@ -446,12 +441,33 @@ macro_rules! declare_net_transport {
                     address: &str,
                     config: TransportConfig,
                 ) -> Result<Self, Error> {
+                    let socket = Self::preflight_udp_setup(
+                        address,
+                        config,
+                        |canonical_addr, udp_config| async move {
+                            $udp_connect(&canonical_addr, udp_config).await
+                        },
+                    )
+                    .await?;
+
+                    Ok(Self::new(socket, config))
+                }
+
+                /// Run endpoint parsing and connector setup only after buffer preflight.
+                pub(super) async fn preflight_udp_setup<T, F, Fut>(
+                    address: &str,
+                    config: TransportConfig,
+                    setup: F,
+                ) -> Result<T, Error>
+                where
+                    F: FnOnce(String, UdpSocketConfig) -> Fut,
+                    Fut: std::future::Future<Output = Result<T, Error>>,
+                {
+                    config.validate()?;
                     let udp_config = UdpSocketConfig::from(config);
                     let canonical_addr =
                         $crate::transport::address::canonicalize_endpoint(address, None)?;
-                    let socket = $udp_connect(&canonical_addr, udp_config).await?;
-
-                    Ok(Self::new(socket, config))
+                    setup(canonical_addr, udp_config).await
                 }
             }
         }

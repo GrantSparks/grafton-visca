@@ -1,54 +1,48 @@
-//! Integration tests for the dyn-api feature.
+//! Runtime validation for the owner-backed dynamic API.
 //!
-//! These tests verify that the dynamic trait object API works correctly,
-//! including object safety, blanket implementations, and timeout handling.
-//!
-//! The tests cover both the default timeout path and explicit per-call
-//! command-completion deadlines.
+//! These tests intentionally use a tiny in-memory transport instead of the
+//! legacy test-kit camera.  That keeps the assertions at the final
+//! `Session`/`DynSessionCamera` boundary and makes it possible to prove that
+//! profile rejection and dynamic capability gates happen before a write.
 
-#![cfg(all(feature = "dyn-api", feature = "runtime-tokio", feature = "test-utils"))]
-
-mod common;
+#![cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    sync::Arc,
-    sync::Mutex,
-    time::{Duration, Instant},
+    future::Future,
+    sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use grafton_visca::{
-    camera::{
-        profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
-        Camera, CameraBuilder,
-    },
-    capabilities::{Profile, TypedSupportSurface},
-    command::{FocusZone, VISCA_TERMINATOR},
+    capabilities::TypedSupportSurface,
+    command::MulticastStreaming,
     dynapi::{
-        DynCameraControl, DynFocusControl, DynMotionControl, DynPanTiltControl, DynPresetsControl,
-        DynZoomControl, IntoDynCamera, OperationCategory,
+        DynAppliedRequest, DynSessionCamera, DynSessionCameraControl, DynSessionCameraNouns,
+        DynTargetedRequest,
     },
-    mode::Async,
-    runtime::TokioRuntime,
-    testing::testkit::{helpers, scripted_transport::Step, ScriptedTransport},
-    timeout::TimeoutConfig,
-    types::{FocusPosition, SpeedLevel, ZoomPosition},
-    AutoFocusSensitivity, Error, FocusControl, PanTiltControl, PresetNumber, PresetsControl,
-    TokioExecutor, UnitInterval, ZoomControl, ZoomDomain,
+    profile::ProfileSpec,
+    profiles::PtzOpticsG2,
+    request::builtin::{PanTiltHome, ZoomStop},
+    state_cache::StateEntry,
+    transport::{
+        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+    },
+    CameraId, CancellationOutcome, Error, OperationalTuning, Session, SessionConfig, StateKey,
+    TokioRuntime,
 };
 
-use crate::common::{
-    patterns,
-    profile_fixtures::{DirectZoomOnlyTypedSupport, MetadataEnabledNoTypedSupport},
-};
-
+/// The dynamic noun methods return one boxed future.  Count only construction
+/// allocations and compare that with an explicitly boxed static future; this
+/// catches an accidental second outer box without depending on allocator
+/// internals during polling.
 struct CountingAllocator;
 
-static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
+static ALLOCATION_LOCK: Mutex<()> = Mutex::new(());
 
 thread_local! {
-    static COUNTING_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
+    static COUNT_ALLOCATIONS: Cell<bool> = const { Cell::new(false) };
     static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -57,1379 +51,387 @@ static GLOBAL: CountingAllocator = CountingAllocator;
 
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if COUNTING_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
+        if COUNT_ALLOCATIONS.try_with(Cell::get).unwrap_or(false) {
             let _ = ALLOCATION_COUNT.try_with(|count| {
                 count.set(count.get().saturating_add(1));
             });
         }
+        // SAFETY: this allocator forwards the original layout and pointer to
+        // the platform allocator unchanged.
         unsafe { System.alloc(layout) }
     }
 
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { System.dealloc(ptr, layout) }
+    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
+        // SAFETY: `pointer` and `layout` came from `System::alloc` above.
+        unsafe { System.dealloc(pointer, layout) }
     }
 }
 
-struct AllocationCountingGuard;
+struct AllocationGuard;
 
-impl Drop for AllocationCountingGuard {
+impl Drop for AllocationGuard {
     fn drop(&mut self) {
-        let _ = COUNTING_ALLOCATIONS.try_with(|counting| counting.set(false));
+        let _ = COUNT_ALLOCATIONS.try_with(|counting| counting.set(false));
     }
 }
 
-type TestCamera = Camera<Async, PtzOpticsG2, ScriptedTransport<TokioExecutor>, TokioRuntime>;
-type ProfileTestCamera<P> = Camera<Async, P, ScriptedTransport<TokioExecutor>, TokioRuntime>;
-
-const PAN_TILT_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];
-
-fn pan_tilt_position_response(pan: u16, tilt: u16) -> Vec<u8> {
-    let mut response = vec![0x90, 0x50];
-    for value in [pan, tilt] {
-        response.extend([
-            ((value >> 12) & 0x0f) as u8,
-            ((value >> 8) & 0x0f) as u8,
-            ((value >> 4) & 0x0f) as u8,
-            (value & 0x0f) as u8,
-        ]);
-    }
-    response.push(VISCA_TERMINATOR);
-    response
-}
-
-fn allocations_during(f: impl FnOnce()) -> usize {
-    let _guard = ALLOCATION_TEST_LOCK
-        .lock()
-        .expect("allocation lock poisoned");
+fn allocations_during(action: impl FnOnce()) -> usize {
+    let _lock = ALLOCATION_LOCK.lock().expect("allocation lock");
     ALLOCATION_COUNT.with(|count| count.set(0));
-    COUNTING_ALLOCATIONS.with(|counting| counting.set(true));
-
+    COUNT_ALLOCATIONS.with(|counting| counting.set(true));
     {
-        let _counting_guard = AllocationCountingGuard;
-        f();
+        let _guard = AllocationGuard;
+        action();
     }
-
     ALLOCATION_COUNT.with(Cell::get)
 }
 
-fn future_construction_allocations<Fut>(make_future: impl FnOnce() -> Fut) -> usize {
-    allocations_during(|| {
-        let future = make_future();
-        std::hint::black_box(&future);
-    })
+fn profile() -> ProfileSpec {
+    ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics G2 profile")
 }
 
-fn assert_dyn_future_allocations_match_static<S, D, SFut, DFut>(
-    label: &str,
-    static_call: S,
-    dyn_call: D,
-) where
-    S: FnOnce() -> SFut,
-    D: FnOnce() -> DFut,
-{
-    let static_allocations = future_construction_allocations(static_call);
-    let dyn_allocations = future_construction_allocations(dyn_call);
-
-    assert!(
-        dyn_allocations <= static_allocations,
-        "{label} dyn future construction allocated more than static: dyn={dyn_allocations}, static={static_allocations}"
-    );
+/// In-memory owner transport.  A command receives the normal ACK and
+/// completion pair; an inquiry receives a compact valid response.  The
+/// transport records writes so preflight tests can assert that no I/O was
+/// attempted.
+#[derive(Debug)]
+struct ProbeTransport {
+    config: TransportConfig,
+    responses: flume::Receiver<Vec<u8>>,
+    response_tx: flume::Sender<Vec<u8>>,
+    writes: Arc<Mutex<Vec<Vec<u8>>>>,
+    complete: bool,
 }
 
-async fn new_test_camera(steps: impl Into<Vec<Step>>) -> TestCamera {
-    new_test_camera_with_timeout(steps, TimeoutConfig::default()).await
-}
-
-async fn new_test_camera_with_timeout(
-    steps: impl Into<Vec<Step>>,
-    timeout_config: TimeoutConfig,
-) -> TestCamera {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(steps);
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    CameraBuilder::with_executor(runtime)
-        .timeout_config(timeout_config)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera")
-}
-
-async fn new_profile_camera<P>(transport: ScriptedTransport<TokioExecutor>) -> ProfileTestCamera<P>
-where
-    P: Profile + Default,
-{
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    CameraBuilder::with_executor(runtime)
-        .open_async::<P, _>(transport)
-        .await
-        .expect("Failed to create camera")
-}
-
-/// Verify that all dyn traits are object-safe by creating trait objects.
-#[test]
-fn test_dyn_traits_are_object_safe() {
-    fn _assert_camera_control(_: &dyn DynCameraControl) {}
-    fn _assert_pan_tilt_control(_: &dyn DynPanTiltControl) {}
-    fn _assert_zoom_control(_: &dyn DynZoomControl) {}
-    fn _assert_focus_control(_: &dyn DynFocusControl) {}
-    fn _assert_presets_control(_: &dyn DynPresetsControl) {}
-    fn _assert_motion_control(_: &dyn DynMotionControl) {}
-
-    // This test passes if it compiles - the functions above prove object safety.
-}
-
-/// Direct dyn forwarding should return the static boxed future without adding
-/// an outer boxed adapter at construction time.
-#[tokio::test]
-async fn test_dyn_direct_forwarding_future_construction_allocations_match_static() {
-    let static_camera = new_test_camera(vec![]).await;
-    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
-
-    assert_dyn_future_allocations_match_static(
-        "pan_tilt_stop",
-        || static_camera.pan_tilt_stop(),
-        || dyn_camera.pan_tilt().pan_tilt_stop(),
-    );
-
-    assert_dyn_future_allocations_match_static(
-        "zoom_stop",
-        || static_camera.zoom_stop(),
-        || dyn_camera.zoom().zoom_stop(),
-    );
-
-    assert_dyn_future_allocations_match_static(
-        "focus_auto",
-        || static_camera.focus_auto(),
-        || dyn_camera.focus().focus_auto(),
-    );
-
-    let preset = PresetNumber::new(1).expect("valid preset");
-    assert_dyn_future_allocations_match_static(
-        "preset_set",
-        || static_camera.preset_set(preset),
-        || dyn_camera.presets().preset_set(preset),
-    );
-
-    assert_dyn_future_allocations_match_static(
-        "pan_tilt_home(None)",
-        || static_camera.pan_tilt_home(),
-        || dyn_camera.pan_tilt().pan_tilt_home(None),
-    );
-}
-
-/// Test that DynCamera can be created from a concrete camera and used as a trait object.
-#[tokio::test]
-async fn test_dyn_camera_creation_and_capability_accessors() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    // Convert to DynCamera
-    let dyn_camera = camera.into_dyn();
-
-    // Test capability metadata and core control accessors
-    let camera_control: &dyn DynCameraControl = &dyn_camera;
-    let capabilities = camera_control.capabilities();
-
-    // PtzOpticsG2 has all capabilities
-    assert!(capabilities.has_pan_tilt, "Should have pan/tilt control");
-    assert!(capabilities.has_zoom, "Should have zoom control");
-    assert!(capabilities.has_focus, "Should have focus control");
-    assert!(capabilities.has_presets, "Should have preset control");
-    assert_eq!(capabilities.model_name, "PtzOptics G2");
-
-    let _ = camera_control.pan_tilt();
-    let _ = camera_control.zoom();
-    let _ = camera_control.focus();
-    let _ = camera_control.presets();
-    let _ = camera_control.motion();
-}
-
-#[tokio::test]
-async fn test_dyn_typed_support_discovery_matches_runtime_gates() {
-    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
-    let caps = dyn_camera.capabilities();
-
-    assert!(caps.supports_typed(TypedSupportSurface::DirectZoom));
-    assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
-    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
-    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
-}
-
-#[tokio::test]
-async fn test_dyn_metadata_alone_does_not_grant_typed_permissions() {
-    let transport = ScriptedTransport::new(vec![]);
-    let sent = transport.clone();
-    let camera = new_profile_camera::<MetadataEnabledNoTypedSupport>(transport).await;
-    let dyn_camera = camera.into_dyn();
-    let caps = dyn_camera.capabilities();
-
-    assert!(caps.supports_direct_zoom);
-    assert!(caps.has_digital_zoom);
-    assert!(caps.has_one_push_focus);
-    assert!(caps.has_focus_zone);
-    assert!(caps.has_af_sensitivity);
-    assert!(caps.typed_support.is_empty());
-
-    let zoom_position = ZoomPosition::new(0x2000).expect("valid raw zoom position");
-    let normalized = UnitInterval::new(0.5).expect("valid normalized value");
-
-    let set_zoom = dyn_camera.zoom().set_zoom(zoom_position, None).await;
-    assert!(
-        matches!(
-            set_zoom,
-            Err(Error::FeatureNotSupported {
-                feature: "direct zoom positioning"
-            })
-        ),
-        "metadata-only direct zoom should be rejected: {set_zoom:?}"
-    );
-
-    let set_zoom_op = dyn_camera.zoom().set_zoom_op(zoom_position).await;
-    assert!(
-        matches!(
-            set_zoom_op,
-            Err(Error::FeatureNotSupported {
-                feature: "direct zoom positioning"
-            })
-        ),
-        "metadata-only direct zoom op should be rejected"
-    );
-
-    let normalized_zoom = dyn_camera
-        .zoom()
-        .set_zoom_normalized(normalized, None)
-        .await;
-    assert!(
-        matches!(
-            normalized_zoom,
-            Err(Error::FeatureNotSupported {
-                feature: "direct zoom positioning"
-            })
-        ),
-        "metadata-only normalized direct zoom should be rejected: {normalized_zoom:?}"
-    );
-
-    let digital_zoom = dyn_camera.zoom().set_digital_zoom(true).await;
-    assert!(
-        matches!(
-            digital_zoom,
-            Err(Error::FeatureNotSupported {
-                feature: "digital zoom"
-            })
-        ),
-        "metadata-only digital zoom toggle should be rejected: {digital_zoom:?}"
-    );
-
-    let one_push = dyn_camera.focus().focus_one_push().await;
-    assert!(
-        matches!(
-            one_push,
-            Err(Error::FeatureNotSupported {
-                feature: "one-push focus"
-            })
-        ),
-        "metadata-only one-push focus should be rejected: {one_push:?}"
-    );
-
-    let focus_zone = dyn_camera.focus().set_focus_zone(FocusZone::Center).await;
-    assert!(
-        matches!(
-            focus_zone,
-            Err(Error::FeatureNotSupported {
-                feature: "focus zone"
-            })
-        ),
-        "metadata-only focus zone should be rejected: {focus_zone:?}"
-    );
-
-    let af_sensitivity = dyn_camera
-        .focus()
-        .set_auto_focus_sensitivity(AutoFocusSensitivity::Normal)
-        .await;
-    assert!(
-        matches!(
-            af_sensitivity,
-            Err(Error::FeatureNotSupported {
-                feature: "auto-focus sensitivity"
-            })
-        ),
-        "metadata-only auto-focus sensitivity should be rejected: {af_sensitivity:?}"
-    );
-
-    assert!(
-        sent.sent().is_empty(),
-        "unsupported typed dyn calls must not submit commands"
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_digital_zoom_range_requires_typed_range_support() {
-    let transport = ScriptedTransport::new(vec![]);
-    let sent = transport.clone();
-    let camera = new_profile_camera::<DirectZoomOnlyTypedSupport>(transport).await;
-    let dyn_camera = camera.into_dyn();
-    let caps = dyn_camera.capabilities();
-
-    assert!(caps.supports_direct_zoom);
-    assert!(caps.has_digital_zoom);
-    assert!(caps.supports_typed(TypedSupportSurface::DirectZoom));
-    assert!(!caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
-
-    let result = dyn_camera
-        .zoom()
-        .set_zoom_normalized_in_domain(
-            UnitInterval::new(0.5).expect("valid normalized value"),
-            ZoomDomain::OpticalPlusDigital,
-            None,
+impl ProbeTransport {
+    fn new(complete: bool) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+        let (response_tx, responses) = flume::unbounded();
+        let writes = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                config: TransportConfig::default(),
+                responses,
+                response_tx,
+                writes: Arc::clone(&writes),
+                complete,
+            },
+            writes,
         )
-        .await;
+    }
 
-    assert!(
-        matches!(
-            result,
-            Err(Error::FeatureNotSupported {
-                feature: "digital zoom"
-            })
-        ),
-        "digital zoom range requires typed support even when metadata exists: {result:?}"
-    );
-    assert!(
-        sent.sent().is_empty(),
-        "unsupported digital range call must not submit a command"
+    fn serial(complete: bool) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+        let (mut transport, writes) = Self::new(complete);
+        transport.config.addressing = AddressingMode::Serial;
+        (transport, writes)
+    }
+
+    fn source(&self, bytes: &[u8]) -> u8 {
+        let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
+        match self.config.addressing {
+            AddressingMode::Serial => 0x80 | target.saturating_add(8) << 4,
+            AddressingMode::Ip => 0x90,
+        }
+    }
+}
+
+impl HasTransportConfig for ProbeTransport {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
+    }
+}
+
+impl AsyncTransport for ProbeTransport {
+    fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
+        let bytes = bytes.to_vec();
+        let source = self.source(&bytes);
+        let complete = self.complete;
+        let response_tx = self.response_tx.clone();
+        self.writes
+            .lock()
+            .expect("probe writes lock")
+            .push(bytes.clone());
+        async move {
+            if bytes.get(1) == Some(&0x09) {
+                response_tx
+                    .send_async(vec![source, 0x50, 0xff])
+                    .await
+                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            } else {
+                response_tx
+                    .send_async(vec![source, 0x41, 0xff])
+                    .await
+                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                if complete {
+                    response_tx
+                        .send_async(vec![source, 0x51, 0xff])
+                        .await
+                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    #[allow(clippy::manual_async_fn)]
+    fn recv_into<'a>(
+        &'a mut self,
+        destination: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, Error>> + Send {
+        async move {
+            let response = self
+                .responses
+                .recv_async()
+                .await
+                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            destination[..response.len()].copy_from_slice(&response);
+            Ok(response.len())
+        }
+    }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(self.config.addressing)
+    }
+
+    fn send_semantics(&self) -> SendSemantics {
+        match self.config.addressing {
+            AddressingMode::Serial => SendSemantics::Stream,
+            AddressingMode::Ip => SendSemantics::Datagram,
+        }
+    }
+}
+
+async fn open_session(transport: ProbeTransport, config: SessionConfig) -> Session {
+    Session::open(
+        transport,
+        config,
+        TokioRuntime::from_current().expect("Tokio runtime"),
+    )
+    .await
+    .expect("owner session")
+}
+
+fn assert_unknown(camera: &DynSessionCamera) {
+    assert_eq!(
+        camera.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Unknown
     );
 }
 
+fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
+    match camera.state_cache().value(StateKey::MulticastStreaming) {
+        StateEntry::Set(value) => assert_eq!(value.as_slice(), expected),
+        other => panic!("expected multicast state {expected:?}, got {other:?}"),
+    }
+}
+
 #[tokio::test]
-async fn test_dyn_sony_fr7_rejects_unverified_shared_focus_features_without_sending() {
-    let transport = ScriptedTransport::new(vec![
-        helpers::sony_auto_respond_step(),
-        helpers::sony_auto_respond_step(),
-    ]);
-    let sent = transport.clone();
-    let camera = new_profile_camera::<SonyFR7>(transport).await;
-    let dyn_camera = camera.into_dyn();
-    let caps = dyn_camera.capabilities();
+async fn tokio_dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles() {
+    let (transport, writes) = ProbeTransport::new(true);
+    let session = open_session(transport, SessionConfig::new(profile())).await;
+    let camera = session.camera_dyn().expect("dynamic camera");
+    let root: &dyn DynSessionCameraControl = &camera;
+    let nouns: &dyn DynSessionCameraNouns = &camera;
 
-    assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomToggle));
-    assert!(caps.supports_typed(TypedSupportSurface::DigitalZoomRange));
-    assert!(!caps.supports_typed(TypedSupportSurface::FocusZone));
-    assert!(!caps.supports_typed(TypedSupportSurface::AutoFocusSensitivity));
+    assert_eq!(root.target(), CameraId::CAMERA_1);
+    assert!(root.capabilities().has_zoom);
+    assert!(!root.supports_typed(TypedSupportSurface::DigitalZoomToggle));
 
-    dyn_camera
+    nouns
+        .zoom()
+        .stop()
+        .await
+        .expect("applied admission")
+        .applied()
+        .await
+        .expect("applied lifecycle");
+    nouns
+        .pan_tilt()
+        .home()
+        .await
+        .expect("targeted admission")
+        .applied()
+        .await
+        .expect("targeted applied lifecycle");
+
+    // Built-in requests can also be erased behind the object-safe custom
+    // request markers.  They must still use the same owner and return the
+    // corresponding closed operation handle.
+    let targeted: &dyn DynTargetedRequest = &PanTiltHome;
+    root.submit_targeted(targeted)
+        .await
+        .expect("custom targeted admission")
+        .applied()
+        .await
+        .expect("custom targeted applied lifecycle");
+    let applied: &dyn DynAppliedRequest = &ZoomStop;
+    root.submit_applied(applied)
+        .await
+        .expect("custom applied admission")
+        .applied()
+        .await
+        .expect("custom applied lifecycle");
+
+    assert_eq!(writes.lock().expect("writes lock").len(), 4);
+    session.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
+    let (transport, writes) = ProbeTransport::new(true);
+    let session = open_session(transport, SessionConfig::new(profile())).await;
+    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+    let error = camera
         .zoom()
         .set_digital_zoom(true)
         .await
-        .expect("SonyFR7 digital zoom toggle should be supported");
-    dyn_camera
-        .zoom()
-        .set_zoom_normalized_in_domain(
-            UnitInterval::new(0.5).expect("valid normalized value"),
-            ZoomDomain::OpticalPlusDigital,
-            None,
-        )
-        .await
-        .expect("SonyFR7 optical-plus-digital zoom should be supported");
-    let focus_zone = dyn_camera.focus().set_focus_zone(FocusZone::Center).await;
+        .expect_err("PtzOptics G2 has no digital zoom toggle");
     assert!(matches!(
-        focus_zone,
-        Err(Error::FeatureNotSupported {
-            feature: "focus zone"
-        })
+        error,
+        Error::FeatureNotSupported {
+            feature: "digital zoom"
+        }
     ));
-    let af_sensitivity = dyn_camera
-        .focus()
-        .set_auto_focus_sensitivity(AutoFocusSensitivity::Normal)
-        .await;
+    assert!(writes.lock().expect("writes lock").is_empty());
+
+    session.shutdown().await.expect("shutdown");
+}
+
+#[tokio::test]
+async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
+    let (transport, _) = ProbeTransport::serial(true);
+    let mut config = SessionConfig::new(profile());
+    config
+        .register_target(CameraId::CAMERA_2, profile())
+        .expect("camera 2 registration");
+    let session = open_session(transport, config).await;
+    let first = session
+        .camera_dyn_for(CameraId::CAMERA_1)
+        .expect("camera 1 dynamic view");
+    let first_view = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
+        .expect("same-target dynamic view");
+    let second = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
+        .expect("camera 2 dynamic view");
+
+    assert_unknown(&first);
+    assert_unknown(&second);
+    first
+        .advanced()
+        .multicast_on()
+        .await
+        .expect("exact applied multicast effect");
+    assert_state(&first, &[1]);
+    assert_state(&first_view, &[1]);
+    assert_unknown(&second);
+
+    first
+        .advanced()
+        .multicast_off()
+        .await
+        .expect("exact applied multicast clear effect");
+    assert_state(&first, &[0]);
+    assert_unknown(&second);
+    session.shutdown().await.expect("shutdown");
+
+    // A fresh owner receives a fresh fixed registry; state never leaks from
+    // a previous session even when the profile is identical.
+    let (fresh_transport, _) = ProbeTransport::new(true);
+    let fresh = open_session(fresh_transport, SessionConfig::new(profile())).await;
+    let fresh_camera = DynSessionCamera::from_session(&fresh).expect("fresh dynamic camera");
+    assert_unknown(&fresh_camera);
+    fresh.shutdown().await.expect("fresh shutdown");
+}
+
+#[tokio::test]
+async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
+    let (transport, writes) = ProbeTransport::serial(true);
+    let mut config = SessionConfig::new(profile());
+    config
+        .register_target(CameraId::CAMERA_2, profile())
+        .expect("camera 2 registration");
+    let session = open_session(transport, config).await;
+
     assert!(matches!(
-        af_sensitivity,
-        Err(Error::FeatureNotSupported {
-            feature: "auto-focus sensitivity"
-        })
+        DynSessionCamera::from_session(&session),
+        Err(Error::InvalidState(_))
     ));
-
-    assert_eq!(
-        sent.sent().len(),
-        2,
-        "unsupported shared focus calls must not submit commands"
-    );
+    let selected = session
+        .camera_dyn_for(CameraId::CAMERA_2)
+        .expect("explicit dynamic target");
+    assert_eq!(selected.target(), CameraId::CAMERA_2);
+    let _ = selected
+        .camera::<PtzOpticsG2>()
+        .expect("matching static projection");
+    assert!(matches!(
+        session.camera::<PtzOpticsG2>(),
+        Err(Error::InvalidState(_))
+    ));
+    assert!(writes.lock().expect("writes lock").is_empty());
+    session.shutdown().await.expect("shutdown");
 }
 
 #[tokio::test]
-async fn test_dyn_ptzoptics_g2_supported_direct_zoom_and_focus_zone_succeed() {
-    let transport = ScriptedTransport::new(vec![
-        helpers::auto_respond_step(),
-        helpers::auto_respond_step(),
-    ]);
-    let sent = transport.clone();
-    let camera = new_profile_camera::<PtzOpticsG2>(transport).await;
-    let dyn_camera = camera.into_dyn();
-
-    dyn_camera
-        .zoom()
-        .set_zoom(
-            ZoomPosition::new(0x2000).expect("valid raw zoom position"),
-            None,
-        )
-        .await
-        .expect("PtzOpticsG2 direct zoom should be supported");
-    dyn_camera
-        .focus()
-        .set_focus_zone(FocusZone::Center)
-        .await
-        .expect("PtzOpticsG2 focus zone should be supported");
-
-    assert_eq!(
-        sent.sent().len(),
-        2,
-        "each supported PtzOpticsG2 dyn typed call should submit one command"
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_ptzoptics_g2_rejects_unsupported_digital_zoom_surfaces() {
-    let transport = ScriptedTransport::new(vec![]);
-    let sent = transport.clone();
-    let camera = new_profile_camera::<PtzOpticsG2>(transport).await;
-    let dyn_camera = camera.into_dyn();
-
-    let toggle = dyn_camera.zoom().set_digital_zoom(true).await;
-    assert!(
-        matches!(
-            toggle,
-            Err(Error::FeatureNotSupported {
-                feature: "digital zoom"
-            })
-        ),
-        "PtzOpticsG2 digital zoom toggle should be rejected: {toggle:?}"
-    );
-
-    let range = dyn_camera
-        .zoom()
-        .set_zoom_normalized_in_domain(
-            UnitInterval::new(0.5).expect("valid normalized value"),
-            ZoomDomain::OpticalPlusDigital,
-            None,
-        )
-        .await;
-    assert!(
-        matches!(
-            range,
-            Err(Error::FeatureNotSupported {
-                feature: "digital zoom"
-            })
-        ),
-        "PtzOpticsG2 digital zoom range should be rejected: {range:?}"
-    );
-
-    assert!(
-        sent.sent().is_empty(),
-        "unsupported PtzOpticsG2 digital zoom calls must not submit commands"
-    );
-}
-
-/// Test pan/tilt operations through the dyn-api without timeout.
-#[tokio::test]
-async fn test_dyn_pan_tilt_home_no_timeout() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::command_response(
-            patterns::pan_tilt::HOME.to_vec(),
-            1,
-        )]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera.pan_tilt();
-
-    // Call pan_tilt_home without timeout (uses default timeout)
-    let result = pt.pan_tilt_home(None).await;
-    assert!(
-        result.is_ok(),
-        "pan_tilt_home should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Explicit dyn method timeouts wait on the command response future and
-/// propagate camera errors instead of treating any completed response as success.
-#[tokio::test]
-async fn test_dyn_method_explicit_timeout_path_propagates_command_errors() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let result = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home(Some(Duration::from_secs(1)))
-        .await;
-
-    assert!(
-        matches!(result, Err(Error::SyntaxError)),
-        "camera syntax error should propagate through dyn method timeout path: {result:?}"
-    );
-}
-
-/// Explicit timeout paths for zoom delegate through the static operation helper,
-/// preserving command error propagation for paths that previously built commands
-/// directly in dynapi.rs.
-#[tokio::test]
-async fn test_dyn_zoom_explicit_timeout_path_propagates_command_errors() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let result = dyn_camera
-        .zoom()
-        .zoom_tele(None, Some(Duration::from_secs(1)))
-        .await;
-
-    assert!(
-        matches!(result, Err(Error::SyntaxError)),
-        "camera syntax error should propagate through dyn zoom timeout path: {result:?}"
-    );
-}
-
-/// Dyn no-timeout calls should use the runtime's default command timeout path,
-/// not an explicit per-call deadline.
-#[tokio::test]
-async fn test_dyn_no_timeout_path_uses_default_command_timeout() {
-    let camera = new_test_camera_with_timeout(
-        vec![Step::OnSend {
-            matches: Some(patterns::pan_tilt::HOME.to_vec()),
-            responses: vec![helpers::ack(1)],
-        }],
-        TimeoutConfig::uniform(Duration::from_millis(50)),
-    )
-    .await;
-
-    let dyn_camera = camera.into_dyn();
-    let started = Instant::now();
-    let result = dyn_camera.pan_tilt().pan_tilt_home(None).await;
-
-    assert!(
-        matches!(result, Err(Error::Timeout)),
-        "missing completion should use default command timeout: {result:?}"
-    );
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "default command timeout should come from TimeoutConfig"
-    );
-}
-
-/// Static and dyn paths should reject the same validation edge cases before
-/// command submission.
-#[tokio::test]
-async fn test_dyn_validation_parity_for_pan_tilt_focus_preset_and_zoom_domain() {
-    let static_camera = new_test_camera(vec![]).await;
-    let dyn_camera = new_test_camera(vec![]).await.into_dyn();
-
-    let static_pan_tilt = static_camera
-        .pan_tilt_absolute(171.0, 0.0, SpeedLevel::Medium)
-        .await;
-    let dyn_pan_tilt = dyn_camera
-        .pan_tilt()
-        .pan_tilt_absolute(171.0, 0.0, SpeedLevel::Medium, None)
-        .await;
-    assert!(
-        matches!(
-            static_pan_tilt,
-            Err(Error::InvalidParameter {
-                parameter: "degrees",
-                ..
-            })
-        ),
-        "static pan/tilt should reject out-of-range degrees: {static_pan_tilt:?}"
-    );
-    assert!(
-        matches!(
-            dyn_pan_tilt,
-            Err(Error::InvalidParameter {
-                parameter: "degrees",
-                ..
-            })
-        ),
-        "dyn pan/tilt should reject out-of-range degrees: {dyn_pan_tilt:?}"
-    );
-
-    let invalid_focus = FocusPosition::new(0x0FFF);
-    let static_focus = static_camera.set_focus(invalid_focus).await;
-    let dyn_focus = dyn_camera.focus().set_focus(invalid_focus, None).await;
-    assert!(
-        matches!(
-            static_focus,
-            Err(Error::ValidationError(
-                grafton_visca::capabilities::ValidationError::OutOfRange {
-                    parameter: "focus position",
-                    ..
-                }
-            ))
-        ),
-        "static focus should reject out-of-range focus position: {static_focus:?}"
-    );
-    assert!(
-        matches!(
-            dyn_focus,
-            Err(Error::ValidationError(
-                grafton_visca::capabilities::ValidationError::OutOfRange {
-                    parameter: "focus position",
-                    ..
-                }
-            ))
-        ),
-        "dyn focus should reject out-of-range focus position: {dyn_focus:?}"
-    );
-
-    let invalid_profile_preset = PresetNumber::new(128).expect("raw preset should be valid");
-    let static_preset = static_camera.preset_recall(invalid_profile_preset).await;
-    let dyn_preset = dyn_camera
-        .presets()
-        .preset_recall(invalid_profile_preset, None)
-        .await;
-    assert!(
-        matches!(
-            static_preset,
-            Err(Error::ParameterOutOfRange {
-                parameter: "preset_number",
-                value: 128,
-                min: 0,
-                max: 127,
-            })
-        ),
-        "static preset should reject profile-invalid preset: {static_preset:?}"
-    );
-    assert!(
-        matches!(
-            dyn_preset,
-            Err(Error::ParameterOutOfRange {
-                parameter: "preset_number",
-                value: 128,
-                min: 0,
-                max: 127,
-            })
-        ),
-        "dyn preset should reject profile-invalid preset: {dyn_preset:?}"
-    );
-
-    let normalized = UnitInterval::new(0.5).expect("valid normalized value");
-    let dyn_zoom = dyn_camera
-        .zoom()
-        .set_zoom_normalized_in_domain(normalized, ZoomDomain::OpticalPlusDigital, None)
-        .await;
-    assert!(
-        matches!(
-            dyn_zoom,
-            Err(Error::FeatureNotSupported {
-                feature: "digital zoom"
-            })
-        ),
-        "dyn zoom should reject unsupported digital zoom domain: {dyn_zoom:?}"
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_zoom_normalized_optical_encodes_profile_aware_position() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::command_response(
-            vec![
-                0x81,
-                0x01,
-                0x04,
-                0x47,
-                0x02,
-                0x00,
-                0x00,
-                0x00,
-                VISCA_TERMINATOR,
-            ],
-            1,
-        )]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-    let dyn_camera = camera.into_dyn();
-
-    let result = dyn_camera
-        .zoom()
-        .set_zoom_normalized(
-            UnitInterval::new(0.5).expect("valid normalized value"),
-            None,
-        )
-        .await;
-
-    assert!(
-        result.is_ok(),
-        "dyn optical normalized zoom should succeed: {result:?}"
-    );
-}
-
-/// Dyn operation handles preserve the exact command response future from the
-/// static handle, so command errors are returned by await_completion.
-#[tokio::test]
-async fn test_dyn_inflight_await_completion_propagates_command_errors() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::errors::syntax_error(1)]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let handle = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle should be created before the response arrives");
-
-    let result = handle.await_completion(Duration::from_secs(1)).await;
-    assert!(
-        matches!(result, Err(Error::SyntaxError)),
-        "camera syntax error should propagate through InFlightDyn: {result:?}"
-    );
-}
-
-/// Awaiting a dyn operation consumes its response future, matching the static
-/// InFlight contract.
-#[tokio::test]
-async fn test_dyn_inflight_await_completion_is_one_shot() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::command_response(
-            patterns::pan_tilt::HOME.to_vec(),
-            1,
-        )]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let handle = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle should be created");
-
-    handle
-        .await_completion(Duration::from_secs(1))
-        .await
-        .expect("first completion wait should succeed");
-
-    let second = handle.await_completion(Duration::from_secs(1)).await;
-    assert!(
-        matches!(second, Err(Error::InvalidState(ref message)) if message.contains("await_completion called more than once")),
-        "second completion wait should be rejected: {second:?}"
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_inflight_applied_aliases_share_one_shot_state() {
-    let camera = new_test_camera(vec![helpers::command_response(
-        patterns::pan_tilt::HOME.to_vec(),
-        1,
-    )])
-    .await;
-    let dyn_camera = camera.into_dyn();
-    let handle = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle");
-
-    handle
-        .await_applied(Duration::from_secs(1))
-        .await
-        .expect("applied wait");
-    let second = handle.await_completion(Duration::from_secs(1)).await;
-    assert!(
-        matches!(second, Err(Error::InvalidState(ref message)) if message.contains("await_completion called more than once")),
-        "compatibility alias should preserve its one-shot error: {second:?}"
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_handle_categories_are_inferred_from_static_markers() {
-    let camera = new_test_camera(vec![
-        helpers::auto_respond_step(),
-        helpers::auto_respond_step(),
-        helpers::auto_respond_step(),
-        helpers::auto_respond_step(),
-    ])
-    .await;
-    let dyn_camera = camera.into_dyn();
-
-    let pan_tilt = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("pan/tilt handle");
-    assert_eq!(pan_tilt.category(), OperationCategory::PanTilt);
-    pan_tilt
-        .await_applied(Duration::from_secs(1))
-        .await
-        .expect("pan/tilt applied");
-
-    let zoom = dyn_camera
-        .zoom()
-        .set_zoom_op(ZoomPosition::MIN)
-        .await
-        .expect("zoom handle");
-    assert_eq!(zoom.category(), OperationCategory::Zoom);
-    zoom.await_applied(Duration::from_secs(1))
-        .await
-        .expect("zoom applied");
-
-    let focus = dyn_camera
-        .focus()
-        .set_focus_op(FocusPosition::new(0x1000))
-        .await
-        .expect("focus handle");
-    assert_eq!(focus.category(), OperationCategory::Focus);
-    focus
-        .await_applied(Duration::from_secs(1))
-        .await
-        .expect("focus applied");
-
-    let preset = dyn_camera
-        .presets()
-        .preset_recall_op(PresetNumber::new(1).expect("preset"))
-        .await
-        .expect("preset handle");
-    assert_eq!(preset.category(), OperationCategory::Preset);
-    preset
-        .await_applied(Duration::from_secs(1))
-        .await
-        .expect("preset applied");
-}
-
-#[tokio::test]
-async fn test_dyn_await_settled_polls_command_derived_axes() {
-    let steps = vec![
-        helpers::command_response(patterns::pan_tilt::HOME.to_vec(), 1),
-        helpers::inquiry_response(
-            PAN_TILT_POSITION_INQUIRY.to_vec(),
-            1,
-            pan_tilt_position_response(0, 0),
-        ),
-        helpers::inquiry_response(
-            PAN_TILT_POSITION_INQUIRY.to_vec(),
-            1,
-            pan_tilt_position_response(0, 0),
-        ),
-    ];
-    let transport = ScriptedTransport::new(steps);
-    let observed = transport.clone();
-    let camera = new_profile_camera::<GenericVisca>(transport).await;
-    let dyn_camera = camera.into_dyn();
-
-    dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle")
-        .await_settled(Duration::from_secs(1))
-        .await
-        .expect("polling settle");
-
-    assert_eq!(
-        observed.sent(),
-        vec![
-            patterns::pan_tilt::HOME.to_vec(),
-            PAN_TILT_POSITION_INQUIRY.to_vec(),
-            PAN_TILT_POSITION_INQUIRY.to_vec(),
-        ]
-    );
-}
-
-#[tokio::test]
-async fn test_dyn_await_settled_shares_timeout_with_polling() {
-    let transport = ScriptedTransport::new(vec![helpers::command_response(
-        patterns::pan_tilt::HOME.to_vec(),
-        1,
-    )]);
-    let camera = new_profile_camera::<GenericVisca>(transport).await;
-    let dyn_camera = camera.into_dyn();
-    let started = Instant::now();
-
-    let result = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle")
-        .await_settled(Duration::from_millis(40))
-        .await;
-
-    assert!(matches!(result, Err(Error::Timeout)));
-    assert!(
-        started.elapsed() < Duration::from_millis(500),
-        "settle polling must not start a fresh timeout budget"
-    );
-}
-
-/// Cancelling a dyn operation should fail that operation's completion future
-/// with the VISCA cancellation error.
-#[tokio::test]
-async fn test_dyn_inflight_cancel_propagates_command_canceled() {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-        Step::OnSend {
-            matches: Some(patterns::pan_tilt::HOME.to_vec()),
-            responses: vec![helpers::ack(1)],
-        },
-        Step::OnSend {
-            matches: Some(vec![0x81, 0x21, 0xFF]),
-            responses: vec![vec![0x90, 0x61, 0x04, 0xFF]],
-        },
-    ]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<GenericVisca, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let handle = dyn_camera
-        .pan_tilt()
-        .pan_tilt_home_op()
-        .await
-        .expect("operation handle should be created");
-
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    handle.cancel().await.expect("cancel should be submitted");
-
-    let result = handle.await_completion(Duration::from_secs(1)).await;
-    assert!(
-        matches!(result, Err(Error::CommandCanceled)),
-        "cancelled dyn operation should resolve as CommandCanceled: {result:?}"
-    );
-}
-
-/// Methods without a public static `_op` variant still apply explicit dyn
-/// timeouts to command completion, not to a later idle poll.
-#[tokio::test]
-async fn test_dyn_zoom_tele_explicit_timeout_uses_command_completion_deadline() {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![Step::OnSend {
-        matches: Some(vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]),
-        responses: vec![helpers::ack(1)],
-    }]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let started = Instant::now();
-    let result = dyn_camera
-        .zoom()
-        .zoom_tele(None, Some(Duration::from_millis(50)))
-        .await;
-
-    assert!(
-        matches!(result, Err(Error::Timeout)),
-        "missing completion should use explicit dyn timeout: {result:?}"
-    );
-    assert!(
-        started.elapsed() < Duration::from_secs(1),
-        "explicit dyn timeout should not wait for the default command timeout"
-    );
-}
-
-/// Test pan/tilt reset command.
-#[tokio::test]
-async fn test_dyn_pan_tilt_reset() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::command_response(
-            patterns::pan_tilt::RESET.to_vec(),
-            1,
-        )]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera.pan_tilt();
-
-    // Call pan_tilt_reset without timeout (uses default timeout)
-    let result = pt.pan_tilt_reset(None).await;
-    assert!(
-        result.is_ok(),
-        "pan_tilt_reset should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Test pan/tilt stop command (no timeout needed).
-#[tokio::test]
-async fn test_dyn_pan_tilt_stop() {
-    // Use auto_respond_step because pan_tilt_stop uses SpeedLevel::Medium
-    // which generates different speed bytes than the hardcoded STOP pattern
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera.pan_tilt();
-
-    let result = pt.pan_tilt_stop().await;
-    assert!(
-        result.is_ok(),
-        "pan_tilt_stop should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Test zoom operations through the dyn-api.
-#[tokio::test]
-async fn test_dyn_zoom_operations() {
-    let zoom_in_cmd = vec![0x81, 0x01, 0x04, 0x07, 0x02, 0xFF]; // Zoom tele standard
-
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-        helpers::command_response(patterns::zoom::STOP.to_vec(), 1),
-        helpers::command_response(zoom_in_cmd, 2),
-    ]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let zoom = dyn_camera.zoom();
-
-    // Test zoom stop
-    let stop_result = zoom.zoom_stop().await;
-    assert!(
-        stop_result.is_ok(),
-        "zoom_stop should succeed: {:?}",
-        stop_result.err()
-    );
-
-    // Test zoom tele without timeout
-    let tele_result = zoom.zoom_tele(None, None).await;
-    assert!(
-        tele_result.is_ok(),
-        "zoom_tele should succeed: {:?}",
-        tele_result.err()
-    );
-}
-
-/// Test focus operations through the dyn-api.
-#[tokio::test]
-async fn test_dyn_focus_operations() {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-        helpers::command_response(patterns::focus::AUTO.to_vec(), 1),
-        helpers::command_response(patterns::focus::MANUAL.to_vec(), 2),
-    ]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let focus = dyn_camera.focus();
-
-    // Test focus auto
-    let auto_result = focus.focus_auto().await;
-    assert!(
-        auto_result.is_ok(),
-        "focus_auto should succeed: {:?}",
-        auto_result.err()
-    );
-
-    // Test focus manual
-    let manual_result = focus.focus_manual().await;
-    assert!(
-        manual_result.is_ok(),
-        "focus_manual should succeed: {:?}",
-        manual_result.err()
-    );
-}
-
-/// Test preset operations through the dyn-api.
-#[tokio::test]
-async fn test_dyn_preset_operations() {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-        helpers::command_response(patterns::preset::SET_1.to_vec(), 1),
-        helpers::command_response(patterns::preset::RECALL_1.to_vec(), 2),
-    ]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let presets = dyn_camera.presets();
-
-    let preset_num = PresetNumber::new(1).expect("Valid preset number");
-
-    // Test preset set
-    let set_result = presets.preset_set(preset_num).await;
-    assert!(
-        set_result.is_ok(),
-        "preset_set should succeed: {:?}",
-        set_result.err()
-    );
-
-    // Test preset recall without timeout
-    let recall_result = presets.preset_recall(preset_num, None).await;
-    assert!(
-        recall_result.is_ok(),
-        "preset_recall should succeed: {:?}",
-        recall_result.err()
-    );
-}
-
-/// Test preset reset operation.
-#[tokio::test]
-async fn test_dyn_preset_reset() {
-    // Preset reset command for preset 0
-    let preset_reset_0 = vec![0x81, 0x01, 0x04, 0x3F, 0x00, 0x00, 0xFF];
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::command_response(preset_reset_0, 1)]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let presets = dyn_camera.presets();
-
-    let preset_num = PresetNumber::new(0).expect("Valid preset number");
-
-    let result = presets.preset_reset(preset_num).await;
-    assert!(
-        result.is_ok(),
-        "preset_reset should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Test using dyn-api in a function that accepts trait objects (runtime polymorphism).
-#[tokio::test]
-async fn test_dyn_api_polymorphism() {
-    // This function demonstrates using trait objects for runtime polymorphism
-    async fn control_camera(camera: &dyn DynCameraControl) -> grafton_visca::Result<()> {
-        camera.pan_tilt().pan_tilt_stop().await?;
-        camera.zoom().zoom_stop().await?;
-        Ok(())
+async fn tokio_dynamic_queued_targeted_cancel_is_owner_local() {
+    let (transport, writes) = ProbeTransport::new(false);
+    let config = SessionConfig::new(profile())
+        .with_tuning(OperationalTuning::new().maximum_command_sockets(1))
+        .expect("one socket tuning");
+    let session = open_session(transport, config).await;
+    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let nouns: &dyn DynSessionCameraNouns = &camera;
+
+    let first = nouns.zoom().stop().await.expect("first operation");
+    for _ in 0..100 {
+        if !writes.lock().expect("writes lock").is_empty() {
+            break;
+        }
+        tokio::task::yield_now().await;
     }
+    assert_eq!(writes.lock().expect("writes lock").len(), 1);
 
-    // Use auto_respond_step since command bytes vary by speed level
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![
-        helpers::auto_respond_step(),
-        helpers::auto_respond_step(),
-    ]);
+    let queued = nouns.pan_tilt().home().await.expect("queued operation");
+    let cancellation = queued.cancel().await.expect("queued cancellation");
+    assert!(matches!(
+        cancellation.outcome(Duration::from_secs(1)).await,
+        Ok(CancellationOutcome::Cancelled)
+    ));
+    assert_eq!(writes.lock().expect("writes lock").len(), 1);
 
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
+    first.detach();
+    session.shutdown().await.expect("shutdown");
+}
 
-    let dyn_camera = camera.into_dyn();
+#[tokio::test]
+async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
+    let (transport, _) = ProbeTransport::new(true);
+    let session = open_session(transport, SessionConfig::new(profile())).await;
+    let static_camera = session.camera::<PtzOpticsG2>().expect("static camera");
+    let dynamic_camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let nouns: &dyn DynSessionCameraNouns = &dynamic_camera;
+    let static_zoom = static_camera.zoom();
+    let dynamic_zoom = nouns.zoom();
 
-    // Use the camera through trait object interface
-    let result = control_camera(&dyn_camera).await;
-    assert!(
-        result.is_ok(),
-        "control_camera should succeed: {:?}",
-        result.err()
+    let static_allocations = allocations_during(|| {
+        // This is the explicit baseline box required for a static async
+        // future.  It represents one caller-owned allocation, not a library
+        // allocation hidden by the test.
+        let future = Box::pin(static_zoom.stop());
+        std::mem::drop(std::hint::black_box(future));
+    });
+    let dynamic_allocations = allocations_during(|| {
+        let future = dynamic_zoom.stop();
+        std::mem::drop(std::hint::black_box(future));
+    });
+    assert_eq!(
+        dynamic_allocations, static_allocations,
+        "dynamic noun construction added an outer box: dynamic={dynamic_allocations}, static={static_allocations}"
     );
+
+    session.shutdown().await.expect("shutdown");
 }
 
-/// Test that DynCamera can be stored in a Box and used as a trait object.
-#[tokio::test]
-async fn test_dyn_camera_in_box() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-
-    // Store in a Box as trait object
-    let boxed: Box<dyn DynCameraControl> = Box::new(dyn_camera);
-
-    // Use through the boxed trait object
-    assert!(boxed.capabilities().has_pan_tilt);
-    assert!(boxed.capabilities().has_zoom);
-    assert!(boxed.capabilities().has_focus);
-    assert!(boxed.capabilities().has_presets);
-}
-
-/// Test that DynCamera can be stored in an Arc for shared access.
-#[tokio::test]
-async fn test_dyn_camera_in_arc() {
-    // Use auto_respond_step since command bytes vary by speed level
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-
-    // Store in an Arc for shared access
-    let arc_camera: Arc<dyn DynCameraControl + Send + Sync> = Arc::new(dyn_camera);
-
-    // Clone the Arc for multi-threaded access
-    let arc_clone = Arc::clone(&arc_camera);
-
-    // Use through the Arc
-    let result = arc_clone.pan_tilt().pan_tilt_stop().await;
-    assert!(result.is_ok(), "Should succeed through Arc");
-}
-
-/// Test pan_tilt_absolute through dyn-api.
-#[tokio::test]
-async fn test_dyn_pan_tilt_absolute() {
-    // PtzOpticsG2 pan_tilt_absolute command for 0.0, 0.0 degrees at Fast speed
-    // The actual bytes depend on the profile's coordinate conversion
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera.pan_tilt();
-
-    // Test absolute positioning without timeout
-    let result = pt
-        .pan_tilt_absolute(0.0, 0.0, SpeedLevel::Medium, None)
-        .await;
-    assert!(
-        result.is_ok(),
-        "pan_tilt_absolute should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Test pan_tilt_relative through dyn-api without timeout.
-#[tokio::test]
-async fn test_dyn_pan_tilt_relative() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-    let pt = dyn_camera.pan_tilt();
-
-    // Test relative positioning without timeout (uses default timeout)
-    let result = pt
-        .pan_tilt_relative(5.0, -2.0, SpeedLevel::Slow, None)
-        .await;
-    assert!(
-        result.is_ok(),
-        "pan_tilt_relative should succeed: {:?}",
-        result.err()
-    );
-}
-
-/// Test that DynCamera Debug implementation works.
-#[tokio::test]
-async fn test_dyn_camera_debug() {
-    let transport: ScriptedTransport<TokioExecutor> = ScriptedTransport::new(vec![]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-
-    // Verify Debug output contains expected information
-    let debug_str = format!("{:?}", dyn_camera);
-    assert!(
-        debug_str.contains("DynCamera"),
-        "Debug should contain DynCamera"
-    );
-    assert!(
-        debug_str.contains("PtzOpticsG2"),
-        "Debug should contain profile name"
-    );
-}
-
-/// Test DynCamera into_inner conversion.
-#[tokio::test]
-async fn test_dyn_camera_into_inner() {
-    let transport: ScriptedTransport<TokioExecutor> =
-        ScriptedTransport::new(vec![helpers::auto_respond_step()]);
-
-    let runtime = TokioRuntime::from_current().expect("Failed to get runtime");
-    let camera = CameraBuilder::with_executor(runtime)
-        .open_async::<PtzOpticsG2, _>(transport)
-        .await
-        .expect("Failed to create camera");
-
-    let dyn_camera = camera.into_dyn();
-
-    // Get reference to underlying camera
-    let _camera_ref = dyn_camera.camera();
-
-    // Convert back to concrete type
-    let _concrete = dyn_camera
-        .into_inner()
-        .expect("Should be able to unwrap with no other references");
-
-    // Can use concrete API again (would need to re-wrap for dyn API)
-}
+// Keep the command imported in this binary so the cache test proves the
+// canonical state effect through the same public request type used by static
+// callers, even though the dynamic noun invokes it internally.
+#[allow(dead_code)]
+fn _multicast_streaming_type_is_public(_: MulticastStreaming) {}

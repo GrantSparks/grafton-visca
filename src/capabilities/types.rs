@@ -12,11 +12,40 @@ pub use crate::capabilities::exposure::ShutterSpeed;
 /// literals while still exposing standard [`RangeInclusive`] values for runtime
 /// discovery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct CapabilityRange<T> {
     min: T,
     max: T,
+}
+
+#[cfg(feature = "serde")]
+impl<'de, T> serde::Deserialize<'de> for CapabilityRange<T>
+where
+    T: serde::Deserialize<'de> + PartialOrd,
+{
+    fn deserialize<__D>(deserializer: __D) -> Result<Self, __D::Error>
+    where
+        __D: serde::Deserializer<'de>,
+    {
+        #[derive(serde::Deserialize)]
+        struct WireRange<T> {
+            min: T,
+            max: T,
+        }
+
+        let wire = WireRange::<T>::deserialize(deserializer)?;
+        if wire.min <= wire.max {
+            Ok(Self {
+                min: wire.min,
+                max: wire.max,
+            })
+        } else {
+            Err(serde::de::Error::custom(
+                "capability range minimum exceeds maximum",
+            ))
+        }
+    }
 }
 
 macro_rules! impl_capability_range {
@@ -75,19 +104,22 @@ impl_capability_range!(u8);
 impl_capability_range!(u16);
 impl_capability_range!(i8);
 impl_capability_range!(i16);
+impl_capability_range!(i32);
 
 /// Coordinate system used by a camera for pan/tilt positions.
 ///
 /// Different camera models use different coordinate representations:
 /// - Modern cameras use signed coordinates centered at (0,0)
-/// - Legacy cameras (e.g., BRC-300) use unsigned coordinates with (0x8000,0x8000) as center
+/// - Some cameras use unsigned coordinates with (0x8000,0x8000) as center
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum CoordinateSystem {
     /// Signed coordinates with (0,0) as the center position.
     /// Used by most modern cameras.
     SignedCentered,
     /// Unsigned coordinates with (0x8000,0x8000) as the center position.
-    /// Used by legacy cameras like Sony BRC-300.
+    /// Used by cameras whose standard 16-bit fields are offset from center.
     UnsignedCentered,
 }
 

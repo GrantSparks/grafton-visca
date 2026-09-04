@@ -88,6 +88,8 @@ impl<T: NdFilterMetadata> NdFilterMetadataExt for T {}
 
 /// ND filter operating modes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum NdFilterMode {
     /// No ND filter available.
     None,

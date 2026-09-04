@@ -4,13 +4,16 @@
 //! of executors and their corresponding transport implementations, preventing
 //! cross-runtime mismatches at compile time.
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use std::time::Instant;
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
+    transport::{
+        builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig,
+        ReceiveOutcome,
+    },
     Error,
 };
 
@@ -35,13 +38,22 @@ use crate::{
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 pub trait Runtime: Executor + Clone + Send + Sync + 'static {
     /// TCP transport type for this runtime.
     type TcpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
     /// UDP transport type for this runtime.
     type UdpTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
+
+    /// Serial transport type for this runtime.
+    ///
+    /// This is present only with Tokio serial support. Runtimes that do not
+    /// support Tokio serial must use an uninhabited type, so a
+    /// [`TransportHandle`] cannot be constructed with Tokio reactor I/O for
+    /// the wrong runtime.
+    #[cfg(feature = "transport-serial-tokio")]
+    type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
 
     /// Connect to a TCP endpoint.
     ///
@@ -79,15 +91,13 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
 /// Runtime trait extension for serial transport support.
 ///
 /// This sub-trait extends the base Runtime trait with serial-specific connectivity.
-/// It's kept separate to avoid forcing all runtimes to implement serial support
-/// when the serialport feature is enabled.
+/// [`Runtime::SerialTransport`] stays on the base trait so [`TransportHandle`]
+/// remains runtime-paired, while runtimes without serial support use an
+/// uninhabited associated type and do not implement this connector trait.
 ///
 /// Currently only implemented for Tokio runtime as it has tokio-serial integration.
-#[cfg(all(feature = "mode-async", feature = "transport-serial-tokio"))]
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
 pub trait RuntimeSerial: Runtime {
-    /// Serial transport type for this runtime.
-    type SerialTransport: AsyncTransport + HasTransportConfig + Send + Sync + 'static;
-
     /// Connect to a serial port.
     ///
     /// This method creates a serial transport using the runtime's specific
@@ -96,6 +106,28 @@ pub trait RuntimeSerial: Runtime {
         &self,
         cfg: crate::transport::serial::Config,
     ) -> Result<Self::SerialTransport, Error>;
+}
+
+// A runtime that has no Tokio serial integration still needs an associated
+// serial type while the `transport-serial-tokio` feature is enabled. Using an
+// uninhabited type keeps `TransportHandle<R>` uniformly shaped without giving
+// a non-Tokio runtime a safe way to construct its `Serial` variant.
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
+impl AsyncTransport for std::convert::Infallible {
+    async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
+        match *self {}
+    }
+
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+        match *self {}
+    }
+}
+
+#[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
+impl HasTransportConfig for std::convert::Infallible {
+    fn transport_config(&self) -> &TransportConfig {
+        match *self {}
+    }
 }
 
 /// Transport handle that wraps TCP, UDP, or Serial transport for a specific runtime.
@@ -124,7 +156,7 @@ pub trait RuntimeSerial: Runtime {
 /// # Ok(())
 /// # }
 /// ```
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum TransportHandle<R: Runtime> {
@@ -132,15 +164,16 @@ pub enum TransportHandle<R: Runtime> {
     Tcp(R::TcpTransport),
     /// UDP transport for this runtime.
     Udp(R::UdpTransport),
-    /// Serial transport (only available for Tokio runtime with transport-serial-tokio feature).
+    /// Serial transport paired with this runtime.
     ///
-    /// Note: This uses the concrete Tokio serial type directly to avoid requiring
-    /// RuntimeSerial bound on all uses of TransportHandle.
+    /// Tokio uses its Tokio-serial transport here. Runtimes without Tokio
+    /// serial support use an uninhabited associated type, making this variant
+    /// impossible to construct safely for them.
     #[cfg(feature = "transport-serial-tokio")]
-    Serial(Box<crate::transport::tokio::serial::Serial>),
+    Serial(Box<R::SerialTransport>),
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<R: Runtime> AsyncTransport for TransportHandle<R> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
         match self {
@@ -159,9 +192,44 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Serial(transport) => transport.recv_into(dst).await,
         }
     }
+
+    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.recv_into_with_outcome(dst).await,
+            TransportHandle::Udp(transport) => transport.recv_into_with_outcome(dst).await,
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.recv_into_with_outcome(dst).await,
+        }
+    }
+
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.addressing_mode_hint(),
+            TransportHandle::Udp(transport) => transport.addressing_mode_hint(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.addressing_mode_hint(),
+        }
+    }
+
+    fn send_semantics(&self) -> crate::transport::SendSemantics {
+        // Forward to the wrapped transport rather than inheriting the trait
+        // default (`SendSemantics::Stream`). The inner transport is the sole
+        // authority on its send semantics: `Udp` reports `Datagram`, so a UDP
+        // session opened through this wrapper must be governed by datagram
+        // rules (a failed `send_to` or a malformed datagram fails one command,
+        // it does not poison the session). Omitting this forward silently
+        // demoted every UDP session built via `TransportHandle::Udp` to the
+        // stream-poison policy. This mirrors `BlockingTransportHandle`.
+        match self {
+            TransportHandle::Tcp(transport) => transport.send_semantics(),
+            TransportHandle::Udp(transport) => transport.send_semantics(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.send_semantics(),
+        }
+    }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
     fn transport_config(&self) -> &TransportConfig {
         match self {
@@ -189,6 +257,10 @@ mod tokio_impl {
     use crate::{
         executor::TokioExecutor,
         runtime_adapters::tokio::{TcpTransport, UdpTransport},
+        transport::{
+            address::canonicalize_endpoint,
+            socket_options::{TcpConnectionConfig, UdpSocketConfig},
+        },
     };
 
     use std::future::Future;
@@ -219,6 +291,27 @@ mod tokio_impl {
             Self {
                 executor: TokioExecutor::from_handle(handle),
             }
+        }
+
+        /// Run endpoint parsing and runtime-bound UDP setup only after buffer preflight.
+        async fn preflight_udp_setup<T, F, Fut>(
+            &self,
+            addr: &str,
+            cfg: TransportConfig,
+            setup: F,
+        ) -> Result<T, Error>
+        where
+            F: FnOnce(tokio::runtime::Handle, String, UdpSocketConfig) -> Fut,
+            Fut: Future<Output = Result<T, Error>>,
+        {
+            cfg.validate()?;
+            let address = canonicalize_endpoint(addr, None)?;
+            setup(
+                self.executor.handle().clone(),
+                address,
+                UdpSocketConfig::from(cfg),
+            )
+            .await
         }
     }
 
@@ -267,14 +360,26 @@ mod tokio_impl {
     impl Runtime for TokioRuntime {
         type TcpTransport = TcpTransport;
         type UdpTransport = UdpTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = crate::transport::tokio::serial::Serial;
 
         async fn connect_tcp(
             &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            TcpTransport::connect_with_config(addr, cfg).await
+            cfg.validate()?;
+            // Run the connector on this runtime's handle rather than the
+            // ambient task's Tokio context. The resulting stream is then
+            // owned by the actor this same runtime spawns.
+            let address = canonicalize_endpoint(addr, None)?;
+            let stream = crate::transport::tokio::connectors::connect_tcp_on(
+                self.executor.handle(),
+                address,
+                TcpConnectionConfig::from(cfg),
+            )
+            .await?;
+            Ok(TcpTransport::new(stream, cfg))
         }
 
         async fn connect_udp(
@@ -282,22 +387,211 @@ mod tokio_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
-            // Timeout is enforced at the connector layer (single source of truth)
-            UdpTransport::connect_with_config(addr, cfg).await
+            // As with TCP, DNS, timer and socket work belongs to the selected
+            // runtime even when this future is polled by another Tokio runtime.
+            let socket = self
+                .preflight_udp_setup(addr, cfg, |handle, address, udp_config| async move {
+                    crate::transport::tokio::connectors::connect_udp_on(
+                        &handle, address, udp_config,
+                    )
+                    .await
+                })
+                .await?;
+            Ok(UdpTransport::new(socket, cfg))
         }
     }
 
     // Implement RuntimeSerial for TokioRuntime when tokio-serial feature is enabled
     #[cfg(feature = "transport-serial-tokio")]
     impl RuntimeSerial for TokioRuntime {
-        type SerialTransport = crate::transport::tokio::serial::Serial;
-
         async fn connect_serial(
             &self,
             cfg: crate::transport::serial::Config,
         ) -> Result<Self::SerialTransport, Error> {
-            // Use the unified Config directly (it's now the same type)
-            crate::transport::tokio::serial::Serial::connect(cfg).await
+            crate::transport::tokio::serial::Serial::connect_on(self.executor.handle(), cfg).await
+        }
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::expect_used)]
+    mod tests {
+        use super::*;
+        use crate::transport::BufferConfig;
+        use std::{
+            future,
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc,
+            },
+            time::Duration,
+        };
+
+        fn invalid_buffer_config() -> TransportConfig {
+            TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 65,
+                    max_buffer_size: 64,
+                },
+                ..TransportConfig::default()
+            }
+        }
+
+        fn assert_invalid_buffer_error<T>(result: Result<T, Error>) {
+            assert!(matches!(
+                result,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+        }
+
+        #[tokio::test]
+        #[cfg_attr(miri, ignore = "requires a real TCP listener")]
+        async fn invalid_runtime_config_returns_before_connector_io() {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind listener");
+            let address = listener.local_addr().expect("listener address").to_string();
+            let runtime = TokioRuntime::from_current().expect("runtime");
+
+            let tcp = runtime.connect_tcp(&address, invalid_buffer_config()).await;
+            let accepted =
+                tokio::time::timeout(Duration::from_millis(100), listener.accept()).await;
+
+            assert!(matches!(
+                tcp,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+            assert!(
+                accepted.is_err(),
+                "invalid configuration must be rejected before runtime TCP connect"
+            );
+
+            // This is the selected-runtime production connector seam. The
+            // spy replaces its resolver/task/socket work without I/O.
+            let setup_calls = Arc::new(AtomicUsize::new(0));
+            let spy_calls = Arc::clone(&setup_calls);
+            let udp = runtime
+                .preflight_udp_setup("127.0.0.1:9", invalid_buffer_config(), move |_, _, _| {
+                    spy_calls.fetch_add(1, Ordering::SeqCst);
+                    future::ready(Ok(()))
+                })
+                .await;
+            assert_invalid_buffer_error(udp);
+            assert_eq!(
+                setup_calls.load(Ordering::SeqCst),
+                0,
+                "invalid buffer configuration must not reach runtime UDP setup"
+            );
+
+            // The malformed endpoint makes the buffer error's precedence over
+            // runtime address parsing explicit.
+            assert_invalid_buffer_error(
+                runtime
+                    .preflight_udp_setup("[::1", invalid_buffer_config(), |_, _, _| {
+                        future::ready(Ok(()))
+                    })
+                    .await,
+            );
+        }
+
+        #[cfg(feature = "transport-serial-tokio")]
+        #[tokio::test]
+        async fn invalid_runtime_serial_config_returns_before_device_open() {
+            let runtime = TokioRuntime::from_current().expect("runtime");
+            let config = crate::transport::serial::Config::new(
+                "grafton-visca-invalid-buffer-bounds-serial-device",
+            )
+            .if_clear_on_connect(false)
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 65,
+                max_buffer_size: 64,
+            });
+
+            let result = RuntimeSerial::connect_serial(&runtime, config).await;
+
+            assert!(matches!(
+                result,
+                Err(Error::InvalidRequest(actual))
+                    if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+            ));
+        }
+
+        /// `from_handle` is allowed to be constructed and awaited while a
+        /// different Tokio runtime is current. The ambient runtime below has a
+        /// timer but deliberately no I/O driver: successful TCP/UDP setup
+        /// therefore proves connector work used `selected`; advancing only
+        /// the ambient clock must not fire a timer bound to `selected`.
+        #[test]
+        fn from_handle_binds_connectors_timers_and_spawn_to_selected_runtime(
+        ) -> Result<(), Box<dyn std::error::Error>> {
+            let selected = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()?;
+            let listener =
+                selected.block_on(async { tokio::net::TcpListener::bind("127.0.0.1:0").await })?;
+            let address = listener.local_addr()?.to_string();
+            let selected_handle = selected.handle().clone();
+
+            let ambient = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()?;
+            ambient.block_on(async move {
+                tokio::time::pause();
+                let runtime = TokioRuntime::from_handle(selected_handle.clone());
+                let selected_for_accept = selected_handle.clone();
+                let accepted = selected_handle.spawn(async move {
+                    let _ = listener.accept().await?;
+                    Ok::<_, std::io::Error>(tokio::runtime::Handle::current().id())
+                });
+
+                let tcp = runtime
+                    .connect_tcp(&address, TransportConfig::default())
+                    .await
+                    ?;
+                assert_eq!(accepted.await??, selected_for_accept.id());
+                let udp = runtime
+                    .connect_udp("127.0.0.1:9", TransportConfig::default())
+                    .await
+                    ?;
+                drop((tcp, udp));
+
+                let actor_task = runtime.spawn(async {
+                    tokio::runtime::Handle::current().id()
+                });
+                assert_eq!(actor_task.await?, selected_handle.id());
+
+                let before = Executor::now(&runtime);
+                let sleep = runtime.sleep(Duration::from_secs(1));
+                tokio::pin!(sleep);
+                tokio::select! {
+                    _ = &mut sleep => panic!("the selected runtime timer fired before its real deadline"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                tokio::time::advance(Duration::from_secs(3_600)).await;
+                tokio::select! {
+                    _ = &mut sleep => panic!("ambient time advanced a timer bound to the selected runtime"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                assert!(
+                    Executor::now(&runtime).duration_since(before) < Duration::from_secs(30)
+                );
+
+                let timeout = runtime.timeout(Duration::from_secs(1), future::pending::<()>());
+                tokio::pin!(timeout);
+                tokio::select! {
+                    result = &mut timeout => panic!("selected timer fired before advance: {result:?}"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                tokio::time::advance(Duration::from_secs(3_600)).await;
+                tokio::select! {
+                    result = &mut timeout => panic!("ambient time advanced a selected-runtime timeout: {result:?}"),
+                    _ = tokio::task::yield_now() => {}
+                }
+                Ok::<(), Box<dyn std::error::Error>>(())
+            })?;
+            Ok(())
         }
     }
 }
@@ -385,12 +679,15 @@ mod smol_impl {
     impl Runtime for SmolRuntime {
         type TcpTransport = TcpTransport;
         type UdpTransport = UdpTransport;
+        #[cfg(feature = "transport-serial-tokio")]
+        type SerialTransport = std::convert::Infallible;
 
         async fn connect_tcp(
             &self,
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::TcpTransport, Error> {
+            cfg.validate()?;
             // Timeout is enforced at the connector layer (single source of truth)
             TcpTransport::connect_with_config(addr, cfg).await
         }
@@ -400,8 +697,54 @@ mod smol_impl {
             addr: &str,
             cfg: TransportConfig,
         ) -> Result<Self::UdpTransport, Error> {
+            cfg.validate()?;
             // Timeout is enforced at the connector layer (single source of truth)
             UdpTransport::connect_with_config(addr, cfg).await
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::transport::BufferConfig;
+
+        fn invalid_buffer_config() -> TransportConfig {
+            TransportConfig {
+                buffer_config: BufferConfig {
+                    recv_buffer_size: 65,
+                    max_buffer_size: 64,
+                },
+                ..TransportConfig::default()
+            }
+        }
+
+        #[test]
+        fn invalid_runtime_config_is_rejected_before_connector_io() {
+            smol::block_on(async {
+                let runtime = SmolRuntime::new();
+
+                let tcp = runtime
+                    .connect_tcp("127.0.0.1:9", invalid_buffer_config())
+                    .await;
+                assert!(matches!(
+                    tcp,
+                    Err(Error::InvalidRequest(actual))
+                        if actual.as_ref()
+                            == "transport receive buffer cannot exceed maximum buffer"
+                ));
+
+                // SmolRuntime forwards UDP construction to UdpTransport; the
+                // transport's connector-spy test owns that shared setup seam.
+                let udp = runtime
+                    .connect_udp("127.0.0.1:9", invalid_buffer_config())
+                    .await;
+                assert!(matches!(
+                    udp,
+                    Err(Error::InvalidRequest(actual))
+                        if actual.as_ref()
+                            == "transport receive buffer cannot exceed maximum buffer"
+                ));
+            });
         }
     }
 }

@@ -54,7 +54,8 @@ fn test_error_retryability_consistency() {
 
     // These errors should always be retryable
     let retryable_errors = [
-        Error::CameraBusy,
+        Error::TransportBusy,
+        Error::TransportError("datagram send failed".into()),
         Error::CommandPending,
         Error::CommandBufferFull,
         Error::Timeout,
@@ -111,7 +112,7 @@ fn test_error_code_round_trip() {
     }
 }
 
-#[cfg(feature = "mode-async")]
+#[cfg(feature = "async")]
 #[test]
 fn test_internal_external_error_consistency() {
     // Test that the public Error type handles all VISCA error codes consistently

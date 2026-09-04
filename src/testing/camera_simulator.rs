@@ -1,7 +1,10 @@
 //! VISCA Camera Simulator for Testing
 //!
-//! This module provides a high-fidelity simulator of VISCA camera behavior
-//! that can be used for integration testing without requiring real hardware.
+//! This module provides a high-fidelity simulator of selected Standard VISCA
+//! camera behavior for integration testing without requiring real hardware.
+//! Pan/tilt position inquiries always emit the standard signed 4+4-nibble reply
+//! form. It is not a profile- or codec-selectable simulator and does not model
+//! Sony BRC-300's profile-owned 5+4 position codec.
 
 #![allow(clippy::expect_used)]
 
@@ -51,7 +54,12 @@ pub enum CommandType {
     Other,
 }
 
-/// VISCA Camera Simulator that accurately models protocol behavior
+/// Simulator for Standard VISCA framing in integration tests.
+///
+/// Pan/tilt position state is modeled as `i16`, and position inquiries always
+/// emit the standard signed 4+4-nibble reply form. This type has no profile or
+/// codec selector and does not model Sony BRC-300's profile-owned 5+4 position
+/// codec.
 pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
@@ -121,11 +129,15 @@ struct CameraState {
 
     // Focus
     focus_mode: u8,
+    focus_zone: u8,
     // NOTE: auto_focus_enabled is not documented in VISCA specs
     // and has been removed from the simulator until proper documentation is found
 
-    // Resolution
-    resolution: u8,
+    // Picture effect
+    picture_effect: u8,
+
+    // PTZOptics UAC vendor extension
+    usb_audio_enabled: bool,
 }
 
 impl Default for CameraState {
@@ -156,8 +168,10 @@ impl Default for CameraState {
             image_flip_horizontal: false,
             noise_reduction_2d: 0x01,
             noise_reduction_3d: 0x01,
-            focus_mode: 0x02, // Auto
-            resolution: 0x00, // 1080p
+            focus_mode: 0x02,        // Auto
+            focus_zone: 0x01,        // Center
+            picture_effect: 0x02,    // Off
+            usb_audio_enabled: true, // 0x02 = on
         }
     }
 }
@@ -179,7 +193,7 @@ struct SimulatorInner {
     camera_state: RwLock<CameraState>,
 }
 
-/// Configuration for the VISCA camera simulator
+/// Configuration for [`ViscaCameraSimulator`]'s Standard VISCA behavior.
 #[derive(Debug, Clone)]
 pub struct SimulatorConfig {
     // Timing configuration
@@ -307,7 +321,11 @@ impl ViscaCameraSimulator {
         }
 
         // Command format: 0x8X 0x01 [command bytes] 0xFF
-        // OR inquiry format: 0x8X 0x09 [inquiry bytes] 0xFF
+        // OR inquiry format: 0x8X 0x09 [inquiry bytes] 0xFF. PTZOptics UAC
+        // USB-audio is the documented parameterless vendor exception.
+        if Self::is_usb_audio_inquiry(data) {
+            return CommandType::Inquiry;
+        }
 
         match (data[1], data.get(2)) {
             (0x01, Some(0x04)) if data.get(3) == Some(&0x3F) => CommandType::Preset,
@@ -320,9 +338,17 @@ impl ViscaCameraSimulator {
         }
     }
 
+    fn is_usb_audio_inquiry(data: &[u8]) -> bool {
+        matches!(
+            data,
+            [0x81..=0x88, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR]
+        )
+    }
+
     /// Generate inquiry response based on the inquiry command
     async fn generate_inquiry_response(&self, data: &[u8]) -> Option<Vec<u8>> {
-        if data.len() < 4 || data[1] != 0x09 {
+        let usb_audio_inquiry = Self::is_usb_audio_inquiry(data);
+        if data.len() < 4 || (data[1] != 0x09 && !usb_audio_inquiry) {
             tracing::debug!("Not an inquiry command: {:02X?}", data);
             return None;
         }
@@ -336,7 +362,12 @@ impl ViscaCameraSimulator {
             data
         );
 
-        // Parse inquiry type from command bytes
+        if usb_audio_inquiry {
+            let status = if state.usb_audio_enabled { 0x02 } else { 0x03 };
+            return Some(vec![0x90, 0x50, status, VISCA_TERMINATOR]);
+        }
+
+        // Parse inquiry type from command bytes.
         match (data.get(2), data.get(3)) {
             // Power inquiry: 0x81 0x09 0x04 0x00 0xFF
             (Some(0x04), Some(0x00)) => {
@@ -598,6 +629,9 @@ impl ViscaCameraSimulator {
                 Some(vec![0x90, 0x50, flip_mode, VISCA_TERMINATOR])
             }
 
+            // Noise reduction 2D mode inquiry: 0x81 0x09 0x04 0x50 0xFF
+            (Some(0x04), Some(0x50)) => Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]),
+
             // Noise reduction 2D inquiry: 0x81 0x09 0x04 0x53 0xFF
             (Some(0x04), Some(0x53)) => {
                 Some(vec![0x90, 0x50, state.noise_reduction_2d, VISCA_TERMINATOR])
@@ -611,6 +645,9 @@ impl ViscaCameraSimulator {
             // Focus mode inquiry: 0x81 0x09 0x04 0x38 0xFF
             (Some(0x04), Some(0x38)) => Some(vec![0x90, 0x50, state.focus_mode, VISCA_TERMINATOR]),
 
+            // Focus zone inquiry: 0x81 0x09 0x04 0xAA 0xFF
+            (Some(0x04), Some(0xAA)) => Some(vec![0x90, 0x50, state.focus_zone, VISCA_TERMINATOR]),
+
             // NOTE: AutoFocus inquiry is not documented in VISCA specs
             // and has been disabled until proper documentation is found.
 
@@ -620,8 +657,10 @@ impl ViscaCameraSimulator {
             //     Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
             // }
 
-            // Resolution inquiry: 0x81 0x09 0x04 0x63 0xFF
-            (Some(0x04), Some(0x63)) => Some(vec![0x90, 0x50, state.resolution, VISCA_TERMINATOR]),
+            // Picture effect inquiry: 0x81 0x09 0x04 0x63 0xFF
+            (Some(0x04), Some(0x63)) => {
+                Some(vec![0x90, 0x50, state.picture_effect, VISCA_TERMINATOR])
+            }
 
             _ => {
                 tracing::warn!(
@@ -828,7 +867,7 @@ impl HasTransportConfig for ViscaCameraSimulator {
     }
 }
 
-/// Builder for configuring ViscaCameraSimulator
+/// Builder for configuring [`ViscaCameraSimulator`]'s Standard VISCA behavior.
 #[derive(Default, Debug)]
 pub struct SimulatorBuilder {
     config: SimulatorConfig,
@@ -949,6 +988,28 @@ mod tests {
             ViscaCameraSimulator::parse_command_type(&inquiry_cmd),
             CommandType::Inquiry
         );
+
+        // PTZOptics UAC USB-audio inquiry is parameterless and does not use
+        // the standard 0x09 inquiry byte.
+        let usb_audio_inquiry = vec![0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR];
+        assert_eq!(
+            ViscaCameraSimulator::parse_command_type(&usb_audio_inquiry),
+            CommandType::Inquiry
+        );
+
+        let wrong_destination = vec![0x90, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR];
+        assert_eq!(
+            ViscaCameraSimulator::parse_command_type(&wrong_destination),
+            CommandType::Other
+        );
+
+        // The UAC control command has the same prefix but carries a value;
+        // only the exact parameterless inquiry frame is an inquiry.
+        let usb_audio_control = vec![0x81, 0x2A, 0x02, 0xA0, 0x04, 0x02, VISCA_TERMINATOR];
+        assert_eq!(
+            ViscaCameraSimulator::parse_command_type(&usb_audio_control),
+            CommandType::Other
+        );
     }
 
     #[tokio::test]
@@ -1020,5 +1081,42 @@ mod tests {
         assert_eq!(response[0], 0x90);
         assert_eq!(response[1], 0x50); // Data reply
         assert_eq!(response.len(), 11); // 0x90 0x50 [8 nibbles] 0xFF
+    }
+
+    #[tokio::test]
+    async fn picture_effect_inquiry_uses_04_63_and_returns_its_own_value() {
+        let simulator = ViscaCameraSimulator::new();
+
+        let response = simulator
+            .generate_inquiry_response(&[0x81, 0x09, 0x04, 0x63, VISCA_TERMINATOR])
+            .await;
+
+        assert_eq!(response, Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]));
+    }
+
+    #[tokio::test]
+    async fn focus_zone_and_usb_audio_inquiries_use_documented_wire_forms() {
+        let simulator = ViscaCameraSimulator::new();
+
+        assert_eq!(
+            simulator
+                .generate_inquiry_response(&[0x81, 0x09, 0x04, 0xAA, VISCA_TERMINATOR])
+                .await,
+            Some(vec![0x90, 0x50, 0x01, VISCA_TERMINATOR])
+        );
+        assert_eq!(
+            simulator
+                .generate_inquiry_response(&[0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR])
+                .await,
+            Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR])
+        );
+
+        simulator.inner.camera_state.write().await.usb_audio_enabled = false;
+        assert_eq!(
+            simulator
+                .generate_inquiry_response(&[0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR])
+                .await,
+            Some(vec![0x90, 0x50, 0x03, VISCA_TERMINATOR])
+        );
     }
 }

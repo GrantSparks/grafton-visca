@@ -5,12 +5,18 @@ use std::{borrow::Cow, fmt};
 use crate::{error::Error, units::Percentage, ViscaValue};
 
 /// Gain level value for direct gain control.
+///
+/// This is the syntactic VISCA nibble domain. Individual camera profiles
+/// retain their documented gain range and reject values outside it during
+/// request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
+    min = "0x00",
+    max = "0x0F",
     display_format = "hex",
     display_prefix = "Gain Level"
 )]
@@ -19,6 +25,7 @@ pub struct GainLevel(u8);
 /// Gain limit value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -31,26 +38,20 @@ pub struct GainLimit(u8);
 /// 2D noise reduction level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
+#[visca_value(min = "0", max = "5", display_prefix = "2D NR Level")]
 pub struct NoiseReduction2DLevel(u8);
 
 /// 3D noise reduction level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
+#[visca_value(min = "0", max = "8", display_prefix = "3D NR Level")]
 pub struct NoiseReduction3DLevel(u8);
-
-/// Generic noise reduction level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0", max = "5", display_prefix = "NR Level")]
-pub struct NoiseReductionLevel(u8);
 
 /// Trait for types that can be converted into VISCA iris level values.
 ///
@@ -67,12 +68,18 @@ pub trait IntoIrisLevel {
 }
 
 /// Iris level for direct iris control.
+///
+/// This covers the union of the standard built-in profiles' wire domains.
+/// Individual camera profiles retain their documented iris range and reject
+/// values outside it during request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
+    min = "0x00",
+    max = "0x1E",
     display_format = "hex",
     display_prefix = "Iris"
 )]
@@ -110,6 +117,7 @@ impl From<FStop> for IrisLevel {
 /// Shutter speed value for direct shutter control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -122,6 +130,7 @@ pub struct ShutterSpeed(u16);
 /// Brightness level for direct brightness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -134,6 +143,7 @@ pub struct BrightnessLevel(u16);
 /// Sharpness level for direct sharpness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -145,6 +155,7 @@ pub struct SharpnessLevel(u8);
 /// Luminance level for brightness adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -156,6 +167,7 @@ pub struct LuminanceLevel(u8);
 /// Contrast level for contrast adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -167,6 +179,7 @@ pub struct ContrastLevel(u8);
 /// Dynamic range level for wide dynamic range control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -180,6 +193,7 @@ pub struct DynamicRangeLevel(u8);
 /// Valid range: -7 to +7.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct ExposureCompensationLevel(i8);
@@ -226,6 +240,12 @@ impl TryFrom<i8> for ExposureCompensationLevel {
     }
 }
 
+impl From<ExposureCompensationLevel> for i8 {
+    fn from(value: ExposureCompensationLevel) -> Self {
+        value.0
+    }
+}
+
 macro_rules! speed_enum {
     (
         $(#[$meta:meta])*
@@ -254,7 +274,11 @@ macro_rules! speed_enum {
                 }
             }
 
-            /// Converts this speed level to a VISCA tilt speed value (1-20).
+            /// Converts this speed level to a baseline VISCA tilt speed value (1-20).
+            ///
+            /// Position requests whose profile owns a one-speed wire form can
+            /// lower this coarse level differently; see the profile-aware
+            /// pan/tilt request constructors.
             #[must_use]
             pub fn to_tilt_speed(self) -> u8 {
                 match self {
@@ -418,92 +442,6 @@ fstop_enum! {
     }
 }
 
-/// User-friendly noise reduction strength levels for VISCA cameras.
-///
-/// Provides intuitive strength levels that are automatically converted to the
-/// appropriate VISCA values for 2D and 3D noise reduction commands. Note that
-/// the `Off` variant cannot be used with noise reduction commands as VISCA
-/// requires a minimum level (level 1 = minimal).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-pub enum NoiseReductionStrength {
-    /// Disable noise reduction (not supported by VISCA - use Minimal instead).
-    Off,
-    /// Minimal noise reduction with minimal impact on image quality.
-    Minimal,
-    /// Light noise reduction for moderately noisy environments.
-    Light,
-    /// Medium noise reduction for noisy environments.
-    Medium,
-    /// Strong noise reduction for very noisy environments.
-    Strong,
-    /// Maximum noise reduction for extremely noisy environments.
-    Maximum,
-}
-
-impl NoiseReductionStrength {
-    /// Converts this strength to a VISCA 2D noise reduction level (1-5).
-    ///
-    /// # Errors
-    /// Returns an error for `Off` variant since VISCA 2D noise reduction
-    /// requires a minimum level of 1.
-    pub fn to_2d_level(self) -> Result<u8, Error> {
-        match self {
-            Self::Off => Err(Error::InvalidParameter {
-                parameter: "strength",
-                value: Cow::Borrowed("Off"),
-                reason: Cow::Borrowed(
-                    "2D noise reduction cannot be turned off, use level 1 for minimal",
-                ),
-            }),
-            Self::Minimal => Ok(1),
-            Self::Light => Ok(2),
-            Self::Medium => Ok(3),
-            Self::Strong => Ok(4),
-            Self::Maximum => Ok(5),
-        }
-    }
-
-    /// Converts this strength to a VISCA 3D noise reduction level (1-8).
-    ///
-    /// # Errors
-    /// Returns an error for `Off` variant since VISCA 3D noise reduction
-    /// requires a minimum level of 1.
-    pub fn to_3d_level(self) -> Result<u8, Error> {
-        match self {
-            Self::Off => Err(Error::InvalidParameter {
-                parameter: "strength",
-                value: Cow::Borrowed("Off"),
-                reason: Cow::Borrowed(
-                    "3D noise reduction cannot be turned off, use level 1 for minimal",
-                ),
-            }),
-            Self::Minimal => Ok(1),
-            Self::Light => Ok(2),
-            Self::Medium => Ok(4),
-            Self::Strong => Ok(6),
-            Self::Maximum => Ok(8),
-        }
-    }
-}
-
-impl TryFrom<NoiseReductionStrength> for NoiseReduction2DLevel {
-    type Error = Error;
-    fn try_from(strength: NoiseReductionStrength) -> Result<Self, Self::Error> {
-        Self::new(strength.to_2d_level()?)
-    }
-}
-
-impl TryFrom<NoiseReductionStrength> for NoiseReduction3DLevel {
-    type Error = Error;
-    fn try_from(strength: NoiseReductionStrength) -> Result<Self, Self::Error> {
-        Self::new(strength.to_3d_level()?)
-    }
-}
-
 /// Ndi streaming quality settings for PtzOptics cameras.
 ///
 /// Controls the bandwidth and quality of Ndi HX video streaming.
@@ -527,6 +465,7 @@ pub enum NdiQuality {
 /// Zoom position value for direct zoom control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -613,6 +552,7 @@ impl fmt::Display for FocusPosition {
 /// Color temperature value for white balance control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -652,6 +592,7 @@ impl ColorTemp {
 /// Red gain value for white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -665,6 +606,7 @@ pub struct RedChannel(u8);
 /// Blue gain value for white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
@@ -678,6 +620,7 @@ pub struct BlueChannel(u8);
 /// Saturation level for color adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
@@ -694,6 +637,7 @@ impl SaturationLevel {
 /// Hue level for color adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
@@ -702,6 +646,7 @@ pub struct HueLevel(u8);
 /// Gamma curve level for gamma control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
@@ -710,6 +655,7 @@ pub struct GammaLevel(u8);
 /// Red tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
@@ -723,6 +669,7 @@ impl RedTuning {
 /// Blue tuning value for fine white balance adjustment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
@@ -736,6 +683,7 @@ impl BlueTuning {
 /// Pan position value for horizontal camera positioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "i16", into = "i16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-2448", max = "2448", display_prefix = "Pan")]
@@ -745,7 +693,7 @@ impl PanPosition {
     /// Center pan position (no horizontal offset).
     pub const CENTER: Self = Self(0);
 
-    /// Converts this pan position to degrees (-170° to +170°).
+    /// Converts this pan position to degrees (-170° left to +170° right).
     #[must_use]
     pub fn to_degrees(self) -> f32 {
         (self.0 as f32) * 170.0 / 2448.0
@@ -754,7 +702,8 @@ impl PanPosition {
     /// Creates a pan position from degrees.
     ///
     /// # Errors
-    /// Returns an error if degrees are outside the valid range (-170° to +170°).
+    /// Returns an error if degrees are outside the valid range (-170° left to
+    /// +170° right).
     pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
         if !(-170.0..=170.0).contains(&degrees) {
             return Err(Error::InvalidParameter {
@@ -777,6 +726,7 @@ impl TryFrom<f32> for PanPosition {
 /// Tilt position value for vertical camera positioning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "i16", into = "i16"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "-432", max = "1296", display_prefix = "Tilt")]
@@ -829,6 +779,7 @@ impl TryFrom<f32> for TiltPosition {
 /// Pan speed value for horizontal camera movement speed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
@@ -868,8 +819,13 @@ impl PanSpeed {
 }
 
 /// Tilt speed value for vertical camera movement speed.
+///
+/// The syntactic wire-value range is `0x00..=0x18`. Most standard two-speed
+/// VISCA profiles limit tilt to `0x14`; request validation applies each
+/// profile's advertised capability range before encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x18", display_prefix = "Tilt Speed")]
@@ -914,6 +870,7 @@ impl TiltSpeed {
 /// This type provides the standard zoom speed control for VISCA cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
@@ -981,6 +938,7 @@ impl ZoomSpeed {
 /// This type provides the standard focus speed control for VISCA cameras.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
@@ -1026,6 +984,7 @@ impl FocusSpeed {
 /// pan, tilt, and zoom movements during preset recalls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
@@ -1063,6 +1022,7 @@ impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
 /// Higher values apply stronger defog processing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
@@ -1105,6 +1065,7 @@ impl ExposureCompensationPosition {
 /// Valid range: Typically 0 to 3
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
@@ -1118,6 +1079,7 @@ pub struct BroadcastDomain(u8);
 /// Valid range: Typically 0 to 3
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
@@ -1144,11 +1106,11 @@ mod tests {
     #[test]
     fn test_gain_value() {
         assert!(GainLevel::new(0x00).is_ok());
-        assert!(GainLevel::new(0x07).is_ok());
-        assert!(GainLevel::new(0x08).is_err());
+        assert!(GainLevel::new(0x0F).is_ok());
+        assert!(GainLevel::new(0x10).is_err());
 
         assert_eq!(GainLevel::MIN.value(), 0x00);
-        assert_eq!(GainLevel::MAX.value(), 0x07);
+        assert_eq!(GainLevel::MAX.value(), 0x0F);
     }
 
     #[test]
@@ -1163,13 +1125,11 @@ mod tests {
 
     #[test]
     fn test_noise_reduction_levels() {
-        assert!(NoiseReduction2DLevel::new(0).is_err());
-        assert!(NoiseReduction2DLevel::new(1).is_ok());
+        assert!(NoiseReduction2DLevel::new(0).is_ok());
         assert!(NoiseReduction2DLevel::new(5).is_ok());
         assert!(NoiseReduction2DLevel::new(6).is_err());
 
-        assert!(NoiseReduction3DLevel::new(0).is_err());
-        assert!(NoiseReduction3DLevel::new(1).is_ok());
+        assert!(NoiseReduction3DLevel::new(0).is_ok());
         assert!(NoiseReduction3DLevel::new(8).is_ok());
         assert!(NoiseReduction3DLevel::new(9).is_err());
     }
@@ -1197,18 +1157,6 @@ mod tests {
         assert_eq!(FStop::from_iris_level(0x00), Some(FStop::Closed));
         assert_eq!(FStop::from_iris_level(0x0C), Some(FStop::F1_8));
         assert_eq!(FStop::from_iris_level(0xFF), None);
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_noise_reduction_strength() {
-        assert!(NoiseReductionStrength::Off.to_2d_level().is_err());
-        assert_eq!(NoiseReductionStrength::Minimal.to_2d_level().unwrap(), 1);
-        assert_eq!(NoiseReductionStrength::Maximum.to_2d_level().unwrap(), 5);
-
-        assert!(NoiseReductionStrength::Off.to_3d_level().is_err());
-        assert_eq!(NoiseReductionStrength::Minimal.to_3d_level().unwrap(), 1);
-        assert_eq!(NoiseReductionStrength::Maximum.to_3d_level().unwrap(), 8);
     }
 
     #[test]

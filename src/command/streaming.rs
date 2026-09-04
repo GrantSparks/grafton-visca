@@ -11,7 +11,6 @@ visca_command! {
     prefix = [0x0B, 0x01, 0x23];
     param = if *enabled { 0x01 } else { 0x02 };
     max_param_size = 1;
-    category = crate::timeout::CommandCategory::Network;
 }
 
 /// Multicast streaming control for PtzOptics Ndi cameras
@@ -38,11 +37,7 @@ impl From<MulticastStreaming> for MulticastStreamingInternal {
     }
 }
 
-impl crate::command::ViscaCommand for MulticastStreaming {
-    const MAX_SIZE: usize = 8; // Conservative estimate
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Network;
-
+impl crate::command::encode::WireEncode for MulticastStreaming {
     fn write_into(
         &self,
         camera_id: crate::CameraId,
@@ -64,7 +59,6 @@ visca_command! {
         NdiQuality::Off => 0x04,
     };
     max_param_size = 1;
-    category = crate::timeout::CommandCategory::Network;
 }
 
 /// Ndi streaming quality control command
@@ -76,11 +70,7 @@ pub struct SetNdiQuality {
     pub quality: NdiQuality,
 }
 
-impl crate::command::ViscaCommand for SetNdiQuality {
-    const MAX_SIZE: usize = 8; // Conservative estimate
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Network;
-
+impl crate::command::encode::WireEncode for SetNdiQuality {
     fn write_into(
         &self,
         camera_id: crate::CameraId,
@@ -116,11 +106,7 @@ pub enum UsbAudio {
     Off,
 }
 
-impl crate::command::ViscaCommand for UsbAudio {
-    const MAX_SIZE: usize = 7;
-    const TIMEOUT_CATEGORY: crate::timeout::CommandCategory =
-        crate::timeout::CommandCategory::Quick;
-
+impl crate::command::encode::WireEncode for UsbAudio {
     fn write_into(
         &self,
         camera_id: crate::CameraId,
