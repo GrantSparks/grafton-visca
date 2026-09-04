@@ -1084,12 +1084,12 @@ mod tests {
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
             BrightnessInquiry, ExposureModeInquiry, FocusNearLimitInquiry, FocusZoneInquiry,
-            NdFilterPosition, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
+            IrisInquiry, NdFilterPosition, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
             PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
             ZoomPositionInquiry, VISCA_TERMINATOR,
         },
         request::builtin::{
-            request_write_count, reset_request_write_count, FocusTrigger, IrisReset,
+            request_write_count, reset_request_write_count, FocusTrigger, IrisDirect, IrisReset,
             NdFilterStepUp, PanTiltAbsolute, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
             PresetSet, ZoomStop, ZoomTarget,
         },
@@ -2014,6 +2014,76 @@ mod tests {
                 .into_inner(),
             SettlementPlan::CompletionIsSettled { .. }
         ));
+    }
+
+    #[test]
+    fn brc_h900_high_iris_direct_decodes_and_settles_through_polling() {
+        let h900 =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyBRCH900>().expect("H900 profile");
+        let level = IrisLevel::new(0x14).expect("BRC-H900 iris level");
+        let prepared = prepare_builtin_operation::<completion::Targeted, _>(
+            &IrisDirect::new(level),
+            CameraId::CAMERA_2,
+            &h900,
+            OperationalTuning::new(),
+        )
+        .expect("BRC-H900 high iris operation");
+
+        let SettlementPlan::Poll {
+            target,
+            queries,
+            axes,
+            tolerance,
+            ..
+        } = prepared
+            .settlement
+            .into_plan()
+            .expect("BRC-H900 iris settlement")
+            .into_inner()
+        else {
+            panic!("BRC-H900 must poll iris because it has no operation-complete reply");
+        };
+        assert_eq!(target, CameraId::CAMERA_2);
+        assert_eq!(axes, AffectedAxes::IRIS);
+        assert!(queries.pan_tilt.is_none());
+        assert!(queries.zoom.is_none());
+        assert!(queries.focus.is_none());
+        assert!(queries.nd_filter.is_none());
+
+        let iris = queries
+            .iris
+            .expect("selected iris settlement inquiry")
+            .instantiate();
+        assert_eq!(iris.route, IrisInquiry.route());
+        assert_eq!(
+            iris.wire.as_bytes(),
+            &[
+                CameraId::CAMERA_2.to_address_byte(),
+                0x09,
+                0x04,
+                0x4B,
+                VISCA_TERMINATOR,
+            ]
+        );
+        let decoded = iris
+            .decoder
+            .decode(&[0x00, 0x00, 0x01, 0x04])
+            .expect("BRC-H900 iris readback 0x14");
+        assert_eq!(decoded, level);
+
+        let mut detector = MotionDetector::new(axes, tolerance);
+        let snapshot = PositionSnapshot {
+            iris: Some(decoded),
+            ..PositionSnapshot::default()
+        };
+        assert_eq!(
+            detector.observe(snapshot).expect("iris baseline"),
+            MotionState::NeedSample
+        );
+        assert_eq!(
+            detector.observe(snapshot).expect("stable iris readback"),
+            MotionState::Settled
+        );
     }
 
     #[test]

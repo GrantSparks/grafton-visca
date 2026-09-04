@@ -211,9 +211,11 @@ a generic 30X grant and does not cover Move, Link, or newer 30X products. The
 R14 portal describes its list as the full G2/G3 VISCA list, which establishes
 the G3 inquiry evidence; no profile is admitted by group membership alone.
 Runtime NR discovery facts and both inquiry/control typed markers agree for
-every built-in profile. A model without source-backed shared NR command-family
-evidence reports the conservative false metadata rather than advertising a
-feature that typed requests must reject. Aggregate aliases remain absent (`HasNoiseReduction`,
+every built-in profile. Profile validation requires each 2D/3D metadata bit to
+equal both halves of its typed pair, so an inquiry-only or control-only runtime
+profile cannot claim that NR capability. A model without source-backed shared
+NR command-family evidence reports the conservative false metadata rather than
+advertising a feature that typed requests must reject. Aggregate aliases remain absent (`HasNoiseReduction`,
 aggregate `TypedSupportSurface::NoiseReduction` and its `noise-reduction` serde
 tag, `noise_reduction_level`, `noise_reduction_mode`, and aggregate
 modes/speeds/strength mappings); raw/custom requests remain the extension path

@@ -6170,7 +6170,7 @@ mod tests {
             .build()
             .expect_err("inquiry-only NR runtime profile must be rejected");
         assert!(matches!(error, Error::InvalidRequest(message)
-            if message.contains("noise-reduction metadata and typed support must agree")));
+            if message.contains("noise-reduction metadata and paired inquiry/control typed support must agree")));
     }
 
     #[test]

@@ -1735,18 +1735,20 @@ impl ProfileSpec {
                 "aggregate capability facts disagree with their parent domains",
             ));
         }
-        let typed_2d_noise_reduction = capabilities
-            .supports_typed(capabilities::TypedSupportSurface::NoiseReduction2D)
-            && capabilities
-                .supports_typed(capabilities::TypedSupportSurface::NoiseReduction2DControl);
-        let typed_3d_noise_reduction = capabilities
-            .supports_typed(capabilities::TypedSupportSurface::NoiseReduction3D)
-            && capabilities
-                .supports_typed(capabilities::TypedSupportSurface::NoiseReduction3DControl);
-        if capabilities.has_2d_nr != typed_2d_noise_reduction
-            || capabilities.has_3d_nr != typed_3d_noise_reduction
+        let typed_2d_noise_inquiry =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction2D);
+        let typed_2d_noise_control =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction2DControl);
+        let typed_3d_noise_inquiry =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction3D);
+        let typed_3d_noise_control =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction3DControl);
+        if capabilities.has_2d_nr != typed_2d_noise_inquiry
+            || capabilities.has_2d_nr != typed_2d_noise_control
+            || capabilities.has_3d_nr != typed_3d_noise_inquiry
+            || capabilities.has_3d_nr != typed_3d_noise_control
             || capabilities.has_noise_reduction
-                != (typed_2d_noise_reduction || typed_3d_noise_reduction)
+                != (capabilities.has_2d_nr || capabilities.has_3d_nr)
         {
             return Err(invalid_profile_fields(
                 &[
@@ -1755,7 +1757,7 @@ impl ProfileSpec {
                     "capabilities.has_3d_nr",
                     "capabilities.typed_support",
                 ],
-                "noise-reduction metadata and typed support must agree",
+                "noise-reduction metadata and paired inquiry/control typed support must agree",
             ));
         }
         if capabilities
@@ -2793,6 +2795,23 @@ mod tests {
         assert!(runtime_builder(missing_noise_reduction_surfaces)
             .build()
             .is_ok());
+
+        for surface in [
+            TypedSupportSurface::NoiseReduction2D,
+            TypedSupportSurface::NoiseReduction2DControl,
+            TypedSupportSurface::NoiseReduction3D,
+            TypedSupportSurface::NoiseReduction3DControl,
+        ] {
+            let mut unpaired_noise_reduction = valid_runtime_capabilities();
+            unpaired_noise_reduction.has_image_processing = true;
+            unpaired_noise_reduction.typed_support = TypedSupportSet::from_surface(surface);
+            let error = invalid_request_message(runtime_builder(unpaired_noise_reduction).build())
+                .expect("one half of an NR surface pair must be rejected");
+            assert!(
+                error.contains("paired inquiry/control typed support"),
+                "{surface:?}: {error}"
+            );
+        }
     }
 
     #[test]
