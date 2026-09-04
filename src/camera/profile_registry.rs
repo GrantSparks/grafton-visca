@@ -721,14 +721,13 @@ macro_rules! __define_builtin_profiles {
 
         impl ProfileId {
             /// Returns whether the runtime profile carries this built-in
-            /// profile's capability, coordinate-codec, and envelope identity.
+            /// profile's complete protocol identity.
             ///
             /// `profile_id` is public so downstream callers can mutate a
             /// discovered inventory.  It is therefore an identity claim,
             /// not an authority token; vendor-specific request validation
-            /// must only rely on it after the protocol identity facts have
-            /// been checked against the generated profile row. Operational
-            /// policy may be tuned independently.
+            /// must only rely on it after every protocol identity fact has
+            /// been checked against the generated profile row.
             pub(crate) fn matches_profile_spec(
                 &self,
                 profile: &$crate::ProfileSpec,

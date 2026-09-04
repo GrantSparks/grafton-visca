@@ -890,12 +890,10 @@ impl ProfileSpec {
     /// Checks that this validated runtime inventory has the same protocol
     /// identity as the inventory lowered from a compile-time profile.
     ///
-    /// Static capability bounds are sound when the runtime capability and
-    /// reply-domain facts, coordinate codec, and envelope agree. Operational
-    /// timing, socket, transport, cancellation, and settlement policy may be
-    /// tuned without losing access to the matching static facade. Keep this
-    /// comparison pure so session projection can reject a mismatched view
-    /// before owner admission or protocol I/O.
+    /// Static capability bounds are sound only when every protocol fact
+    /// agrees, rather than merely the profile identifier or broad capability
+    /// bits. Keep this comparison pure so session projection can reject a
+    /// mismatched view before owner admission or protocol I/O.
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn ensure_compile_time<P>(&self) -> Result<()>
     where
@@ -911,7 +909,7 @@ impl ProfileSpec {
         }
     }
 
-    /// Returns whether the protocol identity facts match the generated
+    /// Returns whether every protocol identity fact matches the generated
     /// compile-time projection for `P`.
     ///
     /// This deliberately compares the unvalidated builder projection. It is
@@ -924,7 +922,14 @@ impl ProfileSpec {
         let expected = ProfileSpecBuilder::from_compile_time::<P>();
         self.capabilities == expected.capabilities
             && self.pan_tilt_coordinates == expected.pan_tilt_coordinates
+            && Some(self.transports) == expected.transports
             && Some(self.envelope) == expected.envelope
+            && Some(self.timing) == expected.timing
+            && Some(self.maximum_command_sockets) == expected.maximum_command_sockets
+            && Some(self.supports_operation_complete) == expected.supports_operation_complete
+            && Some(self.supports_command_cancel) == expected.supports_command_cancel
+            && Some(self.preset_recall_axes) == expected.preset_recall_axes
+            && Some(self.position_inquiries) == expected.position_inquiries
     }
 
     /// Returns runtime feature and conversion facts.
@@ -1236,7 +1241,14 @@ impl ProfileSpec {
                         "capabilities.profile_id",
                         "capabilities",
                         "pan_tilt_coordinates",
+                        "transports",
                         "envelope",
+                        "timing",
+                        "maximum_command_sockets",
+                        "supports_operation_complete",
+                        "supports_command_cancel",
+                        "preset_recall_axes",
+                        "position_inquiries",
                     ],
                     "built-in identity does not match the runtime protocol identity facts",
                 ));
@@ -3085,109 +3097,98 @@ mod tests {
         );
     }
 
+    /// Issue #751: a built-in `profile_id` is an assertion that every wire
+    /// and lifecycle fact is identical to the generated registry row. A
+    /// runtime profile can still customize those facts after clearing the ID,
+    /// but it cannot then obtain the built-in typed facade.
     #[test]
-    fn compile_time_projection_allows_operational_timing_tuning() {
-        let base = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
-            .expect("built-in profile");
+    fn built_in_identity_covers_every_protocol_fact() {
+        use crate::profiles::PtzOpticsG2;
+
+        let base = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in profile");
         let coordinates = base.pan_tilt_coordinates().expect("coordinates");
-        let timing = base.timing();
-        let altered = ProfileSpec::builder(base.capabilities().clone())
-            .pan_tilt_coordinates(
-                coordinates.coordinate_system(),
-                coordinates.pan_degrees_to_units(),
-                coordinates.tilt_degrees_to_units(),
-            )
-            .transports(base.transports())
-            .envelope(base.envelope())
-            .timing(
-                ProfileTiming::builder()
-                    .ack_timeout(timing.ack_timeout())
-                    .command_timeouts(timing.command_timeouts())
-                    .inquiry_timeout(timing.inquiry_timeout())
-                    .cancellation_timeout(timing.cancellation_timeout())
-                    .ambiguity_timeout(timing.ambiguity_timeout())
-                    .busy_timeout(timing.busy_timeout())
-                    .raw_inquiry_reply_skew(timing.raw_inquiry_reply_skew())
-                    .minimum_inquiry_spacing(timing.minimum_inquiry_spacing())
-                    .minimum_command_spacing(
-                        timing.minimum_command_spacing() + Duration::from_millis(1),
-                    )
-                    .build()
-                    .expect("valid altered timing"),
-            )
-            .maximum_command_sockets(base.maximum_command_sockets())
-            .supports_operation_complete(base.supports_operation_complete())
-            .supports_command_cancel(base.supports_command_cancel())
-            .preset_recall_axes(base.preset_recall_axes())
-            .position_inquiries(base.position_inquiries())
-            .build()
-            .expect("altered runtime profile");
-
-        assert_ne!(altered, base);
-        assert!(altered
-            .ensure_compile_time::<crate::profiles::PtzOpticsG2>()
-            .is_ok());
-        assert_eq!(
-            altered.capabilities().profile_id,
-            Some(crate::profiles::ProfileId::PtzOpticsG2)
-        );
-    }
-
-    #[test]
-    fn built_in_identity_covers_capabilities_coordinates_and_envelope_only() {
-        let base =
-            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("built-in profile");
-        let coordinates = base.pan_tilt_coordinates().expect("coordinates");
-
-        let rebuild = |envelope, coordinate_system, supports_command_cancel| {
-            ProfileSpec::builder(base.capabilities().clone())
+        let rebuilt = |capabilities| {
+            ProfileSpec::builder(capabilities)
                 .pan_tilt_coordinates(
-                    coordinate_system,
+                    coordinates.coordinate_system(),
                     coordinates.pan_degrees_to_units(),
                     coordinates.tilt_degrees_to_units(),
                 )
+                .pan_tilt_wire_codec(coordinates.wire_codec())
                 .transports(base.transports())
-                .envelope(envelope)
+                .envelope(base.envelope())
                 .timing(base.timing())
                 .maximum_command_sockets(base.maximum_command_sockets())
                 .supports_operation_complete(base.supports_operation_complete())
-                .supports_command_cancel(supports_command_cancel)
+                .supports_command_cancel(base.supports_command_cancel())
                 .preset_recall_axes(base.preset_recall_axes())
                 .position_inquiries(base.position_inquiries())
-                .build()
         };
+        let unclaimed_capabilities = || {
+            let mut capabilities = base.capabilities().clone();
+            capabilities.profile_id = None;
+            capabilities
+        };
+        let altered_timing = ProfileTiming {
+            minimum_command_spacing: base.timing().minimum_command_spacing
+                + Duration::from_millis(1),
+            ..base.timing()
+        };
+        let altered_position_inquiries = PositionInquirySupport::new_with_iris_nd(
+            base.position_inquiries().pan_tilt(),
+            base.position_inquiries().zoom(),
+            base.position_inquiries().focus(),
+            !base.position_inquiries().iris(),
+            base.position_inquiries().nd_filter(),
+        );
 
-        assert!(rebuild(
-            base.envelope(),
-            coordinates.coordinate_system(),
-            base.supports_command_cancel(),
-        )
-        .is_ok());
-        assert!(rebuild(
-            ProfileEnvelope::RawVisca,
-            coordinates.coordinate_system(),
-            base.supports_command_cancel(),
-        )
-        .is_err());
-        assert!(rebuild(
-            base.envelope(),
-            match coordinates.coordinate_system() {
-                capabilities::CoordinateSystem::SignedCentered => {
-                    capabilities::CoordinateSystem::UnsignedCentered
-                }
-                capabilities::CoordinateSystem::UnsignedCentered => {
-                    capabilities::CoordinateSystem::SignedCentered
-                }
-            },
-            base.supports_command_cancel(),
-        )
-        .is_err());
-        assert!(rebuild(
-            base.envelope(),
-            coordinates.coordinate_system(),
-            !base.supports_command_cancel(),
-        )
-        .is_ok());
+        macro_rules! assert_identity_mismatch {
+            ($field:literal, $configure:expr) => {{
+                let configure = $configure;
+                let error = invalid_request_message(
+                    configure(rebuilt(base.capabilities().clone())).build(),
+                )
+                .expect("a built-in identity mismatch must be rejected");
+                assert!(
+                    error.contains(concat!("`", $field, "`")),
+                    "the rejected identity mismatch must name {}: {error}",
+                    $field
+                );
+
+                let unclaimed = configure(rebuilt(unclaimed_capabilities()))
+                    .build()
+                    .expect("the same override is valid without a built-in identity claim");
+                assert!(
+                    unclaimed.ensure_compile_time::<PtzOpticsG2>().is_err(),
+                    "a runtime override of {} must not project the PtzOpticsG2 facade",
+                    $field
+                );
+            }};
+        }
+
+        assert_identity_mismatch!("transports", |builder: ProfileSpecBuilder| builder
+            .transports(TransportCompatibility::new(Some(5678), Some(1259), false)));
+        assert_identity_mismatch!("timing", |builder: ProfileSpecBuilder| builder
+            .timing(altered_timing));
+        assert_identity_mismatch!("maximum_command_sockets", |builder: ProfileSpecBuilder| {
+            builder.maximum_command_sockets(if base.maximum_command_sockets() == 1 {
+                2
+            } else {
+                1
+            })
+        });
+        assert_identity_mismatch!(
+            "supports_operation_complete",
+            |builder: ProfileSpecBuilder| builder
+                .supports_operation_complete(!base.supports_operation_complete())
+        );
+        assert_identity_mismatch!("supports_command_cancel", |builder: ProfileSpecBuilder| {
+            builder.supports_command_cancel(!base.supports_command_cancel())
+        });
+        assert_identity_mismatch!("preset_recall_axes", |builder: ProfileSpecBuilder| builder
+            .preset_recall_axes(Some(AffectedAxes::PAN_TILT)));
+        assert_identity_mismatch!("position_inquiries", |builder: ProfileSpecBuilder| builder
+            .position_inquiries(altered_position_inquiries));
     }
 
     #[test]

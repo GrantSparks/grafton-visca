@@ -371,6 +371,16 @@ entries below retain their original wording.
 
 ### Changed
 
+- **BREAKING: built-in profile identity again includes every protocol fact**
+  (#751; supersedes #728's runtime-policy override). A runtime `ProfileSpec`
+  that claims a built-in `profile_id` must match that profile's transports,
+  timing, maximum command sockets, operation-complete and command-cancel
+  support, preset-recall axes, and position-inquiry support as well as its
+  capabilities, coordinate codec, and envelope. Clear `profile_id` before
+  customizing any of those facts; the resulting custom profile cannot project
+  a built-in typed facade. In particular, a claimed PTZOptics G2 identity can
+  no longer enable and emit its unsupported `81 21 FF` socket-cancel frame.
+
 - Made the production raw-tombstone boundary integration test independent of
   sub-millisecond scheduler timing on Windows (#741). Ambiguous source-only,
   ACK, and socketless-terminal prefixes are now injected at the exact hold
