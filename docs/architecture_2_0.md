@@ -224,12 +224,14 @@ response from a duplicate predecessor response. This preserves established raw
 throughput and immediate socket reuse; the target quarantine is reserved for
 the uncorrelatable reply shapes.
 When a raw ACK names a free socket, that socket is exact evidence. When the
-named socket is instead held by another request — the classic cause is a lost
-completion frame that made the camera reuse the socket — the camera's new
-assignment supersedes the stale local owner (#721). The older request releases
-the socket, immediately fails as unconfirmed, and leaves an inert keyed
-`PreAck` hold; the uniquely identified successor owns the named socket for its
-completion and any cancellation packet.
+named socket is instead held by another request *or only by that request's
+expired exact-socket quarantine* — the classic cause is a lost completion
+frame that made the camera reuse the socket — the camera's new assignment
+supersedes the stale local evidence (#721/#750). A live owner immediately fails
+as unconfirmed; an inert `Socket(S1|S2)` hold is downgraded. In both cases the
+original ambiguity deadline remains as an unkeyed `PreAck` hold, while the
+uniquely identified successor owns the named socket for its completion and any
+cancellation packet.
 A socketless ACK still selects the first free registered socket. The bounded
 #620/#682 other-free-socket fallback remains only for sequence-correlated Sony
 traffic, whose later terminals have an independent request identity.
@@ -466,7 +468,7 @@ Other targets and all command work remain independently eligible (#712).
 | Request write result sampled strictly after its total retry budget | Apply the same expired-`Sending` policy before the result can register correlation, consume a deferred frame, report `Written`, or replace a retained retry cause. Cancellation writes use their separate ambiguity lifecycle. |
 | ACK in `AwaitingAck` with a free socket | Assign the socket and transition to `Executing`; if cancel intent is `Requested` on a supported target, emit one socket cancellation. An ACK covered by an inert `PreAck`/`AllResponses` hold is ignored and cannot resurrect its terminal owner (#723). |
 | Unsequenced ACK/error while two raw positional candidates are open | Ignore it as ambiguous and bind it to neither candidate; never use admission order or recency (#714). |
-| Raw ACK naming a busy socket | Treat the camera's named socket as authoritative: immediately fail the stale local owner unconfirmed, leave its inert keyed `PreAck` hold, and assign the named socket to the uniquely resolved successor (#721/#723). |
+| Raw ACK naming a busy or quarantined socket | Treat the camera's named socket as authoritative: immediately fail a stale live owner, or downgrade an inert exact-socket hold, to its original-deadline unkeyed `PreAck` hold; assign the named socket to the uniquely resolved successor (#721/#723/#750). |
 | Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise remain inert as `Ignored(SocketConflict)`. |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `RuntimeOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |

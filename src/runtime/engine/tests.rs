@@ -6461,6 +6461,61 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     single.assert_invariants().unwrap();
 }
 
+/// A genuine two-live-owner collision retains the sequenced Sony
+/// `SocketConflict` result. Raw named ACKs deliberately have a different rule:
+/// their camera-provided socket is authoritative, so a locally stale owner or
+/// tombstone is reconciled before assignment (#721/#750).
+#[test]
+fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
+        let admitted_effects = engine.handle(
+            Input::Admit {
+                ticket: AdmissionTicket(ticket),
+                request: command(1, CancellationPolicy::Supported),
+            },
+            start,
+        );
+        send_ok(&mut engine, &admitted_effects, Some(sequence), start);
+        engine.handle(
+            frame(
+                1,
+                Some((sequence, SequenceWidth::Full32)),
+                DecodedResponse::Ack {
+                    socket: Some(socket),
+                },
+            ),
+            start,
+        );
+    }
+
+    // Capacity correctly leaves C queued. Make its phase the narrow ACK-path
+    // seam so the test can prove assignment itself still reports a conflict
+    // when both physical owners are genuinely live.
+    let queued = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(3),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let third_id = admitted(&queued);
+    let original_phase = phase_of(&engine, third_id).expect("third request is queued");
+    engine.entries.get_mut(&third_id).unwrap().phase = Phase::AwaitingAck {
+        sent_at: start,
+        deadline: start + Duration::from_millis(20),
+    };
+    let mut effects = Vec::new();
+    engine.ack(third_id, Some(ViscaSocket::S1), start, &mut effects);
+    assert_eq!(
+        ignored_reasons(&effects),
+        vec![IgnoreReason::SocketConflict]
+    );
+    engine.entries.get_mut(&third_id).unwrap().phase = original_phase;
+    engine.assert_invariants().unwrap();
+}
+
 /// A socketless ACK that matches no in-flight command is inert, exactly like
 /// any other unattributable frame.
 #[test]
@@ -6566,6 +6621,113 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
     let expired = engine.advance(first_quarantine_deadline);
     assert!(terminal_outcome(&expired, first_id).is_none());
     assert!(engine.holds.is_empty());
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #750: an exact socket tombstone is stale local evidence just like a
+/// live owner that the camera has reused. A uniquely resolved camera ACK must
+/// bind its named socket, while the predecessor's original ambiguity deadline
+/// remains as an unkeyed hold.
+#[test]
+fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let first = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start,
+    );
+    let first_id = admitted(&first);
+    send_ok(&mut engine, &first, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+
+    // A's lost completion makes S1 an inert exact-socket quarantine. The
+    // two-socket target still admits B, but B's camera ACK names S1 rather
+    // than the locally free S2.
+    let timed_out = engine.advance(start + Duration::from_millis(40));
+    assert!(matches!(
+        terminal_failure(&timed_out, first_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let hold_deadline = engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+        .expect("timed-out first command's S1 hold")
+        .until;
+    assert_eq!(hold_deadline, start + Duration::from_millis(90));
+
+    let second = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: command(1, CancellationPolicy::Supported),
+        },
+        start + Duration::from_millis(41),
+    );
+    let second_id = admitted(&second);
+    send_ok(
+        &mut engine,
+        &second,
+        None,
+        start + Duration::from_millis(41),
+    );
+    let reused = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(42),
+    );
+
+    assert!(!reused
+        .iter()
+        .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::SocketConflict))));
+    assert_eq!(socket_of(&engine, second_id), Some(ViscaSocket::S1));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1)),
+        None,
+        "the camera-named socket must no longer be quarantined"
+    );
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::PreAck),
+        Some(RawHold {
+            until: hold_deadline,
+            owner: Some(first_id),
+        }),
+        "the predecessor's own deadline remains as unkeyed correlation protection"
+    );
+
+    // B's terminal follows the camera-assigned socket and cannot be stolen by
+    // the inert predecessor. The session keeps running after both outcomes.
+    let completed = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start + Duration::from_millis(43),
+    );
+    assert_eq!(terminal_id(&completed), Some(second_id));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.advance(hold_deadline);
+    assert!(
+        engine.holds.is_empty(),
+        "the original hold expires on schedule"
+    );
     engine.assert_invariants().unwrap();
 }
 

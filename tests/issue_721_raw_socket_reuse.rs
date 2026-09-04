@@ -1,4 +1,5 @@
-//! Issue #721: a raw camera's named socket reuse supersedes stale local ownership.
+//! Issues #721/#750: a raw camera's named socket reuse supersedes stale local
+//! ownership and inert exact-socket quarantine holds.
 
 #![allow(clippy::expect_used)]
 
@@ -44,25 +45,41 @@ mod blocking {
     };
 
     use super::{
-        profile_fixtures::NonDefaultCompileTimeProfile, ACK_SOCKET_ONE, CANCEL_SOCKET_ONE,
-        COMPLETE_SOCKET_ONE,
+        profile_fixtures::{NonDefaultCompileTimeProfile, QuarantinedSocketCompileTimeProfile},
+        ACK_SOCKET_ONE, CANCEL_SOCKET_ONE, COMPLETE_SOCKET_ONE,
     };
+
+    #[derive(Debug, Clone, Copy)]
+    enum ReuseScenario {
+        LiveOwner,
+        QuarantinedSocket,
+    }
 
     #[derive(Debug)]
     struct ReusedSocketTransport {
         config: TransportConfig,
         replies: VecDeque<Vec<u8>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        scenario: ReuseScenario,
     }
 
     impl ReusedSocketTransport {
         fn new() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            Self::with_scenario(ReuseScenario::LiveOwner)
+        }
+
+        fn with_quarantined_socket() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            Self::with_scenario(ReuseScenario::QuarantinedSocket)
+        }
+
+        fn with_scenario(scenario: ReuseScenario) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
                     config: TransportConfig::default(),
                     replies: VecDeque::new(),
                     writes: Arc::clone(&writes),
+                    scenario,
                 },
                 writes,
             )
@@ -87,16 +104,32 @@ mod blocking {
                 writes.push(bytes.to_vec());
                 writes.len()
             };
-            match write_number {
+            match (self.scenario, write_number) {
                 // A earns S1, but its completion is lost. The camera then
                 // releases and reuses S1 for B.
-                1 | 2 => self.replies.push_back(ACK_SOCKET_ONE.to_vec()),
+                (ReuseScenario::LiveOwner, 1 | 2) => {
+                    self.replies.push_back(ACK_SOCKET_ONE.to_vec());
+                }
                 // The cancellation wire itself is asserted below. A normal B
                 // completion then proves S1 resolves to B, not displaced A.
-                _ if bytes == CANCEL_SOCKET_ONE => {
+                (ReuseScenario::LiveOwner, _) if bytes == CANCEL_SOCKET_ONE => {
                     self.replies.push_back(COMPLETE_SOCKET_ONE.to_vec());
                 }
-                _ => {}
+                (ReuseScenario::LiveOwner, _) => {}
+                // A timed out after owning S1, so the engine retained an
+                // exact S1 hold. The camera nevertheless names S1 for B and
+                // completes B normally.
+                (ReuseScenario::QuarantinedSocket, 1) => {
+                    self.replies.push_back(ACK_SOCKET_ONE.to_vec());
+                }
+                (ReuseScenario::QuarantinedSocket, _) if bytes == CANCEL_SOCKET_ONE => {
+                    self.replies.push_back(COMPLETE_SOCKET_ONE.to_vec());
+                }
+                (ReuseScenario::QuarantinedSocket, 2) => {
+                    self.replies.push_back(ACK_SOCKET_ONE.to_vec());
+                    self.replies.push_back(COMPLETE_SOCKET_ONE.to_vec());
+                }
+                (ReuseScenario::QuarantinedSocket, _) => {}
             }
             Ok(())
         }
@@ -166,6 +199,43 @@ mod blocking {
         drop(writes);
         session.shutdown().expect("shutdown");
     }
+
+    #[test]
+    fn blocking_raw_ack_reuses_a_quarantined_socket_without_stranding_the_successor() {
+        let (transport, writes) = ReusedSocketTransport::with_quarantined_socket();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<QuarantinedSocketCompileTimeProfile>()
+                    .expect("two-socket raw profile with short test deadlines"),
+            ),
+        )
+        .expect("session");
+        let camera = session
+            .camera::<QuarantinedSocketCompileTimeProfile>()
+            .expect("camera");
+
+        let displaced = camera
+            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .expect("first command writes");
+        let displaced_result = displaced.applied();
+        assert!(
+            matches!(displaced_result, Err(Error::UnsequencedCommandUnconfirmed)),
+            "the protocol terminal installs the raw S1 quarantine before B is admitted: {displaced_result:?}"
+        );
+
+        let successor = camera
+            .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
+            .expect("successor writes while the stale S1 hold remains");
+        successor
+            .applied()
+            .expect("camera-named S1 ACK and completion settle the successor normally");
+
+        let writes = writes.lock().expect("writes lock");
+        assert_eq!(writes.len(), 2, "two commands and B's normal S1 completion");
+        drop(writes);
+        session.shutdown().expect("shutdown");
+    }
 }
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
@@ -187,9 +257,15 @@ mod asynchronous {
     };
 
     use super::{
-        profile_fixtures::NonDefaultCompileTimeProfile, ACK_SOCKET_ONE, CANCEL_SOCKET_ONE,
-        COMPLETE_SOCKET_ONE,
+        profile_fixtures::{NonDefaultCompileTimeProfile, QuarantinedSocketCompileTimeProfile},
+        ACK_SOCKET_ONE, CANCEL_SOCKET_ONE, COMPLETE_SOCKET_ONE,
     };
+
+    #[derive(Debug, Clone, Copy)]
+    enum ReuseScenario {
+        LiveOwner,
+        QuarantinedSocket,
+    }
 
     #[derive(Debug)]
     struct ReusedSocketTransport {
@@ -197,10 +273,19 @@ mod asynchronous {
         replies: flume::Receiver<Vec<u8>>,
         reply_tx: flume::Sender<Vec<u8>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        scenario: ReuseScenario,
     }
 
     impl ReusedSocketTransport {
         fn new() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            Self::with_scenario(ReuseScenario::LiveOwner)
+        }
+
+        fn with_quarantined_socket() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
+            Self::with_scenario(ReuseScenario::QuarantinedSocket)
+        }
+
+        fn with_scenario(scenario: ReuseScenario) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
             let (reply_tx, replies) = flume::unbounded();
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
@@ -209,6 +294,7 @@ mod asynchronous {
                     replies,
                     reply_tx,
                     writes: Arc::clone(&writes),
+                    scenario,
                 },
                 writes,
             )
@@ -229,16 +315,24 @@ mod asynchronous {
                 writes.len()
             };
             let cancel_socket_one = bytes == CANCEL_SOCKET_ONE;
+            let scenario = self.scenario;
             let reply_tx = self.reply_tx.clone();
             async move {
-                let reply = match (write_number, cancel_socket_one) {
-                    (1 | 2, _) => Some(ACK_SOCKET_ONE),
-                    (_, true) => Some(COMPLETE_SOCKET_ONE),
-                    _ => None,
+                let replies: &[&[u8]] = match (scenario, write_number, cancel_socket_one) {
+                    (ReuseScenario::LiveOwner, 1 | 2, _) => &[ACK_SOCKET_ONE],
+                    (ReuseScenario::LiveOwner, _, true) => &[COMPLETE_SOCKET_ONE],
+                    (ReuseScenario::QuarantinedSocket, 1, _) => &[ACK_SOCKET_ONE],
+                    (ReuseScenario::QuarantinedSocket, _, true) => &[COMPLETE_SOCKET_ONE],
+                    (ReuseScenario::QuarantinedSocket, 2, _) => {
+                        &[ACK_SOCKET_ONE, COMPLETE_SOCKET_ONE]
+                    }
+                    (ReuseScenario::LiveOwner, _, _) | (ReuseScenario::QuarantinedSocket, _, _) => {
+                        &[]
+                    }
                 };
-                if let Some(reply) = reply {
+                for reply in replies {
                     reply_tx
-                        .send_async(reply.to_vec())
+                        .send_async((*reply).to_vec())
                         .await
                         .map_err(|_| Error::ConnectionClosed { reason: None })?;
                 }
@@ -311,6 +405,49 @@ mod asynchronous {
             let writes = writes.lock().expect("writes lock");
             assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
             assert_eq!(writes[2], CANCEL_SOCKET_ONE);
+        }
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn async_raw_ack_reuses_a_quarantined_socket_without_stranding_the_successor() {
+        let (transport, writes) = ReusedSocketTransport::with_quarantined_socket();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<QuarantinedSocketCompileTimeProfile>()
+                    .expect("two-socket raw profile with short test deadlines"),
+            ),
+            TokioRuntime::from_current().expect("Tokio runtime"),
+        )
+        .await
+        .expect("session");
+        let camera = session
+            .camera::<QuarantinedSocketCompileTimeProfile>()
+            .expect("camera");
+
+        let displaced = camera
+            .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+            .await
+            .expect("first command writes");
+        let displaced_result = displaced.applied().await;
+        assert!(
+            matches!(displaced_result, Err(Error::UnsequencedCommandUnconfirmed)),
+            "the protocol terminal installs the raw S1 quarantine before B is admitted: {displaced_result:?}"
+        );
+
+        let successor = camera
+            .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
+            .await
+            .expect("successor writes while the stale S1 hold remains");
+        successor
+            .applied()
+            .await
+            .expect("camera-named S1 ACK and completion settle the successor normally");
+
+        {
+            let writes = writes.lock().expect("writes lock");
+            assert_eq!(writes.len(), 2, "two commands and B's normal S1 completion");
         }
         session.shutdown().await.expect("shutdown");
     }
