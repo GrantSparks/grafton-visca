@@ -1672,6 +1672,7 @@ impl BlockingOwner {
                 reader,
                 decoder,
                 Some(deadline),
+                Some(deadline),
                 PumpMode::PreAckDrain,
             )?;
         }
@@ -2081,12 +2082,16 @@ impl BlockingOwner {
     {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
         loop {
+            if observer_deadline.is_some_and(|observer| self.now() >= observer) {
+                return Err(Error::Timeout);
+            }
             let progress = self
                 .pump_once_inner(
                     driver,
                     reader,
                     decoder,
                     Some(deadline),
+                    observer_deadline,
                     PumpMode::FirstDispatchWait,
                 )
                 .map_err(|error| self.boundary_error_or(error))?;
@@ -2097,6 +2102,14 @@ impl BlockingOwner {
             // stream evidence; never turn that into due work merely because a
             // caller-side sleep reached H.
             if self.raw_release_gate_pending() || self.raw_release_gate_at(now).is_some() {
+                // A fault leaves the release gate armed and has no retained
+                // prefix grace deadline.  The caller's absolute observation
+                // deadline must still win; otherwise an eager faulting reader
+                // can loop until the owner's one-second permanent-fault bound
+                // and turn a bounded submit into a session close (#747).
+                if observer_deadline.is_some_and(|observer| now >= observer) {
+                    return Err(Error::Timeout);
+                }
                 if let Some(await_until) = self
                     .raw_release
                     .await_until()
@@ -2105,6 +2118,10 @@ impl BlockingOwner {
                     self.sleep_until(
                         observer_deadline.map_or(await_until, |observer| observer.min(await_until)),
                     );
+                    continue;
+                }
+                if now >= deadline {
+                    break;
                 }
                 continue;
             }
@@ -2537,8 +2554,14 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
     {
         self.enter()?;
-        let result =
-            self.pump_once_inner(driver, reader, decoder, observer_deadline, PumpMode::Normal);
+        let result = self.pump_once_inner(
+            driver,
+            reader,
+            decoder,
+            observer_deadline,
+            observer_deadline,
+            PumpMode::Normal,
+        );
         self.leave();
         // Issue #629: whatever ended the session inside this one pump turn, the
         // caller must be told the session's own boundary verdict and never the
@@ -2564,6 +2587,7 @@ impl BlockingOwner {
         driver: &mut D,
         reader: &mut R,
         decoder: &mut F,
+        owner_deadline_limit: Option<Instant>,
         observer_deadline: Option<Instant>,
         mode: PumpMode,
     ) -> Result<PumpProgress, Error>
@@ -2577,14 +2601,14 @@ impl BlockingOwner {
         // release it; an adapter is allowed to time out before owner_deadline.
         let receive_started_at = self.now();
         let raw_gate_before_receive = self.raw_release_gate_at(receive_started_at).is_some();
-        let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), observer_deadline);
+        let mut owner_deadline = min_deadline(self.next_wake_for_mode(mode), owner_deadline_limit);
         let raw_release_wait = self.raw_release.await_until();
         if raw_gate_before_receive && raw_release_wait.is_some_and(|wait| wait > receive_started_at)
         {
             // The engine has retained an ambiguous prefix under the old scope.
             // Give its tail one real, shared grace interval instead of handing
             // the already-due protocol wake back to the reader (#713).
-            owner_deadline = min_deadline(raw_release_wait, observer_deadline);
+            owner_deadline = min_deadline(raw_release_wait, owner_deadline_limit);
         } else if raw_gate_before_receive
             && owner_deadline.is_some_and(|deadline| deadline <= receive_started_at)
         {
@@ -2598,7 +2622,7 @@ impl BlockingOwner {
                 .checked_add(RAW_RELEASE_PROBE_MAX_WAIT)
                 .unwrap_or(receive_started_at);
             owner_deadline = min_deadline(
-                observer_deadline.filter(|deadline| *deadline > receive_started_at),
+                owner_deadline_limit.filter(|deadline| *deadline > receive_started_at),
                 Some(probe_deadline),
             );
         }
@@ -2666,7 +2690,10 @@ impl BlockingOwner {
                 let received_at = self.now();
                 let raw_gate = self.raw_release_gate_at(received_at).is_some();
                 let (length, span) = self.faults.record(received_at);
-                if TransientFaultRun::is_permanent(length, span) {
+                let first_dispatch_observer_expired = mode.defers_due()
+                    && observer_deadline.is_some_and(|deadline| received_at >= deadline);
+                if !first_dispatch_observer_expired && TransientFaultRun::is_permanent(length, span)
+                {
                     // Twelve consecutive faults spanning at least one second
                     // are a broken adapter rather than a transient condition.
                     // Close through the owner so every outstanding observer
@@ -2870,7 +2897,7 @@ impl BlockingOwner {
                 }
                 RawReleaseGateAction::AwaitInputUntil(deadline) => {
                     self.raw_release.wait_for_input_until(deadline);
-                    self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
+                    self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
                     return Ok(PumpProgress {
                         decoded_frames: driven,
                     });
@@ -2884,7 +2911,7 @@ impl BlockingOwner {
             // for the replacement before releasing either through due work.
             let current_releases = self.state.raw_correlation_releases_due(received_at);
             if self.raw_release.replace_if_changed(current_releases) {
-                self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
+                self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
                 return Ok(PumpProgress {
                     decoded_frames: driven,
                 });
@@ -2895,7 +2922,7 @@ impl BlockingOwner {
             // atomic and any non-frame packet has already been consumed. That
             // real input turn earns the one due tail without a turn counter.
             self.advance_after_raw_release_input(driver, received_at, mode)?;
-            self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
+            self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
             return Ok(PumpProgress {
                 decoded_frames: driven,
             });
@@ -2916,7 +2943,7 @@ impl BlockingOwner {
                 return Err(error);
             }
         }
-        self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
+        self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
         Ok(PumpProgress {
             decoded_frames: driven,
         })
@@ -3300,6 +3327,199 @@ fn min_deadline(left: Option<Instant>, right: Option<Instant>) -> Option<Instant
     }
 }
 
+/// Test-only blocking half of #747's cross-facade raw-release deadline
+/// verdict. The async half lives beside its executor-native eager-idle
+/// regression; keeping this fixture here lets the differential use the real
+/// blocking tombstone path and its manual owner clock.
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[derive(Clone, Debug)]
+struct DifferentialBlockingClock {
+    now: Arc<Mutex<Instant>>,
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[allow(clippy::expect_used)]
+impl DifferentialBlockingClock {
+    fn new(now: Instant) -> Self {
+        Self {
+            now: Arc::new(Mutex::new(now)),
+        }
+    }
+
+    fn current(&self) -> Instant {
+        *self.now.lock().expect("differential clock lock")
+    }
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[allow(clippy::expect_used)]
+impl BlockingClock for DifferentialBlockingClock {
+    fn now(&self) -> Instant {
+        self.current()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        let mut now = self.now.lock().expect("differential clock lock");
+        *now = now
+            .checked_add(duration)
+            .expect("differential clock remains representable");
+    }
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[derive(Debug, Default)]
+struct DifferentialWireDriver {
+    writes: usize,
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+impl BlockingWireDriver for DifferentialWireDriver {
+    fn write(&mut self, _write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+        self.writes = self.writes.saturating_add(1);
+        Ok(TransmissionMeta { sequence: None })
+    }
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[derive(Debug, Default)]
+struct DifferentialFaultReader {
+    calls: usize,
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+impl BlockingReadDriver for DifferentialFaultReader {
+    fn receive(
+        &mut self,
+        _receive_buffer: &mut [u8],
+        _owner_deadline: Option<Instant>,
+    ) -> Result<BlockingReceive, Error> {
+        self.calls = self.calls.saturating_add(1);
+        Err(Error::TransportError(
+            "cross-facade persistent receive fault".into(),
+        ))
+    }
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[derive(Debug, Default)]
+struct DifferentialEmptyDecoder;
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+impl BlockingFrameDecoder for DifferentialEmptyDecoder {
+    fn decode(
+        &mut self,
+        _buffers: &mut super::OwnerBuffers,
+        _received: usize,
+        _frame_limit: usize,
+    ) -> Result<Vec<DecodedFrame>, Error> {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RawReleaseObserverDeadlineVerdict {
+    pub(crate) timed_out: bool,
+    pub(crate) session: crate::runtime::engine::SessionState,
+    pub(crate) elapsed: Duration,
+    pub(crate) limit: Duration,
+    pub(crate) successor_written: bool,
+}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+pub(crate) fn raw_tombstone_fault_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
+    const HOLD: Duration = Duration::from_millis(15);
+    const OBSERVER: Duration = Duration::from_millis(20);
+
+    let started = Instant::now();
+    let clock = DifferentialBlockingClock::new(started);
+    let protocol = crate::runtime::engine::ProtocolPolicy {
+        capacity: 2,
+        envelope: crate::runtime::engine::EnvelopeKind::Raw,
+        transport: TransportKind::Datagram,
+        inquiry_capacity: 1,
+        command_spacing: Duration::ZERO,
+        inquiry_spacing: Duration::ZERO,
+        inquiry_cooldown: Duration::ZERO,
+        raw_inquiry_release_hold: Duration::from_secs(1),
+        raw_release_grace: Duration::from_millis(100),
+        strict_unconfirmed_poison: false,
+    };
+    let target = crate::runtime::engine::TargetPolicy {
+        command_sockets: 1,
+        cancellation: crate::runtime::engine::CancellationPolicy::Supported,
+    };
+    let mut targets = [None; 9];
+    targets[usize::from(crate::CameraId::CAMERA_1.id())] = Some(target);
+    let policy = OwnerPolicy::with_targets(protocol, targets).expect("valid raw policy");
+    let mut owner = BlockingOwner::with_clock(policy, Arc::new(clock.clone())).unwrap();
+    let raw_request = |reply_shape, ambiguity| RuntimeRequest::Command {
+        wire: Arc::new(
+            crate::runtime::engine::EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff])
+                .expect("valid raw request"),
+        ),
+        context: crate::runtime::engine::RequestContext {
+            target: crate::CameraId::CAMERA_1,
+            timeout: crate::runtime::engine::TimeoutPolicy {
+                ack: Duration::from_secs(1),
+                completion: Duration::from_secs(1),
+                inquiry: Duration::from_secs(1),
+                cancellation: Duration::from_secs(1),
+                ambiguity,
+            },
+            retry: crate::runtime::engine::RetryPolicy::NEVER,
+            control: crate::runtime::engine::ControlPolicy::default(),
+            cancellation: crate::runtime::engine::CancellationPolicy::Supported,
+            reply_shape,
+        },
+        applied_state: None,
+    };
+    let mut driver = DifferentialWireDriver::default();
+    owner
+        .submit(
+            &mut driver,
+            raw_request(crate::runtime::engine::ReplyShape::NoReply, HOLD),
+        )
+        .expect("predecessor writes and establishes its raw hold");
+    let mut reader = DifferentialFaultReader::default();
+    let mut decoder = DifferentialEmptyDecoder;
+    let result = owner.submit_request_until_with_pump(
+        &mut driver,
+        &mut reader,
+        &mut decoder,
+        raw_request(
+            crate::runtime::engine::ReplyShape::AckThenCompletion,
+            Duration::from_secs(1),
+        ),
+        Duration::from_secs(1),
+        started + OBSERVER,
+    );
+    let timed_out = matches!(&result, Err(Error::Timeout));
+    assert!(
+        timed_out,
+        "faulting raw wait must return Timeout: {result:?}"
+    );
+    assert_eq!(clock.current(), started + OBSERVER);
+    assert!(
+        reader.calls < 12,
+        "the observer deadline must win before the permanent fault threshold"
+    );
+    assert_eq!(
+        owner.state().state(),
+        crate::runtime::engine::SessionState::Running
+    );
+    assert_eq!(driver.writes, 1, "timed-out successor must not write");
+    RawReleaseObserverDeadlineVerdict {
+        timed_out,
+        session: owner.state().state(),
+        elapsed: clock.current().saturating_duration_since(started),
+        limit: OBSERVER,
+        successor_written: driver.writes > 1,
+    }
+}
+
 #[cfg(all(test, not(feature = "async")))]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -3495,6 +3715,24 @@ mod tests {
                 receive_buffer[0] = 0;
             }
             read
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct RepeatingFaultReader {
+        calls: usize,
+    }
+
+    impl BlockingReadDriver for RepeatingFaultReader {
+        fn receive(
+            &mut self,
+            _receive_buffer: &mut [u8],
+            _owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            self.calls = self.calls.saturating_add(1);
+            Err(Error::TransportError(
+                "simulated persistent receive fault".into(),
+            ))
         }
     }
 
@@ -4059,6 +4297,112 @@ mod tests {
         };
         let _ = owner.drive_without_due(&mut driver, effects.into());
         assert_eq!(driver.writes.len(), 2, "A then B after the real fence");
+    }
+
+    #[test]
+    fn raw_tombstone_faults_stop_at_the_submission_observer_deadline() {
+        const HOLD: Duration = Duration::from_millis(15);
+        const OBSERVER: Duration = Duration::from_millis(20);
+
+        let started = Instant::now();
+        let clock = ManualBlockingClock::new(started);
+        let mut owner = BlockingOwner::with_clock(
+            raw_two_target_owner_policy(TransportKind::Datagram),
+            Arc::new(clock.clone()),
+        )
+        .expect("two-target owner");
+        let mut driver = ReleaseCrossingDriver {
+            release_after: started,
+            writes: Vec::new(),
+        };
+        let _a = owner
+            .submit(
+                &mut driver,
+                raw_request(CameraId::CAMERA_1, ReplyShape::NoReply, HOLD),
+            )
+            .expect("A local write");
+        let mut reader = RepeatingFaultReader::default();
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .submit_request_until_with_pump(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                raw_request(
+                    CameraId::CAMERA_1,
+                    ReplyShape::AckThenCompletion,
+                    Duration::from_secs(1),
+                ),
+                Duration::from_secs(1),
+                started + OBSERVER,
+            )
+            .expect_err("the bounded observer must expire before the fault run poisons");
+
+        assert!(matches!(error, Error::Timeout));
+        assert_eq!(clock.current(), started + OBSERVER);
+        assert!(
+            reader.calls
+                < usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).expect("fault limit fits usize"),
+            "the observer bound wins before the permanent-fault count"
+        );
+        assert_eq!(owner.state().state(), SessionState::Running);
+        assert_eq!(
+            driver.writes.len(),
+            1,
+            "the abandoned successor never writes"
+        );
+    }
+
+    #[test]
+    fn raw_tombstone_persistent_fault_still_closes_inside_observer_budget() {
+        let started = Instant::now();
+        let clock = ManualBlockingClock::new(started);
+        let mut owner = BlockingOwner::with_clock(
+            raw_two_target_owner_policy(TransportKind::Datagram),
+            Arc::new(clock),
+        )
+        .expect("two-target owner");
+        let mut driver = ReleaseCrossingDriver {
+            release_after: started,
+            writes: Vec::new(),
+        };
+        let _a = owner
+            .submit(
+                &mut driver,
+                raw_request(CameraId::CAMERA_1, ReplyShape::NoReply, Duration::ZERO),
+            )
+            .expect("A local write");
+        owner.faults = TransientFaultRun {
+            length: TRANSIENT_RECEIVE_FAULT_LIMIT - 1,
+            first_at: Some(started - TRANSIENT_RECEIVE_FAULT_SPAN),
+            last_at: Some(started),
+        };
+        let mut reader = RepeatingFaultReader::default();
+        let mut decoder = EmptyDecoder;
+
+        let error = owner
+            .submit_request_until_with_pump(
+                &mut driver,
+                &mut reader,
+                &mut decoder,
+                raw_request(
+                    CameraId::CAMERA_1,
+                    ReplyShape::AckThenCompletion,
+                    Duration::from_secs(1),
+                ),
+                Duration::from_secs(1),
+                started + Duration::from_secs(2),
+            )
+            .expect_err("a proven permanent fault inside the budget closes the owner");
+
+        assert!(
+            matches!(error, Error::ConnectionClosed { .. }),
+            "unexpected permanent-fault result: {error:?}; faults={:?}",
+            owner.faults
+        );
+        assert_eq!(reader.calls, 1);
+        assert_eq!(owner.state().state(), SessionState::Closed);
     }
 
     #[test]

@@ -149,9 +149,7 @@ async fn raw_stream_release_idle_fault_fences_once() {
 
 /// Both documented eager-idle transport shapes must make the raw stream
 /// release grace progress in virtual elapsed time, not in an unbounded number
-/// of receive polls. The timed-out predecessor is the #747 differential
-/// verdict: its timeout remains a per-request result and the session stays
-/// running while its queued successor is released.
+/// of receive polls.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     const HOLD: Duration = Duration::from_secs(1);
@@ -286,6 +284,118 @@ async fn raw_stream_immediate_nodata_grace_is_elapsed_bounded() {
 #[tokio::test]
 async fn raw_stream_immediate_timeout_grace_is_elapsed_bounded() {
     assert_immediate_idle_raw_grace_is_bounded(ImmediateRawIdle::Timeout).await;
+}
+
+/// Build the async half of #747's facade differential from the same caller
+/// observer contract as the blocking path. A's raw tombstone is already due
+/// when B's observer expires; the actor must reject B before staging it, so
+/// the deadline cannot poison the session or become a later successor write.
+#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
+async fn async_raw_tombstone_timeout_verdict(
+) -> super::super::super::RawReleaseObserverDeadlineVerdict {
+    const HOLD: Duration = Duration::from_millis(15);
+    const OBSERVER: Duration = Duration::from_millis(20);
+
+    let initial = Instant::now();
+    let runtime = ManualRuntime::with_polling_sleeps(initial);
+    let mut owner_policy = policy(1);
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(2);
+    let mut driver = ImmediateRawGraceDriver {
+        idle: ImmediateRawIdle::Timeout,
+        reads,
+        armed,
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+
+    let (_predecessor_completion, predecessor_admitted) = handle
+        .enqueue_admission(no_reply_command_for(CameraId::CAMERA_1, HOLD), None)
+        .unwrap();
+    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(
+            predecessor_boundary,
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+        )
+        .await;
+    let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+
+    let deadline = initial + OBSERVER;
+    let expiring_handle = handle.clone();
+    let successor = tokio::spawn(async move {
+        expiring_handle
+            .submit_with_timeout_until(command(), Duration::from_secs(1), deadline)
+            .await
+    });
+    while handle.admissions.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    // `enqueue_admission` runs before the caller installs its clock sleep;
+    // give that future one poll so the manual advance drives the observer,
+    // rather than only making the deadline retrospectively overdue.
+    tokio::task::yield_now().await;
+    runtime.advance(OBSERVER);
+    let result = tokio::time::timeout(Duration::from_secs(1), successor)
+        .await
+        .expect("the caller observer expires at its bounded deadline")
+        .unwrap();
+    assert!(matches!(result, Err(Error::Timeout)));
+
+    let now = Executor::now(&runtime);
+    assert!(
+        !actor.state.raw_correlation_releases_due(now).is_empty(),
+        "B expires while A's raw tombstone release is due"
+    );
+    let expired_successor = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(expired_successor, &mut driver, &runtime, now)
+        .await;
+    assert!(
+        writes.try_recv().is_err(),
+        "an observer-expired successor must not become a later write"
+    );
+    assert_eq!(actor.state.state(), SessionState::Running);
+
+    super::super::super::RawReleaseObserverDeadlineVerdict {
+        timed_out: true,
+        session: actor.state.state(),
+        elapsed: now.saturating_duration_since(initial),
+        limit: OBSERVER,
+        successor_written: false,
+    }
+}
+
+/// Blocking pumps its due raw tombstone through repeated receive faults; async
+/// expires the same pre-admission observer before staging its queued boundary.
+/// The mechanisms differ by facade, but the contractual verdict is identical:
+/// a bounded Timeout, a live session, and no successor write (#747).
+#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
+#[tokio::test]
+async fn raw_release_observer_deadline_verdict_matches_blocking() {
+    let blocking = super::super::super::raw_tombstone_fault_timeout_verdict();
+    let asynchronous = async_raw_tombstone_timeout_verdict().await;
+
+    assert_eq!(blocking, asynchronous);
+    assert!(blocking.timed_out, "both facades return Timeout");
+    assert_eq!(blocking.session, SessionState::Running);
+    assert!(
+        blocking.elapsed <= blocking.limit,
+        "raw release wait exceeded the observer deadline: {:?} > {:?}",
+        blocking.elapsed,
+        blocking.limit
+    );
+    assert!(
+        !blocking.successor_written,
+        "an observer-expired successor is never written"
+    );
 }
 
 /// A release set can grow while the actor is between the old set's receive
