@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.1] - 2026-09-04
+
 The 2.0.0-rc.1 release candidate. 2.0 is a clean break from the 1.x API;
 `docs/migration_2_0.md` maps every pre-2.0 vocabulary item to its
 destination.
+
+No physical hardware validation has been performed, and no hardware support has been verified for this release candidate.
 
 The last published release is **1.1.0**. The `[1.2.0]` section below records
 the still-unpublished 1.x release branch; it is not a Git tag or a crates.io
