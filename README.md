@@ -10,6 +10,11 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 > **2.0.0-rc.1** — The prerelease owner-backed API is available for review. It
 > keeps one protocol owner per session and exposes typed static, blocking, async,
 > and dynamic views over that owner.
+>
+> **Hardware status** — No physical hardware validation has been performed, and
+> no hardware support has been verified for this release candidate. Software
+> contract coverage is not physical-camera evidence; see the
+> [hardware release checklist](docs/hardware_release_checklist.md).
 
 ---
 

@@ -408,18 +408,19 @@ entries below retain their original wording.
   deadline, then must receive and exhaust the same engine-owned grace interval
   before the successor can write; the runtime contract is unchanged.
 
-- **Policy correction: proportional hardware evidence supersedes D8/#738.** An
-  RC may be published while the hardware checklist remains `Pending (Not run)`
-  or `Unverified`, provided the release notes say plainly that no hardware
-  support has been verified. A stable release with major version 2 or higher
-  requires one targeted representative pass covering the five concise rows in
-  `docs/hardware_release_checklist.md`, with exact firmware and transcript or
-  capture evidence. The checklist records only the full `Hardware-tested
-  commit:` SHA, operator/date, evidence index, and final sign-off; the release
-  workflow still checks the exact release tag and exact release-HEAD CI run and
-  compares source/manifests with the stable bench commit. The validator reads
-  that fixed five-row contract directly instead of treating arbitrary Markdown
-  as an adversarial evidence format. No hardware run is claimed for this RC.
+- **Policy correction (#753): proportional hardware evidence supersedes
+  #738/D8 in #732.** An RC may be published while the hardware checklist
+  remains `Pending (Not run)` or `Unverified`, provided its release notes state
+  plainly: **"No physical hardware validation has been performed, and no hardware support has been verified for this release candidate."** A stable
+  release with major version 2 or higher requires one targeted representative
+  pass covering the five concise rows in `docs/hardware_release_checklist.md`,
+  with exact firmware and transcript or capture evidence. The checklist records
+  only the full `Hardware-tested commit:` SHA, operator/date, evidence index,
+  and final sign-off; the release workflow still checks the exact release tag
+  and exact release-HEAD CI run and compares source/manifests with the stable
+  bench commit. The validator reads that fixed five-row contract directly
+  instead of treating arbitrary Markdown as an adversarial evidence format. No
+  hardware run is claimed for this RC.
 
 - **Historical, superseded policy (#738 / D8 in #732).** An earlier release
   policy required hardware evidence for every publishable 2.0+ tag, including
