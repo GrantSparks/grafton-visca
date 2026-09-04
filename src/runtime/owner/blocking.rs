@@ -2838,7 +2838,7 @@ impl BlockingOwner {
             // has no retained bytes.  Complete frames were applied above in
             // source order; a partial prefix is delegated to the engine's
             // exact raw scope classifier before the release tail runs.
-            let Some(gate_releases) = self.raw_release.latched() else {
+            let Some(_gate_releases) = self.raw_release.latched() else {
                 return Err(self.poison_raw_release_gate(
                     driver,
                     Error::InvalidState(
@@ -2880,8 +2880,7 @@ impl BlockingOwner {
             // the old scope's completed proof but require a *new* input turn
             // for the replacement before releasing either through due work.
             let current_releases = self.state.raw_correlation_releases_due(received_at);
-            if !current_releases.is_empty() && current_releases != gate_releases {
-                self.raw_release.replace(current_releases);
+            if self.raw_release.replace_if_changed(current_releases) {
                 self.pause_after_idle_receive(idle_pause, mode, observer_deadline);
                 return Ok(PumpProgress {
                     decoded_frames: driven,

@@ -146,6 +146,266 @@ async fn raw_datagram_release_idle_fault_fences_once() {
 async fn raw_stream_release_idle_fault_fences_once() {
     assert_raw_release_idle_fault_fences_once(stream_policy(1)).await;
 }
+
+/// Both documented eager-idle transport shapes must make the raw stream
+/// release grace progress in virtual elapsed time, not in an unbounded number
+/// of receive polls. The timed-out predecessor is the #747 differential
+/// verdict: its timeout remains a per-request result and the session stays
+/// running while its queued successor is released.
+#[cfg(feature = "runtime-tokio")]
+async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
+    const HOLD: Duration = Duration::from_secs(1);
+    const GRACE: Duration = Duration::from_millis(100);
+    // One probe arms the raw gate, one maps it to the grace, and the shared
+    // 10/20/40/30 ms idle slices may each re-poll the eager transport. Keep
+    // slack for the fairness handoff, but make a zero-pause spin unmistakable.
+    const POLL_BOUND: u64 = 12;
+
+    let initial = Instant::now();
+    let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
+    let mut owner_policy = stream_policy(1);
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    owner_policy.protocol.raw_release_grace = GRACE;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(8);
+    let mut driver = ImmediateRawGraceDriver {
+        idle,
+        reads: Arc::clone(&reads),
+        armed,
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+    // Stage A before starting the eager receiver. That keeps the fixture's
+    // first observed sleep attributable to A's raw hold rather than to a
+    // pre-admission read timeout race.
+    let (predecessor_completion, predecessor_admitted) =
+        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
+    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(
+            predecessor_boundary,
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+        )
+        .await;
+    let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert!(matches!(
+        predecessor_completion.recv_async().await.unwrap(),
+        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+    ));
+    let actor_task = tokio::spawn(actor.run(driver));
+
+    // Queue B while the eager driver walks its paced idle pauses toward H. At
+    // H, its admission must be selected through the ordinary boundary lane
+    // before the raw release Wake dispatches it.
+    let successor_handle = handle.clone();
+    let successor_task = tokio::spawn(async move { successor_handle.submit(inquiry()).await });
+    while handle.admissions.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let reads_before_h = reads.load(Ordering::Relaxed);
+    let mut until_hold = Duration::ZERO;
+    while until_hold < HOLD {
+        let pause = sleeps.recv_async().await.unwrap();
+        assert!(
+            !pause.is_zero() && pause <= HOLD.saturating_sub(until_hold),
+            "eager pre-release read must be paced, got {pause:?} after {until_hold:?}"
+        );
+        until_hold = until_hold.saturating_add(pause);
+        runtime.advance(pause);
+    }
+    assert_eq!(until_hold, HOLD, "idle pacing reaches the raw hold exactly");
+
+    // The retained source-only prefix gets one 100 ms engine grace. Each
+    // immediate idle receive is paced by a positive slice of that deadline;
+    // after the final slice, the boundary-first grace Wake discards it.
+    let mut elapsed = Duration::ZERO;
+    while elapsed < GRACE {
+        let pause = sleeps.recv_async().await.unwrap();
+        assert!(
+            !pause.is_zero() && pause <= GRACE.saturating_sub(elapsed),
+            "raw grace must install a real positive idle pause, got {pause:?} after {elapsed:?}"
+        );
+        elapsed = elapsed.saturating_add(pause);
+        runtime.advance(pause);
+    }
+    assert_eq!(elapsed, GRACE, "grace must be bounded by elapsed time");
+
+    let successor = tokio::time::timeout(Duration::from_secs(1), successor_task)
+        .await
+        .expect("an eager idle transport must not starve raw-release admission")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), writes.recv_async())
+            .await
+            .expect("the queued successor writes at the bounded release")
+            .unwrap(),
+        successor.id
+    );
+    let post_h_polls = reads.load(Ordering::Relaxed) - reads_before_h;
+    assert!(
+        post_h_polls <= POLL_BOUND,
+        "eager raw grace polled {post_h_polls} times (bound {POLL_BOUND})"
+    );
+
+    // #747's facade-differential assertion can use this exact verdict: the
+    // predecessor timed out, the release progressed, and no session poison or
+    // close occurred while the successor was dispatched.
+    let snapshot_handle = handle.clone();
+    let snapshot_task = tokio::spawn(async move { snapshot_handle.snapshot().await });
+    tokio::task::yield_now().await;
+    runtime.advance(Duration::from_secs(1));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), snapshot_task)
+            .await
+            .expect("the live actor services a control boundary")
+            .unwrap()
+            .unwrap()
+            .state,
+        SessionState::Running
+    );
+
+    handle.shutdown().await.unwrap();
+    runtime.advance(Duration::from_secs(1));
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_stream_immediate_nodata_grace_is_elapsed_bounded() {
+    assert_immediate_idle_raw_grace_is_bounded(ImmediateRawIdle::NoData).await;
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_stream_immediate_timeout_grace_is_elapsed_bounded() {
+    assert_immediate_idle_raw_grace_is_bounded(ImmediateRawIdle::Timeout).await;
+}
+
+/// A release set can grow while the actor is between the old set's receive
+/// proof and its Wake. The old proof must never advance the newly due hold:
+/// the shared turn coordinator replaces S1 with S1 ∪ S2, then requires a
+/// second receive-first turn before the queued S1 successor dispatches.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
+    const FIRST_HOLD: Duration = Duration::from_secs(1);
+    const SECOND_HOLD: Duration = Duration::from_secs(2);
+
+    let initial = Instant::now();
+    let runtime = ManualRuntime::with_polling_sleeps(initial);
+    let mut owner_policy = two_target_raw_policy(TransportKind::Stream);
+    owner_policy.protocol.raw_inquiry_release_hold = FIRST_HOLD;
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+    let mut harness = raw_release_probe_harness();
+    let driver = harness.driver.take().unwrap();
+    let mut driver = driver;
+
+    // A creates S1's inquiry hold. C independently creates S2's broad raw
+    // hold at a later deadline; B remains queued behind S1.
+    let (a_completion, a_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
+    let a_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .await;
+    let a = a_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+    assert!(matches!(
+        a_completion.recv_async().await.unwrap(),
+        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+    ));
+
+    let (_c_completion, c_admitted) = handle
+        .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, SECOND_HOLD), None)
+        .unwrap();
+    let c_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .await;
+    let c = c_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+
+    let (_b_completion, b_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+    let b_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .await;
+    let b = b_admitted.recv_async().await.unwrap().unwrap();
+    assert!(harness.writes.try_recv().is_err());
+
+    runtime.advance(FIRST_HOLD);
+    let first_set = actor
+        .raw_release
+        .observe(
+            actor
+                .state
+                .raw_correlation_releases_due(Executor::now(&runtime)),
+        )
+        .expect("S1 must latch at its first deadline");
+
+    runtime.advance(SECOND_HOLD - FIRST_HOLD);
+    let combined_set = actor
+        .state
+        .raw_correlation_releases_due(Executor::now(&runtime));
+    assert_ne!(combined_set, first_set, "S2 grows the due release set");
+    assert_eq!(
+        actor
+            .handle_event(
+                ActorEvent::Wake,
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
+            .await,
+        TurnOutcome::Continue,
+        "a grown release set restarts at receive-first rather than advancing"
+    );
+    assert_eq!(actor.raw_release.latched(), Some(combined_set));
+    assert!(
+        harness.writes.try_recv().is_err(),
+        "S1's old proof cannot release B after S2 became due"
+    );
+
+    // A fresh no-data receive at H2 earns the replacement proof. Only the
+    // following Wake may expire the combined set and dispatch B.
+    let now = Executor::now(&runtime);
+    assert_eq!(
+        actor
+            .handle_event(
+                ActorEvent::Receive {
+                    result: Ok(AsyncReceive::NoData),
+                    received_at: now,
+                },
+                &mut driver,
+                &runtime,
+                now,
+                false,
+            )
+            .await,
+        TurnOutcome::YieldBoundaries
+    );
+    assert!(actor.raw_release.is_pending());
+    assert_eq!(
+        actor
+            .handle_event(
+                ActorEvent::Wake,
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
+            .await,
+        TurnOutcome::Continue
+    );
+    assert_eq!(harness.writes.recv_async().await.unwrap(), b);
+}
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn raw_datagram_parked_cross_target_write_returns_to_raw_coordinator() {

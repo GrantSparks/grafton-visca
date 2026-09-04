@@ -371,6 +371,18 @@ entries below retain their original wording.
 
 ### Changed
 
+- **Fixed async raw-correlation release arbitration** (#746). A due raw
+  release now uses the ordinary ordered boundary selection and fairness ceiling,
+  so cancellation, admission (including the Urgent safety lane), control, and
+  timer work remain live under a byte flood. An eagerly-idle custom transport
+  (`AsyncReceive::NoData` or `Error::Timeout`) now reaches the engine-owned
+  retained-prefix grace deadline with bounded polling instead of spinning on a
+  left-biased read; the exact no-input fence remains reachable. If another raw
+  hold becomes due before the selected release Wake, the owner replaces the
+  latched set and earns a fresh receive-first proof before either scope can
+  dispatch a successor. These are owner-internal scheduling corrections; the
+  documented #713 timeout/diagnostic and live-session behavior is unchanged.
+
 - **BREAKING: built-in profile identity again includes every protocol fact**
   (#751; supersedes #728's runtime-policy override). A runtime `ProfileSpec`
   that claims a built-in `profile_id` must match that profile's transports,

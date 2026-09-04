@@ -93,6 +93,18 @@ impl RawReleaseTurn {
         self.await_until = None;
     }
 
+    /// Replace the completed input proof only when the engine exposes a
+    /// distinct, non-empty release projection.  A changed projection can add
+    /// a scope after the old proof's receive turn was selected, so it must
+    /// always begin another receive-first turn before due work advances.
+    pub(super) fn replace_if_changed(&mut self, releases: RawCorrelationReleaseSet) -> bool {
+        if releases.is_empty() || self.latched == Some(releases) {
+            return false;
+        }
+        self.replace(releases);
+        true
+    }
+
     /// Record that a no-data receive was sampled for this exact release set.
     #[cfg_attr(not(feature = "async"), allow(dead_code))]
     pub(super) fn fence_no_input(&mut self, releases: RawCorrelationReleaseSet) {

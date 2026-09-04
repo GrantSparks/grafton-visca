@@ -605,6 +605,20 @@ the bounded fairness ceiling of (4), never an open-ended receive history.
 Transmission effects produced by either phase are driven immediately before the
 next selection.
 
+Raw-correlation release does not create an exception to that boundary order.
+At a newly due raw hold the owner first obtains the mandatory ordered input
+proof (so input which became ready after a pre-expiry idle read still wins); a
+forced fairness turn still puts shutdown, cancellation, admission, control, and
+the release timer first. During a retained-prefix grace, that same complete
+boundary lane races the receive against the engine-owned grace deadline. An
+exact no-input fence is scoped to the latched release set and remains reachable;
+an immediately-idle custom transport is paced against the real grace deadline,
+not the already-expired raw hold. If the due set grows before its Wake, the
+shared release-turn coordinator replaces the latch and requires another
+receive-first proof for the replacement. Thus an Urgent stop remains admissible
+under raw input pressure, while no scope is released using evidence collected
+before its own deadline (#746).
+
 ### Transport I/O deadlines and idle pacing
 
 The actor also bounds each transport operation itself, because the

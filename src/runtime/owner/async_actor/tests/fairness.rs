@@ -33,6 +33,212 @@ fn simultaneous_source_readiness_follows_the_explicit_phase() {
         Some(SourcePhase::BoundariesFirst),
     );
 }
+
+/// A due raw release used to bypass the ordinary boundary future entirely.
+/// This byte flood keeps the stream framer buffered and never produces a
+/// complete frame, so a regression can only admit the Urgent lane if the raw
+/// selector charges the normal fairness ceiling and then polls admission.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() {
+    const HOLD: Duration = Duration::from_secs(1);
+    const GRACE: Duration = Duration::from_millis(100);
+    const FAIRNESS_CEILING: usize = 4;
+    // The actor cooperatively yields every four receives; an executor may run
+    // several such quanta before the test task advances virtual grace. Keep a
+    // finite ceiling for the regression without depending on that executor
+    // scheduling detail.
+    const POST_H_POLL_BOUND: u64 = 128;
+
+    let initial = Instant::now();
+    let runtime = ManualRuntime::with_polling_sleeps(initial);
+    let mut owner_policy = stream_policy(1);
+    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    owner_policy.protocol.raw_release_grace = GRACE;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(8);
+    let mut driver = RawBufferedFloodDriver {
+        reads: Arc::clone(&reads),
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+
+    // Install a real inquiry release hold without first running the eager
+    // flood. The zero-length response deadline terminalizes A immediately;
+    // H remains one second away.
+    let (predecessor_completion, predecessor_admitted) =
+        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
+    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(
+            predecessor_boundary,
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+        )
+        .await;
+    let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert!(matches!(
+        predecessor_completion.recv_async().await.unwrap(),
+        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+    ));
+
+    // Establish the due retained-prefix gate without starting the flood yet.
+    // The actor loop below must then select every byte-flood receive and its
+    // eventual urgent admission through the raw-release path, rather than
+    // inheriting an ordinary pre-H selection.
+    runtime.advance(HOLD);
+    assert_eq!(
+        actor
+            .handle_event(
+                ActorEvent::Wake,
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
+            .await,
+        TurnOutcome::ContinueBuffered
+    );
+    assert!(actor.raw_release.await_until().is_some());
+
+    let (urgent_completion, urgent_admitted) =
+        handle.enqueue_admission(urgent_command(), None).unwrap();
+    assert!(!handle.admissions.is_empty());
+    let actor_task = tokio::spawn(actor.run(driver));
+    // The admission is deliberately queued before the flood starts. It cannot
+    // be consumed until the raw selector spends a forced fairness turn; once
+    // removed it remains deferred behind the release proof.
+    while !handle.admissions.is_empty() {
+        tokio::task::yield_now().await;
+    }
+    let reads_before_release = reads.load(Ordering::Relaxed);
+    assert!(
+        reads_before_release >= FAIRNESS_CEILING as u64,
+        "the raw byte flood must reach the normal fairness ceiling before admission"
+    );
+
+    // At H + grace the timer and the perpetually-ready receive are both
+    // runnable. The release timer must win its boundary-first phase, after
+    // admission has been staged through that same ordered lane.
+    runtime.advance(GRACE);
+    let urgent = tokio::time::timeout(Duration::from_secs(1), urgent_admitted.recv_async())
+        .await
+        .expect("raw flood must not starve urgent admission")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), writes.recv_async())
+            .await
+            .expect("urgent request writes after the bounded raw release")
+            .unwrap(),
+        urgent
+    );
+    assert!(
+        urgent_completion.try_recv().is_none(),
+        "the urgent write remains live; only admission and pacing are asserted here"
+    );
+    let post_h_polls = reads.load(Ordering::Relaxed) - reads_before_release;
+    assert!(
+        post_h_polls <= POST_H_POLL_BOUND,
+        "raw release flood took {post_h_polls} polls after Urgent queued (bound {POST_H_POLL_BOUND})"
+    );
+
+    handle.shutdown().await.unwrap();
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+}
+
+/// The raw coordinator may add a proof and defer the selected boundary, but it
+/// must not change the ordinary receive-first fairness cadence.  Poll both
+/// branches directly so executor scheduling cannot hide a different phase
+/// sequence: four flood reads yield, the next poll takes admission, and four
+/// more reads reach the following cooperative yield.
+#[cfg(feature = "runtime-tokio")]
+async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, u64) {
+    const HOLD: Duration = Duration::from_secs(1);
+    const FAIRNESS_CEILING: usize = 4;
+
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let mut owner_policy = stream_policy(1);
+    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(8);
+    let mut driver = RawBufferedFloodDriver {
+        reads: Arc::clone(&reads),
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+
+    if latched_raw_release {
+        let (completion, admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
+        let predecessor = actor.admissions.try_recv().unwrap();
+        actor
+            .handle_admission(predecessor, &mut driver, &runtime, Executor::now(&runtime))
+            .await;
+        let predecessor = admitted.recv_async().await.unwrap().unwrap();
+        assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+        assert!(matches!(
+            completion.recv_async().await.unwrap(),
+            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        ));
+
+        runtime.advance(HOLD);
+        assert_eq!(
+            actor
+                .handle_event(
+                    ActorEvent::Wake,
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
+                .await,
+            TurnOutcome::ContinueBuffered
+        );
+        assert!(actor.raw_release.await_until().is_some());
+    }
+
+    let (_completion, _admitted) = handle.enqueue_admission(urgent_command(), None).unwrap();
+    let mut run = Box::pin(actor.run(driver));
+    let waker = std::task::Waker::noop();
+    let mut context = std::task::Context::from_waker(waker);
+
+    assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+    let first_yield_reads = reads.load(Ordering::Relaxed);
+    assert!(
+        !handle.admissions.is_empty(),
+        "the forced boundary begins on the next poll"
+    );
+
+    assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
+    let second_yield_reads = reads.load(Ordering::Relaxed);
+    assert!(
+        handle.admissions.is_empty(),
+        "the same boundary poll must consume the queued urgent admission"
+    );
+    drop(run);
+    (first_yield_reads, second_yield_reads)
+}
+
+/// The due raw-release selector has the same forced-boundary cadence as the
+/// normal selector. This differential guards against future raw-only selector
+/// branches silently omitting admission or fairness (#746).
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_flood_matches_normal_boundary_cadence() {
+    let normal = raw_release_flood_boundary_cadence(false).await;
+    let raw = raw_release_flood_boundary_cadence(true).await;
+    assert_eq!(normal, (4, 8), "normal selector phase sequence");
+    assert_eq!(raw, normal, "raw release must use the same phase cadence");
+}
+
 /// A due engine wake may allow one ordinary control observation, but a
 /// chained backlog of real public controls cannot keep it from advancing
 /// engine time. The first metrics call intentionally observes the pending
