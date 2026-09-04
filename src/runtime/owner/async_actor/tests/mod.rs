@@ -19,7 +19,7 @@ use crate::{
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{EnvelopeSequence, SequenceWidth};
+use crate::runtime::engine::{ControlClass, EnvelopeSequence, SequenceWidth};
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::CancellationObservation;
@@ -287,6 +287,32 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
 
 fn command() -> RuntimeRequest {
     command_for(CameraId::CAMERA_1)
+}
+
+/// Owner-core stand-in for a typed stop: public raw requests cannot forge the
+/// reserved urgent lane, but the engine-facing fixture needs to prove that the
+/// lane remains reachable while a raw release is due.
+#[cfg(feature = "runtime-tokio")]
+fn urgent_command() -> RuntimeRequest {
+    let mut request = command();
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command helper always builds a command request");
+    };
+    context.control.class = ControlClass::Urgent;
+    request
+}
+
+/// A target-local raw fire-and-forget command used to create an independent
+/// broad correlation hold at an exact, test-controlled ambiguity deadline.
+#[cfg(feature = "runtime-tokio")]
+fn no_reply_command_for(target: CameraId, ambiguity: Duration) -> RuntimeRequest {
+    let mut request = command_for(target);
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command helper always builds a command request");
+    };
+    context.reply_shape = ReplyShape::NoReply;
+    context.timeout.ambiguity = ambiguity;
+    request
 }
 
 fn command_for(target: CameraId) -> RuntimeRequest {
@@ -2102,6 +2128,163 @@ impl AsyncOwnerDriver for NoDataDriver {
             reads.fetch_add(1, Ordering::Relaxed);
             Ok(AsyncReceive::NoData)
         }
+    }
+}
+
+// ---------------------------------------------------------------------
+// #746: raw-release selection must tolerate non-parking custom transports.
+// ---------------------------------------------------------------------
+
+/// The two documented, non-consuming return shapes a custom async transport
+/// may produce without ever parking its read future.
+#[cfg(feature = "runtime-tokio")]
+#[derive(Debug, Clone, Copy)]
+enum ImmediateRawIdle {
+    NoData,
+    Timeout,
+}
+
+/// A raw stream fixture which is pending until its first write, then returns
+/// the selected idle shape immediately on every receive. It retains an
+/// identity-weak prefix so a due release must traverse the engine-owned grace
+/// timer before it can discard and dispatch the queued successor. This is
+/// intentionally not `ScriptedRawDriver`: its read channel parks between
+/// scripted values and cannot expose an eager-transport selection regression.
+#[cfg(feature = "runtime-tokio")]
+#[derive(Debug)]
+struct ImmediateRawGraceDriver {
+    idle: ImmediateRawIdle,
+    reads: Arc<std::sync::atomic::AtomicU64>,
+    armed: Arc<std::sync::atomic::AtomicBool>,
+    buffered: Arc<std::sync::atomic::AtomicBool>,
+    writes: flume::Sender<RequestId>,
+}
+
+/// A byte flood that never completes its retained stream prefix. It models
+/// the raw-release fairness case directly: each read makes no decoded-frame
+/// progress but keeps stream framing buffered, so only the ordinary fairness
+/// ceiling can force the boundary lane.
+#[cfg(feature = "runtime-tokio")]
+#[derive(Debug)]
+struct RawBufferedFloodDriver {
+    reads: Arc<std::sync::atomic::AtomicU64>,
+    buffered: Arc<std::sync::atomic::AtomicBool>,
+    writes: flume::Sender<RequestId>,
+}
+
+#[cfg(feature = "runtime-tokio")]
+impl AsyncOwnerDriver for RawBufferedFloodDriver {
+    fn write(
+        &mut self,
+        write: WireWrite<'_>,
+    ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+        let writes = self.writes.clone();
+        let request = write.request;
+        async move {
+            writes
+                .send_async(request)
+                .await
+                .map_err(|_| Error::RuntimeShutdown)?;
+            Ok(TransmissionMeta { sequence: None })
+        }
+    }
+
+    fn receive(
+        &mut self,
+        _buffers: &mut super::super::OwnerBuffers,
+        _frame_limit: usize,
+    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+        let reads = Arc::clone(&self.reads);
+        async move {
+            reads.fetch_add(1, Ordering::Relaxed);
+            Ok(AsyncReceive::Frames(Vec::new()))
+        }
+    }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(self.buffered.load(Ordering::Acquire))
+    }
+
+    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        Ok(self
+            .buffered
+            .load(Ordering::Acquire)
+            .then_some(RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            }))
+    }
+
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        self.buffered.store(false, Ordering::Release);
+        Ok(())
+    }
+}
+
+#[cfg(feature = "runtime-tokio")]
+impl AsyncOwnerDriver for ImmediateRawGraceDriver {
+    fn write(
+        &mut self,
+        write: WireWrite<'_>,
+    ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+        let armed = Arc::clone(&self.armed);
+        let writes = self.writes.clone();
+        let request = write.request;
+        async move {
+            armed.store(true, Ordering::Release);
+            writes
+                .send_async(request)
+                .await
+                .map_err(|_| Error::RuntimeShutdown)?;
+            Ok(TransmissionMeta { sequence: None })
+        }
+    }
+
+    fn receive(
+        &mut self,
+        _buffers: &mut super::super::OwnerBuffers,
+        _frame_limit: usize,
+    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+        let idle = self.idle;
+        let reads = Arc::clone(&self.reads);
+        let armed = Arc::clone(&self.armed);
+        async move {
+            if !armed.load(Ordering::Acquire) {
+                return future::pending().await;
+            }
+            reads.fetch_add(1, Ordering::Relaxed);
+            match idle {
+                ImmediateRawIdle::NoData => Ok(AsyncReceive::NoData),
+                ImmediateRawIdle::Timeout => Ok(AsyncReceive::Fault(Error::Timeout)),
+            }
+        }
+    }
+
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(self.buffered.load(Ordering::Acquire))
+    }
+
+    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        Ok(self
+            .buffered
+            .load(Ordering::Acquire)
+            .then_some(RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            }))
+    }
+
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        self.buffered.store(false, Ordering::Release);
+        Ok(())
     }
 }
 

@@ -125,6 +125,71 @@ where
     }
 }
 
+/// Select one actor event with the owner-wide boundary order.
+///
+/// Raw-release turns substitute their own release deadline for the ordinary
+/// engine wake, but must not otherwise hand-roll a smaller boundary set.  In
+/// particular, cancellation, admission, and control retain the same ordering
+/// and fairness treatment as an ordinary receive turn.
+#[derive(Clone, Copy)]
+struct ActorBoundaryReceivers<'a> {
+    shutdown: &'a flume::Receiver<()>,
+    cancellations: &'a flume::Receiver<CancellationBoundary>,
+    admissions: &'a flume::Receiver<AdmissionBoundary>,
+    control: &'a flume::Receiver<ControlBoundary>,
+}
+
+async fn select_actor_event<Receive, Wake>(
+    phase: SourcePhase,
+    receive: Receive,
+    boundaries: ActorBoundaryReceivers<'_>,
+    wake: Wake,
+    wake_precedes_control: bool,
+) -> ActorEvent
+where
+    Receive: Future<Output = ActorEvent>,
+    Wake: Future<Output = ActorEvent>,
+{
+    let shutdown = async {
+        match boundaries.shutdown.recv_async().await {
+            Ok(()) => ActorEvent::Shutdown,
+            Err(_) => future::pending().await,
+        }
+    };
+    let cancellation = async {
+        match boundaries.cancellations.recv_async().await {
+            Ok(value) => ActorEvent::Cancellation(value),
+            Err(_) => future::pending().await,
+        }
+    };
+    let admission = async { ActorEvent::Admission(boundaries.admissions.recv_async().await) };
+    let control = async {
+        match boundaries.control.recv_async().await {
+            Ok(value) => ActorEvent::Control(value),
+            Err(_) => future::pending().await,
+        }
+    };
+    let control_or_wake = select_control_or_wake(wake_precedes_control, control, wake);
+    let boundaries = future::or(
+        shutdown,
+        future::or(cancellation, future::or(admission, control_or_wake)),
+    );
+    select_source(phase, receive, boundaries).await
+}
+
+/// Map the shared engine-owned retained-prefix deadline onto one async wake.
+///
+/// This is deliberately a separate future from transport receive: selection
+/// still polls both ordered sources, so an eagerly-idle custom transport
+/// cannot prevent the grace timer from becoming ready.
+async fn raw_release_wake<R: Executor>(runtime: &R, deadline: Instant, now: Instant) -> ActorEvent {
+    let remaining = deadline.saturating_duration_since(now);
+    if !remaining.is_zero() {
+        Executor::sleep(runtime, remaining).await;
+    }
+    ActorEvent::Wake
+}
+
 /// Yield one poll to the current executor without depending on a runtime.
 ///
 /// A ready transport can otherwise keep this actor inside one executor poll:
@@ -1933,6 +1998,25 @@ where
 
             let event = {
                 let frame_limit = self.state.policy().limits.frames_per_receive;
+                let boundaries = ActorBoundaryReceivers {
+                    shutdown: &self.shutdown,
+                    cancellations: &self.cancellations,
+                    admissions: &self.admissions,
+                    control: &self.control,
+                };
+                // A complete stream frame retained by the adapter's batch
+                // limit must be decoded before the next forced boundary turn.
+                // It is already-arrived protocol input, rather than an eager
+                // transport poll: allowing the due wake to win here would send
+                // it through the raw-prefix grace gate instead of the ordinary
+                // malformed-frame path. Incomplete retained prefixes retain
+                // normal fairness and grace arbitration below.
+                let raw_complete_buffered_frame = has_raw_release_due
+                    && forced_boundary_turn
+                    && matches!(
+                        driver.buffered_stream_input(),
+                        Ok(Some(RawPrefixEvidence::Complete))
+                    );
                 // `future::or` is deliberately left-biased. Its nesting is the
                 // normative all-ready order from #542; unlike `race`, it never
                 // randomizes simultaneous readiness.
@@ -1950,25 +2034,6 @@ where
                         received_at: Executor::now(runtime.as_ref()),
                     }
                 };
-                let shutdown = async {
-                    match self.shutdown.recv_async().await {
-                        Ok(()) => ActorEvent::Shutdown,
-                        Err(_) => future::pending().await,
-                    }
-                };
-                let cancellation = async {
-                    match self.cancellations.recv_async().await {
-                        Ok(value) => ActorEvent::Cancellation(value),
-                        Err(_) => future::pending().await,
-                    }
-                };
-                let admission = async { ActorEvent::Admission(self.admissions.recv_async().await) };
-                let control = async {
-                    match self.control.recv_async().await {
-                        Ok(value) => ActorEvent::Control(value),
-                        Err(_) => future::pending().await,
-                    }
-                };
                 let wake = async {
                     // Do not rely on a zero-duration executor sleep being
                     // ready on its first poll. `next_wake` already established
@@ -1979,63 +2044,89 @@ where
                     }
                     ActorEvent::Wake
                 };
-                let control_or_wake = select_control_or_wake(wake_precedes_control, control, wake);
-                let boundaries = future::or(
-                    shutdown,
-                    future::or(cancellation, future::or(admission, control_or_wake)),
-                );
                 if has_raw_release_due {
-                    if let Some(await_until) = self.raw_release.await_until() {
+                    let raw_phase = if self
+                        .raw_release
+                        .await_until()
+                        .is_some_and(|deadline| deadline <= now)
+                    {
+                        // Once grace has elapsed, let its timer win before an
+                        // eagerly-ready receive can take another zero-time
+                        // turn. This is a real source phase, not an ad-hoc
+                        // left-biased race.
+                        SourcePhase::BoundariesFirst
+                    } else {
+                        // A raw set that has just become due still needs its
+                        // first ordered receive proof. A boundary-first phase
+                        // inherited from a pre-H idle read cannot certify that
+                        // proof: stale input may have arrived while that read
+                        // was parked. The ordinary fairness ceiling remains
+                        // authoritative, however, so a real receive flood can
+                        // still force every boundary source to the front.
+                        if forced_boundary_turn && !raw_complete_buffered_frame {
+                            SourcePhase::BoundariesFirst
+                        } else {
+                            SourcePhase::ReceiveFirst
+                        }
+                    };
+                    if raw_release_is_fenced {
+                        if let Some(await_until) = self.raw_release.await_until() {
+                            // A no-input probe during a retained-prefix grace
+                            // is still an exact fence, but it cannot erase the
+                            // chance for a tail to arrive before the deadline.
+                            // Re-enter the normal ordered selection with the
+                            // grace timer as its wake; this branch must remain
+                            // ahead of the generic grace path so the fence is
+                            // never silently shadowed.
+                            select_actor_event(
+                                raw_phase,
+                                receive,
+                                boundaries,
+                                raw_release_wake(runtime.as_ref(), await_until, now),
+                                wake_precedes_control,
+                            )
+                            .await
+                        } else {
+                            // The exact probe already proved no input for this
+                            // set. Its receive-first obligation is complete,
+                            // so map that completed proof to a Wake while
+                            // retaining every ordinary boundary source.
+                            select_actor_event(
+                                effective_phase,
+                                std::future::ready(ActorEvent::Wake),
+                                boundaries,
+                                wake,
+                                wake_precedes_control,
+                            )
+                            .await
+                        }
+                    } else if let Some(await_until) = self.raw_release.await_until() {
                         // An ambiguous retained prefix owns a real time budget,
-                        // not a number of zero-time Wake polls (#713). Keep
-                        // receive left-biased so a tail arriving inside the
-                        // grace is decoded under the old correlation scope.
-                        let release_wait = async {
-                            let remaining = await_until.saturating_duration_since(now);
-                            if !remaining.is_zero() {
-                                Executor::sleep(runtime.as_ref(), remaining).await;
-                            }
-                            ActorEvent::Wake
-                        };
-                        future::or(
-                            async {
-                                match self.shutdown.recv_async().await {
-                                    Ok(()) => ActorEvent::Shutdown,
-                                    Err(_) => future::pending().await,
-                                }
-                            },
-                            future::or(receive, release_wait),
-                        )
-                        .await
-                    } else if raw_release_is_fenced {
-                        // The exact probe already returned no input.  Do not
-                        // give an immediately-idle driver another chance to
-                        // spin; wake now, still behind an explicit shutdown.
-                        future::or(
-                            async {
-                                match self.shutdown.recv_async().await {
-                                    Ok(()) => ActorEvent::Shutdown,
-                                    Err(_) => future::pending().await,
-                                }
-                            },
-                            std::future::ready(ActorEvent::Wake),
+                        // not a number of zero-time Wake polls (#713). The
+                        // shared source selector polls the deadline as well as
+                        // receive, while keeping cancellation, admission, and
+                        // control in their normal ordered boundary lane.
+                        select_actor_event(
+                            raw_phase,
+                            receive,
+                            boundaries,
+                            raw_release_wake(runtime.as_ref(), await_until, now),
+                            wake_precedes_control,
                         )
                         .await
                     } else {
                         // The exact raw-release invariant: before due work can
-                        // release correlation or dispatch, poll receive once
-                        // left-biased against an already-ready wake.  A pending
-                        // receive therefore lets Wake linearize the release;
-                        // a ready complete stale frame wins first even after a
-                        // prior `YieldBoundaries` turn.
-                        future::or(
-                            async {
-                                match self.shutdown.recv_async().await {
-                                    Ok(()) => ActorEvent::Shutdown,
-                                    Err(_) => future::pending().await,
-                                }
-                            },
-                            future::or(receive, std::future::ready(ActorEvent::Wake)),
+                        // release correlation or dispatch, poll receive under
+                        // the same phase and boundary policy as every other
+                        // owner turn. A ready complete stale frame wins an
+                        // input-first phase; a forced fairness phase gives
+                        // cancellation, admission, and control their turn.
+                        select_actor_event(
+                            raw_phase,
+                            receive,
+                            boundaries,
+                            wake,
+                            wake_precedes_control,
                         )
                         .await
                     }
@@ -2063,7 +2154,14 @@ where
                         }
                     }
                 } else {
-                    select_source(effective_phase, receive, boundaries).await
+                    select_actor_event(
+                        effective_phase,
+                        receive,
+                        boundaries,
+                        wake,
+                        wake_precedes_control,
+                    )
+                    .await
                 }
             };
 
@@ -2313,6 +2411,19 @@ where
                     .observe(self.state.raw_correlation_releases_due(now))
                     .unwrap_or_default();
                 if !releases.is_empty() {
+                    // The selected receive proof belongs only to the exact
+                    // set that was latched before this Wake. A second hold
+                    // can become due while the selector is parked; do not let
+                    // this Wake classify or advance that grown scope. The
+                    // shared turn coordinator drops the old fence/grace and
+                    // sends the replacement through its own receive-first
+                    // turn, matching the blocking shell.
+                    if self
+                        .raw_release
+                        .replace_if_changed(self.state.raw_correlation_releases_due(now))
+                    {
+                        return TurnOutcome::Continue;
+                    }
                     let framing = (|| -> Result<Option<Instant>, Error> {
                         loop {
                             let buffered = driver.has_buffered_stream_input()?;
@@ -2661,19 +2772,24 @@ where
     /// than after its read timeout) would otherwise spin the actor at hundreds
     /// of thousands of reads a second (#675). The pause escalates with the run
     /// and is clamped to the next scheduler deadline, exactly like the transient
-    /// receive-fault pause — but it records no fault, does not clear an existing
-    /// fault run, and spends no retry budget. Only a successful read or the
-    /// five-second fault gap proves transient failures stopped accumulating.
+    /// receive-fault pause. A retained-prefix grace supersedes an already-expired
+    /// raw hold here: using that stale hold as a zero-duration clamp would make
+    /// an immediately-idle custom transport spin before the real grace timer is
+    /// selectable. The pause records no fault, does not clear an existing fault
+    /// run, and spends no retry budget. Only a successful read or the five-second
+    /// fault gap proves transient failures stopped accumulating.
     async fn absorb_idle_receive(
         &mut self,
         runtime: &R,
         buffered_stream_input: bool,
     ) -> TurnOutcome {
-        let pause = clamp_receive_pause(
-            self.idle_receives.record(),
-            self.state.next_wake(),
-            Executor::now(runtime),
-        );
+        let now = Executor::now(runtime);
+        let deadline = self
+            .raw_release
+            .await_until()
+            .filter(|deadline| *deadline > now)
+            .or_else(|| self.state.next_wake());
+        let pause = clamp_receive_pause(self.idle_receives.record(), deadline, now);
         if !pause.is_zero() {
             Executor::sleep(runtime, pause).await;
         }
