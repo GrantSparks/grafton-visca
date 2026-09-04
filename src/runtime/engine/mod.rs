@@ -3712,6 +3712,12 @@ impl ProtocolEngine {
         if releases.is_empty() {
             return RawPrefixDisposition::NoRelease;
         }
+        if matches!(evidence, RawPrefixEvidence::Malformed) {
+            // A source byte the framer already rejected cannot gain a valid
+            // owner from a later tail. Drop it immediately, using the same
+            // observable malformed-frame path as a complete invalid frame.
+            return RawPrefixDisposition::Discard;
+        }
         let RawPrefixEvidence::Incomplete { target, kind } = evidence else {
             // Complete frames are always input-first, even exactly at a due
             // boundary. The owner feeds this into `handle` before advancing.

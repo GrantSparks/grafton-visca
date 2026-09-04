@@ -5,7 +5,7 @@ use std::{future::Future, num::NonZeroUsize};
 use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileSpec},
-    protocol::framer::ProtocolFramer,
+    protocol::framer::{ProtocolFramer, RawBufferedInput},
     runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::{envelope::FrameSequence, AsyncTransport, HasTransportConfig},
     CameraId, Error,
@@ -16,8 +16,9 @@ use crate::{protocol::framer::RawIncompletePrefix, ViscaSocket};
 
 use super::{
     adapter::{
-        decode_frames_with_routing, decode_response_target, owner_policy_for_targets_with_tuning,
-        validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
+        decode_frames_with_routing, owner_policy_for_targets_with_tuning,
+        response_target_for_raw_prefix, validate_profile_transport, OwnerEnvelope, RoutingState,
+        TargetRegistry,
     },
     AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, WireWrite,
 };
@@ -323,16 +324,19 @@ where
         if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
             return Ok(None);
         }
-        if self.state.framer.buffered_first_raw_input_is_complete()? {
-            return Ok(Some(RawPrefixEvidence::Complete));
-        }
-        let Some((source, kind)) = self.state.framer.buffered_raw_incomplete_prefix()? else {
-            return Ok(None);
-        };
-        let target = decode_response_target(self.state.routing, &[source])?.ok_or_else(|| {
-            Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
-        })?;
-        Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
+        Ok(self
+            .state
+            .framer
+            .buffered_raw_incomplete_prefix(|source| {
+                response_target_for_raw_prefix(self.state.routing, source)
+            })
+            .map(|input| match input {
+                RawBufferedInput::Complete => RawPrefixEvidence::Complete,
+                RawBufferedInput::Malformed => RawPrefixEvidence::Malformed,
+                RawBufferedInput::Incomplete { target, kind } => {
+                    RawPrefixEvidence::Incomplete { target, kind }
+                }
+            }))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -658,20 +662,27 @@ mod tests {
             );
         }
 
-        let transport = ScriptedTransport {
-            config: TransportConfig::default(),
-            sent: Vec::new(),
-            receives: [Ok(vec![0x80])].into_iter().collect(),
-            semantics: SendSemantics::Stream,
-        };
-        let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-        let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        assert!(matches!(
-            adapter.buffered_stream_input(),
-            Err(Error::InvalidResponse { .. }) | Err(Error::InvalidState(_))
-        ));
+        // #745: untrusted incomplete input must never escape as a fallible
+        // source-routing operation. The async owner sees a discard verdict for
+        // the malformed source, including a passed-through address-set and a
+        // single noise byte.
+        for prefix in [vec![0x80, 0x50, 0xdd], vec![0x88, 0x30, 0x02], vec![0x00]] {
+            let transport = ScriptedTransport {
+                config: TransportConfig::default(),
+                sent: Vec::new(),
+                receives: [Ok(prefix.clone())].into_iter().collect(),
+                semantics: SendSemantics::Stream,
+            };
+            let mut adapter =
+                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+            let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            assert_eq!(
+                adapter.buffered_stream_input().unwrap(),
+                Some(RawPrefixEvidence::Malformed),
+                "prefix {prefix:02x?}",
+            );
+        }
     }
 
     /// Issue #625/#637: a transport with an internal read timeout is the shape

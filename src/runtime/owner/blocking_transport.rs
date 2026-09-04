@@ -14,7 +14,7 @@ use std::{
 use crate::{
     profile::OperationalTuning,
     profile::ProfileSpec,
-    protocol::framer::ProtocolFramer,
+    protocol::framer::{ProtocolFramer, RawBufferedInput},
     runtime::engine::{RawPrefixEvidence, TransmissionMeta},
     transport::envelope::FrameSequence,
     transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
@@ -26,8 +26,9 @@ use crate::protocol::framer::RawIncompletePrefix;
 
 use super::{
     adapter::{
-        decode_frames_with_routing, decode_response_target, owner_policy_for_targets_with_tuning,
-        validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
+        decode_frames_with_routing, owner_policy_for_targets_with_tuning,
+        response_target_for_raw_prefix, validate_profile_transport, OwnerEnvelope, RoutingState,
+        TargetRegistry,
     },
     BlockingFrameDecoder, BlockingReadDriver, BlockingReceive, BlockingWireDriver, OwnerBuffers,
     OwnerPolicy, WireWrite,
@@ -507,16 +508,18 @@ where
     ) {
         return Ok(None);
     }
-    if state.framer.buffered_first_raw_input_is_complete()? {
-        return Ok(Some(RawPrefixEvidence::Complete));
-    }
-    let Some((source, kind)) = state.framer.buffered_raw_incomplete_prefix()? else {
-        return Ok(None);
-    };
-    let target = decode_response_target(state.routing, &[source])?.ok_or_else(|| {
-        Error::InvalidState("buffered raw stream input has an ambiguous response source".into())
-    })?;
-    Ok(Some(RawPrefixEvidence::Incomplete { target, kind }))
+    Ok(state
+        .framer
+        .buffered_raw_incomplete_prefix(|source| {
+            response_target_for_raw_prefix(state.routing, source)
+        })
+        .map(|input| match input {
+            RawBufferedInput::Complete => RawPrefixEvidence::Complete,
+            RawBufferedInput::Malformed => RawPrefixEvidence::Malformed,
+            RawBufferedInput::Incomplete { target, kind } => {
+                RawPrefixEvidence::Incomplete { target, kind }
+            }
+        }))
 }
 
 fn discard_buffered_stream_input_state<T>(
@@ -1243,6 +1246,41 @@ mod tests {
         ));
     }
 
+    /// Issue #745 mirrors the async adapter contract: invalid incomplete raw
+    /// prefixes are explicit malformed evidence, never an error that can
+    /// poison the blocking owner before it decides to discard the input.
+    #[test]
+    fn invalid_incomplete_raw_prefixes_are_malformed_blocking_evidence() {
+        for (prefix, addressing) in [
+            (vec![0x80, 0x50, 0xdd], AddressingMode::Ip),
+            // A passed-through address-set broadcast on a serial chain is
+            // never a camera response source.
+            (vec![0x88, 0x30, 0x02], AddressingMode::Serial),
+            (vec![0x00], AddressingMode::Ip),
+        ] {
+            let mut stream_config = config();
+            stream_config.addressing = addressing;
+            let mut transport =
+                ScriptedTransport::new(stream_config, std::iter::empty::<Result<Vec<u8>, Error>>());
+            transport.semantics = SendSemantics::Stream;
+            let adapter =
+                BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let (_writer, _reader, mut decoder) = adapter.parts();
+            let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+            buffers.receive_mut()[..prefix.len()].copy_from_slice(&prefix);
+            assert!(decoder
+                .decode(&mut buffers, prefix.len(), 4)
+                .unwrap()
+                .is_empty());
+            assert_eq!(
+                decoder.buffered_raw_prefix_evidence().unwrap(),
+                Some(RawPrefixEvidence::Malformed),
+                "prefix {prefix:02x?}",
+            );
+        }
+    }
+
     #[test]
     fn production_raw_tombstone_consumes_prefix_fault_tail_before_writing_successor() {
         let ambiguity = Duration::from_millis(80);
@@ -1662,6 +1700,89 @@ mod tests {
                 io.reads.is_empty(),
                 "{prefix:02x?}: the single grace-expiry probe is consumed"
             );
+        }
+    }
+
+    /// Issue #745: unlike an ambiguous valid-source prefix, malformed input is
+    /// immediately discardable at the release boundary. The real blocking
+    /// owner must remain Running, record exactly one malformed-frame
+    /// diagnostic, and dispatch the successor without spending a grace read.
+    #[test]
+    fn production_raw_tombstone_discards_invalid_prefixes_without_poison() {
+        for (prefix, addressing) in [
+            (vec![0x80, 0x50, 0xdd], AddressingMode::Ip),
+            // A passed-through address-set broadcast on a serial chain is
+            // never a camera response source.
+            (vec![0x88, 0x30, 0x02], AddressingMode::Serial),
+            (vec![0x00], AddressingMode::Ip),
+        ] {
+            let ambiguity = Duration::from_millis(40);
+            let reads = std::iter::once(TombstoneIntegrationRead::Bytes(vec![
+                0x90, 0x50, 0xa1, 0xff,
+            ]))
+            .chain(std::iter::once(TombstoneIntegrationRead::BytesAtDeadline(
+                prefix.clone(),
+            )));
+            let (transport, io) =
+                TombstoneIntegrationTransport::new_with_addressing(reads, addressing);
+            let adapter =
+                BlockingTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut owner_policy = adapter.policy().clone();
+            owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
+            let mut owner = super::super::BlockingOwner::new(owner_policy).unwrap();
+            let (mut writer, mut reader, mut decoder) = adapter.parts();
+            let first = owner
+                .submit(
+                    &mut writer,
+                    raw_inquiry_with_immediate_timeout(CameraId::CAMERA_1),
+                )
+                .unwrap();
+            owner.wake(&mut writer, Instant::now()).unwrap();
+            assert!(matches!(
+                try_terminal(&first),
+                Some(RuntimeOutcome::Failed(Error::Timeout))
+            ));
+
+            let successor = owner
+                .submit_request_until_with_pump(
+                    &mut writer,
+                    &mut reader,
+                    &mut decoder,
+                    raw_inquiry_with_ambiguity(CameraId::CAMERA_1, ambiguity),
+                    Duration::from_secs(1),
+                    Instant::now() + Duration::from_secs(1),
+                )
+                .expect("invalid prefix is discarded before successor dispatch: {prefix:02x?}");
+
+            assert!(try_terminal(&successor).is_none());
+            assert_eq!(
+                owner.state().state(),
+                crate::runtime::engine::SessionState::Running,
+                "prefix {prefix:02x?} must not poison the blocking owner"
+            );
+            assert_eq!(owner.state().metrics().ignored_malformed_frames, 1);
+            assert_eq!(
+                owner
+                    .state()
+                    .diagnostics()
+                    .filter(|event| matches!(
+                        event,
+                        super::super::DiagnosticEvent::Ignored(
+                            crate::runtime::engine::IgnoreReason::MalformedFrame
+                        )
+                    ))
+                    .count(),
+                1,
+                "prefix {prefix:02x?} produces one malformed-frame diagnostic"
+            );
+            let io = io.lock().unwrap();
+            assert_eq!(io.sent.len(), 2, "A and successor B both write once");
+            assert_eq!(
+                io.send_counts_at_read,
+                [1, 1],
+                "invalid input is discarded at H without an extra grace read"
+            );
+            assert!(io.reads.is_empty());
         }
     }
 

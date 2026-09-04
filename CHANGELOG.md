@@ -23,7 +23,6 @@ exact model/firmware/transport/command evidence remains pending in the
 [hardware release checklist](docs/hardware_release_checklist.md). Historical
 entries below retain their original wording.
 
-
 ### Added
 
 - **Published and continuously exercised the remaining documentation/example
@@ -1420,6 +1419,12 @@ entries below retain their original wording.
   callers deciding whether to reconnect should use `requires_new_session()`.
 
 ### Fixed
+
+- Incomplete raw stream prefixes with an invalid response source are now
+  discarded as `Ignored(MalformedFrame)` at a raw-correlation release, matching
+  the existing complete-frame behavior. Blocking and async owners remain
+  running after `80 50 dd`, passed-through `88 30 02`, or stray noise; only a
+  genuine framer overflow remains terminal (#745).
 
 - Blocking serial writes now report success when the final low-level write
   accepted the complete frame, even if that syscall returned after the logical
