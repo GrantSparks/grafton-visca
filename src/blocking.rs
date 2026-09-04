@@ -578,7 +578,11 @@ impl Session {
         self.host.shutdown()
     }
 
-    /// Returns a scalar snapshot of the owner without cloning diagnostics.
+    /// Returns the most recently completed owner-turn scalar snapshot without
+    /// cloning diagnostics.
+    ///
+    /// This observation does not borrow the transport turn, so another thread
+    /// can inspect it while a blocking request waits for transport input.
     pub fn metrics(&self) -> Result<MetricsSnapshot, Error> {
         self.host.metrics()
     }

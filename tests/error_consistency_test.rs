@@ -55,6 +55,7 @@ fn test_error_retryability_consistency() {
     // These errors should always be retryable
     let retryable_errors = [
         Error::TransportBusy,
+        Error::TransportError("datagram send failed".into()),
         Error::CommandPending,
         Error::CommandBufferFull,
         Error::Timeout,

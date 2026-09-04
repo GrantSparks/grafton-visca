@@ -4,7 +4,7 @@ use std::{
     collections::VecDeque,
     fmt,
     marker::PhantomData,
-    sync::{Arc, Mutex, TryLockError},
+    sync::{Arc, Mutex, RwLock, TryLockError},
     time::{Duration, Instant},
 };
 
@@ -373,6 +373,10 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
 /// shared between threads.
 pub(crate) struct BlockingSessionHost {
     parts: Mutex<BlockingOwnedSessionParts>,
+    /// The most recently completed owner-turn snapshot.  This lives outside
+    /// `parts` so a read-only observation never contends with an in-flight
+    /// transport call that owns the caller-thread turn.
+    metrics: RwLock<crate::observability::MetricsSnapshot>,
     clock: SharedBlockingClock,
     state_cache: Arc<[Mutex<super::TargetStateCache>; 9]>,
     /// The owner's live operational tuning (#631). The blocking owner runs on
@@ -405,6 +409,7 @@ impl BlockingSessionHost {
         let clock = Arc::clone(&owner.clock);
         let state_cache = owner.state().state_cache_registry();
         let tuning = owner.state().live_tuning();
+        let metrics = owner.state().metrics_snapshot();
         Ok(Self {
             parts: Mutex::new(BlockingOwnedSessionParts {
                 owner,
@@ -412,6 +417,7 @@ impl BlockingSessionHost {
                 reader: Box::new(reader),
                 decoder: Box::new(decoder),
             }),
+            metrics: RwLock::new(metrics),
             clock,
             state_cache,
             tuning,
@@ -438,7 +444,9 @@ impl BlockingSessionHost {
             reader,
             decoder,
         } = &mut *parts;
-        operation(owner, driver.as_mut(), reader.as_mut(), decoder.as_mut())
+        let result = operation(owner, driver.as_mut(), reader.as_mut(), decoder.as_mut());
+        self.publish_metrics(owner.state().metrics_snapshot());
+        result
     }
 
     /// Runs one cancellation turn, returning the receipt with the reason when
@@ -462,7 +470,9 @@ impl BlockingSessionHost {
             }
         };
         let BlockingOwnedSessionParts { owner, driver, .. } = &mut *parts;
-        operation(owner, driver.as_mut(), receipt)
+        let result = operation(owner, driver.as_mut(), receipt);
+        self.publish_metrics(owner.state().metrics_snapshot());
+        result
     }
 
     pub(crate) fn submit_command(
@@ -523,7 +533,10 @@ impl BlockingSessionHost {
     }
 
     pub(crate) fn metrics(&self) -> Result<crate::observability::MetricsSnapshot, Error> {
-        self.with_parts(|owner, _, _, _| Ok(owner.state().metrics_snapshot()))
+        Ok(*self
+            .metrics
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()))
     }
 
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
@@ -564,6 +577,13 @@ impl BlockingSessionHost {
     /// Creates one observer deadline from the owner clock.
     pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
         observer_deadline(self.now(), timeout)
+    }
+
+    fn publish_metrics(&self, snapshot: crate::observability::MetricsSnapshot) {
+        *self
+            .metrics
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = snapshot;
     }
 }
 

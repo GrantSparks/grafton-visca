@@ -75,6 +75,14 @@ pub enum ErrorKind {
     /// Camera's command buffer is full (retryable).
     BufferFull,
 
+    /// One transport operation failed while the session remains usable.
+    ///
+    /// Retry the failed logical operation under its own bounded policy. This
+    /// category is deliberately distinct from [`Self::IoClosed`]: a live
+    /// session must never tell a caller to replace itself for one isolated
+    /// transmission failure.
+    Transport,
+
     /// Command cannot be executed in current state.
     NotExecutable,
 
@@ -126,6 +134,7 @@ pub enum ErrorKind {
 /// - `NoSocket` - The addressed command socket is no longer available
 /// - `RuntimeQueueFull` - The local admission queue is full
 /// - `TransportBusy` - The blocking facade is already borrowing the transport
+/// - `TransportError` - One transport operation failed while the session remains live
 /// - `Timeout` - General timeout condition
 ///
 /// Use [`Error::is_retryable()`] to check if an error can be retried, and
@@ -295,7 +304,12 @@ pub enum Error {
     #[error("Parse error: {0}")]
     ParseError(Cow<'static, str>),
 
-    /// Transport layer communication error.
+    /// One transport operation failed while the session remains usable.
+    ///
+    /// This is a retryable per-request failure with
+    /// [`ErrorKind::Transport`]. The receive side remains authoritative for
+    /// session death; use [`Self::requires_new_session()`] rather than treating
+    /// this error as a reconnect signal.
     #[error("Transport error: {0}")]
     TransportError(Cow<'static, str>),
 
@@ -541,10 +555,12 @@ impl Error {
             Self::CommandNotExecutable | Self::InvalidState(..) => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
-            Self::ConnectionClosed { .. }
-            | Self::TransportError(..)
-            | Self::RuntimeShutdown
-            | Self::StreamPoisoned { .. } => ErrorKind::IoClosed,
+            Self::ConnectionClosed { .. } | Self::RuntimeShutdown | Self::StreamPoisoned { .. } => {
+                ErrorKind::IoClosed
+            }
+
+            // Transport: one failed operation on a live session.
+            Self::TransportError(..) => ErrorKind::Transport,
 
             // Unconfirmed: one transmitted operation has an unknowable result
             Self::CancellationUnconfirmed | Self::UnsequencedCommandUnconfirmed => {
@@ -763,6 +779,7 @@ impl Error {
     /// - Camera capacity states (`CommandBufferFull`, `NoSocket`)
     /// - Queue capacity (`RuntimeQueueFull`)
     /// - Pending operations (`CommandPending`, `TransportBusy`)
+    /// - Isolated live-session transport failures (`TransportError`)
     /// - Timeout conditions (`Timeout` and timed-out I/O)
     ///
     /// # Example
@@ -784,7 +801,7 @@ impl Error {
             Self::MaxRetriesExceeded => false,
             _ => matches!(
                 self.kind(),
-                ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy
+                ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy | ErrorKind::Transport
             ),
         }
     }
@@ -801,6 +818,7 @@ impl Error {
     /// - `TransportBusy`: 50ms (blocking transport borrow is occupied)
     /// - `CommandBufferFull`: 200ms (wait for buffer space)
     /// - `NoSocket`: 200ms (wait for camera socket state to advance)
+    /// - `TransportError`: 50ms (retry one isolated live-session operation)
     /// - `Timeout`: 2s (general timeout, allow more time)
     ///
     /// # Example
@@ -821,6 +839,7 @@ impl Error {
         match self {
             Self::CommandPending => Some(Duration::from_millis(50)),
             Self::TransportBusy => Some(Duration::from_millis(50)),
+            Self::TransportError(..) => Some(Duration::from_millis(50)),
             Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
                 Some(Duration::from_millis(200))
             }
@@ -832,7 +851,8 @@ impl Error {
             // newly classified retryable errors a safe default delay.
             _ => match self.kind() {
                 ErrorKind::Timeout => Some(Duration::from_secs(2)),
-                ErrorKind::BufferFull | ErrorKind::Busy => Some(Duration::from_millis(200)),
+                ErrorKind::BufferFull => Some(Duration::from_millis(200)),
+                ErrorKind::Busy | ErrorKind::Transport => Some(Duration::from_millis(50)),
                 _ => None,
             },
         }
@@ -1088,6 +1108,7 @@ mod tests {
         assert!(Error::CommandBufferFull.is_retryable());
         assert!(Error::Timeout.is_retryable());
         assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
+        assert!(Error::TransportError(Cow::Borrowed("datagram send failed")).is_retryable());
 
         // Issue #501: TransportBusy is transient and should be retryable
         assert!(Error::TransportBusy.is_retryable());
@@ -1123,6 +1144,10 @@ mod tests {
         assert_eq!(
             Error::Timeout.suggested_retry_delay(),
             Some(Duration::from_secs(2))
+        );
+        assert_eq!(
+            Error::TransportError(Cow::Borrowed("datagram send failed")).suggested_retry_delay(),
+            Some(Duration::from_millis(50))
         );
 
         // Issue #501: TransportBusy → 50ms (extremely transient borrow conflict)
@@ -1171,6 +1196,12 @@ mod tests {
                 "transport busy",
                 Error::TransportBusy,
                 ErrorKind::Busy,
+                Some(Duration::from_millis(50)),
+            ),
+            (
+                "isolated datagram transport failure",
+                Error::TransportError(Cow::Borrowed("datagram send failed")),
+                ErrorKind::Transport,
                 Some(Duration::from_millis(50)),
             ),
             (
@@ -1352,10 +1383,15 @@ mod tests {
 
         // IoClosed
         assert_eq!(
-            Error::TransportError(Cow::Borrowed("test")).kind(),
+            Error::ConnectionClosed { reason: None }.kind(),
             ErrorKind::IoClosed
         );
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
+        // Transport
+        assert_eq!(
+            Error::TransportError(Cow::Borrowed("test")).kind(),
+            ErrorKind::Transport
+        );
         // Unconfirmed
         assert_eq!(
             Error::UnsequencedCommandUnconfirmed.kind(),

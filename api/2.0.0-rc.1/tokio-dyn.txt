@@ -23057,6 +23057,7 @@ pub grafton_visca::ErrorKind::NotExecutable
 pub grafton_visca::ErrorKind::Other
 pub grafton_visca::ErrorKind::Protocol
 pub grafton_visca::ErrorKind::Timeout
+pub grafton_visca::ErrorKind::Transport
 pub grafton_visca::ErrorKind::Unconfirmed
 pub grafton_visca::ErrorKind::Unsupported
 impl core::clone::Clone for grafton_visca::ErrorKind

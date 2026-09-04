@@ -2288,10 +2288,10 @@ where
                 self.raw_release.clear_fence();
             }
 
-            // A receive that keeps the session running and makes protocol
-            // progress is the only thing that lengthens the streak; any boundary
-            // turn (or a non-progressing receive, which already yields) resets it
-            // so the ceiling only ever fires against a genuine receive flood.
+            // Every receive that keeps the session running lengthens the streak,
+            // including a buffered receive that made no protocol progress. Any
+            // boundary turn resets it, so the ceiling still forces that boundary
+            // against a genuine receive flood.
             let event_was_receive = matches!(event, ActorEvent::Receive { .. });
             // `wake_is_due` describes the instant before the selection began.
             // If the timer matured while both tail futures were parked, the
