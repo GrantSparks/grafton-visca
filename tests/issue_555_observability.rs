@@ -64,7 +64,12 @@ fn assert_clear(cache: &StateCache, key: StateKey, values: &[i64]) {
 
 #[cfg(feature = "blocking")]
 mod blocking_observability {
-    use std::{collections::VecDeque, time::Duration};
+    use std::{
+        collections::VecDeque,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
 
     use grafton_visca::{
         blocking::Session,
@@ -156,6 +161,46 @@ mod blocking_observability {
         }
     }
 
+    #[derive(Debug)]
+    struct InFlightProbe {
+        config: TransportConfig,
+        entered_receive: mpsc::Sender<()>,
+        release_receive: mpsc::Receiver<()>,
+    }
+
+    impl HasTransportConfig for InFlightProbe {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    impl BlockingTransport for InFlightProbe {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            _dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<usize, Error> {
+            self.entered_receive
+                .send(())
+                .map_err(|_| Error::RuntimeShutdown)?;
+            self.release_receive
+                .recv()
+                .map_err(|_| Error::RuntimeShutdown)?;
+            Err(Error::ConnectionClosed {
+                reason: Some("test peer closed after metrics observation".into()),
+            })
+        }
+    }
+
     #[test]
     fn metrics_drain_bounds_and_cache_apply_only_after_terminal() {
         let session = Session::open(Probe::new(), SessionConfig::new(profile())).unwrap();
@@ -234,6 +279,54 @@ mod blocking_observability {
         assert!(camera.advanced().multicast_on().is_err());
         assert_unknown(&cache, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
+    }
+
+    #[test]
+    fn metrics_are_observable_while_another_thread_waits_on_the_transport() {
+        let (entered_receive_tx, entered_receive_rx) = mpsc::channel();
+        let (release_receive_tx, release_receive_rx) = mpsc::channel();
+        let session = Session::open(
+            InFlightProbe {
+                config: TransportConfig::default(),
+                entered_receive: entered_receive_tx,
+                release_receive: release_receive_rx,
+            },
+            SessionConfig::new(profile()),
+        )
+        .expect("open blocking session");
+        let camera = session
+            .camera::<grafton_visca::profiles::PtzOpticsG2>()
+            .expect("camera");
+        let session_ref = &session;
+
+        thread::scope(|scope| {
+            let request = scope.spawn(|| camera.advanced().multicast_on());
+            entered_receive_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("request must enter the bounded receive wait");
+
+            let (metrics_tx, metrics_rx) = mpsc::sync_channel(1);
+            scope.spawn(move || {
+                let _ = metrics_tx.send(session_ref.metrics());
+            });
+            let started = Instant::now();
+            let metrics = metrics_rx.recv_timeout(Duration::from_millis(100));
+
+            // Always release the request before asserting, so this regression
+            // test fails cleanly instead of leaving a pre-fix metrics call
+            // blocked behind the transport turn.
+            release_receive_tx
+                .send(())
+                .expect("release blocked receive");
+            assert!(request.join().expect("request thread panicked").is_err());
+
+            let metrics = metrics
+                .expect("metrics must not wait for the in-flight transport turn")
+                .expect("metrics must not report TransportBusy");
+            assert!(started.elapsed() < Duration::from_secs(1));
+            assert_eq!(metrics.writes, 1);
+            assert_eq!(metrics.active, 1);
+        });
     }
 }
 

@@ -36,9 +36,11 @@ without granting control over the protocol engine.
 | `session` | `Running`, `Closed`, `Shutdown`, or `Poisoned`. |
 
 The counter fields saturate at `u64::MAX`; queue and active counts remain
-bounded by owner policy. `metrics()` is a separate bounded control request and
-does not clone the diagnostic ring, subscriber queues, wire buffers, or state
-registry.
+bounded by owner policy. Async `metrics()` is a separate bounded control
+request. Blocking `metrics()` returns a shared snapshot published after each
+owner turn, so it remains observable while another thread is in a bounded
+transport wait. Neither facade clones the diagnostic ring, subscriber queues,
+wire buffers, or state registry.
 
 `busy_errors` counts the codes the scheduler itself treats as transient
 camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),

@@ -15,6 +15,7 @@ use crate::{
     command::CommandKind,
     transport::{
         address::{canonicalize_endpoint, AddressResolver},
+        blocking::TimeoutRestoreGuard,
         buffer::BufferConfig,
         builder::{AddressingMode, TransportConfig},
         BlockingTransport, HasTransportConfig, SendSemantics,
@@ -101,56 +102,148 @@ impl Udp {
         let canonical_addr = canonicalize_endpoint(address, None)?;
         setup(&canonical_addr, config)
     }
+}
 
-    /// Receive one UDP datagram, retaining truncation information where the
-    /// operating system exposes it.
-    ///
-    /// On Unix, a one-byte sentinel extends `dst`, so a packet that reaches it
-    /// is known to exceed the caller's buffer.  On Windows, Winsock reports
-    /// `WSAEMSGSIZE` for the same condition.  Other targets conservatively
-    /// reject an exact-fill receive because their standard UDP API exposes no
-    /// portable way to distinguish it from truncation.
-    fn recv_datagram(&self, dst: &mut [u8]) -> io::Result<DatagramReceive> {
-        #[cfg(unix)]
-        {
-            let socket = socket2::SockRef::from(&self.socket);
-            let capacity = dst.len();
-            let mut sentinel = [0_u8; 1];
-            let mut buffers = [IoSliceMut::new(dst), IoSliceMut::new(&mut sentinel)];
-            let mut socket = &*socket;
-            let received = socket.read_vectored(&mut buffers)?;
-            Ok(if received > capacity {
-                DatagramReceive::Truncated
+/// Receive one UDP datagram, retaining truncation information where the
+/// operating system exposes it.
+///
+/// On Unix, a one-byte sentinel extends `dst`, so a packet that reaches it is
+/// known to exceed the caller's buffer.  On Windows, Winsock reports
+/// `WSAEMSGSIZE` for the same condition.  Other targets conservatively reject
+/// an exact-fill receive because their standard UDP API exposes no portable way
+/// to distinguish it from truncation.
+fn recv_datagram(socket: &UdpSocket, dst: &mut [u8]) -> io::Result<DatagramReceive> {
+    #[cfg(unix)]
+    {
+        let socket = socket2::SockRef::from(socket);
+        let capacity = dst.len();
+        let mut sentinel = [0_u8; 1];
+        let mut buffers = [IoSliceMut::new(dst), IoSliceMut::new(&mut sentinel)];
+        let mut socket = &*socket;
+        let received = socket.read_vectored(&mut buffers)?;
+        Ok(if received > capacity {
+            DatagramReceive::Truncated
+        } else {
+            DatagramReceive::Complete(received)
+        })
+    }
+
+    #[cfg(windows)]
+    {
+        let socket = socket2::SockRef::from(socket);
+        let mut socket = &*socket;
+        // `Socket2` preserves WSAEMSGSIZE from `recv`, unlike its vectored
+        // compatibility adapter.  The datagram has already been consumed,
+        // so report it as a discarded oversized packet.
+        const WSAEMSGSIZE: i32 = 10_040;
+        return match socket.read(dst) {
+            Ok(received) => Ok(DatagramReceive::Complete(received)),
+            Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
+                Ok(DatagramReceive::Truncated)
+            }
+            Err(error) => Err(error),
+        };
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let received = socket.recv(dst)?;
+        return Ok(if received == dst.len() {
+            DatagramReceive::Truncated
+        } else {
+            DatagramReceive::Complete(received)
+        });
+    }
+}
+
+fn udp_read_timeout(socket: &UdpSocket) -> io::Result<Option<Duration>> {
+    socket.read_timeout()
+}
+
+fn set_udp_read_timeout(socket: &mut UdpSocket, timeout: Option<Duration>) -> io::Result<()> {
+    socket.set_read_timeout(timeout)
+}
+
+fn udp_write_timeout(socket: &UdpSocket) -> io::Result<Option<Duration>> {
+    socket.write_timeout()
+}
+
+fn set_udp_write_timeout(socket: &mut UdpSocket, timeout: Option<Duration>) -> io::Result<()> {
+    socket.set_write_timeout(timeout)
+}
+
+fn send_with_timeout<S>(
+    socket: &mut S,
+    data: &[u8],
+    timeout: Duration,
+    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
+    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
+    send: impl FnOnce(&mut S, &[u8]) -> io::Result<usize>,
+) -> Result<(), Error> {
+    let original_timeout = timeout_for(socket)?;
+    let mut timeout_guard =
+        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "UDP write");
+    timeout_guard.set_timeout(Some(timeout))?;
+    send(timeout_guard.socket_mut(), data)
+        .map(|_| ())
+        .map_err(|error| {
+            if matches!(
+                error.kind(),
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+            ) {
+                Error::Timeout
             } else {
-                DatagramReceive::Complete(received)
-            })
+                error.into()
+            }
+        })
+}
+
+fn recv_with_timeout<S>(
+    socket: &mut S,
+    dst: &mut [u8],
+    duration: Duration,
+    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
+    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
+    mut receive: impl FnMut(&mut S, &mut [u8]) -> io::Result<DatagramReceive>,
+) -> Result<usize, Error> {
+    let original_timeout = timeout_for(socket)?;
+    let deadline = Instant::now()
+        .checked_add(duration)
+        .ok_or_else(|| Error::InvalidParameter {
+            parameter: "read timeout",
+            value: format!("{duration:?}").into(),
+            reason: "duration exceeds the monotonic clock range".into(),
+        })?;
+    let mut timeout_guard =
+        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "UDP read");
+
+    // Keep one deadline for the whole operation. Empty datagrams must not give
+    // the caller a fresh full timeout on every receive attempt.
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(Error::Timeout);
         }
 
-        #[cfg(windows)]
-        {
-            let socket = socket2::SockRef::from(&self.socket);
-            let mut socket = &*socket;
-            // `Socket2` preserves WSAEMSGSIZE from `recv`, unlike its vectored
-            // compatibility adapter.  The datagram has already been consumed,
-            // so report it as a discarded oversized packet.
-            const WSAEMSGSIZE: i32 = 10_040;
-            return match socket.read(dst) {
-                Ok(received) => Ok(DatagramReceive::Complete(received)),
-                Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
-                    Ok(DatagramReceive::Truncated)
-                }
-                Err(error) => Err(error),
-            };
+        if let Err(error) = timeout_guard.set_timeout(Some(remaining)) {
+            return Err(error.into());
         }
 
-        #[cfg(not(any(unix, windows)))]
-        {
-            let received = self.socket.recv(dst)?;
-            return Ok(if received == dst.len() {
-                DatagramReceive::Truncated
-            } else {
-                DatagramReceive::Complete(received)
-            });
+        match receive(timeout_guard.socket_mut(), dst) {
+            Ok(DatagramReceive::Complete(0)) => continue,
+            Ok(DatagramReceive::Complete(received)) => return Ok(received),
+            Ok(DatagramReceive::Truncated) => {
+                return Err(Error::ResponseTooLarge {
+                    max_size: dst.len(),
+                });
+            }
+            Err(error)
+                if error.kind() == io::ErrorKind::TimedOut
+                    || error.kind() == io::ErrorKind::WouldBlock =>
+            {
+                return Err(Error::Timeout);
+            }
+            Err(error) => return Err(error.into()),
         }
     }
 }
@@ -172,20 +265,14 @@ impl BlockingTransport for Udp {
         _kind: CommandKind,
         timeout: Duration,
     ) -> Result<(), Error> {
-        let original_timeout = self.socket.write_timeout()?;
-        self.socket.set_write_timeout(Some(timeout))?;
-        let result = self.socket.send(data).map(|_| ()).map_err(|error| {
-            if matches!(
-                error.kind(),
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-            ) {
-                Error::Timeout
-            } else {
-                error.into()
-            }
-        });
-        self.socket.set_write_timeout(original_timeout)?;
-        result
+        send_with_timeout(
+            &mut self.socket,
+            data,
+            timeout,
+            udp_write_timeout,
+            set_udp_write_timeout,
+            |socket, data| socket.send(data),
+        )
     }
 
     fn recv_into_with_timeout(
@@ -193,51 +280,14 @@ impl BlockingTransport for Udp {
         dst: &mut [u8],
         duration: Duration,
     ) -> Result<usize, Error> {
-        // Save the current timeout
-        let original_timeout = self.socket.read_timeout()?;
-        let deadline =
-            Instant::now()
-                .checked_add(duration)
-                .ok_or_else(|| Error::InvalidParameter {
-                    parameter: "read timeout",
-                    value: format!("{duration:?}").into(),
-                    reason: "duration exceeds the monotonic clock range".into(),
-                })?;
-
-        // Keep one deadline for the whole operation. Empty datagrams must not
-        // give the caller a fresh full timeout on every receive attempt.
-        let result = loop {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                break Err(Error::Timeout);
-            }
-
-            if let Err(error) = self.socket.set_read_timeout(Some(remaining)) {
-                break Err(error.into());
-            }
-
-            match self.recv_datagram(dst) {
-                Ok(DatagramReceive::Complete(0)) => continue,
-                Ok(DatagramReceive::Complete(received)) => break Ok(received),
-                Ok(DatagramReceive::Truncated) => {
-                    break Err(Error::ResponseTooLarge {
-                        max_size: dst.len(),
-                    });
-                }
-                Err(error)
-                    if error.kind() == io::ErrorKind::TimedOut
-                        || error.kind() == io::ErrorKind::WouldBlock =>
-                {
-                    break Err(Error::Timeout);
-                }
-                Err(error) => break Err(error.into()),
-            }
-        };
-
-        // Restore the original timeout
-        self.socket.set_read_timeout(original_timeout)?;
-
-        result
+        recv_with_timeout(
+            &mut self.socket,
+            dst,
+            duration,
+            udp_read_timeout,
+            set_udp_read_timeout,
+            |socket, dst| recv_datagram(socket, dst),
+        )
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -267,6 +317,53 @@ mod tests {
     use super::*;
     use crate::transport::{BlockingTransport, BufferConfig, TransportConfig};
 
+    #[derive(Debug)]
+    struct RestoreFailSocket {
+        original_timeout: Option<Duration>,
+        timeout: Option<Duration>,
+        sent: Vec<u8>,
+        response: Vec<u8>,
+        restore_attempted: bool,
+    }
+
+    impl RestoreFailSocket {
+        fn new(original_timeout: Option<Duration>, response: impl Into<Vec<u8>>) -> Self {
+            Self {
+                original_timeout,
+                timeout: original_timeout,
+                sent: Vec::new(),
+                response: response.into(),
+                restore_attempted: false,
+            }
+        }
+
+        fn timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(self.timeout)
+        }
+
+        fn set_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+            if timeout == self.original_timeout && self.timeout != self.original_timeout {
+                self.restore_attempted = true;
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "injected timeout restore failure",
+                ));
+            }
+            self.timeout = timeout;
+            Ok(())
+        }
+
+        fn send(&mut self, data: &[u8]) -> io::Result<usize> {
+            self.sent.extend_from_slice(data);
+            Ok(data.len())
+        }
+
+        fn receive(&mut self, dst: &mut [u8]) -> io::Result<DatagramReceive> {
+            dst[..self.response.len()].copy_from_slice(&self.response);
+            Ok(DatagramReceive::Complete(self.response.len()))
+        }
+    }
+
     fn invalid_buffer_config() -> TransportConfig {
         TransportConfig {
             buffer_config: BufferConfig {
@@ -283,6 +380,46 @@ mod tests {
             Err(Error::InvalidRequest(actual))
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
+    }
+
+    #[test]
+    fn completed_send_survives_a_failing_timeout_restore() {
+        let original_timeout = Some(Duration::from_secs(1));
+        let mut socket = RestoreFailSocket::new(original_timeout, []);
+
+        send_with_timeout(
+            &mut socket,
+            b"VISCA",
+            Duration::from_millis(10),
+            RestoreFailSocket::timeout,
+            RestoreFailSocket::set_timeout,
+            RestoreFailSocket::send,
+        )
+        .expect("the sent datagram must survive cleanup failure");
+
+        assert_eq!(socket.sent, b"VISCA");
+        assert!(socket.restore_attempted);
+    }
+
+    #[test]
+    fn completed_read_survives_a_failing_timeout_restore() {
+        let original_timeout = Some(Duration::from_secs(1));
+        let mut socket = RestoreFailSocket::new(original_timeout, b"reply");
+        let mut dst = [0_u8; 8];
+
+        let received = recv_with_timeout(
+            &mut socket,
+            &mut dst,
+            Duration::from_millis(10),
+            RestoreFailSocket::timeout,
+            RestoreFailSocket::set_timeout,
+            RestoreFailSocket::receive,
+        )
+        .expect("the copied datagram must survive cleanup failure");
+
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"reply");
+        assert!(socket.restore_attempted);
     }
 
     fn connected_socket_pair() -> (UdpSocket, UdpSocket) {

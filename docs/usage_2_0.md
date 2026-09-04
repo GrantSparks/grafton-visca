@@ -320,10 +320,12 @@ one runtime.
 
 `blocking::Session` and its borrowed `Camera<'_, P>` views are `Send + Sync`.
 The owner still admits only one fail-fast turn at a time, so overlapping calls
-from multiple threads return `Error::TransportBusy`. If callers should wait
-rather than retry, put the session in `Arc<Mutex<Session>>`, lock it for one
-operation, and derive the camera view from the guard. The view must remain
-inside the guard's scope:
+from multiple threads return `Error::TransportBusy`. `Session::metrics()` is a
+read-only exception: it returns the last completed owner-turn snapshot while a
+different thread is in a bounded transport wait. If callers should wait rather
+than retry for a control operation, put the session in `Arc<Mutex<Session>>`,
+lock it for one operation, and derive the camera view from the guard. The view
+must remain inside the guard's scope:
 
 ```rust,no_run
 use std::sync::{Arc, Mutex};

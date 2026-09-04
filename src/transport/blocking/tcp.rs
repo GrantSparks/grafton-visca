@@ -11,6 +11,7 @@ use crate::{
     timeout::Deadline,
     transport::{
         address::{canonicalize_endpoint, AddressResolver},
+        blocking::TimeoutRestoreGuard,
         builder::{AddressingMode, TransportConfig},
         socket_options::apply_tcp_socket_options,
         BlockingTransport, HasTransportConfig,
@@ -39,6 +40,97 @@ fn configured_write_deadline_expired(error: &io::Error) -> bool {
         error.kind(),
         io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
     )
+}
+
+fn tcp_write_timeout(stream: &TcpStream) -> io::Result<Option<Duration>> {
+    stream.write_timeout()
+}
+
+fn set_tcp_write_timeout(stream: &mut TcpStream, timeout: Option<Duration>) -> io::Result<()> {
+    stream.set_write_timeout(timeout)
+}
+
+fn tcp_read_timeout(reader: &BufReader<TcpStream>) -> io::Result<Option<Duration>> {
+    reader.get_ref().read_timeout()
+}
+
+fn set_tcp_read_timeout(
+    reader: &mut BufReader<TcpStream>,
+    timeout: Option<Duration>,
+) -> io::Result<()> {
+    reader.get_mut().set_read_timeout(timeout)
+}
+
+fn send_all_with_timeout<S>(
+    socket: &mut S,
+    data: &[u8],
+    timeout: Duration,
+    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
+    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
+) -> Result<(), Error>
+where
+    S: Write,
+{
+    let original_timeout = timeout_for(socket)?;
+    let started = Instant::now();
+    let mut written = 0;
+    let mut timeout_guard =
+        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "TCP write");
+
+    loop {
+        if written == data.len() {
+            return Ok(());
+        }
+
+        // `write_all` may grant every partial write a fresh socket timeout.
+        // Re-sample one fixed operation budget before each syscall instead.
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Err(Error::Timeout);
+        }
+        if let Err(error) = timeout_guard.set_timeout(Some(remaining)) {
+            return Err(error.into());
+        }
+
+        match timeout_guard.socket_mut().write(&data[written..]) {
+            Ok(0) => {
+                return Err(
+                    io::Error::new(io::ErrorKind::WriteZero, "TCP write made no progress").into(),
+                );
+            }
+            Ok(count) => written += count,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) if configured_write_deadline_expired(&error) => {
+                return Err(Error::Timeout);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+}
+
+fn recv_with_timeout<S>(
+    socket: &mut S,
+    dst: &mut [u8],
+    duration: Duration,
+    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
+    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
+) -> Result<usize, Error>
+where
+    S: Read,
+{
+    let original_timeout = timeout_for(socket)?;
+    let mut timeout_guard =
+        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "TCP read");
+    timeout_guard.set_timeout(Some(duration))?;
+
+    match timeout_guard.socket_mut().read(dst) {
+        Ok(0) => Err(Error::ConnectionClosed {
+            reason: Some("peer closed connection".into()),
+        }),
+        Ok(received) => Ok(received),
+        Err(error) if configured_read_deadline_expired(&error) => Err(Error::Timeout),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// TCP transport for blocking VISCA communication.
@@ -154,42 +246,13 @@ impl BlockingTransport for Tcp {
         _kind: CommandKind,
         timeout: Duration,
     ) -> Result<(), Error> {
-        let original_timeout = self.writer.write_timeout()?;
-        let started = Instant::now();
-        let mut written = 0;
-        let result = loop {
-            if written == data.len() {
-                break Ok(());
-            }
-
-            // `write_all` may grant every partial write a fresh socket timeout.
-            // Re-sample one fixed operation budget before each syscall instead.
-            let remaining = timeout.saturating_sub(started.elapsed());
-            if remaining.is_zero() {
-                break Err(Error::Timeout);
-            }
-            if let Err(error) = self.writer.set_write_timeout(Some(remaining)) {
-                break Err(error.into());
-            }
-
-            match self.writer.write(&data[written..]) {
-                Ok(0) => {
-                    break Err(io::Error::new(
-                        io::ErrorKind::WriteZero,
-                        "TCP write made no progress",
-                    )
-                    .into());
-                }
-                Ok(count) => written += count,
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                Err(error) if configured_write_deadline_expired(&error) => {
-                    break Err(Error::Timeout);
-                }
-                Err(error) => break Err(error.into()),
-            }
-        };
-        self.writer.set_write_timeout(original_timeout)?;
-        result
+        send_all_with_timeout(
+            &mut self.writer,
+            data,
+            timeout,
+            tcp_write_timeout,
+            set_tcp_write_timeout,
+        )
     }
 
     fn recv_into_with_timeout(
@@ -197,29 +260,13 @@ impl BlockingTransport for Tcp {
         dst: &mut [u8],
         duration: Duration,
     ) -> Result<usize, Error> {
-        // Save the current timeout
-        let original_timeout = self.reader.get_ref().read_timeout()?;
-
-        // Set the new timeout for this operation
-        self.reader.get_mut().set_read_timeout(Some(duration))?;
-
-        // Read into the provided buffer
-        let result = match self.reader.read(dst) {
-            Ok(0) => {
-                // Connection closed
-                Err(Error::ConnectionClosed {
-                    reason: Some("peer closed connection".into()),
-                })
-            }
-            Ok(n) => Ok(n),
-            Err(io_err) if configured_read_deadline_expired(&io_err) => Err(Error::Timeout),
-            Err(io_err) => Err(io_err.into()),
-        };
-
-        // Restore the original timeout
-        self.reader.get_mut().set_read_timeout(original_timeout)?;
-
-        result
+        recv_with_timeout(
+            &mut self.reader,
+            dst,
+            duration,
+            tcp_read_timeout,
+            set_tcp_read_timeout,
+        )
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -231,7 +278,7 @@ impl BlockingTransport for Tcp {
 #[allow(clippy::expect_used)]
 mod tests {
     use std::{
-        io::ErrorKind,
+        io::{self, Cursor, ErrorKind, Read, Write},
         net::TcpListener,
         thread,
         time::{Duration, Instant},
@@ -239,6 +286,60 @@ mod tests {
 
     use super::*;
     use crate::transport::BufferConfig;
+
+    #[derive(Debug)]
+    struct RestoreFailSocket {
+        original_timeout: Option<Duration>,
+        timeout: Option<Duration>,
+        written: Vec<u8>,
+        readable: Cursor<Vec<u8>>,
+        restore_attempted: bool,
+    }
+
+    impl RestoreFailSocket {
+        fn new(original_timeout: Option<Duration>, readable: impl Into<Vec<u8>>) -> Self {
+            Self {
+                original_timeout,
+                timeout: original_timeout,
+                written: Vec::new(),
+                readable: Cursor::new(readable.into()),
+                restore_attempted: false,
+            }
+        }
+
+        fn timeout(&self) -> io::Result<Option<Duration>> {
+            Ok(self.timeout)
+        }
+
+        fn set_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+            if timeout == self.original_timeout && self.timeout != self.original_timeout {
+                self.restore_attempted = true;
+                return Err(io::Error::new(
+                    ErrorKind::InvalidInput,
+                    "injected timeout restore failure",
+                ));
+            }
+            self.timeout = timeout;
+            Ok(())
+        }
+    }
+
+    impl Write for RestoreFailSocket {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Read for RestoreFailSocket {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.readable.read(buf)
+        }
+    }
 
     #[test]
     fn configured_read_deadline_keeps_unix_connection_timeout_distinct() {
@@ -250,6 +351,44 @@ mod tests {
             cfg!(not(unix)),
             "Unix ETIMEDOUT must reach the owner as keepalive/session failure"
         );
+    }
+
+    #[test]
+    fn completed_send_survives_a_failing_timeout_restore() {
+        let original_timeout = Some(Duration::from_secs(1));
+        let mut socket = RestoreFailSocket::new(original_timeout, []);
+
+        send_all_with_timeout(
+            &mut socket,
+            b"VISCA",
+            Duration::from_millis(10),
+            RestoreFailSocket::timeout,
+            RestoreFailSocket::set_timeout,
+        )
+        .expect("the fully written stream frame must survive cleanup failure");
+
+        assert_eq!(socket.written, b"VISCA");
+        assert!(socket.restore_attempted);
+    }
+
+    #[test]
+    fn completed_read_survives_a_failing_timeout_restore() {
+        let original_timeout = Some(Duration::from_secs(1));
+        let mut socket = RestoreFailSocket::new(original_timeout, b"reply");
+        let mut dst = [0_u8; 8];
+
+        let received = recv_with_timeout(
+            &mut socket,
+            &mut dst,
+            Duration::from_millis(10),
+            RestoreFailSocket::timeout,
+            RestoreFailSocket::set_timeout,
+        )
+        .expect("the copied stream bytes must survive cleanup failure");
+
+        assert_eq!(received, 5);
+        assert_eq!(&dst[..received], b"reply");
+        assert!(socket.restore_attempted);
     }
 
     fn invalid_buffer_config() -> TransportConfig {

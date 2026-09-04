@@ -25,6 +25,15 @@ entries below retain their original wording.
 
 ### Added
 
+- **Corrected the public failure model for transient transport work** (#755).
+  `Error::TransportError` now has its own retryable `ErrorKind::Transport` and
+  a 50 ms suggested retry delay, matching its live-session contract. Blocking
+  TCP and UDP use best-effort RAII timeout restoration, so a cleanup failure
+  cannot replace a completed write or copied read result. Blocking metrics now
+  read a shared owner-turn snapshot while a request is in flight, rather than
+  competing for the transport turn; the async receive-fairness comment now
+  describes the buffered-receive rule the actor implements.
+
 - **Published and continuously exercised the remaining documentation/example
   contract** (#730). The private engine transition table, Sony sequence-width
   decision, raw-correlation rules, and owner invariants now render on docs.rs
