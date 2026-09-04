@@ -16,7 +16,6 @@ use proc_macro::TokenStream;
 
 mod crate_path;
 mod inquiry_command;
-mod parser_templates;
 mod range_type;
 mod value_macros;
 mod visca_enum;
@@ -54,14 +53,20 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
     value_macros::derive_visca_value(input)
 }
 
-/// Derive macro for generating typed inquiry request implementations with parser support.
+/// Derive macro for generating typed inquiry request implementations with optional
+/// inherent response parsing.
 ///
 /// This macro eliminates boilerplate by automatically generating the typed
 /// [`Request`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Request.html)
 /// and [`Inquiry`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html)
 /// implementations with exact `MAX_SIZE` and zero-allocation `write_into()`.
-/// When parser attributes are provided for a built-in response, it also
-/// generates a `parse_response()` method.
+/// When a `parser` attribute is provided for a built-in response, it also
+/// generates a `parse_response()` method. Both that inherent method and
+/// [`Inquiry::decoder`](https://docs.rs/grafton-visca/latest/grafton_visca/trait.Inquiry.html#tymethod.decoder)
+/// use one shared generated decoder. Selectors that identify a built-in table
+/// shape delegate to the canonical decoder for `response`; selectors with an
+/// established transformation, such as `Custom` and `BoolConvention`, retain
+/// that behavior on both paths.
 ///
 /// # Basic Usage
 ///
@@ -83,7 +88,8 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///
 /// # With Response Parsing
 ///
-/// Add parser attributes to automatically generate response parsing:
+/// Add a parser attribute to generate the inherent `parse_response()`
+/// convenience method. Its `response` kind selects the canonical decoder:
 ///
 /// ```rust,ignore
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
@@ -103,27 +109,24 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// struct HueInquiry;
 /// ```
 ///
-/// # Supported Parser Types
+/// # Parser Selectors
 ///
-/// - `Bool` - Boolean values (0x02 = true, 0x03 = false)
-/// - `Byte` - Direct byte value
-/// - `Position` - 4-nibble position value (converts to u16)
-/// - `Nibble` / `ExtendedNibble` - Extended nibble encoding
-/// - `Flags` / `BitFlags` - Bit flags (for image flip)
-/// - `Mode` / `ModeEnum` - Enum value parsing
-/// - `PanTilt` - Standard VISCA 4+4-nibble parser for signed pan/tilt values,
-///   widened to public `i32` coordinates. It does not parse profile-owned
-///   codecs such as Sony BRC-300's 5+4 form.
-/// - `LastNibble` - Last nibble from a nibble-encoded payload
-/// - `BoolConvention` - Boolean parsing with an explicit `BoolConvention`
+/// The established selectors (`Bool`, `Byte`, `Position`, `PanTilt`, and so
+/// on) remain accepted for source compatibility. Selectors that identify a
+/// built-in table shape use the `response` entry as their decoding authority,
+/// including its boolean convention and accepted nibble width. `Custom`
+/// continues to call `parse_with`; selector forms with established
+/// transformations retain them, including `BoolConvention`, and the
+/// selector-supported `data_variant` and `value_type` attributes. Every form
+/// is evaluated by the one shared decoder.
 ///
 /// # Requirements
 ///
 /// - The struct must have the `#[visca(...)]` attribute with required fields
 /// - The `response` attribute must reference an existing `InquiryKind` variant,
 ///   or `Raw` for a raw custom inquiry
-/// - Downstream derives use the standard five-byte inquiry form. `PanTilt`
-///   parses only its matching standard eight-nibble (4+4) reply form.
+/// - Downstream derives use the standard five-byte inquiry form. The selected
+///   `response` kind defines the accepted reply form.
 /// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]
 pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {

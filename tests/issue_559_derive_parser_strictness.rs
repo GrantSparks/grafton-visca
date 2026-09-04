@@ -6,9 +6,8 @@ use grafton_visca::{
     ViscaInquiry,
 };
 
-// Keep generated code independent of names supplied by the downstream crate.
-// In particular, each of these names used to be emitted unqualified by one
-// of the parser templates.
+// Keep generated derive code independent of names supplied by the downstream
+// crate. The canonical parser must be reached through absolute crate paths.
 #[allow(dead_code)]
 struct Result;
 #[allow(dead_code)]
@@ -91,7 +90,7 @@ struct StrictPositionInquiry;
 struct StrictExtendedInquiry;
 
 #[test]
-fn generated_parser_templates_require_their_exact_wire_lengths() {
+fn generated_parser_selectors_use_the_canonical_wire_lengths() {
     assert!(matches!(
         StrictBoolInquiry.parse_response(&[0x02]),
         ::core::result::Result::Ok(InquiryData::Power { on: true })
