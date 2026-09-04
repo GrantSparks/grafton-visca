@@ -1677,7 +1677,9 @@ macro_rules! builtin_inquiry_table {
         IrisInquiry => {
             const IRIS = [0x81, 0x09, 0x04, 0x4B];
             kind: Iris {
-                /// Iris position (0x0=Close to 0xC=F1.8).
+                /// Iris position in the built-in profiles' `0x00..=0x1E`
+                /// wire union; each selected profile still validates its own
+                /// documented range.
                 position: u8,
             };
             decode: |payload| {
@@ -1913,7 +1915,7 @@ macro_rules! builtin_inquiry_table {
         GainInquiry => {
             const GAIN = [0x81, 0x09, 0x04, 0x4C];
             kind: Gain {
-                /// Gain level value (0x00=0 to 0x07=7).
+                /// Gain level value in the VISCA `0x00..=0x0F` nibble domain.
                 gain: u8,
             };
             decode: |payload| {
@@ -3363,7 +3365,23 @@ fn decode_pan_tilt_position_with_codec(
 #[cfg(test)]
 mod wire_decoder_regression_tests {
     use super::*;
-    use crate::command::parse_inquiry_payload;
+    use crate::{command::parse_inquiry_payload, Inquiry};
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn iris_and_gain_typed_decoders_accept_their_profile_advertised_upper_halves() {
+        let iris = IrisInquiry
+            .decoder()
+            .decode(&[0x00, 0x00, 0x01, 0x04])
+            .unwrap();
+        assert_eq!(iris.value(), 0x14);
+
+        let gain = GainInquiry
+            .decoder()
+            .decode(&[0x00, 0x00, 0x00, 0x0C])
+            .unwrap();
+        assert_eq!(gain.value(), 0x0C);
+    }
 
     #[test]
     fn centered_level_decoders_reject_out_of_range_nibbles_without_panicking() {

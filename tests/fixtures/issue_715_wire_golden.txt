@@ -193,9 +193,9 @@ Iris::Up	81 01 04 0B 02 FF
 Iris::Down	81 01 04 0B 03 FF
 Iris::SetAperture[00]	81 01 04 4B 00 00 00 00 FF
 Iris::SetAperture[05]	81 01 04 4B 00 00 00 05 FF
-Iris::SetAperture[11]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "17", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
-Iris::SetAperture[12]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "18", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
-Iris::SetAperture[FF]	CTOR_ERR(InvalidParameter { parameter: "IrisLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]" })
+Iris::SetAperture[11]	81 01 04 4B 00 00 01 01 FF
+Iris::SetAperture[12]	81 01 04 4B 00 00 01 02 FF
+Iris::SetAperture[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "IrisLevel", value: 255, min: 0, max: 30 })
 Shutter::Reset	81 01 04 0A 00 FF
 Shutter::Up	81 01 04 0A 02 FF
 Shutter::Down	81 01 04 0A 03 FF
@@ -230,11 +230,11 @@ Gain::SetValue[00]	81 01 04 4C 00 00 00 00 FF
 GainLimit[00]	81 01 04 2C 00 FF
 Gain::SetValue[05]	81 01 04 4C 00 00 00 05 FF
 GainLimit[05]	81 01 04 2C 05 FF
-Gain::SetValue[0F]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "15", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+Gain::SetValue[0F]	81 01 04 4C 00 00 00 0F FF
 GainLimit[0F]	81 01 04 2C 0F FF
-Gain::SetValue[10]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+Gain::SetValue[10]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLevel", value: 16, min: 0, max: 15 })
 GainLimit[10]	CTOR_ERR(InvalidParameter { parameter: "GainLimit", value: "16", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]" })
-Gain::SetValue[FF]	CTOR_ERR(InvalidParameter { parameter: "GainLevel", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7]" })
+Gain::SetValue[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLevel", value: 255, min: 0, max: 15 })
 GainLimit[FF]	CTOR_ERR(InvalidParameter { parameter: "GainLimit", value: "255", reason: "must be one of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]" })
 WhiteBalance[Auto]	81 01 04 35 00 FF
 WhiteBalance[Indoor]	81 01 04 35 01 FF

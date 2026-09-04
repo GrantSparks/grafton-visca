@@ -1442,6 +1442,18 @@ entries below retain their original wording.
 
 ### Fixed
 
+- **Aligned typed value domains with advertised profile ranges and metadata**
+  (#754). `IrisLevel` now accepts the built-in `0x00..=0x1E` wire union and
+  `GainLevel` the full `0x00..=0x0F` nibble domain; profile admission still
+  applies each camera's narrower range. Iris/gain inquiry readback and
+  completionless iris settlement can therefore accept BRC-H900/FR7 values in
+  the formerly unreachable upper halves. Percentage conversions now derive
+  from each typed maximum and round consistently, so 100% reaches every
+  supported level. Coarse pan/tilt `Fastest` clamps to the selected profile's
+  maxima, including EVI-H100 and Nearus BRC-300. BRC-H900 and EVI-H100 no
+  longer advertise unsupported shared noise-reduction metadata; the profile
+  validator rejects future typed-range or NR metadata/typed-support drift.
+
 - Incomplete raw stream prefixes with an invalid response source are now
   discarded as `Ignored(MalformedFrame)` at a raw-correlation release, matching
   the existing complete-frame behavior. Blocking and async owners remain

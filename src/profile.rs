@@ -1195,6 +1195,20 @@ impl ProfileSpec {
             range.is_none_or(range_ordered)
         }
 
+        fn range_fits_domain<T: Copy>(
+            range: &std::ops::RangeInclusive<T>,
+            accepts: impl Fn(T) -> bool,
+        ) -> bool {
+            accepts(*range.start()) && accepts(*range.end())
+        }
+
+        fn optional_range_fits_domain<T: Copy>(
+            range: Option<&std::ops::RangeInclusive<T>>,
+            accepts: impl Fn(T) -> bool,
+        ) -> bool {
+            range.is_none_or(|range| range_fits_domain(range, accepts))
+        }
+
         if self.transports.tcp_port == Some(0) || self.transports.udp_port == Some(0) {
             return Err(invalid_profile_fields(
                 &["transports.tcp_port", "transports.udp_port"],
@@ -1270,8 +1284,14 @@ impl ProfileSpec {
                 f64::from(*self.capabilities.tilt_range_degrees.end()),
             ) || *self.capabilities.pan_speed.start() == 0
                 || self.capabilities.pan_speed.start() > self.capabilities.pan_speed.end()
+                || !range_fits_domain(&self.capabilities.pan_speed, |value| {
+                    crate::types::PanSpeed::new(value).is_ok()
+                })
                 || *self.capabilities.tilt_speed.start() == 0
                 || self.capabilities.tilt_speed.start() > self.capabilities.tilt_speed.end()
+                || !range_fits_domain(&self.capabilities.tilt_speed, |value| {
+                    crate::types::TiltSpeed::new(value).is_ok()
+                })
                 || self.pan_tilt_coordinates.is_none_or(|conversion| {
                     !conversion.pan_degrees_to_units.is_finite()
                         || conversion.pan_degrees_to_units == 0.0
@@ -1300,14 +1320,26 @@ impl ProfileSpec {
                 ));
             };
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
-                && conversion.coordinate_system != capabilities::CoordinateSystem::SignedCentered
+                && (conversion.coordinate_system != capabilities::CoordinateSystem::SignedCentered
+                    || self
+                        .capabilities
+                        .pan_speed
+                        .start()
+                        .max(self.capabilities.tilt_speed.start())
+                        > self
+                            .capabilities
+                            .pan_speed
+                            .end()
+                            .min(self.capabilities.tilt_speed.end()))
             {
                 return Err(invalid_profile_fields(
                     &[
                         "pan_tilt_coordinates.wire_codec",
                         "pan_tilt_coordinates.coordinate_system",
+                        "capabilities.pan_speed",
+                        "capabilities.tilt_speed",
                     ],
-                    "Sony BRC-300 framing requires signed-centered coordinates",
+                    "Sony BRC-300 framing requires signed-centered coordinates and overlapping pan/tilt speeds",
                 ));
             }
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
@@ -1393,6 +1425,9 @@ impl ProfileSpec {
                 || self.capabilities.zoom_range_optical.start()
                     > self.capabilities.zoom_range_optical.end()
                 || self.capabilities.zoom_speed.start() > self.capabilities.zoom_speed.end()
+                || !range_fits_domain(&self.capabilities.zoom_speed, |value| {
+                    crate::types::ZoomSpeed::new(value).is_ok()
+                })
                 || !self.capabilities.zoom_magnification_to_units.is_finite()
                 || self.capabilities.zoom_magnification_to_units <= 0.0
                 || self
@@ -1430,11 +1465,14 @@ impl ProfileSpec {
         }
         if self.capabilities.has_focus
             && (self.capabilities.focus_range.start() > self.capabilities.focus_range.end()
-                || self.capabilities.focus_speed.start() > self.capabilities.focus_speed.end())
+                || self.capabilities.focus_speed.start() > self.capabilities.focus_speed.end()
+                || !range_fits_domain(&self.capabilities.focus_speed, |value| {
+                    crate::types::FocusSpeed::new(value).is_ok()
+                }))
         {
             return Err(invalid_profile_fields(
                 &["capabilities.focus_range", "capabilities.focus_speed"],
-                "ranges must be ordered",
+                "ranges must be ordered and speeds must fit their typed domains",
             ));
         }
         let capabilities = &self.capabilities;
@@ -1477,6 +1515,64 @@ impl ProfileSpec {
                     "capabilities.preset_speed_range",
                 ],
                 "capability ranges must be ordered",
+            ));
+        }
+        if !range_fits_domain(&capabilities.exposure_comp_profile_range, |value| {
+            crate::types::ExposureCompensationLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.exposure_comp_range.as_ref(), |value| {
+            crate::types::ExposureCompensationLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.iris_range.as_ref(), |value| {
+            u8::try_from(value)
+                .ok()
+                .is_some_and(|value| crate::types::IrisLevel::new(value).is_ok())
+        }) || !range_fits_domain(&capabilities.gain_range, |value| {
+            crate::types::GainLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(
+            capabilities.exposure_brightness_range.as_ref(),
+            |value| crate::types::BrightnessLevel::new(value).is_ok(),
+        ) || !optional_range_fits_domain(capabilities.color_temp_range.as_ref(), |value| {
+            crate::types::ColorTemp::from_kelvin(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.rg_tuning_range.as_ref(), |value| {
+            crate::types::RedTuning::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.bg_tuning_range.as_ref(), |value| {
+            crate::types::BlueTuning::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.red_gain_range.as_ref(), |value| {
+            crate::types::RedChannel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.blue_gain_range.as_ref(), |value| {
+            crate::types::BlueChannel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.contrast_range.as_ref(), |value| {
+            crate::types::ContrastLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.sharpness_range.as_ref(), |value| {
+            crate::types::SharpnessLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.saturation_range.as_ref(), |value| {
+            crate::types::SaturationLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.hue_range.as_ref(), |value| {
+            crate::types::HueLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.luminance_range.as_ref(), |value| {
+            crate::types::LuminanceLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.gamma_range.as_ref(), |value| {
+            crate::types::GammaLevel::new(value).is_ok()
+        }) {
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.exposure_comp_range",
+                    "capabilities.exposure_comp_profile_range",
+                    "capabilities.iris_range",
+                    "capabilities.gain_range",
+                    "capabilities.exposure_brightness_range",
+                    "capabilities.color_temp_range",
+                    "capabilities.rg_tuning_range",
+                    "capabilities.bg_tuning_range",
+                    "capabilities.red_gain_range",
+                    "capabilities.blue_gain_range",
+                    "capabilities.contrast_range",
+                    "capabilities.sharpness_range",
+                    "capabilities.saturation_range",
+                    "capabilities.hue_range",
+                    "capabilities.luminance_range",
+                    "capabilities.gamma_range",
+                ],
+                "advertised capability ranges must fit their typed value domains",
             ));
         }
         if capabilities.has_digital_zoom != capabilities.zoom_range_digital.is_some()
@@ -1637,6 +1733,31 @@ impl ProfileSpec {
             return Err(invalid_profile_fields(
                 &["capabilities"],
                 "aggregate capability facts disagree with their parent domains",
+            ));
+        }
+        let typed_2d_noise_inquiry =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction2D);
+        let typed_2d_noise_control =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction2DControl);
+        let typed_3d_noise_inquiry =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction3D);
+        let typed_3d_noise_control =
+            capabilities.supports_typed(capabilities::TypedSupportSurface::NoiseReduction3DControl);
+        if capabilities.has_2d_nr != typed_2d_noise_inquiry
+            || capabilities.has_2d_nr != typed_2d_noise_control
+            || capabilities.has_3d_nr != typed_3d_noise_inquiry
+            || capabilities.has_3d_nr != typed_3d_noise_control
+            || capabilities.has_noise_reduction
+                != (capabilities.has_2d_nr || capabilities.has_3d_nr)
+        {
+            return Err(invalid_profile_fields(
+                &[
+                    "capabilities.has_noise_reduction",
+                    "capabilities.has_2d_nr",
+                    "capabilities.has_3d_nr",
+                    "capabilities.typed_support",
+                ],
+                "noise-reduction metadata and paired inquiry/control typed support must agree",
             ));
         }
         if capabilities
@@ -2618,6 +2739,79 @@ mod tests {
         let mut typed_nd = nd_metadata;
         typed_nd.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::NdFilter);
         assert!(runtime_builder(typed_nd).build().is_err());
+    }
+
+    #[test]
+    fn profile_validation_enforces_typed_ranges_and_noise_reduction_contracts() {
+        let exposure_capabilities = || {
+            let mut capabilities = valid_runtime_capabilities();
+            capabilities.has_exposure = true;
+            capabilities.shutter_speeds.push(RuntimeShutterSpeed {
+                label: "1/60".into(),
+                value: 1,
+            });
+            capabilities
+        };
+
+        let mut iris_outside_domain = exposure_capabilities();
+        iris_outside_domain.has_iris_control = true;
+        iris_outside_domain.iris_range = Some(0..=0x1F);
+        let error = invalid_request_message(runtime_builder(iris_outside_domain).build())
+            .expect("out-of-domain iris range must be rejected");
+        assert!(error.contains("`capabilities.iris_range`"), "{error}");
+
+        let mut gain_outside_domain = exposure_capabilities();
+        gain_outside_domain.gain_range = 0..=0x10;
+        let error = invalid_request_message(runtime_builder(gain_outside_domain).build())
+            .expect("out-of-domain gain range must be rejected");
+        assert!(error.contains("`capabilities.gain_range`"), "{error}");
+
+        let mut pan_speed_outside_domain = valid_runtime_capabilities();
+        pan_speed_outside_domain.pan_speed = 1..=0x19;
+        let error = invalid_request_message(runtime_builder(pan_speed_outside_domain).build())
+            .expect("out-of-domain pan-speed range must be rejected");
+        assert!(error.contains("`capabilities.pan_speed`"), "{error}");
+
+        let mut zoom_speed_outside_domain = valid_runtime_capabilities();
+        zoom_speed_outside_domain.zoom_speed = 0..=8;
+        let error = invalid_request_message(runtime_builder(zoom_speed_outside_domain).build())
+            .expect("out-of-domain zoom-speed range must be rejected");
+        assert!(error.contains("`capabilities.zoom_speed`"), "{error}");
+
+        let mut missing_noise_reduction_surfaces = valid_runtime_capabilities();
+        missing_noise_reduction_surfaces.has_image_processing = true;
+        missing_noise_reduction_surfaces.has_noise_reduction = true;
+        missing_noise_reduction_surfaces.has_2d_nr = true;
+        let error = invalid_request_message(
+            runtime_builder(missing_noise_reduction_surfaces.clone()).build(),
+        )
+        .expect("noise-reduction metadata without typed support must be rejected");
+        assert!(error.contains("`capabilities.has_2d_nr`"), "{error}");
+
+        missing_noise_reduction_surfaces.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction2D).union(
+                TypedSupportSet::from_surface(TypedSupportSurface::NoiseReduction2DControl),
+            );
+        assert!(runtime_builder(missing_noise_reduction_surfaces)
+            .build()
+            .is_ok());
+
+        for surface in [
+            TypedSupportSurface::NoiseReduction2D,
+            TypedSupportSurface::NoiseReduction2DControl,
+            TypedSupportSurface::NoiseReduction3D,
+            TypedSupportSurface::NoiseReduction3DControl,
+        ] {
+            let mut unpaired_noise_reduction = valid_runtime_capabilities();
+            unpaired_noise_reduction.has_image_processing = true;
+            unpaired_noise_reduction.typed_support = TypedSupportSet::from_surface(surface);
+            let error = invalid_request_message(runtime_builder(unpaired_noise_reduction).build())
+                .expect("one half of an NR surface pair must be rejected");
+            assert!(
+                error.contains("paired inquiry/control typed support"),
+                "{surface:?}: {error}"
+            );
+        }
     }
 
     #[test]

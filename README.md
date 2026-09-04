@@ -164,6 +164,14 @@ AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
 04 4B` position inquiry. Those FR7 protocol families remain available through
 the raw command escape hatch until they receive their own typed APIs.
 
+`IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
+profiles, and `GainLevel` represents the VISCA `0x00..=0x0F` nibble domain.
+The selected profile's advertised range remains the final admission check, so
+constructing a syntactically valid value never grants it to a camera that does
+not document it. Coarse `SpeedLevel` position requests similarly clamp to each
+profile's documented pan and tilt maxima; `Fastest` therefore means the fastest
+valid speed for that selected camera.
+
 Noise-reduction inquiries remain independently gated by
 `HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate
 `HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers. The
@@ -176,6 +184,9 @@ PT30X SDI/NDI G2/Gen-2 profile, and it does not extend to Move, Link, or newer
 30X models. See the separate R14 command-input and query-output domains in
 [`docs/visca_reference.md`](docs/visca_reference.md); a successful set is not
 promised to round-trip through an inquiry with the same numeric value.
+Built-in discovery metadata is kept in lockstep with those paired inquiry and
+control markers, so it cannot advertise an NR family that the typed layer
+rejects.
 
 Contributors adding or changing profile capabilities should follow the
 [Camera Profile Support Guide](docs/camera_profile_support.md) and the

@@ -79,10 +79,10 @@ mod serde_validation {
     #[test]
     fn public_visca_value_representatives_revalidate_deserialized_scalars() {
         let gain_min: GainLevel = serde_json::from_str("0").expect("minimum gain");
-        let gain_max: GainLevel = serde_json::from_str("7").expect("maximum gain");
+        let gain_max: GainLevel = serde_json::from_str("15").expect("maximum gain");
         assert_eq!(gain_min.value(), 0);
-        assert_eq!(gain_max.value(), 7);
-        assert!(serde_json::from_str::<GainLevel>("8").is_err());
+        assert_eq!(gain_max.value(), 15);
+        assert!(serde_json::from_str::<GainLevel>("16").is_err());
 
         let zoom_min: ZoomPosition = serde_json::from_str("0").expect("minimum zoom");
         let zoom_max: ZoomPosition = serde_json::from_str("32767").expect("maximum zoom");
