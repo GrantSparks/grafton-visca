@@ -2331,8 +2331,11 @@ fn exact_first_dispatch_preserves_admission_order_and_queues_the_loser() {
     priority_engine.assert_invariants().unwrap();
 }
 
+/// #744: cancellation pending on camera 1 is not first-dispatch contention
+/// for camera 2. The shared physical pacing deadline remains authoritative,
+/// but the blocking owner must wait for it rather than fail `TransportBusy`.
 #[test]
-fn requested_executing_cancellation_blocks_first_dispatch() {
+fn requested_executing_cancellation_is_target_local_for_first_dispatch() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let first = admit_input_only(
@@ -2392,7 +2395,10 @@ fn requested_executing_cancellation_blocks_first_dispatch() {
     );
     assert!(matches!(
         engine.first_dispatch(ordinary_id, requested_at),
-        FirstDispatch::Blocked
+        FirstDispatch::WaitUntil {
+            deadline,
+            reason: FirstDispatchWait::Pacing,
+        } if deadline == start + Duration::from_millis(10)
     ));
     assert_eq!(
         (
@@ -11863,6 +11869,157 @@ fn urgent_raw_command_bypasses_preack_gate_and_ambiguous_ack_binds_neither() {
     let urgent_done = engine.advance(start + Duration::from_millis(80));
     assert!(terminal_outcome(&urgent_done, urgent_id).is_none());
     assert!(engine.holds.is_empty());
+    engine.assert_invariants().unwrap();
+}
+
+/// #744: an Urgent stop reserves the next raw pacing slot over a deferred
+/// cancellation. The blocking owner uses this exact first-dispatch seam, so
+/// it must not translate the pending cancel into `TransportBusy`.
+#[test]
+fn urgent_first_dispatch_reserves_pacing_from_a_pending_cancellation() {
+    let start = Instant::now();
+    let spacing = Duration::from_millis(10);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    engine.policy.command_spacing = spacing;
+
+    let (predecessor_effects, predecessor_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &predecessor_effects, None, start);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        start,
+    );
+    engine.handle(Input::Cancel { id: predecessor_id }, start);
+    assert!(matches!(
+        engine.entry(predecessor_id).map(Entry::cancellation),
+        Some(cancellation) if !matches!(cancellation, CancelState::None)
+    ));
+
+    let (urgent_admission, urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(request_transmit_optional(&urgent_admission).is_none());
+    assert!(matches!(
+        engine.first_dispatch(urgent_id, start),
+        FirstDispatch::WaitUntil {
+            deadline,
+            reason: FirstDispatchWait::UrgentPacing,
+        } if deadline == start + spacing
+    ));
+
+    let urgent_effects = match engine.first_dispatch(urgent_id, start + spacing) {
+        FirstDispatch::Effects(effects) => effects,
+        dispatch => panic!("urgent stop lost its first paced write: {dispatch:?}"),
+    };
+    assert_eq!(request_transmit(&urgent_effects).1, urgent_id);
+    assert!(
+        !urgent_effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Transmit {
+                kind: Transmission::Cancel { .. },
+                ..
+            }
+        )),
+        "the deferred cancellation cannot consume the urgent stop's pacing slot"
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// #744: a lost predecessor ACK leaves a `PreAck` tombstone, but an Urgent
+/// stop admitted through that hold is the sole live raw candidate. Its ACK is
+/// therefore attributable to the stop, not inert tombstone traffic.
+#[test]
+fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+
+    let (predecessor_effects, predecessor_id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    send_ok(&mut engine, &predecessor_effects, None, start);
+    let ack_deadline = start + Duration::from_millis(20);
+    let expired = engine.advance(ack_deadline);
+    assert!(matches!(
+        terminal_failure(&expired, predecessor_id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let original_hold = engine
+        .raw_hold(camera(1), RawHoldScope::PreAck)
+        .expect("lost predecessor retains its pre-ACK hold");
+
+    let (urgent_admission, urgent_id) = admit(
+        &mut engine,
+        2,
+        urgent_command(1, CancellationPolicy::Supported),
+        ack_deadline,
+    );
+    assert_eq!(request_transmit(&urgent_admission).1, urgent_id);
+    send_ok(&mut engine, &urgent_admission, None, ack_deadline);
+
+    let acknowledged = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        ack_deadline + Duration::from_millis(1),
+    );
+    assert!(matches!(
+        phase_of(&engine, urgent_id),
+        Some(Phase::Executing {
+            socket: ViscaSocket::S1,
+            ..
+        })
+    ));
+    assert!(
+        !acknowledged
+            .iter()
+            .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))),
+        "the unique urgent candidate owns its ACK"
+    );
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::PreAck),
+        Some(original_hold),
+        "the original hold remains bounded; the stop installs no second hold"
+    );
+
+    let completed = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Completion {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        ack_deadline + Duration::from_millis(2),
+    );
+    assert!(matches!(
+        terminal_outcome(&completed, urgent_id),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::PreAck),
+        Some(original_hold),
+        "the stop completion cannot extend the predecessor's hold"
+    );
     engine.assert_invariants().unwrap();
 }
 

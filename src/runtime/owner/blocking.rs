@@ -2034,6 +2034,10 @@ impl BlockingOwner {
             FirstDispatchWait::Pacing => {
                 self.wait_for_pacing_without_receive(driver, dispatch_at, observer_deadline)
             }
+            FirstDispatchWait::UrgentPacing => {
+                self.wait_for_urgent_pacing_without_due(dispatch_at, observer_deadline);
+                Ok(())
+            }
             FirstDispatchWait::RawCorrelationTombstone => Err(Error::TransportBusy),
         }
     }
@@ -2066,6 +2070,10 @@ impl BlockingOwner {
             FirstDispatchWait::Pacing => {
                 self.wait_for_pacing_without_receive(driver, dispatch_at, observer_deadline)
             }
+            FirstDispatchWait::UrgentPacing => {
+                self.wait_for_urgent_pacing_without_due(dispatch_at, observer_deadline);
+                Ok(())
+            }
         }
     }
 
@@ -2082,6 +2090,19 @@ impl BlockingOwner {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
         self.sleep_until(deadline);
         self.service_due_without_dispatch(driver)
+    }
+
+    /// Reserves the next paced write for an already-admitted Urgent request.
+    /// Pending socket cancellations are normal owner work, but they must not
+    /// take the precise physical slot an emergency stop just waited for (#744).
+    /// The next first-dispatch pass writes the stop; a later ordinary owner
+    /// turn then resumes the still-pending cancellation.
+    fn wait_for_urgent_pacing_without_due(
+        &self,
+        dispatch_at: Instant,
+        observer_deadline: Option<Instant>,
+    ) {
+        self.sleep_until(self.first_dispatch_wait_deadline(dispatch_at, observer_deadline));
     }
 
     /// Pumps a raw correlation tombstone at its bounded owner deadline. Frames
@@ -3566,7 +3587,7 @@ mod tests {
         prepared::{prepare_builtin_command, prepare_builtin_operation},
         profile::ProfileSpec,
         profiles::GenericVisca,
-        request::builtin::{FocusModeCommand, ZoomDrive},
+        request::builtin::{FocusModeCommand, ZoomDrive, ZoomStop},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
         CameraId, ErrorKind, OperationalTuning, ViscaSocket,
     };
@@ -3695,6 +3716,18 @@ mod tests {
 
     impl BlockingWireDriver for FaultDriver {
         fn write(&mut self, _write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+            Ok(TransmissionMeta { sequence: None })
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct RecordingDriver {
+        writes: Vec<(Vec<u8>, bool)>,
+    }
+
+    impl BlockingWireDriver for RecordingDriver {
+        fn write(&mut self, write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+            self.writes.push((write.bytes.to_vec(), write.cancellation));
             Ok(TransmissionMeta { sequence: None })
         }
     }
@@ -4934,6 +4967,90 @@ mod tests {
             .expect("a byte-bearing read keeps the session running");
         assert_eq!(owner.idle_receives.length(), 0);
         assert_eq!(clock.current(), start + Duration::from_millis(70));
+    }
+
+    /// #744: an emergency stop is allowed to cross a same-target cancellation
+    /// that was requested during the preceding command-spacing interval. The
+    /// stop takes the first pacing slot; the deferred socket cancel must not
+    /// turn that safety write into `TransportBusy` or consume another interval.
+    #[test]
+    fn urgent_stop_uses_the_first_pacing_slot_while_a_cancel_is_pending() {
+        const SPACING: Duration = Duration::from_millis(10);
+
+        let start = Instant::now();
+        let clock = ManualBlockingClock::new(start);
+        let mut policy = raw_owner_policy();
+        policy.protocol.capacity = 2;
+        policy.protocol.command_spacing = SPACING;
+        policy.targets[usize::from(CameraId::CAMERA_1.id())]
+            .as_mut()
+            .expect("camera one is registered")
+            .command_sockets = 2;
+        policy.baseline.command_sockets[usize::from(CameraId::CAMERA_1.id())] = Some(2);
+        let mut owner =
+            BlockingOwner::with_clock(policy, Arc::new(clock.clone())).expect("blocking owner");
+        let mut driver = RecordingDriver::default();
+
+        let predecessor = owner
+            .submit(
+                &mut driver,
+                raw_request(
+                    CameraId::CAMERA_1,
+                    ReplyShape::AckThenCompletion,
+                    Duration::from_secs(1),
+                ),
+            )
+            .expect("predecessor reaches the wire");
+        let predecessor_id = predecessor.id;
+        owner
+            .inject_frame(
+                &mut driver,
+                DecodedFrame {
+                    target: CameraId::CAMERA_1,
+                    sequence: None,
+                    response: DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                },
+                clock.current(),
+            )
+            .expect("predecessor ACK is accepted");
+        let _cancellation = owner
+            .cancel_test(&mut driver, predecessor)
+            .expect("cancellation intent is accepted");
+        assert!(matches!(
+            owner.state().request_state(predecessor_id),
+            Some((_, cancellation)) if !matches!(cancellation, CancelState::None)
+        ));
+        assert_eq!(driver.writes.len(), 1, "the cancel remains paced");
+
+        let profile = generic_profile();
+        let stop = owner
+            .submit_operation(
+                &mut driver,
+                prepare_builtin_operation::<AppliedOnly, _>(
+                    &ZoomStop,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                )
+                .expect("prepared emergency stop"),
+            )
+            .expect("pending cancellation must not reject the urgent stop");
+
+        assert_eq!(
+            clock.current(),
+            start + SPACING,
+            "the stop occupies the first pacing slot"
+        );
+        assert_eq!(clock.sleeps(), vec![SPACING]);
+        assert_eq!(driver.writes.len(), 2);
+        assert_eq!(
+            driver.writes[1],
+            (vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff], false),
+            "the urgent stop is the next physical write, before the deferred cancellation"
+        );
+        drop(stop);
     }
 
     #[test]

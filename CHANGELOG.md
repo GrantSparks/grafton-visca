@@ -1497,6 +1497,15 @@ entries below retain their original wording.
   until the permanent-fault threshold and closing the session; a genuinely
   permanent fault proven while observer budget remains still closes normally.
 
+- **Restored raw emergency-stop reachability during cancellation and recovery**
+  (#744). A pending socket cancellation now gates only ordinary first writes on
+  its own camera target; an intrinsic `Urgent` stop reserves the next physical
+  pacing slot instead of failing `TransportBusy` or letting the deferred cancel
+  take that slot. A raw `PreAck` tombstone now releases an ACK to the sole live
+  urgent candidate, so a stop admitted through lost-ACK recovery is confirmed
+  instead of being falsely reported `UnsequencedCommandUnconfirmed`. Blocking
+  and async owner tests pin both the safety write and ACK binding.
+
 - Blocking serial writes now report success when the final low-level write
   accepted the complete frame, even if that syscall returned after the logical
   deadline (#748). A delivered command—including an emergency stop—therefore
