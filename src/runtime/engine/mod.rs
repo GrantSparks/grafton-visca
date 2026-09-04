@@ -279,6 +279,10 @@ pub(crate) struct InputTurn {
 pub(crate) enum FirstDispatchWait {
     RawCorrelationTombstone,
     Pacing,
+    /// A safety-critical request owns the next physical pacing slot ahead of
+    /// every already-pending cancellation. Its owner must not service due
+    /// cancellations at that boundary before retrying this exact dispatch.
+    UrgentPacing,
 }
 
 /// Result of attempting one exact first dispatch without running due work.
@@ -700,7 +704,10 @@ impl ProtocolEngine {
         if !matches!(entry.phase, Phase::Ready { .. }) {
             return FirstDispatch::Missing;
         }
-        if self.has_pending_cancellation() {
+        let target = entry.request.context().target;
+        let urgent = entry.request.context().control.class == ControlClass::Urgent;
+        let pending_cancellation = self.has_pending_cancellation();
+        if !urgent && self.has_pending_cancellation_for(target) {
             return FirstDispatch::Blocked;
         }
         if let Some(deadline) = self.raw_hold_dispatch_deadline(entry) {
@@ -722,7 +729,11 @@ impl ProtocolEngine {
             }
             None if ready_at > now => FirstDispatch::WaitUntil {
                 deadline: ready_at,
-                reason: FirstDispatchWait::Pacing,
+                reason: if urgent && pending_cancellation {
+                    FirstDispatchWait::UrgentPacing
+                } else {
+                    FirstDispatchWait::Pacing
+                },
             },
             None => FirstDispatch::Blocked,
         }
@@ -1015,6 +1026,12 @@ impl ProtocolEngine {
         self.entries
             .values()
             .any(|entry| pending_cancellation_socket(entry).is_some())
+    }
+
+    fn has_pending_cancellation_for(&self, target: CameraId) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.context().target == target && pending_cancellation_socket(entry).is_some()
+        })
     }
 
     fn dispatch_selected(
@@ -2267,7 +2284,7 @@ impl ProtocolEngine {
             // hold. Its complete ACK is still attributable; the hold prevents
             // a successor from becoming a competing candidate.
             DecodedResponse::Ack { .. } => {
-                pre_ack || (inquiry_unkeyed && self.unique_raw_command_candidate(target).is_none())
+                (pre_ack || inquiry_unkeyed) && self.unique_raw_command_candidate(target).is_none()
             }
             // An inquiry reply is target/data-correlated and a socketless error
             // has no command/inquiry discriminator, so both remain inert.

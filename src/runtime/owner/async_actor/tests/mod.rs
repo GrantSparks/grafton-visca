@@ -302,6 +302,20 @@ fn urgent_command() -> RuntimeRequest {
     request
 }
 
+/// Internal fixture for the crate-owned urgent emergency-stop lane. Raw
+/// callers cannot manufacture this control class; public typed stop commands
+/// lower to it before reaching the owner (#714/#744).
+#[cfg(feature = "runtime-tokio")]
+fn urgent_stop_command() -> RuntimeRequest {
+    let mut request = command();
+    let RuntimeRequest::Command { wire, context, .. } = &mut request else {
+        unreachable!("command helper always constructs a command");
+    };
+    *wire = Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap());
+    context.control.class = ControlClass::Urgent;
+    request
+}
+
 /// A target-local raw fire-and-forget command used to create an independent
 /// broad correlation hold at an exact, test-controlled ambiguity deadline.
 #[cfg(feature = "runtime-tokio")]
@@ -312,6 +326,16 @@ fn no_reply_command_for(target: CameraId, ambiguity: Duration) -> RuntimeRequest
     };
     context.reply_shape = ReplyShape::NoReply;
     context.timeout.ambiguity = ambiguity;
+    request
+}
+
+#[cfg(feature = "runtime-tokio")]
+fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
+    let mut request = command();
+    let RuntimeRequest::Command { context, .. } = &mut request else {
+        unreachable!("command helper always constructs a command");
+    };
+    context.timeout.ack = timeout;
     request
 }
 

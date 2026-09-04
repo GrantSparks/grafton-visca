@@ -76,6 +76,92 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
     assert_eq!(snapshot.metrics.admitted, 1);
     assert_eq!(snapshot.active, 0);
 }
+
+/// #744: the async owner exercises the same raw tombstone rule as the
+/// blocking owner. A stop admitted through a lost-ACK `PreAck` hold is the
+/// unique live command candidate, so its ACK must bind and confirm it rather
+/// than being discarded as stale predecessor traffic.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
+    let start = Instant::now();
+    let (runtime, sleep_started) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(start);
+    let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime.clone()).unwrap();
+    let harness = harness();
+    let started = harness.started.clone();
+    let gates = harness.gates.clone();
+    let frames = harness.frames.clone();
+    let writes = Arc::clone(&harness.writes);
+    let actor_task = tokio::spawn(actor.run(harness.driver));
+
+    let predecessor = handle
+        .submit(command_with_ack_timeout(Duration::from_millis(10)))
+        .await
+        .unwrap();
+    assert_eq!(started.recv_async().await.unwrap(), predecessor.id);
+    gates
+        .send_async(Ok(TransmissionMeta { sequence: None }))
+        .await
+        .unwrap();
+
+    let armed_ack_deadline = loop {
+        let sleep = sleep_started.recv_async().await.unwrap();
+        if sleep == Duration::from_millis(10) {
+            break sleep;
+        }
+    };
+    assert_eq!(
+        armed_ack_deadline,
+        Duration::from_millis(10),
+        "the owner arms the predecessor ACK deadline before the manual clock advances"
+    );
+    runtime.advance(Duration::from_millis(10));
+    assert!(matches!(
+        terminal_within_test_deadline(&predecessor, "lost ACK terminalizes the predecessor").await,
+        RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+    ));
+
+    let stop = handle.submit(urgent_stop_command()).await.unwrap();
+    assert_eq!(started.recv_async().await.unwrap(), stop.id);
+    assert_eq!(
+        writes
+            .lock()
+            .unwrap()
+            .last()
+            .map(|(_, bytes, _)| bytes.clone()),
+        Some(vec![0x81, 0x01, 0x04, 0x07, 0x00, 0xff]),
+        "the emergency stop writes through the predecessor hold"
+    );
+    gates
+        .send_async(Ok(TransmissionMeta { sequence: None }))
+        .await
+        .unwrap();
+    frames
+        .send_async(batch(vec![ack(ViscaSocket::S1)]))
+        .await
+        .unwrap();
+    frames
+        .send_async(batch(vec![completion(ViscaSocket::S1)]))
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        terminal_within_test_deadline(&stop, "the urgent stop owns its ACK and completion").await,
+        RuntimeOutcome::Applied
+    ));
+    let snapshot = handle.snapshot().await.unwrap();
+    assert!(
+        !snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        )),
+        "the stop ACK must not be discarded by the predecessor tombstone"
+    );
+
+    handle.shutdown().await.unwrap();
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
+}
+
 /// A caller deadline before actor admission is a rejected boundary, not an
 /// observer timeout. In particular, starting the actor after the caller
 /// timed out must neither create engine state nor transmit the stale work,
