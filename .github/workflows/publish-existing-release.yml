@@ -89,14 +89,17 @@ jobs:
           echo "EXPECTED_TAG_OBJECT=${tag_object}" >>"${GITHUB_OUTPUT}"
           echo "verified annotated ${tag_ref} object ${tag_object} at commit ${head_commit}"
 
-      # RELEASING.md requires a tag whose commit passed every required CI job.
-      # Query workflow runs for the exact workflow path and HEAD SHA, follow
-      # every page, and select the latest run/attempt deterministically. A
-      # same-named check from another workflow or app is not evidence here.
-      - name: Verify CI workflow run passed on the tagged commit
+      # RELEASING.md requires both a green main-push CI run before tagging and
+      # a separate green CI run caused by this exact tag push. Query workflow
+      # runs for the exact workflow path and HEAD SHA, follow every page, and
+      # independently select the latest run/attempt for `main` and the release
+      # tag. A PR run or a same-named check from another workflow/app is not
+      # evidence for either gate.
+      - name: Verify main and tag CI workflow runs passed
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
           set -euo pipefail
           sha="$(git rev-parse --verify HEAD^{commit})"
@@ -106,13 +109,13 @@ jobs:
               --method GET \
               --paginate \
               "repos/${REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${sha}&per_page=100" \
-              --jq '.workflow_runs[] | [(.id // ""), (.run_number // ""), (.path // ""), (.head_sha // ""), (.status // ""), (.conclusion // ""), (.run_attempt // ""), (.created_at // ""), (.run_started_at // ""), (.updated_at // "")] | @tsv' \
+              --jq '.workflow_runs[] | [(.id // ""), (.run_number // ""), (.path // ""), (.head_sha // ""), (.event // ""), (.head_branch // ""), (.status // ""), (.conclusion // ""), (.run_attempt // ""), (.created_at // ""), (.run_started_at // ""), (.updated_at // "")] | @tsv' \
               >"${runs_file}"; then
             echo "::error::GitHub workflow-runs API query failed for ${sha}"
             exit 1
           fi
 
-          if ! selected_run="$(python3 - "${runs_file}" "${sha}" <<'PY'
+          if ! selected_runs="$(python3 - "${runs_file}" "${sha}" "${RELEASE_TAG}" <<'PY'
           import datetime as dt
           import json
           import pathlib
@@ -121,6 +124,7 @@ jobs:
 
           runs_path = pathlib.Path(sys.argv[1])
           expected_sha = sys.argv[2]
+          expected_tag = sys.argv[3]
           expected_path = ".github/workflows/ci.yml"
           integer = re.compile(r"[0-9]+\Z")
           sha_pattern = re.compile(r"[0-9a-f]{40}\Z")
@@ -142,16 +146,18 @@ jobs:
           seen_ids = set()
           for line_number, line in enumerate(runs_path.read_text().splitlines(), 1):
               fields = line.split("\t")
-              if len(fields) != 10:
+              if len(fields) != 12:
                   raise SystemExit(
                       f"workflow-runs response parse error on line {line_number}: "
-                      f"expected 10 fields, got {len(fields)}"
+                      f"expected 12 fields, got {len(fields)}"
                   )
               (
                   run_id_text,
                   run_number_text,
                   path,
                   head_sha,
+                  event,
+                  head_branch,
                   status,
                   conclusion,
                   attempt_text,
@@ -167,6 +173,10 @@ jobs:
                   raise SystemExit(f"workflow-runs response has invalid run attempt on line {line_number}")
               if not sha_pattern.fullmatch(head_sha):
                   raise SystemExit(f"workflow-runs response has invalid head SHA on line {line_number}")
+              if not event:
+                  raise SystemExit(f"workflow-runs response has a missing event on line {line_number}")
+              if not head_branch:
+                  raise SystemExit(f"workflow-runs response has a missing head branch on line {line_number}")
               if not status:
                   raise SystemExit(f"workflow-runs response has a missing status on line {line_number}")
               run_id = int(run_id_text)
@@ -182,6 +192,8 @@ jobs:
                       "run_number": int(run_number_text),
                       "path": path,
                       "head_sha": head_sha,
+                      "event": event,
+                      "head_branch": head_branch,
                       "status": status,
                       "conclusion": conclusion,
                       "run_attempt": int(attempt_text),
@@ -191,29 +203,40 @@ jobs:
                   }
               )
 
-          candidates = [
-              record
-              for record in records
-              if record["path"] == expected_path and record["head_sha"] == expected_sha
-          ]
-          if not candidates:
-              raise SystemExit(
-                  f"no workflow run for {expected_path} has exact HEAD SHA {expected_sha}"
+          def select_push(branch, label):
+              candidates = [
+                  record
+                  for record in records
+                  if record["path"] == expected_path
+                  and record["head_sha"] == expected_sha
+                  and record["event"] == "push"
+                  and record["head_branch"] == branch
+              ]
+              if not candidates:
+                  raise SystemExit(
+                      f"no {label} workflow run for {expected_path} has exact branch/tag "
+                      f"{branch} and HEAD SHA {expected_sha}"
+                  )
+
+              # A rerun normally keeps its run id and increments run_attempt.
+              # Use start time (falling back to creation for a queued run),
+              # then the attempt and stable numeric identifiers as
+              # deterministic tie-breakers.
+              return max(
+                  candidates,
+                  key=lambda record: (
+                      record["started"] or record["created"],
+                      record["run_attempt"],
+                      record["updated"],
+                      record["run_number"],
+                      record["id"],
+                  ),
               )
 
-          # A rerun normally keeps its run id and increments run_attempt. Use
-          # start time (falling back to creation for a queued run), then the
-          # attempt and stable numeric identifiers as deterministic tie-breaks.
-          selected = max(
-              candidates,
-              key=lambda record: (
-                  record["started"] or record["created"],
-                  record["run_attempt"],
-                  record["updated"],
-                  record["run_number"],
-                  record["id"],
-              ),
-          )
+          selected = {
+              "main": select_push("main", "main-push"),
+              "tag": select_push(expected_tag, "tag-push"),
+          }
           # Keep the selected record structured until Bash has extracted each
           # field. A tab-separated record is ambiguous to Bash `read` when a
           # middle field is empty: whitespace IFS collapses the empty field
@@ -222,8 +245,21 @@ jobs:
           print(
               json.dumps(
                   {
-                      field: selected[field]
-                      for field in ("id", "run_number", "run_attempt", "status", "conclusion", "path", "head_sha")
+                      gate: {
+                          field: record[field]
+                          for field in (
+                              "id",
+                              "run_number",
+                              "run_attempt",
+                              "status",
+                              "conclusion",
+                              "path",
+                              "head_sha",
+                              "event",
+                              "head_branch",
+                          )
+                      }
+                      for gate, record in selected.items()
                   },
                   separators=(",", ":"),
               )
@@ -234,22 +270,39 @@ jobs:
             exit 1
           fi
 
-          run_id="$(jq -er '.id | numbers' <<<"${selected_run}")"
-          run_number="$(jq -er '.run_number | numbers' <<<"${selected_run}")"
-          run_attempt="$(jq -er '.run_attempt | numbers' <<<"${selected_run}")"
-          status="$(jq -er '.status | strings' <<<"${selected_run}")"
-          conclusion="$(jq -er '.conclusion | strings' <<<"${selected_run}")"
-          workflow_path="$(jq -er '.path | strings' <<<"${selected_run}")"
-          workflow_sha="$(jq -er '.head_sha | strings' <<<"${selected_run}")"
-          conclusion_display="${conclusion:-<empty>}"
-          echo "latest ${workflow_path} run ${run_id} attempt ${run_attempt} for ${workflow_sha}: ${status}/${conclusion_display}"
-          if [[ "${workflow_path}" != ".github/workflows/ci.yml" || \
-                "${workflow_sha}" != "${sha}" || \
-                "${status}" != "completed" || \
-                "${conclusion}" != "success" ]]; then
-            echo "::error::refusing to publish ${sha}: latest exact CI workflow run is ${status}/${conclusion_display}"
-            exit 1
-          fi
+          verify_selected_run() {
+            local gate="$1"
+            local expected_branch="$2"
+            local label="$3"
+            local selected_run
+            selected_run="$(jq -cer --arg gate "${gate}" '.[$gate]' <<<"${selected_runs}")"
+
+            local run_id run_number run_attempt status conclusion
+            local workflow_path workflow_sha workflow_event workflow_branch
+            run_id="$(jq -er '.id | numbers' <<<"${selected_run}")"
+            run_number="$(jq -er '.run_number | numbers' <<<"${selected_run}")"
+            run_attempt="$(jq -er '.run_attempt | numbers' <<<"${selected_run}")"
+            status="$(jq -er '.status | strings' <<<"${selected_run}")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"${selected_run}")"
+            workflow_path="$(jq -er '.path | strings' <<<"${selected_run}")"
+            workflow_sha="$(jq -er '.head_sha | strings' <<<"${selected_run}")"
+            workflow_event="$(jq -er '.event | strings' <<<"${selected_run}")"
+            workflow_branch="$(jq -er '.head_branch | strings' <<<"${selected_run}")"
+            conclusion_display="${conclusion:-<empty>}"
+            echo "latest ${label} ${workflow_path} run ${run_id} attempt ${run_attempt} for ${workflow_branch}@${workflow_sha}: ${status}/${conclusion_display}"
+            if [[ "${workflow_path}" != ".github/workflows/ci.yml" || \
+                  "${workflow_sha}" != "${sha}" || \
+                  "${workflow_event}" != "push" || \
+                  "${workflow_branch}" != "${expected_branch}" || \
+                  "${status}" != "completed" || \
+                  "${conclusion}" != "success" ]]; then
+              echo "::error::refusing to publish ${sha}: latest exact ${label} workflow run is ${status}/${conclusion_display}"
+              exit 1
+            fi
+          }
+
+          verify_selected_run main main "main CI"
+          verify_selected_run tag "${RELEASE_TAG}" "tag CI"
 
       - name: Verify stable release source equivalence
         env:

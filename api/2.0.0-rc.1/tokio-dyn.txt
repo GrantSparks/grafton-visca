@@ -976,6 +976,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
@@ -3771,6 +3772,7 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
@@ -14412,6 +14414,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
@@ -15169,8 +15172,8 @@ pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Dura
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
-pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::TokioRuntime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::TokioRuntime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -17963,6 +17966,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
@@ -20155,8 +20159,8 @@ pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Dura
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
-pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::TokioRuntime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::TokioRuntime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -20168,14 +20172,14 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::TokioRuntime
 pub trait grafton_visca::runtime::Runtime: grafton_visca::Executor + core::clone::Clone + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::runtime::Runtime::TcpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::runtime::Runtime::UdpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
-pub async fn grafton_visca::runtime::Runtime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::runtime::Runtime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::runtime::Runtime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::runtime::Runtime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::runtime::Runtime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
-pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::TokioRuntime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::TokioRuntime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 pub mod grafton_visca::runtime_adapters
 pub mod grafton_visca::runtime_adapters::tokio
@@ -25334,8 +25338,8 @@ pub fn grafton_visca::TokioRuntime::timeout<'a, F, T>(&'a self, core::time::Dura
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
-pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::TokioRuntime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::TokioRuntime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 impl core::marker::Freeze for grafton_visca::TokioRuntime
 impl core::marker::Send for grafton_visca::TokioRuntime
@@ -28582,14 +28586,14 @@ pub fn grafton_visca::raw::Inquiry<R>::write_into(&self, grafton_visca::CameraId
 pub trait grafton_visca::Runtime: grafton_visca::Executor + core::clone::Clone + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::Runtime::TcpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
 pub type grafton_visca::Runtime::UdpTransport: grafton_visca::transport::AsyncTransport + grafton_visca::transport::HasTransportConfig + core::marker::Send + core::marker::Sync + 'static
-pub async fn grafton_visca::Runtime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::Runtime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::Runtime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::Runtime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::Runtime::now(&self) -> std::time::Instant
 impl grafton_visca::Runtime for grafton_visca::TokioRuntime
 pub type grafton_visca::TokioRuntime::TcpTransport = grafton_visca::transport::async_tcp::Tcp<grafton_visca::transport::tokio::connectors::TokioTcpStream>
 pub type grafton_visca::TokioRuntime::UdpTransport = grafton_visca::transport::async_udp::Udp<tokio::net::udp::UdpSocket>
-pub async fn grafton_visca::TokioRuntime::connect_tcp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::TcpTransport, grafton_visca::Error>
-pub async fn grafton_visca::TokioRuntime::connect_udp(&self, &str, grafton_visca::transport::TransportConfig) -> core::result::Result<Self::UdpTransport, grafton_visca::Error>
+pub fn grafton_visca::TokioRuntime::connect_tcp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::TcpTransport, grafton_visca::Error>> + core::marker::Send + 'a
+pub fn grafton_visca::TokioRuntime::connect_udp<'a>(&'a self, &'a str, grafton_visca::transport::TransportConfig) -> impl core::future::future::Future<Output = core::result::Result<Self::UdpTransport, grafton_visca::Error>> + core::marker::Send + 'a
 pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 pub trait grafton_visca::ZoomPositionExt
 pub fn grafton_visca::ZoomPositionExt::from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, u16, core::option::Option<u16>) -> core::result::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>

@@ -120,7 +120,7 @@
 //!   profile-selected protocol settlement condition: a profile-declared
 //!   completion-is-settled signal, or two affected-axis position samples within
 //!   tolerance. It is an intended indication of target rest, not a
-//!   2.0.0-rc.1 bench-verified assertion that physical motion ended; exact
+//!   2.0.0-rc.2 bench-verified assertion that physical motion ended; exact
 //!   model/firmware/transport/command evidence remains in the repository's
 //!   `docs/hardware_release_checklist.md`.
 //!   Settlement is a caller wait, not an engine phase.
@@ -288,7 +288,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.1", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "2.0.0-rc.2", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -455,7 +455,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! ```rust
@@ -681,11 +681,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "2.0.0-rc.1", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard

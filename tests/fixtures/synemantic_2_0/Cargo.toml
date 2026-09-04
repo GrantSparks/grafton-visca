@@ -6,9 +6,10 @@ rust-version = "1.88"
 publish = false
 
 [dependencies]
-grafton-visca = { path = "../../..", default-features = false, features = [
+grafton-visca = { path = "../../..", version = "=2.0.0-rc.2", default-features = false, features = [
     "runtime-tokio",
-    "dyn-api",
+    "async",
+    "transport-serial-tokio",
     "serde",
     "schemars",
     "ts-rs",

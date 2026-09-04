@@ -10,11 +10,12 @@ targeted representative hardware pass.
 
 ## Version and changelog
 
-1. Choose the release version. The first candidate is `2.0.0-rc.1`.
+1. Choose the release version. The first candidate was `2.0.0-rc.1`; the
+   current candidate is `2.0.0-rc.2`.
 2. Set `[workspace.package].version` in `Cargo.toml`; the macro crate inherits
    this value from the workspace.
 3. Pin the main crate's `grafton-visca-macros` dependency to the exact same
-   version (`=2.0.0-rc.1`, or the final version being prepared).
+   version (`=2.0.0-rc.2`, or the final version being prepared).
 4. Keep the root `Cargo.lock` ignored: this is a library workspace and release
    validation must work from a clean clone without a tracked lockfile. The
    validator checks both package manifests and the exact macro dependency with
@@ -22,15 +23,29 @@ targeted representative hardware pass.
    checkout-local lockfile immediately before its locked package/publish
    commands.
 5. Keep the 2.0 notes under `## [Unreleased]` until the release commit is
-   ready. At release time, move them to `## [2.0.0-rc.1] - YYYY-MM-DD` (or the
+   ready. At release time, move them to `## [2.0.0-rc.2] - YYYY-MM-DD` (or the
    final version) and restore an empty `Unreleased` heading.
+
+The `api/2.0.0-rc.1/` directory is the rolling public-surface baseline for the
+whole 2.0 prerelease line; its name records the candidate where that baseline
+was established. Regenerate those same files for an approved prerelease API
+change. Do not create a new snapshot directory merely because the candidate
+version advances; immutable release tags retain each release's historical
+snapshot bytes.
 
 The tag, both package manifests, the exact macro dependency, and changelog
 heading must agree. Do not reuse a published version for different source.
 
 ## Candidate validation
 
-Run the software gates on the commit proposed for release. An RC can proceed
+Run the software gates first on the clean commit proposed in the release PR,
+using its merge base with `origin/main` for the change-record comparison. The
+PR run is a review gate, not the tag identity. After that PR passes and merges,
+repeat the complete matrix on the exact resulting `origin/main` commit as
+shown below. Only this post-merge run defines `$release_commit`; every later
+paired-downstream, CI, tag, and publication check must name that same SHA.
+
+An RC can proceed
 with the hardware checklist still marked `Pending (Not run)` or `Unverified`,
 provided the release notes and checklist make that status plain and do not
 describe hardware support as verified.
@@ -54,25 +69,52 @@ Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly
 the same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
 rather than allowing one release to be published under two identities.
 
-Run the release checks, including the exact-tag and exact-commit CI checks,
-before creating the release tag:
+Validate only a committed, clean candidate. Do not validate a convenient
+working tree and then tag a different `HEAD`. After the release PR merges, use
+a detached checkout of the exact `main` commit that will be tagged, and fail
+closed if either its contents or identity changes while the matrix runs. Set
+`$previous_release_tag` to the immediately preceding immutable release so the
+change-record check covers the release delta instead of comparing `main` with
+itself:
 
 ```sh
-cargo metadata --no-deps --format-version 1
-bash .github/scripts/test-validate-release.sh
-python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
-bash .github/scripts/test-validate-change-record.sh
-cargo +nightly fmt --all -- --check
-bash .github/scripts/test-all-features.sh
-cargo clippy --all-targets --all-features -- -D warnings
+release_tag=v2.0.0-rc.2
+previous_release_tag=v2.0.0-rc.1
+git fetch origin main --tags
+git switch --detach origin/main
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+release_commit="$(git rev-parse --verify HEAD^{commit})"
+previous_release_commit="$(git rev-parse --verify "${previous_release_tag}^{commit}")"
+printf 'Release candidate: %s (%s)\n' "$release_tag" "$release_commit"
+```
 
-RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
-cargo test --doc --all-features
-cargo test --all-features --test api_stability_test
-cargo test --all-features --test issue_542_async_facade
-cargo test --all-features --test issue_555_observability
-cargo metadata --no-deps --format-version 1
+Run the candidate software checks from that checkout. The tag-triggered CI
+gate cannot run yet; it is deliberately a separate post-tag gate below.
+
+```sh
+cargo +1.98.0 metadata --no-deps --format-version 1
+bash .github/scripts/test-validate-release.sh
+python3 .github/scripts/validate-change-record.py "$previous_release_commit" "$release_commit"
+bash .github/scripts/test-validate-change-record.sh
+cargo +nightly-2026-08-26 fmt --all -- --check
+bash .github/scripts/test-all-features.sh
+cargo +1.98.0 clippy --all-targets --all-features -- -D warnings
+
+RUSTDOCFLAGS="-D warnings" cargo +1.98.0 doc --no-deps --all-features
+cargo +1.98.0 test --doc --all-features
+cargo +1.98.0 test --all-features --test api_stability_test
+cargo +1.98.0 test --all-features --test issue_542_async_facade
+cargo +1.98.0 test --all-features --test issue_555_observability
+cargo +1.98.0 metadata --no-deps --format-version 1
 git diff --check
+```
+
+When the commands finish, prove that the candidate still names the same clean
+tree before accepting their result:
+
+```sh
+test "$(git rev-parse --verify HEAD^{commit})" = "$release_commit"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
 The change-record validator requires a full-history checkout. It keeps every
@@ -92,10 +134,10 @@ results.
 Inspect package contents before publication:
 
 ```sh
-cargo generate-lockfile
-cargo package -p grafton-visca-macros --locked --no-verify
-cargo package -p grafton-visca-macros --list
-cargo package -p grafton-visca --list
+cargo +1.98.0 generate-lockfile
+cargo +1.98.0 package -p grafton-visca-macros --locked --no-verify
+cargo +1.98.0 package -p grafton-visca-macros --list
+cargo +1.98.0 package -p grafton-visca --list
 ```
 
 The main package cannot resolve its exact same-version macro dependency from a
@@ -103,28 +145,114 @@ registry until the macro package is available there. Package and publish the
 macro first, then perform the main-package dry run after the exact index entry
 is visible.
 
-## Release tag and publication order
+## Paired Synemantic candidate gate
 
-Once the software implementation and release metadata are complete, rerun the
-full software matrix. For a stable release, complete the targeted hardware
-checklist before publication; for an RC, retain the explicit unverified status
-if hardware has not been run. Only after maintainers accept the implementation
-and its documented evidence should the pull request merge to `main`.
+The checked-in `tests/fixtures/synemantic_2_0/` crate is a small, reproducible
+API contract. It intentionally follows Synemantic's grafton-visca feature
+shape and exercises its owner-backed construction, noun, profile, and schema
+surfaces. It is not evidence that an arbitrary Synemantic branch builds, and
+it is not a substitute for the real downstream migration gate.
 
-Wait for CI to pass on the exact resulting `main` commit, rerun the release
-validator there, and create an immutable annotated release tag:
+Before publishing a version that Synemantic will consume, validate an
+immutable pair of commits: the exact grafton-visca candidate SHA
+(`$release_commit`) and a committed Synemantic migration-candidate SHA
+(`$synemantic_commit`). Record both full SHAs, the Synemantic Make targets and
+results, and the Grafton candidate's successful CI URL in the release PRs. The
+Synemantic PR may remain a draft with its registry-dependent CI pending: an
+unpublished RC cannot pass that registry-only gate. After publication, record
+the successful registry-backed Synemantic CI URL as separate evidence. Do not
+identify either input by a moving branch name, a local dirty worktree, or a
+crate version that has not been published.
 
-```sh
-bash .github/scripts/validate-release.sh v2.0.0-rc.1
-git tag -a v2.0.0-rc.1 -m "grafton-visca 2.0.0-rc.1"
-git push origin v2.0.0-rc.1
+This gate deliberately uses Cargo source replacement for the two local
+packages, so it does not assume `2.0.0-rc.2` already exists in crates.io. Make
+two disposable detached worktrees (one at each recorded SHA) and place this
+temporary Cargo configuration outside both repositories:
+
+```toml
+# $pair_cargo_home/config.toml -- never commit this file
+[patch.crates-io]
+grafton-visca = { path = "/absolute/path/to/grafton-visca-candidate" }
+grafton-visca-macros = { path = "/absolute/path/to/grafton-visca-candidate/grafton-visca-macros" }
 ```
 
-The release tag must be annotated and must peel to the checked-out `HEAD`. The
-publication workflow queries the Actions API for the exact
-`.github/workflows/ci.yml` path and exact release `HEAD` SHA, follows
-pagination, and requires the latest run/attempt to be completed successfully.
-An external repository ruleset should make release tags protected and
+Start by asserting that both detached worktrees are clean and still resolve to
+the recorded SHAs. The gate starts with this identity check (the variable paths
+refer to the two disposable detached worktrees):
+
+```sh
+test "$(git -C "$grafton_candidate" rev-parse --verify HEAD^{commit})" = "$release_commit"
+test "$(git -C "$synemantic_candidate" rev-parse --verify HEAD^{commit})" = "$synemantic_commit"
+test -z "$(git -C "$grafton_candidate" status --porcelain=v1 --untracked-files=all)"
+test -z "$(git -C "$synemantic_candidate" status --porcelain=v1 --untracked-files=all)"
+```
+
+In the disposable Synemantic worktree, run its required Make validation
+sequence with `CARGO_HOME` pointing at `$pair_cargo_home`:
+
+```sh
+cd "$synemantic_candidate"
+CARGO_HOME="$pair_cargo_home" make dev-check DEV_CHECK_SCOPE=rust
+CARGO_HOME="$pair_cargo_home" make check-bindings
+CARGO_HOME="$pair_cargo_home" make quick-check
+CARGO_HOME="$pair_cargo_home" make test
+CARGO_HOME="$pair_cargo_home" make build
+CARGO_HOME="$pair_cargo_home" make pre-commit
+```
+
+The temporary resolver may update that worktree's lockfile, which is why this
+is a disposable copy rather than either candidate checkout. Discard it after
+recording the result. The source inputs remain the two recorded commits, while
+Cargo builds the unpublished grafton-visca and macro packages from the exact
+local source.
+
+After both crates publish and the registry index exposes both exact versions,
+repeat Synemantic's required Make sequence with no `[patch.crates-io]`
+override, update its tracked lockfile from the registry, and record that
+separate post-publication result. A Grafton workflow cannot enforce the
+cross-repository pair without read authority to the Synemantic candidate and
+an authenticated cross-repository status/attestation channel; add such a gate
+only after those permissions and an immutable Synemantic ref policy are in
+place. Until then, the recorded detached-worktree procedure is the release
+gate; CI's local fixture remains a focused regression contract.
+
+## Release tag and publication order
+
+The release PR must pass the full software matrix before it merges. For a
+stable release, complete the targeted hardware checklist before publication;
+for an RC, retain the explicit unverified status if hardware has not been run.
+After maintainers accept that evidence and merge the PR, complete the
+post-merge candidate and paired Synemantic gates above; those steps establish
+the final `$release_commit`.
+
+Wait for `.github/workflows/ci.yml` to pass for that exact `main` commit. Fetch
+`origin/main` again and require it still equals `$release_commit`; if `main`
+advanced, start over with the new committed candidate rather than tagging an
+old validation result. Rerun the release validator from that exact checkout,
+then create an immutable annotated release tag that explicitly names the
+recorded commit:
+
+```sh
+git fetch origin main --tags
+test "$(git rev-parse --verify origin/main^{commit})" = "$release_commit"
+git switch --detach "$release_commit"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+bash .github/scripts/validate-release.sh v2.0.0-rc.2
+git tag -a v2.0.0-rc.2 "$release_commit" -m "grafton-visca 2.0.0-rc.2"
+git push origin v2.0.0-rc.2
+```
+
+Wait next for the CI run triggered by that **tag push** to complete
+successfully. A prior `main` run for the same commit is necessary but not
+sufficient: the tag run must report the exact workflow path,
+`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.2`, and
+`head_sha=$release_commit`. Do not dispatch publication until that tag run is
+green. The publication workflow independently queries all pages of the Actions
+API and enforces the same exact tag-run identity before it can package either
+crate.
+
+The release tag must be annotated and must peel to the checked-out `HEAD`. An
+external repository ruleset should make release tags protected and
 immutable by disallowing force-updates and deletion and limiting who can
 create them.
 
@@ -134,8 +262,9 @@ registry index entry, then packages, dry-runs, and publishes `grafton-visca`.
 Before any source or CI validation, it accepts only the strict tag syntax,
 resolves the fully qualified `refs/tags/<tag>` ref, and verifies that the
 annotated tag peels to the checked-out `HEAD`. It also verifies the exact
-release-HEAD CI run and compares source/manifests with the recorded stable
-bench commit when stable hardware evidence is required. For each crate, the
+main-push and tag-push release-HEAD CI runs and compares source/manifests with
+the recorded stable bench commit when stable hardware evidence is required.
+For each crate, the
 automation builds the local `.crate` payload and, after the exact registry
 version is visible, downloads the crates.io payload and requires SHA-256 and
 byte-for-byte equality before treating publication (including a retry of an

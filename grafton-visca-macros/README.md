@@ -217,8 +217,8 @@ users must use matching versions:
 
 ```toml
 [dependencies]
-grafton-visca = "=2.0.0-rc.1"
-grafton-visca-macros = "=2.0.0-rc.1"
+grafton-visca = "=2.0.0-rc.2"
+grafton-visca-macros = "=2.0.0-rc.2"
 ```
 
 During a release, this macro crate is published and indexed before the

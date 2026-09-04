@@ -7,7 +7,7 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
-> **2.0.0-rc.1** — The prerelease owner-backed API is available for review. It
+> **2.0.0-rc.2** — The prerelease owner-backed API is available for review. It
 > keeps one protocol owner per session and exposes typed static, blocking, async,
 > and dynamic views over that owner.
 >
@@ -18,7 +18,7 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 ---
 
-## 2.0.0-rc.1 Support Matrix
+## 2.0.0-rc.2 Support Matrix
 
 The 2.0 contract is owner-backed construction, mode-native sessions, typed
 profile views, and one request path for each semantic class. Hardware validation
@@ -365,7 +365,7 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
 - `settled` additionally means the targeted operation meets the profile-selected
   protocol settlement condition: a profile-declared completion-is-settled
   signal, or two affected-axis position samples within tolerance. It is an
-  intended indication of target rest, not a 2.0.0-rc.1 bench-verified assertion
+  intended indication of target rest, not a 2.0.0-rc.2 bench-verified assertion
   that physical motion ended; exact model/firmware/transport/command evidence
   remains in the [hardware release checklist](docs/hardware_release_checklist.md).
 - `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
@@ -462,27 +462,27 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
 ```toml
 [dependencies]
-grafton-visca = "=2.0.0-rc.1"
+grafton-visca = "=2.0.0-rc.2"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "=2.0.0-rc.1", features = ["async"] }
+grafton-visca = { version = "=2.0.0-rc.2", features = ["async"] }
 
 # Async with Tokio
-grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "=2.0.0-rc.1", features = ["serde"] }
+grafton-visca = { version = "=2.0.0-rc.2", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "=2.0.0-rc.1", features = ["transport-serial"] }
+grafton-visca = { version = "=2.0.0-rc.2", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "=2.0.0-rc.1", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior

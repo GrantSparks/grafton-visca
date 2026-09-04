@@ -53,7 +53,19 @@ proc-macro = true
     f"# Changelog\n\n## [{version}] - 2026-08-26\n"
 )
 (root / "docs/hardware_release_checklist.md").write_text(checklist)
+(root / ".gitignore").write_text("/Cargo.lock\n/target/\n")
 PY
+    git -C "${destination}" init --quiet
+    git -C "${destination}" config user.email "release-validator@example.invalid"
+    git -C "${destination}" config user.name "Release validator"
+    git -C "${destination}" add --all
+    git -C "${destination}" commit --quiet -m "fixture"
+}
+
+commit_fixture_changes() {
+    local destination="$1"
+    git -C "${destination}" add --all
+    git -C "${destination}" commit --quiet -m "fixture update"
 }
 
 run_validator() {
@@ -227,6 +239,7 @@ done
 rc_missing_checklist_root="${root_temp}/rc-missing-checklist"
 make_fixture "${rc_missing_checklist_root}" "2.0.0-rc.1" "${pending_checklist}"
 rm -f "${rc_missing_checklist_root}/docs/hardware_release_checklist.md"
+commit_fixture_changes "${rc_missing_checklist_root}"
 run_validator "${rc_missing_checklist_root}" v2.0.0-rc.1
 
 # Stable 2.0+ releases require the five-row matrix and its four records.
@@ -327,8 +340,36 @@ run_validator "${one_root}" v1.99.0
 missing_checklist_root="${root_temp}/missing-checklist"
 make_fixture "${missing_checklist_root}" "2.0.0" "${complete_checklist}"
 rm -f "${missing_checklist_root}/docs/hardware_release_checklist.md"
+commit_fixture_changes "${missing_checklist_root}"
 expect_failure "missing hardware release checklist" \
     run_validator "${missing_checklist_root}" v2.0.0
+
+# The validator must fail before reading Cargo metadata or release files from a
+# non-candidate worktree. Cover all status classes intentionally excluded by
+# neither --porcelain nor the release process.
+for dirty_kind in staged unstaged untracked; do
+    dirty_root="${root_temp}/dirty-${dirty_kind}"
+    make_fixture "${dirty_root}" "2.0.0-rc.1" "${pending_checklist}"
+    case "${dirty_kind}" in
+        staged)
+            printf '\n# staged mutation\n' >> "${dirty_root}/CHANGELOG.md"
+            git -C "${dirty_root}" add CHANGELOG.md
+            ;;
+        unstaged)
+            printf '\n# unstaged mutation\n' >> "${dirty_root}/CHANGELOG.md"
+            ;;
+        untracked)
+            printf 'untracked candidate input\n' > "${dirty_root}/release-notes.tmp"
+            ;;
+    esac
+    expect_failure "release validation requires a clean candidate worktree" \
+        run_validator "${dirty_root}" v2.0.0-rc.1
+done
+
+unborn_root="${root_temp}/unborn"
+git init --quiet "${unborn_root}"
+expect_failure "requires HEAD to resolve to a committed candidate" \
+    run_validator "${unborn_root}" v2.0.0-rc.1
 
 for malformed_tag in V2.0.0 'v2.0.0 ' ' v2.0.0' refs/tags/v2.0.0 v02.0.0 v2.0.0- v2.0; do
     expect_failure "release tag must have the form" \

@@ -24,7 +24,7 @@ Status vocabulary:
   available; record the blocker and owner.
 - `Pass` or `Fail` is allowed only with the evidence fields completed.
 
-The current `2.0.0-rc.1` status is intentionally unverified: no physical
+The current `2.0.0-rc.2` status is intentionally unverified: no physical
 hardware validation has been performed, and no hardware support has been
 verified for this release candidate.
 
