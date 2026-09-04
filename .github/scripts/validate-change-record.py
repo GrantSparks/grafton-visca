@@ -14,6 +14,13 @@ CHANGELOG = "CHANGELOG.md"
 API_SNAPSHOT_GLOB = "api/2.0.0-rc.1/*.txt"
 BODY_POLICY_BOUNDARY = ".github/change-record-body-policy-boundary"
 HISTORY_POLICY_BOUNDARY = ".github/change-record-history-policy-boundary"
+VERSION_COMPONENT = r"(?:0|[1-9][0-9]*)"
+STRICT_DATED_RELEASE_HEADING = re.compile(
+    rf"\A## \["
+    rf"{VERSION_COMPONENT}\.{VERSION_COMPONENT}\.{VERSION_COMPONENT}"
+    rf"(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?"
+    rf"\] - \d{{4}}-\d{{2}}-\d{{2}}(?:\r?\n|\Z)"
+)
 
 
 class ValidationError(RuntimeError):
@@ -34,16 +41,32 @@ def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
 
 
 def git_file(revision: str, path: str, *, required: bool = True) -> str | None:
-    result = git("show", f"{revision}:{path}", check=False)
+    # Do not use text mode here: its universal-newline conversion would make a
+    # CRLF-to-LF rewrite of released history indistinguishable from the
+    # original. Markdown must be UTF-8, and decoding its raw bytes preserves
+    # the exact suffix that the history policy protects.
+    result = subprocess.run(
+        ["git", "show", f"{revision}:{path}"],
+        check=False,
+        capture_output=True,
+    )
     if result.returncode == 0:
-        return result.stdout
+        try:
+            return result.stdout.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValidationError(
+                f"cannot read {path} at {revision} as UTF-8: {error}"
+            ) from error
     if required:
-        detail = result.stderr.strip() or "path does not exist"
+        detail = (
+            result.stderr.decode("utf-8", "replace").strip()
+            or "path does not exist"
+        )
         raise ValidationError(f"cannot read {path} at {revision}: {detail}")
     return None
 
 
-def split_unreleased(text: str, revision: str) -> tuple[str, str, int]:
+def split_unreleased(text: str, revision: str) -> tuple[str, str, str, int]:
     heading = re.compile(r"(?m)^## \[Unreleased\][ \t]*(?:\r?\n|$)")
     matches = list(heading.finditer(text))
     if len(matches) != 1:
@@ -58,9 +81,128 @@ def split_unreleased(text: str, revision: str) -> tuple[str, str, int]:
         body_start + next_heading.start() if next_heading is not None else len(text)
     )
 
-    # Everything except the body of the top Unreleased section is immutable.
-    immutable = text[:body_start] + "\0UNRELEASED-BODY\0" + text[body_end:]
-    return immutable, text[body_start:body_end], body_start
+    return (
+        text[:body_start],
+        text[body_start:body_end],
+        text[body_end:],
+        body_start,
+    )
+
+
+def immutable_changelog(prefix: str, suffix: str) -> str:
+    """Replace the mutable Unreleased body with a comparison sentinel."""
+
+    return prefix + "\0UNRELEASED-BODY\0" + suffix
+
+
+def lines_are_retained_in_order(previous: str, current: str) -> bool:
+    """Require every prior changelog line to remain, allowing release additions."""
+
+    current_lines = iter(current.splitlines(keepends=True))
+    return all(
+        any(candidate == line for candidate in current_lines)
+        for line in previous.splitlines(keepends=True)
+    )
+
+
+def release_cut_body(
+    base_prefix: str,
+    base_unreleased: str,
+    base_suffix: str,
+    head_prefix: str,
+    head_unreleased: str,
+    head_suffix: str,
+) -> tuple[str, int] | None:
+    """Recognize one safe Unreleased-to-dated release transition.
+
+    A release cut may add explanatory release text, but it cannot alter the
+    existing changelog prefix or released suffix, drop or reorder prior notes,
+    or introduce another top-level section before the retained suffix.
+    """
+
+    if base_prefix != head_prefix or head_unreleased.strip():
+        return None
+
+    heading = STRICT_DATED_RELEASE_HEADING.match(head_suffix)
+    if heading is None:
+        return None
+
+    if base_suffix:
+        if not head_suffix.endswith(base_suffix):
+            return None
+        inserted = head_suffix[: -len(base_suffix)]
+    else:
+        inserted = head_suffix
+
+    release_body = inserted[heading.end() :]
+    if re.search(r"(?m)^## [^\r\n]+", release_body):
+        return None
+    if not lines_are_retained_in_order(base_unreleased, release_body):
+        return None
+
+    release_body_offset = len(head_prefix) + len(head_unreleased) + heading.end()
+    return release_body, release_body_offset
+
+
+def validated_release_cut(
+    history_start: str,
+    head: str,
+    history_immutable: str,
+    head_prefix: str,
+    head_suffix: str,
+) -> tuple[str, str, int] | None:
+    """Find one release cut whose parent and released suffix remain intact.
+
+    The history policy boundary may predate the commit that actually cuts the
+    release. Every edit to Unreleased before that cut remains ordinary mutable
+    work, so the cut is verified against its direct parent instead. The
+    policy-boundary immutable view still protects every pre-existing release.
+    """
+
+    commits = git(
+        "rev-list", "--reverse", f"{history_start}..{head}", "--", CHANGELOG
+    ).stdout.splitlines()
+    cuts: list[tuple[str, str, int]] = []
+
+    for commit in commits:
+        parents = git("show", "-s", "--format=%P", commit).stdout.split()
+        if len(parents) != 1:
+            continue
+
+        parent = parents[0]
+        parent_changelog = git_file(parent, CHANGELOG)
+        cut_changelog = git_file(commit, CHANGELOG)
+        assert parent_changelog is not None
+        assert cut_changelog is not None
+
+        parent_prefix, parent_unreleased, parent_suffix, _ = split_unreleased(
+            parent_changelog, parent
+        )
+        cut_prefix, cut_unreleased, cut_suffix, _ = split_unreleased(
+            cut_changelog, commit
+        )
+        cut = release_cut_body(
+            parent_prefix,
+            parent_unreleased,
+            parent_suffix,
+            cut_prefix,
+            cut_unreleased,
+            cut_suffix,
+        )
+        if cut is None:
+            continue
+
+        if immutable_changelog(parent_prefix, parent_suffix) != history_immutable:
+            continue
+        if head_prefix != cut_prefix or head_suffix != cut_suffix:
+            continue
+
+        release_body, release_body_offset = cut
+        cuts.append((cut_changelog, release_body, release_body_offset))
+
+    if len(cuts) != 1:
+        return None
+    return cuts[0]
 
 
 def changed_paths(start: str, end: str, pathspec: str) -> list[str]:
@@ -215,13 +357,24 @@ def main(argv: list[str]) -> int:
         assert base_changelog is not None
         assert head_changelog is not None
 
-        base_immutable, _, _ = split_unreleased(base_changelog, history_start)
-        head_immutable, unreleased, unreleased_offset = split_unreleased(
+        base_prefix, base_unreleased, base_suffix, _ = split_unreleased(
+            base_changelog, history_start
+        )
+        head_prefix, unreleased, head_suffix, unreleased_offset = split_unreleased(
             head_changelog, head
+        )
+        base_immutable = immutable_changelog(base_prefix, base_suffix)
+        head_immutable = immutable_changelog(head_prefix, head_suffix)
+        release_cut = validated_release_cut(
+            history_start,
+            head,
+            base_immutable,
+            head_prefix,
+            head_suffix,
         )
 
         errors: list[str] = []
-        if base_immutable != head_immutable:
+        if base_immutable != head_immutable and release_cut is None:
             diff = list(
                 difflib.unified_diff(
                     base_immutable.splitlines(),
@@ -247,6 +400,13 @@ def main(argv: list[str]) -> int:
         errors.extend(
             breaking_bullet_errors(head_changelog, unreleased, unreleased_offset)
         )
+        if release_cut is not None:
+            release_changelog, release_body, release_body_offset = release_cut
+            errors.extend(
+                breaking_bullet_errors(
+                    release_changelog, release_body, release_body_offset
+                )
+            )
         errors.extend(
             commit_body_errors(
                 policy_start(merge_base, head, BODY_POLICY_BOUNDARY, "commit-body"),
@@ -263,7 +423,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "change-record validation passed: released changelog history is immutable, "
+        "change-record validation passed: released history is immutable outside "
+        "validated release cuts, "
         "API snapshots are recorded, breaking bullets are referenced, and src/ "
         "commits have bodies"
     )
