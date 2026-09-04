@@ -29,7 +29,7 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
     buffer
 }
 
-fn inquiry_only_noise_reduction_profile() -> ProfileSpec {
+fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> {
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
     let coordinates = source
         .pan_tilt_coordinates()
@@ -58,7 +58,6 @@ fn inquiry_only_noise_reduction_profile() -> ProfileSpec {
         .preset_recall_axes(source.preset_recall_axes())
         .position_inquiries(source.position_inquiries())
         .build()
-        .expect("inquiry-only NR runtime profile")
 }
 
 fn decode<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) -> C::Response {
@@ -385,32 +384,11 @@ fn noise_reduction_controls_match_the_documented_absolute_visca_frames() {
 }
 
 #[test]
-fn direct_noise_reduction_requests_reject_an_inquiry_only_runtime_profile() {
-    let profile = inquiry_only_noise_reduction_profile();
-    assert!(profile
-        .capabilities()
-        .supports_typed(TypedSupportSurface::NoiseReduction2D));
-    assert!(profile
-        .capabilities()
-        .supports_typed(TypedSupportSurface::NoiseReduction3D));
-    assert!(!profile
-        .capabilities()
-        .supports_typed(TypedSupportSurface::NoiseReduction2DControl));
-    assert!(!profile
-        .capabilities()
-        .supports_typed(TypedSupportSurface::NoiseReduction3DControl));
-
-    for request in [
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual)
-            .validate_for_profile(&profile),
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX).validate_for_profile(&profile),
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX).validate_for_profile(&profile),
-    ] {
-        assert!(
-            matches!(request, Err(Error::FeatureNotSupported { .. })),
-            "the control surface, not the independent inquiry surface, must gate requests"
-        );
-    }
+fn inquiry_only_noise_reduction_runtime_profile_is_rejected_at_construction() {
+    let error = inquiry_only_noise_reduction_profile()
+        .expect_err("an inquiry-only NR profile violates the paired-surface invariant");
+    assert!(matches!(error, Error::InvalidRequest(message)
+        if message.contains("noise-reduction metadata and paired inquiry/control typed support must agree")));
 }
 
 #[test]
