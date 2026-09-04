@@ -33,17 +33,22 @@ use grafton_visca::{
     profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, ControlClass, Error, RetryClass, TimeoutClass,
+    transport::{
+        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+    },
+    AffectedAxes, CameraId, ControlClass, Error, OperationalTuning, RetryClass, TimeoutClass,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
 const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
+const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
 const RAW_ZOOM_STOP: [u8; 6] = [0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
+
+type WriteLog = Arc<Mutex<Vec<Vec<u8>>>>;
 
 /// A raw datagram camera whose reads are scripted per write. The reads a send
 /// queues are only consumed by a *later* pump, so a command written but never
@@ -54,22 +59,26 @@ struct RawProbeTransport {
     config: TransportConfig,
     per_send: VecDeque<Vec<Vec<u8>>>,
     reads: VecDeque<Vec<u8>>,
-    writes: Arc<Mutex<usize>>,
+    writes: WriteLog,
     read_count: Arc<Mutex<usize>>,
 }
 
 impl RawProbeTransport {
     fn new(per_send: Vec<Vec<Vec<u8>>>) -> Self {
+        let config = TransportConfig {
+            addressing: AddressingMode::Serial,
+            ..TransportConfig::default()
+        };
         Self {
-            config: TransportConfig::default(),
+            config,
             per_send: per_send.into(),
             reads: VecDeque::new(),
-            writes: Arc::new(Mutex::new(0)),
+            writes: Arc::new(Mutex::new(Vec::new())),
             read_count: Arc::new(Mutex::new(0)),
         }
     }
 
-    fn write_counter(&self) -> Arc<Mutex<usize>> {
+    fn writes(&self) -> WriteLog {
         Arc::clone(&self.writes)
     }
 
@@ -87,11 +96,14 @@ impl HasTransportConfig for RawProbeTransport {
 impl BlockingTransport for RawProbeTransport {
     fn send_with_timeout(
         &mut self,
-        _bytes: &[u8],
+        bytes: &[u8],
         _kind: CommandKind,
         _timeout: Duration,
     ) -> Result<(), Error> {
-        *self.writes.lock().expect("write count lock") += 1;
+        self.writes
+            .lock()
+            .expect("write log lock")
+            .push(bytes.to_vec());
         for read in self.per_send.pop_front().unwrap_or_default() {
             self.reads.push_back(read);
         }
@@ -109,32 +121,58 @@ impl BlockingTransport for RawProbeTransport {
         Ok(bytes.len())
     }
 
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(self.config.addressing)
+    }
+
     fn send_semantics(&self) -> SendSemantics {
         SendSemantics::Datagram
     }
 }
 
-fn session_with_counters(
-    per_send: Vec<Vec<Vec<u8>>>,
-) -> (Session, Arc<Mutex<usize>>, Arc<Mutex<usize>>) {
-    let transport = RawProbeTransport::new(per_send);
-    let writes = transport.write_counter();
-    let reads = transport.read_counter();
-    let config = SessionConfig::new(
+fn session_with_counters(per_send: Vec<Vec<Vec<u8>>>) -> (Session, WriteLog, Arc<Mutex<usize>>) {
+    session_with_config(per_send, session_config())
+}
+
+fn session_config() -> SessionConfig {
+    SessionConfig::new(
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("two-socket raw runtime profile"),
-    );
+    )
+}
+
+fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
+    let mut config = session_config();
+    config
+        .register_target(
+            CameraId::CAMERA_2,
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+                .expect("two-socket raw runtime profile"),
+        )
+        .expect("second serial target");
+    config
+        .with_tuning(OperationalTuning::new().command_spacing(command_spacing))
+        .expect("test command spacing")
+}
+
+fn session_with_config(
+    per_send: Vec<Vec<Vec<u8>>>,
+    config: SessionConfig,
+) -> (Session, WriteLog, Arc<Mutex<usize>>) {
+    let transport = RawProbeTransport::new(per_send);
+    let writes = transport.writes();
+    let reads = transport.read_counter();
     let session = Session::open(transport, config).expect("owner session");
     (session, writes, reads)
 }
 
-fn session(per_send: Vec<Vec<Vec<u8>>>) -> (Session, Arc<Mutex<usize>>) {
+fn session(per_send: Vec<Vec<Vec<u8>>>) -> (Session, WriteLog) {
     let (session, writes, _reads) = session_with_counters(per_send);
     (session, writes)
 }
 
-fn write_count(writes: &Arc<Mutex<usize>>) -> usize {
-    *writes.lock().expect("write count lock")
+fn write_count(writes: &WriteLog) -> usize {
+    writes.lock().expect("write log lock").len()
 }
 
 fn read_count(reads: &Arc<Mutex<usize>>) -> usize {
@@ -150,6 +188,13 @@ fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
 fn raw_applied_only(reply_shape: RawReplyShape) -> raw::AppliedOnly {
     raw::AppliedOnly::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw applied-only operation")
+}
+
+fn raw_applied_only_for(target: CameraId, reply_shape: RawReplyShape) -> raw::AppliedOnly {
+    let mut wire = RAW_ZOOM_STOP;
+    wire[0] = target.to_address_byte();
+    raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
+        .expect("targeted raw applied-only operation")
 }
 
 fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
@@ -424,6 +469,67 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
         predecessor.applied(),
         Err(Error::UnsequencedCommandUnconfirmed)
     ));
+
+    session.shutdown().expect("owner shutdown");
+}
+
+/// #744: a cancellation that has an exact socket on camera 2 is local to
+/// that camera. Camera 1's ordinary raw submission waits through physical
+/// pacing, but must not be rejected as `TransportBusy` before its first write.
+#[test]
+fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
+    const SPACING: Duration = Duration::from_millis(10);
+
+    // Camera 2's first ACK lets its successor establish the predecessor's
+    // socket. Cancelling that predecessor then leaves a paced socket-cancel
+    // pending exactly while camera 1 submits ordinary raw work.
+    let (session, writes, _reads) = session_with_config(
+        vec![
+            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
+            vec![],
+            vec![],
+            vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
+        ],
+        two_camera_session_config(SPACING),
+    );
+    let camera_one = session
+        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
+        .expect("camera one view");
+    let camera_two = session
+        .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
+        .expect("camera two view");
+
+    let predecessor = camera_two
+        .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
+        .expect("camera two predecessor reaches the wire");
+    let _socket_successor = camera_two
+        .submit::<AppliedOnly, _>(&raw_applied_only_for(
+            CameraId::CAMERA_2,
+            RawReplyShape::AckThenCompletion,
+        ))
+        .expect("camera two ACK is drained before the successor writes");
+    let _cancellation = predecessor
+        .cancel()
+        .expect("camera two cancellation is recorded and paced");
+
+    let camera_one_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let camera_one_operation = camera_one
+        .submit::<AppliedOnly, _>(&camera_one_request)
+        .expect("camera two's pending cancel cannot reject camera one");
+    camera_one_operation
+        .applied()
+        .expect("camera one operation settles after its first write");
+
+    assert_eq!(
+        writes.lock().expect("write log lock").as_slice(),
+        [
+            &[0x82, 0x01, 0x04, 0x07, 0x02, 0xff][..],
+            &[0x82, 0x01, 0x04, 0x07, 0x00, 0xff][..],
+            &[0x82, 0x21, 0xff][..],
+            &RAW_ZOOM_STOP[..],
+        ],
+        "the camera two cancel consumes the shared pacing slot, but camera one writes next"
+    );
 
     session.shutdown().expect("owner shutdown");
 }
