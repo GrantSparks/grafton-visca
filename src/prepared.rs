@@ -683,7 +683,10 @@ where
         profile,
         tuning,
         affected_axes,
-        settlement_budget(operation.timeout_class(), profile, tuning),
+        observation_timeout(
+            &context,
+            settlement_budget(operation.timeout_class(), profile, tuning),
+        ),
     )?;
     let wire = encode(operation, target)?;
     Ok(PreparedOperation {
@@ -984,7 +987,7 @@ impl PreparedCommand {
     }
 }
 
-/// Returns the default lifetime for an owner receipt observer.
+/// Returns the default lifetime for a caller observer.
 ///
 /// An observer that expires while its request can still be retried would turn
 /// detach into an unintentional physical fire-and-forget operation. Keep the
@@ -1799,7 +1802,11 @@ mod tests {
         assert_eq!(axes, AffectedAxes::ZOOM);
         assert_eq!(tolerance, MovementTolerance::default());
         assert_eq!(interval, Duration::from_millis(40));
-        assert_eq!(default_budget, Duration::from_secs(9));
+        assert_eq!(
+            default_budget,
+            Duration::from_secs(62),
+            "the settlement observer also covers this movement operation's retry budget"
+        );
         assert!(queries.pan_tilt.is_none());
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
@@ -2481,6 +2488,14 @@ mod tests {
         )
         .expect("targeted operation preparation");
         let operation_budget = operation.context.retry.total_budget;
+        assert!(
+            operation
+                .settlement
+                .default_budget()
+                .expect("targeted operation carries a settlement observer")
+                >= operation_budget,
+            "targeted settlement observer must cover retry budget"
+        );
         let observer = operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
         assert!(
             observer >= operation_budget,

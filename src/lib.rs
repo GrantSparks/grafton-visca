@@ -134,9 +134,10 @@
 //!   protocol state machine.
 //! - **Observer deadline** — the caller's wait bound. Ordinary command and
 //!   inquiry calls, plus operation `applied()`/`settled()`, use the larger of
-//!   their governing completion/reply deadline and total retry budget, so a
-//!   crate-authorized retry remains observable. The `applied_with_timeout` /
-//!   `settled_with_timeout` forms replace *only* this deadline. An observer
+//!   their governing completion/reply/settlement deadline and total retry
+//!   budget, so a crate-authorized retry remains observable. The
+//!   `applied_with_timeout` / `settled_with_timeout` forms replace *only* this
+//!   deadline. An observer
 //!   timeout returns [`Error::Timeout`], detaches the observer, and never sends
 //!   cancellation or changes a scheduler deadline.
 //! - **Transport timeout** — the driver-level bound on one read or write

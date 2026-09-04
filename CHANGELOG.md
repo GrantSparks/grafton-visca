@@ -1445,8 +1445,9 @@ entries below retain their original wording.
 - **Default command and operation observers now cover their complete retry
   budget** (#749). The shared observer rule used by inquiries now also governs
   ordinary commands and operation handles: the default wait is the larger of
-  the governing completion/reply deadline and `retry.total_budget`. A lost ACK,
-  `CommandBufferFull`, or a sequence-correlated Sony completion retry therefore
+  the governing completion/reply/settlement deadline and
+  `retry.total_budget`. A lost ACK, `CommandBufferFull`, or a sequence-correlated
+  Sony completion retry therefore
   cannot physically replay a command after the default observer returned
   `Timeout`. Explicit `*_with_timeout` calls and `detach` retain their existing
   observer-only semantics; neither cancels the engine entry nor sends STOP.

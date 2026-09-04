@@ -121,7 +121,7 @@ pub(crate) trait BlockingFrameDecoder {
 /// executor-free seam lets deterministic owner tests advance virtual time
 /// without teaching the protocol engine or the blocking facade about an async
 /// runtime (#723).
-trait BlockingClock:
+pub(super) trait BlockingClock:
     fmt::Debug + Send + Sync + std::panic::RefUnwindSafe + std::panic::UnwindSafe
 {
     fn now(&self) -> Instant;
@@ -131,7 +131,7 @@ trait BlockingClock:
     fn sleep(&self, duration: Duration);
 }
 
-type SharedBlockingClock = Arc<dyn BlockingClock>;
+pub(super) type SharedBlockingClock = Arc<dyn BlockingClock>;
 
 #[derive(Debug, Default)]
 struct SystemBlockingClock;
@@ -1401,7 +1401,10 @@ impl BlockingOwner {
     }
 
     /// Internal construction seam for deterministic caller-thread owner tests.
-    fn with_clock(policy: OwnerPolicy, clock: SharedBlockingClock) -> Result<Self, Error> {
+    pub(super) fn with_clock(
+        policy: OwnerPolicy,
+        clock: SharedBlockingClock,
+    ) -> Result<Self, Error> {
         Ok(Self {
             state: OwnerState::new(policy)?,
             clock,
