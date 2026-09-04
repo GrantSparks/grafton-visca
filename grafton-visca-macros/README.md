@@ -18,8 +18,8 @@ implementations:
 ## ViscaInquiry
 
 Generates typed `Request` and `Inquiry` implementations for inquiry commands,
-including exact-size, zero-allocation `write_into` encoding and optional response
-parsing.
+including exact-size, zero-allocation `write_into` encoding and optional inherent
+response parsing.
 
 ### Basic Usage
 
@@ -51,22 +51,20 @@ The macro generates:
 - `Request` and `Inquiry` trait implementations
 - exact `MAX_SIZE`
 - `write_into()` for caller-provided buffers
-- `parse_response()` method when parser is specified
+- `parse_response()` method when parser is specified; it and `Inquiry::decoder()`
+  use the same generated payload decoder
 - `ResponseParser` implementation when typed response attributes are specified
 
-### Parser Types
+### Parser Selectors
 
-- `Bool` - Boolean values (0x02 = true, 0x03 = false)
-- `Byte` / `DirectByte` - Direct byte value
-- `Position` - 4-nibble position value (converts to u16)
-- `Nibble` / `ExtendedNibble` - Extended nibble encoding
-- `Flags` / `BitFlags` - Bit flags (for image flip)
-- `Mode` / `ModeEnum` - Enum value parsing
-- `PanTilt` - Standard VISCA 4+4-nibble parser for signed pan/tilt replies.
-  It widens the two signed 16-bit wire values to public `i32` coordinates and
-  does not parse profile-owned codecs such as Sony BRC-300's 5+4 form.
-- `LastNibble` - Last nibble from a nibble-encoded payload
-- `BoolConvention` - Boolean parsing with an explicit convention
+The established parser selectors remain accepted for source compatibility. They
+enable the inherent `parse_response()` convenience method, but never define a
+second decoder: it and `Inquiry::decoder()` share one generated payload decoder.
+Selectors that identify a built-in table shape delegate to `response` for
+boolean convention, nibble width, and value conversion. `Custom` continues to
+call `parse_with`, and selector forms with established transformations retain
+them, including `BoolConvention` and the selector-supported `data_variant` and
+`value_type` attributes, on both paths.
 
 ## ViscaEnum
 

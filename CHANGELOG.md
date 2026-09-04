@@ -1464,6 +1464,18 @@ entries below retain their original wording.
   longer advertise unsupported shared noise-reduction metadata; the profile
   validator rejects future typed-range or NR metadata/typed-support drift.
 
+- **Unified public `ViscaInquiry` derive decoding** (#752). A derive with
+  `parser = ...` now gives its inherent `parse_response()` method the exact
+  same canonical `InquiryKind` decoder used by `Inquiry::decoder()`, rather
+  than a separately generated parser template. The two public paths therefore
+  agree on every supported parser selector, including `Digital`'s `OnIs03`
+  convention (`[0x03]` means enabled) and 4- or 8-nibble zoom-position
+  replies. Explicit override attributes (`Custom`/`parse_with`,
+  `BoolConvention`, `data_variant`, and `value_type`) retain their established
+  behavior through the same shared decoder; selectors that identify a built-in
+  table shape use the response-kind table as the single authority for wire
+  decoding.
+
 - Incomplete raw stream prefixes with an invalid response source are now
   discarded as `Ignored(MalformedFrame)` at a raw-correlation release, matching
   the existing complete-frame behavior. Blocking and async owners remain
