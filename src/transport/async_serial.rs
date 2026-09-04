@@ -5,7 +5,7 @@
 
 use crate::{
     transport::{
-        async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
+        async_io::{AsyncReadExt, AsyncWriteExt},
         builder::TransportConfig,
         AddressingMode, AsyncTransport, HasTransportConfig,
     },
@@ -51,8 +51,11 @@ impl<S: AsyncReadExt + AsyncWriteExt> Serial<S> {
 
 impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Serial<S> {
     async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        // No internal timeout - rely on the scheduler's timeout
-        write_all_flush(&mut self.stream, bytes).await
+        // Do not flush a serial device: its backend may enter `tcdrain`, which
+        // can block indefinitely despite the owner-level async timeout. The
+        // subsequent VISCA reply is the protocol-level confirmation that the
+        // queued bytes progressed.
+        self.stream.write_all(bytes).await
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
@@ -80,5 +83,51 @@ impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Serial<S> {
 
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         Some(crate::camera::TransportKind::Serial)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct FlushCountingIo {
+        writes: Vec<Vec<u8>>,
+        flush_calls: usize,
+    }
+
+    impl AsyncReadExt for FlushCountingIo {
+        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Error> {
+            Err(Error::ConnectionClosed {
+                reason: Some("test read is unused".into()),
+            })
+        }
+    }
+
+    impl AsyncWriteExt for FlushCountingIo {
+        async fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
+            self.writes.push(bytes.to_vec());
+            Ok(())
+        }
+
+        async fn flush(&mut self) -> Result<(), Error> {
+            self.flush_calls += 1;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn command_submission_never_flushes_a_serial_device() {
+        let mut transport = Serial::new(FlushCountingIo::default(), TransportConfig::default());
+        let command = [0x81, 0x01, 0x04, 0x00, 0xFF];
+
+        transport
+            .send(&command)
+            .await
+            .expect("the fake accepts a serial write");
+
+        assert_eq!(transport.stream.writes, [command]);
+        assert_eq!(transport.stream.flush_calls, 0);
     }
 }

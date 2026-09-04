@@ -615,7 +615,13 @@ block `close()`. The blocking owner cannot preempt arbitrary synchronous code,
 so `BlockingTransport` exposes only deadline-bearing reads and writes and
 requires implementations to return within the supplied bound. Built-in TCP,
 UDP, and serial transports install that bound at the OS/device layer, and
-construction rejects a zero advertised read or write timeout. Finally, both
+construction rejects a zero advertised read or write timeout. A serial device
+receives at least one millisecond even when a derived owner budget is smaller:
+Windows treats a zero-millisecond serial timeout as no timeout, while the owner
+still rechecks its precise deadline after that I/O call. Serial command and
+startup writes deliberately do not drain the device (`flush`/`tcdrain`), since
+that kernel call is not bounded by the write timeout; a VISCA reply or the
+required startup settle interval confirms queued output instead. Finally, both
 owner shells use one executor-free idle-receive
 run. Immediately-returning no-data reads are paced by the same escalating
 10–250 ms, next-wake/caller-deadline-clamped pause the transient-fault path uses
@@ -645,7 +651,9 @@ emergency stopping is an explicit STOP or motion operation.
 
 Broadcast address assignment and interface clear are transport-lifecycle
 controls, not camera requests; the serial handshake owns them before the target
-registry starts. Socket cancellation is likewise owner-only because only the
+registry starts. Address Set treats an oversized delimiter-framed input as
+discarded bus noise after the framer has resynchronized, then continues the
+current scan or a remaining bounded attempt. Socket cancellation is likewise owner-only because only the
 owner knows which live operation owns a camera-assigned socket. None of those
 three wire primitives is exposed as a generic `request::builtin` command.
 

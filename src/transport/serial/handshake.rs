@@ -145,9 +145,22 @@ fn process_address_set_chunk(
     framer.push_slice_with_resync(chunk)?;
 
     for frame_result in framer.drain_frames() {
-        let frame = frame_result?;
-        if let Some(camera_count) = state.observe(&frame) {
-            return Ok(Some(camera_count));
+        match frame_result {
+            Ok(frame) => {
+                if let Some(camera_count) = state.observe(&frame) {
+                    return Ok(Some(camera_count));
+                }
+            }
+            // Raw framing has already discarded through the terminator before
+            // reporting this advisory error.  Treat it as bus noise and keep
+            // scanning the now-resynchronized stream.
+            Err(Error::ResponseTooLarge { max_size }) => {
+                warn!(
+                    max_size,
+                    "Discarded oversized serial Address Set noise frame"
+                );
+            }
+            Err(error) => return Err(error),
         }
     }
 
@@ -196,8 +209,12 @@ pub mod async_handshake {
         }
     }
 
-    /// Bound both halves of a serial write by the remaining attempt budget.
-    async fn write_all_and_flush_within_attempt<E, S>(
+    /// Queue a serial write within the remaining attempt budget.
+    ///
+    /// Serial `flush` can enter an unbounded device drain (`tcdrain` on
+    /// POSIX), so reply handling and the I/F Clear settle interval are the
+    /// protocol-level confirmation that the queued bytes progressed.
+    async fn write_all_within_attempt<E, S>(
         exec: &E,
         io: &mut S,
         bytes: &[u8],
@@ -211,10 +228,6 @@ pub mod async_handshake {
     {
         let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
         exec.timeout(configured_write_timeout.min(remaining), io.write_all(bytes))
-            .await??;
-
-        let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        exec.timeout(configured_write_timeout.min(remaining), io.flush())
             .await??;
         Ok(())
     }
@@ -275,7 +288,7 @@ pub mod async_handshake {
             .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
 
         let attempt_started = exec.now();
-        write_all_and_flush_within_attempt(
+        write_all_within_attempt(
             exec,
             io,
             &buffer[..len],
@@ -327,10 +340,11 @@ pub mod async_handshake {
                     Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
 
-            // A timed-out write is a send failure, not an absent reply: after
-            // cancellation its stream position may be unknowable, so surface
-            // it immediately rather than retrying on the same serial stream.
-            write_all_and_flush_within_attempt(
+            // A cancelled async write has an unknowable stream position, so
+            // preserve its failure. A receive-side timeout or a resynchronized
+            // oversized noise frame leaves the stream usable for another
+            // Address Set attempt.
+            write_all_within_attempt(
                 exec,
                 io,
                 &buffer[..len],
@@ -347,8 +361,10 @@ pub mod async_handshake {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
-                Err(Error::Timeout) if attempt < max_attempts - 1 => {
-                    warn!("Address Set timeout, retrying...");
+                Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
+                    if attempt < max_attempts - 1 =>
+                {
+                    warn!(?error, "Address Set attempt failed, retrying...");
                     exec.sleep(ADDRESS_SET_RETRY_DELAY).await;
                     continue;
                 }
@@ -554,6 +570,7 @@ pub mod blocking_handshake {
     };
 
     use super::*;
+    use crate::transport::serial::{device_timeout, write_bounded};
 
     // Keep the blocking path aligned with the async handshake: Address Set has
     // one fixed budget per attempt, while I/F Clear has a bounded startup
@@ -577,19 +594,26 @@ pub mod blocking_handshake {
     }
 
     impl<'a> HandshakeTimeoutGuard<'a> {
-        fn new(port: &'a mut dyn serialport::SerialPort, timeout: Duration) -> Result<Self> {
-            let original_timeout = port.timeout();
-            port.set_timeout(timeout).map_err(|error| {
-                Error::TransportError(
-                    format!("Failed to set serial handshake timeout: {error}").into(),
-                )
-            })?;
-
-            Ok(Self {
+        fn preserving(port: &'a mut dyn serialport::SerialPort) -> Self {
+            Self {
+                original_timeout: port.timeout(),
                 port,
-                original_timeout,
                 restored: false,
-            })
+            }
+        }
+
+        fn new(port: &'a mut dyn serialport::SerialPort, timeout: Duration) -> Result<Self> {
+            let guard = Self::preserving(port);
+            guard
+                .port
+                .set_timeout(device_timeout(timeout))
+                .map_err(|error| {
+                    Error::TransportError(
+                        format!("Failed to set serial handshake timeout: {error}").into(),
+                    )
+                })?;
+
+            Ok(guard)
         }
 
         fn port_mut(&mut self) -> &mut dyn serialport::SerialPort {
@@ -607,7 +631,7 @@ pub mod blocking_handshake {
             }
 
             self.port
-                .set_timeout(self.original_timeout)
+                .set_timeout(device_timeout(self.original_timeout))
                 .map_err(|error| {
                     Error::TransportError(
                         format!("Failed to restore serial handshake timeout: {error}").into(),
@@ -624,7 +648,7 @@ pub mod blocking_handshake {
             // fallback for unwinding or another error path, where a second
             // restoration failure cannot replace the primary error.
             if !self.restored {
-                if let Err(error) = self.port.set_timeout(self.original_timeout) {
+                if let Err(error) = self.port.set_timeout(device_timeout(self.original_timeout)) {
                     trace!("Failed to restore serial handshake timeout: {error}");
                 }
             }
@@ -663,15 +687,11 @@ pub mod blocking_handshake {
         }
     }
 
-    /// Queue a complete serial write without allowing a low-level write to
-    /// start after the current handshake attempt has expired.
+    /// Queue a handshake write through the shared bounded serial write loop.
     ///
-    /// `serialport::SerialPort::flush` maps to `tcdrain` on POSIX and
-    /// `FlushFileBuffers` on Windows, neither of which can be reliably
-    /// bounded after it has begun. The handshake does not need to wait for the
-    /// transmit queue to drain: Address Set naturally waits for the resulting
-    /// reply, and I/F Clear has its protocol settle interval after submission.
-    /// Avoiding that drain keeps the supplied attempt deadline authoritative.
+    /// The scoped guard restores the port's prior timeout while
+    /// [`write_bounded`] preserves the whole-attempt deadline and normalizes
+    /// interrupted and timed-out low-level writes identically to commands.
     fn write_within_attempt(
         io: &mut dyn serialport::SerialPort,
         bytes: &[u8],
@@ -679,43 +699,15 @@ pub mod blocking_handshake {
         attempt_budget: Duration,
         configured_write_timeout: Duration,
     ) -> Result<()> {
-        let mut written = 0;
-
-        while written < bytes.len() {
-            // A `Write::write` may make partial progress. Re-sample before
-            // every follow-up syscall so one slow partial write cannot grant a
-            // fresh configured timeout to the next one.
-            let remaining = remaining_attempt_budget(attempt_started, attempt_budget)?;
-            let write_result =
-                with_scoped_timeout(io, configured_write_timeout.min(remaining), |port| {
-                    port.write(&bytes[written..])
-                })?;
-
-            match write_result {
-                Ok(0) => {
-                    return Err(Error::TransportError(
-                        "Serial write made no progress".into(),
-                    ));
-                }
-                Ok(count) if count <= bytes.len() - written => {
-                    written += count;
-                }
-                Ok(count) => {
-                    return Err(Error::TransportError(
-                        format!(
-                            "Serial write reported {count} bytes for a {}-byte buffer",
-                            bytes.len() - written
-                        )
-                        .into(),
-                    ));
-                }
-                Err(error) => {
-                    return Err(Error::TransportError(
-                        format!("Serial write error: {error}").into(),
-                    ));
-                }
-            }
-        }
+        remaining_attempt_budget(attempt_started, attempt_budget)?;
+        let mut guard = HandshakeTimeoutGuard::preserving(io);
+        let deadline = attempt_started
+            .checked_add(attempt_budget)
+            .ok_or(Error::Timeout)?;
+        let write_result =
+            write_bounded(guard.port_mut(), bytes, deadline, configured_write_timeout);
+        guard.restore()?;
+        write_result?;
 
         // A final low-level write may have consumed the whole budget. Do not
         // let a later receive begin with a fresh deadline.
@@ -796,24 +788,26 @@ pub mod blocking_handshake {
                     Error::TransportError(format!("Failed to encode Address Set: {e}").into())
                 })?;
 
-            // A timed-out write is a send failure, not an absent reply: the
-            // stream may have advanced, so preserve the error rather than
-            // retrying it as an Address Set receive timeout.
-            write_within_attempt(
-                io,
-                &buffer[..len],
-                attempt_started,
-                timeout,
-                configured_write_timeout,
-            )?;
+            let attempt_result = (|| {
+                write_within_attempt(
+                    io,
+                    &buffer[..len],
+                    attempt_started,
+                    timeout,
+                    configured_write_timeout,
+                )?;
+                recv_address_set_response_blocking(io, attempt_started, timeout, buffer_config)
+            })();
 
-            match recv_address_set_response_blocking(io, attempt_started, timeout, buffer_config) {
+            match attempt_result {
                 Ok(camera_count) => {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
-                Err(Error::Timeout) if attempt < max_attempts - 1 => {
-                    warn!("Address Set timeout, retrying...");
+                Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
+                    if attempt < max_attempts - 1 =>
+                {
+                    warn!(?error, "Address Set attempt failed, retrying...");
                     std::thread::sleep(ADDRESS_SET_RETRY_DELAY);
                     continue;
                 }
