@@ -45,6 +45,21 @@ jobs:
           fetch-depth: 0
           ref: refs/tags/${{ github.event.inputs.release_tag }}
 
+      # workflow_dispatch runs this current workflow definition but checks out
+      # an immutable release tag. Configure curl outside that checkout so a
+      # retry can give the tagged, pre-header verifier an identifiable
+      # crates.io User-Agent without changing the tagged source or package.
+      - name: Configure registry payload verifier User-Agent
+        run: |
+          set -euo pipefail
+          curl_home="$(mktemp -d "${RUNNER_TEMP}/grafton-visca-curl.XXXXXX")"
+          chmod 700 "${curl_home}"
+          cat > "${curl_home}/.curlrc" <<'EOF'
+          user-agent = "grafton-visca-release-verifier/2.0.0 (+https://github.com/GrantSparks/grafton-visca)"
+          EOF
+          chmod 600 "${curl_home}/.curlrc"
+          echo "CURL_HOME=${curl_home}" >> "${GITHUB_ENV}"
+
       - name: Verify annotated tag provenance
         id: provenance
         env:

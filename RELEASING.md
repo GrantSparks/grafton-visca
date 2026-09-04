@@ -140,7 +140,11 @@ automation builds the local `.crate` payload and, after the exact registry
 version is visible, downloads the crates.io payload and requires SHA-256 and
 byte-for-byte equality before treating publication (including a retry of an
 existing version) as successful. No release is complete until both package
-results are independently verified.
+results are independently verified. A dispatch runs the current publication
+workflow while checking out the immutable release tag. It configures an
+isolated `CURL_HOME/.curlrc` with the payload verifier's descriptive crates.io
+User-Agent outside that checkout, so an old tagged verifier can be retried
+without changing tagged source or package bytes.
 
 For a final release, repeat the same process with `2.0.0`: update both
 workspace packages and the exact macro dependency together, move the changelog

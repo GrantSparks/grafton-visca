@@ -40,7 +40,11 @@ temporary_directory="$(mktemp -d)"
 trap 'rm -rf "${temporary_directory}"' EXIT
 published_payload="${temporary_directory}/${crate_name}-${crate_version}.crate"
 
+# crates.io may reject the runner's anonymous/default curl identity. Keep this
+# artifact verifier identifiable and give registry operators a stable contact.
+registry_user_agent="grafton-visca-release-verifier/2.0.0 (+https://github.com/GrantSparks/grafton-visca)"
 curl --fail --location --silent --show-error --retry 3 \
+    --user-agent "${registry_user_agent}" \
     --output "${published_payload}" "${download_url}"
 
 local_sha256="$(sha256sum -- "${local_payload}" | awk '{print $1}')"
