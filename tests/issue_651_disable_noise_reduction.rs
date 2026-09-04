@@ -437,18 +437,19 @@ mod dyn_surface {
         NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
     };
 
-    fn inquiry_only_noise_reduction_profile() -> ProfileSpec {
+    fn runtime_noise_reduction_profile(
+        transform_typed_support: impl FnOnce(
+            grafton_visca::capabilities::TypedSupportSet,
+        ) -> grafton_visca::capabilities::TypedSupportSet,
+    ) -> grafton_visca::Result<ProfileSpec> {
         let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let coordinates = source
             .pan_tilt_coordinates()
             .expect("G2 pan/tilt conversion");
         let mut capabilities = source.capabilities().clone();
         capabilities.profile_id = None;
-        capabilities.model_name = "NR inquiry without NR control".into();
-        capabilities.typed_support = capabilities
-            .typed_support
-            .without(TypedSupportSurface::NoiseReduction2DControl)
-            .without(TypedSupportSurface::NoiseReduction3DControl);
+        capabilities.model_name = "NR runtime profile".into();
+        capabilities.typed_support = transform_typed_support(capabilities.typed_support);
 
         ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(
@@ -466,7 +467,19 @@ mod dyn_surface {
             .preset_recall_axes(source.preset_recall_axes())
             .position_inquiries(source.position_inquiries())
             .build()
-            .expect("inquiry-only NR runtime profile")
+    }
+
+    fn paired_noise_reduction_runtime_profile() -> ProfileSpec {
+        runtime_noise_reduction_profile(|typed_support| typed_support)
+            .expect("paired NR runtime profile")
+    }
+
+    fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> {
+        runtime_noise_reduction_profile(|typed_support| {
+            typed_support
+                .without(TypedSupportSurface::NoiseReduction2DControl)
+                .without(TypedSupportSurface::NoiseReduction3DControl)
+        })
     }
 
     #[tokio::test]
@@ -510,72 +523,19 @@ mod dyn_surface {
         session.shutdown().await.expect("shutdown");
     }
 
-    #[tokio::test]
-    async fn dynamic_controls_reject_an_inquiry_only_runtime_profile_before_transport_write() {
-        let (transport, writes) = RecordingTransport::new();
-        let session = open_with_profile(transport, inquiry_only_noise_reduction_profile()).await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
-        let nouns: &dyn DynSessionCameraNouns = &camera;
-
-        let mode = nouns
-            .image()
-            .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual)
-            .await
-            .expect_err("inquiry support must not grant 2D control");
-        assert!(matches!(
-            mode,
-            Error::FeatureNotSupported {
-                feature: "2D noise reduction control"
-            }
-        ));
-        for error in [
-            nouns
-                .image()
-                .set_noise_reduction_2d(NoiseReduction2DLevel::MAX)
-                .await
-                .expect_err("inquiry support must not grant 2D control"),
-            nouns
-                .image()
-                .disable_noise_reduction_2d()
-                .await
-                .expect_err("inquiry support must not grant 2D control"),
-        ] {
-            assert!(matches!(
-                error,
-                Error::FeatureNotSupported {
-                    feature: "2D noise reduction control"
-                }
-            ));
-        }
-        for error in [
-            nouns
-                .image()
-                .set_noise_reduction_3d(NoiseReduction3DLevel::MAX)
-                .await
-                .expect_err("inquiry support must not grant 3D control"),
-            nouns
-                .image()
-                .disable_noise_reduction_3d()
-                .await
-                .expect_err("inquiry support must not grant 3D control"),
-        ] {
-            assert!(matches!(
-                error,
-                Error::FeatureNotSupported {
-                    feature: "3D noise reduction control"
-                }
-            ));
-        }
-        assert!(writes.lock().expect("writes lock").is_empty());
-
-        session.shutdown().await.expect("shutdown");
+    #[test]
+    fn inquiry_only_runtime_profile_is_rejected_before_transport_construction() {
+        let error = inquiry_only_noise_reduction_profile()
+            .expect_err("inquiry-only NR profile violates the paired-surface invariant");
+        assert!(matches!(error, Error::InvalidRequest(message)
+            if message.contains("noise-reduction metadata and paired inquiry/control typed support must agree")));
     }
 
     #[tokio::test]
     async fn dynamic_runtime_profile_uses_the_same_full_nr3d_reply_domain() {
         let session = open_with_profile(
             RecordingTransport::with_inquiry_level(0x08),
-            inquiry_only_noise_reduction_profile(),
+            paired_noise_reduction_runtime_profile(),
         )
         .await;
         let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
