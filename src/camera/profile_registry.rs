@@ -1001,6 +1001,33 @@ macro_rules! __define_builtin_profiles {
                     facts.image_base_support,
                     "{id:?} runtime image permission must come from the registry fact"
                 );
+                // These are the optional marker surfaces whose canonical rows
+                // live under `camera.image()`. A row marker without the base
+                // accessor would be publicly advertised but unreachable.
+                for surface in [
+                    $crate::capabilities::TypedSupportSurface::BacklightCompensation,
+                    $crate::capabilities::TypedSupportSurface::ImageFlip,
+                    $crate::capabilities::TypedSupportSurface::ImageMirror,
+                    $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
+                    $crate::capabilities::TypedSupportSurface::ContrastControl,
+                    $crate::capabilities::TypedSupportSurface::SharpnessControl,
+                    $crate::capabilities::TypedSupportSurface::SaturationControl,
+                    $crate::capabilities::TypedSupportSurface::HueControl,
+                    $crate::capabilities::TypedSupportSurface::LuminanceControl,
+                    $crate::capabilities::TypedSupportSurface::GammaControl,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
+                    $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
+                    $crate::capabilities::TypedSupportSurface::PictureEffect,
+                    $crate::capabilities::TypedSupportSurface::ImageFreeze,
+                    $crate::capabilities::TypedSupportSurface::DefogLevel,
+                ] {
+                    assert!(
+                        facts.image_base_support || !facts.has_typed_support(surface),
+                        "{id:?} exposes {surface:?} under image() without base image-noun support"
+                    );
+                }
                 assert_eq!(
                     facts.focus_zone_inquiry,
                     P::SUPPORTS_FOCUS_ZONE_INQUIRY,
@@ -3341,7 +3368,10 @@ macro_rules! define_builtin_profiles {
                         blue_gain_range: None,
                     },
                     image: {
-                        base_support: false,
+                        // Backlight inquiry/control is part of the canonical
+                        // `image()` noun, so its source-backed typed marker
+                        // requires the base accessor as well.
+                        base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
                         saturation_range: None,
@@ -3399,6 +3429,7 @@ macro_rules! define_builtin_profiles {
                         ("sony_auto_slow_shutter", "The BRC-300 technical manual (R12 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("exposure_mode", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri/Bright commands and `09 04 39` inquiry."),
                         ("iris", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
+                        ("backlight", "The BRC-300 technical manual R12 pp. 11 and 14 (text rows 404-405 and 539-540 in docs/visca_reference.md's linked source) documents `CAM_BackLight` on/off as `8x 01 04 33 02/03 FF` and `CAM_BackLightModeInq` as `8x 09 04 33 FF` with `y0 50 02/03 FF` replies. Those paired rows support the `image()` backlight surface, not a broad image-processing grant."),
                     ],
                 }
 

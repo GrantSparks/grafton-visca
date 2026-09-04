@@ -6,10 +6,10 @@ use std::future::Future;
 
 use grafton_visca::{
     capabilities::{
-        HasExposureMode, HasFocusZoneInquiry, HasImageFlip, HasImageProcessing,
-        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
-        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasSonyAutoSlowShutter,
-        HasSonySpotlight, HasUsbAudio,
+        HasBacklightCompensation, HasExposureMode, HasFocusZoneInquiry, HasImageFlip,
+        HasImageProcessing, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
+        HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
+        HasSonyAutoSlowShutter, HasSonySpotlight, HasUsbAudio,
     },
     completion::{AppliedOnly, Targeted},
     profiles::{
@@ -73,6 +73,15 @@ fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camer
 #[allow(dead_code)]
 fn base_image_surface<P: CompileTimeProfile + HasImageProcessing>(camera: &Camera<P>) {
     let _ = camera.image();
+}
+
+#[allow(dead_code)]
+fn backlight_surface<P>(camera: &Camera<P>)
+where
+    P: CompileTimeProfile + HasImageProcessing + HasBacklightCompensation,
+{
+    inquiry(camera.image().backlight());
+    plain(camera.image().set_backlight(true));
 }
 
 #[allow(dead_code)]
@@ -173,6 +182,7 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) =
         assert_camera_is_profile_typed::<profile_fixtures::NonDefaultCompileTimeProfile>;
     let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
+    let _: fn(&Camera<SonyBRC300>) = backlight_surface::<SonyBRC300>;
     let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = image_flip_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;

@@ -1086,6 +1086,14 @@ the same 1.2 compatibility breadth under #716 while a direct R8 line-item audit
 remains outstanding. These narrow grants do not validate unrelated model
 features or the distinct `09 04 2B` iris-status inquiry.
 
+**Narrow BRC-300 backlight exception:** R12's exact `CAM_BackLight` control
+rows are `8x 01 04 33 02 FF` (On) and `8x 01 04 33 03 FF` (Off) on manual p. 11
+(source text lines 404–405). Its `CAM_BackLightModeInq` row is
+`8x 09 04 33 FF`, returning `y0 50 02 FF` for On or `y0 50 03 FF` for Off on
+manual p. 14 (source text lines 539–540). Those paired rows justify only the
+source-backed backlight control/inquiry under `image()`; they are not evidence
+for the other image-processing rows.
+
 **Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
 positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
 (`493D`); the negative endpoints (`F75A8` and `E796`) are right and down. The
@@ -1240,7 +1248,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, and the 240 ms post-preset caveat. It remains the model authority for the EVI-H100 shared exposure/iris breadth restored by #716; the direct line-item audit is still pending because the linked technical-manual download was unavailable during that review. |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
 | R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), fixed `04 5A` automatic-slow-shutter commands, and its `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), and the exact paired `CAM_BackLight` rows: control `8x 01 04 33 02/03 FF` (manual p. 11; source text lines 404–405) and inquiry `8x 09 04 33 FF` with `y0 50 02/03 FF` replies (manual p. 14; source text lines 539–540). It also documents fixed `04 5A` automatic-slow-shutter commands and the `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). It does not establish the fixed `04 3A` spotlight or a broad image-processing family. |
 
 ## C.4 Supplemental explanatory source
 

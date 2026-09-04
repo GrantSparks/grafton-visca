@@ -44,6 +44,10 @@ const ZOOM_NORMALIZED_COMBINED_HALF: &[u8] =
 
 const POWER_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x00, 0xff];
 const MENU_STATUS_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x06, 0xff];
+#[cfg(all(feature = "runtime-tokio", feature = "dyn-api"))]
+const BACKLIGHT_ON: &[u8] = &[0x81, 0x01, 0x04, 0x33, 0x02, 0xff];
+#[cfg(feature = "runtime-tokio")]
+const BACKLIGHT_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x33, 0xff];
 
 /// Return the raw VISCA payload from either a raw frame or Sony's 8-byte
 /// encapsulated frame, together with the sequence number needed for a reply.
@@ -459,12 +463,15 @@ mod async_surface {
     use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
 
     use super::{
-        envelope, visca_payload, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,
-        FOCUS_NEAR, MENU_CANCEL, MENU_SELECT, MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP,
-        POWER_INQUIRY, POWER_OFF, POWER_ON, TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_RED_OFF,
-        TALLY_RED_ON, ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE,
-        ZOOM_WIDE,
+        envelope, visca_payload, BACKLIGHT_INQUIRY, BRC300_ABSOLUTE_FASTEST,
+        BRC300_RELATIVE_FASTEST, FOCUS_FAR, FOCUS_NEAR, MENU_CANCEL, MENU_SELECT,
+        MENU_STATUS_INQUIRY, PAN_TILT_DOWN, PAN_TILT_UP, POWER_INQUIRY, POWER_OFF, POWER_ON,
+        TALLY_GREEN_OFF, TALLY_GREEN_ON, TALLY_RED_OFF, TALLY_RED_ON,
+        ZOOM_NORMALIZED_COMBINED_HALF, ZOOM_NORMALIZED_OPTICAL_HALF, ZOOM_TELE, ZOOM_WIDE,
     };
+
+    #[cfg(feature = "dyn-api")]
+    use super::BACKLIGHT_ON;
 
     #[derive(Debug)]
     pub(super) struct ProbeTransport {
@@ -510,6 +517,8 @@ mod async_surface {
                     vec![0x90, 0x50, 0x02, 0xff]
                 } else if payload == MENU_STATUS_INQUIRY {
                     vec![0x90, 0x50, 0x03, 0xff]
+                } else if payload == BACKLIGHT_INQUIRY {
+                    vec![0x90, 0x50, 0x02, 0xff]
                 } else if payload.get(1) == Some(&0x09) {
                     vec![0x90, 0x50, 0x00, 0xff]
                 } else {
@@ -925,9 +934,9 @@ mod async_surface {
         session.shutdown().await.expect("shutdown");
     }
 
-    /// `image()` is absent from the static facade for these profiles, and the
-    /// erased facade must refuse every base image row before it reaches the
-    /// transport. The registry's `image.base_support` fact drives both sides.
+    /// Unsupported image rows remain unavailable whether a profile lacks the
+    /// base noun entirely or exposes only other, independently gated image
+    /// rows. The erased facade must refuse them before reaching the transport.
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_image_noun_matches_the_static_base_gate() {
@@ -977,6 +986,29 @@ mod async_surface {
             );
             session.shutdown().await.expect("shutdown");
         }
+    }
+
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_brc300_backlight_rows_are_reachable() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        assert!(camera.image().backlight().await.expect("backlight inquiry"));
+        assert_eq!(one_frame(&writes), BACKLIGHT_INQUIRY);
+        camera
+            .image()
+            .set_backlight(true)
+            .await
+            .expect("backlight on");
+        assert_eq!(one_frame(&writes), BACKLIGHT_ON);
+
+        session.shutdown().await.expect("shutdown");
     }
 
     /// The FR7 exposes only the source-backed red/green tally rows.  Its

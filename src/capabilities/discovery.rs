@@ -1489,7 +1489,7 @@ mod tests {
         }
 
         assert!(Capabilities::from_profile::<SonyEVIH100>().has_image_processing);
-        assert!(!Capabilities::from_profile::<SonyBRC300>().has_image_processing);
+        assert!(Capabilities::from_profile::<SonyBRC300>().has_image_processing);
     }
 
     #[test]
