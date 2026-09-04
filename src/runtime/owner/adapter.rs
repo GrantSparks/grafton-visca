@@ -624,20 +624,54 @@ pub(crate) fn decode_response_target(
     let Some(&source) = payload.first() else {
         return Err(invalid_source(payload));
     };
+    match classify_response_source(routing, source) {
+        ResponseSource::Target(target) => Ok(Some(target)),
+        ResponseSource::Ambiguous => Ok(None),
+        ResponseSource::Invalid => Err(invalid_source(payload)),
+    }
+}
+
+/// Resolve a raw-prefix source without turning malformed input into an error.
+///
+/// An incomplete frame has no decoder context, so it must be discarded when
+/// its start cannot use the exact strict source rule that complete responses
+/// use. Returning `None` keeps both owner shells structurally unable to route
+/// an invalid prefix into `ShutdownReason::FramingFailure` (#745).
+pub(crate) fn response_target_for_raw_prefix(
+    routing: RoutingState,
+    source: u8,
+) -> Option<CameraId> {
+    match classify_response_source(routing, source) {
+        ResponseSource::Target(target) => Some(target),
+        ResponseSource::Ambiguous | ResponseSource::Invalid => None,
+    }
+}
+
+/// A source-byte classification shared by complete-frame decoding and the
+/// incomplete raw-prefix path.  Complete decoding preserves its established
+/// error/ambiguous behavior; prefixes convert the latter two outcomes into a
+/// discard verdict before they escape the framer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseSource {
+    Target(CameraId),
+    Ambiguous,
+    Invalid,
+}
+
+fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource {
     match routing.addressing() {
         AddressingMode::Serial => {
             // The low nibble is reserved in a serial source byte. Accept only
             // camera sources 0x90..=0xf0 on a 0x10 boundary; 0x80/0x88 are
             // controller/broadcast addresses and never response sources.
             if source & 0x0f != 0 || !(0x90..=0xf0).contains(&source) {
-                return Err(invalid_source(payload));
+                return ResponseSource::Invalid;
             }
             let id = (source >> 4).saturating_sub(8);
             if !(1..=7).contains(&id) {
-                return Err(invalid_source(payload));
+                return ResponseSource::Invalid;
             }
-            let target = CameraId::new(id).map_err(|_| invalid_source(payload))?;
-            Ok(Some(target))
+            CameraId::new(id).map_or(ResponseSource::Invalid, ResponseSource::Target)
         }
         AddressingMode::Ip => {
             // #590/#598/#681: an IP VISCA reply carries no routable camera
@@ -656,18 +690,18 @@ pub(crate) fn decode_response_target(
                     if source < 0x90 {
                         // Below `0x90` is the controller/broadcast range
                         // (`0x80`-`0x8F`), never a reply source.
-                        return Err(invalid_source(payload));
+                        return ResponseSource::Invalid;
                     }
-                    Ok(Some(target))
+                    ResponseSource::Target(target)
                 }
                 None => {
                     // More than one target registered: an IP source cannot
                     // disambiguate between them, so keep the strict `0x90` check
                     // and drop anything ambiguous without guessing a target.
                     if source != 0x90 {
-                        return Err(invalid_source(payload));
+                        return ResponseSource::Invalid;
                     }
-                    Ok(None)
+                    ResponseSource::Ambiguous
                 }
             }
         }

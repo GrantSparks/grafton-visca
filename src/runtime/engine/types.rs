@@ -630,6 +630,10 @@ impl RawCorrelationReleaseSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RawPrefixEvidence {
     Complete,
+    /// The framer rejected the first byte using the same strict source rule as
+    /// complete response decoding. It is discardable noise, not a correlation
+    /// candidate and never a framing failure (#745).
+    Malformed,
     Incomplete {
         target: CameraId,
         kind: RawIncompletePrefix,

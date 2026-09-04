@@ -8,7 +8,9 @@
 
 use bytes::{Bytes, BytesMut};
 
-use crate::{command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, Error, ViscaSocket};
+use crate::{
+    command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, CameraId, Error, ViscaSocket,
+};
 
 #[cfg(test)]
 use crate::protocol::sony::PayloadType;
@@ -54,6 +56,27 @@ pub(crate) enum RawIncompletePrefix {
     /// Bytes cannot correlate to a raw request and therefore cannot revive or
     /// bind a successor.
     Noncorrelating,
+}
+
+/// The first retained raw input as seen at a correlation-release boundary.
+///
+/// The framer owns the distinction between a complete input, an incomplete
+/// response-shaped prefix, and bytes which cannot start a response at all.
+/// That keeps malformed stream noise on the same discard path as a delimited
+/// malformed frame instead of handing it to an owner as a fallible routing
+/// operation (#745).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawBufferedInput {
+    /// The first input already has its terminator and must use normal decoding.
+    Complete,
+    /// An incomplete input starts with a byte that cannot be routed as a VISCA
+    /// response source for this owner.
+    Malformed,
+    /// An incomplete response-shaped input with its resolved target and class.
+    Incomplete {
+        target: CameraId,
+        kind: RawIncompletePrefix,
+    },
 }
 
 /// A zero-copy, protocol-aware VISCA/Sony frame decoder.
@@ -285,54 +308,29 @@ impl ProtocolFramer {
         !self.buf.is_empty()
     }
 
-    /// Whether the first retained raw input already has its frame terminator.
+    /// Classify the first retained raw input once for both owner shells.
     ///
-    /// This is intentionally available to both owner implementations. It
-    /// examines only the first delimiter-framed raw input; later retained
-    /// frames do not affect the answer.
-    pub(crate) fn buffered_first_raw_input_is_complete(&self) -> Result<bool, Error> {
-        if self.mode != FramingMode::RawVisca {
-            return Err(Error::InvalidState(
-                "raw input completeness requires a raw VISCA framer".into(),
-            ));
-        }
-        Ok(self.buf.contains(&VISCA_TERMINATOR))
-    }
-
-    /// Borrow up to the first two bytes of the first retained raw input.
-    ///
-    /// The returned slice is zero-copy and never crosses the first `0xFF`
-    /// frame boundary. It lets an owner inspect just enough raw framing
-    /// evidence to defer correlation policy to the shared engine, without
-    /// consuming a fragment or allocating a temporary buffer.
-    pub(crate) fn buffered_first_two_raw_input_bytes(&self) -> Result<&[u8], Error> {
-        if self.mode != FramingMode::RawVisca {
-            return Err(Error::InvalidState(
-                "raw input prefix requires a raw VISCA framer".into(),
-            ));
-        }
-
-        let first_input_len = self
-            .buf
-            .iter()
-            .position(|&byte| byte == VISCA_TERMINATOR)
-            .map_or(self.buf.len(), |terminator| terminator + 1);
-        Ok(&self.buf[..first_input_len.min(2)])
-    }
-
-    /// Classify the first retained incomplete raw input once for both owner
-    /// shells, returning its source byte with the response-class evidence.
-    ///
-    /// Callers check [`Self::buffered_first_raw_input_is_complete`] first. An
-    /// empty buffer has no evidence and returns `None`.
+    /// `target_for_source` must apply the owner's same strict source-byte
+    /// routing rule used for complete responses.  A source it cannot route is
+    /// reported as [`RawBufferedInput::Malformed`], never as an error: stream
+    /// noise is discardable framing input, not a session-wide framing failure.
+    /// An empty buffer and a non-raw framer have no raw-prefix evidence.
     pub(crate) fn buffered_raw_incomplete_prefix(
         &self,
-    ) -> Result<Option<(u8, RawIncompletePrefix)>, Error> {
-        let prefix = self.buffered_first_two_raw_input_bytes()?;
-        let Some(&source) = prefix.first() else {
-            return Ok(None);
+        mut target_for_source: impl FnMut(u8) -> Option<CameraId>,
+    ) -> Option<RawBufferedInput> {
+        if self.mode != FramingMode::RawVisca || self.buf.is_empty() {
+            return None;
+        }
+        if self.buf.contains(&VISCA_TERMINATOR) {
+            return Some(RawBufferedInput::Complete);
+        }
+
+        let source = self.buf[0];
+        let Some(target) = target_for_source(source) else {
+            return Some(RawBufferedInput::Malformed);
         };
-        let kind = match prefix.get(1).copied() {
+        let kind = match self.buf.get(1).copied() {
             None => RawIncompletePrefix::SourceOnly,
             // An ACK socket nibble is a preference for assigning a free
             // socket, never evidence of who owns a named socket already.
@@ -343,7 +341,7 @@ impl ProtocolFramer {
             Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
             Some(_) => RawIncompletePrefix::Noncorrelating,
         };
-        Ok(Some((source, kind)))
+        Some(RawBufferedInput::Incomplete { target, kind })
     }
 
     /// Discard exactly the first retained raw frame, or the sole incomplete
@@ -511,37 +509,44 @@ mod tests {
     }
 
     #[test]
-    fn raw_first_input_introspection_handles_empty_buffer() {
+    fn raw_prefix_classifier_handles_empty_buffer() {
         let framer = ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
 
-        assert!(framer
-            .buffered_first_two_raw_input_bytes()
-            .unwrap()
-            .is_empty());
-        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+        assert_eq!(framer.buffered_raw_incomplete_prefix(|_| None), None);
     }
 
     #[test]
-    fn raw_first_input_introspection_reports_one_byte_fragment() {
+    fn raw_prefix_classifier_reports_one_byte_fragment() {
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         framer.push_slice(&[0x90]).unwrap();
 
-        assert_eq!(framer.buffered_first_two_raw_input_bytes().unwrap(), [0x90]);
-        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
+        assert_eq!(
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::SourceOnly,
+            })
+        );
     }
 
     #[test]
-    fn raw_first_input_introspection_reports_two_byte_fragment() {
+    fn raw_prefix_classifier_reports_two_byte_fragment() {
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         framer.push_slice(&[0x90, 0x51]).unwrap();
 
         assert_eq!(
-            framer.buffered_first_two_raw_input_bytes().unwrap(),
-            [0x90, 0x51]
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
+            })
         );
-        assert!(!framer.buffered_first_raw_input_is_complete().unwrap());
     }
 
     #[test]
@@ -568,15 +573,20 @@ mod tests {
                 ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
             framer.push_slice(bytes).unwrap();
             assert_eq!(
-                framer.buffered_raw_incomplete_prefix().unwrap(),
-                Some((0x90, expected)),
+                framer.buffered_raw_incomplete_prefix(|source| {
+                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                }),
+                Some(RawBufferedInput::Incomplete {
+                    target: CameraId::CAMERA_1,
+                    kind: expected,
+                }),
                 "bytes {bytes:02x?}",
             );
         }
     }
 
     #[test]
-    fn raw_first_input_introspection_stops_at_first_complete_frame() {
+    fn raw_prefix_classifier_preserves_complete_input_for_normal_decode() {
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         framer
@@ -584,14 +594,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            framer.buffered_first_two_raw_input_bytes().unwrap(),
-            [0x90, 0x51]
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Complete)
         );
-        assert!(framer.buffered_first_raw_input_is_complete().unwrap());
     }
 
     #[test]
-    fn raw_first_input_prefix_does_not_cross_a_one_byte_frame_boundary() {
+    fn raw_prefix_classifier_treats_one_byte_terminated_input_as_complete() {
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         framer
@@ -599,24 +610,38 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            framer.buffered_first_two_raw_input_bytes().unwrap(),
-            [0x90, VISCA_TERMINATOR]
+            framer.buffered_raw_incomplete_prefix(|source| {
+                (source == 0x90).then_some(CameraId::CAMERA_1)
+            }),
+            Some(RawBufferedInput::Complete)
         );
     }
 
     #[test]
-    fn raw_first_input_introspection_rejects_non_raw_framing() {
+    fn raw_prefix_classifier_ignores_non_raw_framing() {
         let framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::SonyEncapsulated);
 
-        assert!(matches!(
-            framer.buffered_first_two_raw_input_bytes(),
-            Err(Error::InvalidState(_))
-        ));
-        assert!(matches!(
-            framer.buffered_first_raw_input_is_complete(),
-            Err(Error::InvalidState(_))
-        ));
+        assert_eq!(framer.buffered_raw_incomplete_prefix(|_| None), None);
+    }
+
+    /// Issue #745: malformed incomplete prefixes are classified at the raw
+    /// framer boundary, where they can be discarded like their complete twins
+    /// instead of escaping as fallible owner routing input.
+    #[test]
+    fn raw_prefix_classifier_marks_invalid_response_sources_malformed() {
+        for bytes in [&[0x80, 0x50, 0xdd][..], &[0x88, 0x30, 0x02], &[0x00]] {
+            let mut framer =
+                ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
+            framer.push_slice(bytes).unwrap();
+            assert_eq!(
+                framer.buffered_raw_incomplete_prefix(|source| {
+                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                }),
+                Some(RawBufferedInput::Malformed),
+                "bytes {bytes:02x?}",
+            );
+        }
     }
 
     /// Malformed/noise raw prefixes may happen to match Sony payload types.

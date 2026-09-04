@@ -1110,13 +1110,13 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     handle.shutdown().await.unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
-/// A complete malformed stream frame retained behind the frame limit is
-/// still handled by #672's ordinary delimited-frame discard path. The raw
-/// release hook checks completeness before source attribution, so a forced
-/// boundary wake cannot turn this recoverable input into framing poison.
 #[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
+async fn assert_production_raw_invalid_prefix_is_ignored(
+    prefix: &[u8],
+    complete: bool,
+    addressing: crate::transport::builder::AddressingMode,
+    case: &str,
+) {
     let now = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(now);
     let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -1125,7 +1125,10 @@ async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
-            config: crate::transport::builder::TransportConfig::default(),
+            config: crate::transport::builder::TransportConfig {
+                addressing,
+                ..crate::transport::builder::TransportConfig::default()
+            },
             chunks,
             sent,
         },
@@ -1142,29 +1145,30 @@ async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
     let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
     assert!(matches!(
-        terminal_within_test_deadline(
-            &predecessor,
-            "the retained-malformed predecessor terminalizes",
-        )
-        .await,
+        terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
+            .await,
         RuntimeOutcome::Failed(Error::Timeout)
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());
 
     runtime.advance(Duration::from_secs(1));
-    chunk_tx
-        .send_async(vec![
-            0x90, 0x38, 0xff, // one valid frame fills the batch
-            0x80, 0x50, 0xdd, 0xff, // complete but invalid response source
-        ])
-        .await
-        .unwrap();
+    // One valid frame fills the batch. The malformed twin then remains in the
+    // production framer exactly when the raw release is due: complete input
+    // follows #672's ordinary decode path; incomplete input follows #745's
+    // explicit malformed-prefix discard path.
+    let mut chunk = vec![0x90, 0x38, 0xff];
+    chunk.extend_from_slice(prefix);
+    if complete {
+        chunk.push(0xff);
+    }
+    chunk_tx.send_async(chunk).await.unwrap();
 
     let _ = sent_rx.recv_async().await.unwrap();
     assert_eq!(
         handle.snapshot().await.unwrap().state,
-        SessionState::Running
+        SessionState::Running,
+        "{case}: malformed raw input must not poison the async owner"
     );
     chunk_tx
         .send_async(vec![0x90, 0x50, 0xb2, 0xff])
@@ -1173,7 +1177,7 @@ async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
     assert!(matches!(
         terminal_within_test_deadline(
             &successor,
-            "the successor survives the retained malformed frame",
+            "{case}: successor survives the retained malformed input",
         )
         .await,
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
@@ -1182,10 +1186,55 @@ async fn production_raw_stream_retained_complete_malformed_frame_is_ignored() {
     handle.shutdown().await.unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
-    assert!(snapshot.diagnostics.iter().any(|event| matches!(
-        event,
-        DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
-    )));
+    assert_eq!(
+        snapshot
+            .diagnostics
+            .iter()
+            .filter(|event| matches!(
+                event,
+                DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            ))
+            .count(),
+        1,
+        "{case}: exactly one malformed-frame diagnostic is required"
+    );
+}
+
+/// Complete and incomplete malformed raw input must stay paired: both owners
+/// discard it at a due release and retain a runnable session. The first two
+/// cases are the literal #745 regression pair; the final two pin a passed-
+/// through address-set broadcast and one noise byte.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn production_raw_stream_complete_and_incomplete_invalid_prefixes_are_ignored() {
+    for (prefix, complete, addressing, case) in [
+        (
+            &[0x80, 0x50, 0xdd][..],
+            true,
+            crate::transport::builder::AddressingMode::Ip,
+            "complete 80 50 dd ff",
+        ),
+        (
+            &[0x80, 0x50, 0xdd][..],
+            false,
+            crate::transport::builder::AddressingMode::Ip,
+            "incomplete 80 50 dd",
+        ),
+        (
+            &[0x88, 0x30, 0x02][..],
+            false,
+            crate::transport::builder::AddressingMode::Serial,
+            "incomplete address-set 88 30 02",
+        ),
+        (
+            &[0x00][..],
+            false,
+            crate::transport::builder::AddressingMode::Ip,
+            "incomplete stray noise",
+        ),
+    ] {
+        assert_production_raw_invalid_prefix_is_ignored(prefix, complete, addressing, case).await;
+    }
 }
 /// Regression test for a reply split across two stream reads (#560). A read
 /// that only advances a partial frame decodes to an empty batch, which must
