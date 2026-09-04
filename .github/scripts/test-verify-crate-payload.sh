@@ -20,6 +20,58 @@ cp -- "${local_payload}" "${registry_directory}/download"
     "${local_payload}" \
     "file://${fixture_directory}/registry"
 
+expected_user_agent="grafton-visca-release-verifier/2.0.0 (+https://github.com/GrantSparks/grafton-visca)"
+fake_curl_directory="${fixture_directory}/fake-curl"
+user_agent_record="${fixture_directory}/user-agent"
+mkdir -p "${fake_curl_directory}"
+cat > "${fake_curl_directory}/curl" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+user_agent=""
+output=""
+while (( $# > 0 )); do
+    case "$1" in
+        --user-agent|--output|--retry)
+            if (( $# < 2 )); then
+                exit 2
+            fi
+            if [[ "$1" == "--user-agent" ]]; then
+                user_agent="$2"
+            elif [[ "$1" == "--output" ]]; then
+                output="$2"
+            fi
+            shift 2
+            ;;
+        --fail|--location|--silent|--show-error)
+            shift
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
+
+[[ "${user_agent}" == "${TEST_EXPECTED_USER_AGENT}" ]]
+[[ -n "${output}" ]]
+printf '%s\n' "${user_agent}" > "${TEST_USER_AGENT_RECORD}"
+cp -- "${TEST_DOWNLOAD_PAYLOAD}" "${output}"
+EOF
+chmod +x "${fake_curl_directory}/curl"
+TEST_DOWNLOAD_PAYLOAD="${registry_directory}/download" \
+TEST_EXPECTED_USER_AGENT="${expected_user_agent}" \
+TEST_USER_AGENT_RECORD="${user_agent_record}" \
+PATH="${fake_curl_directory}:${PATH}" \
+"${helper}" \
+    "${crate_name}" \
+    "${crate_version}" \
+    "${local_payload}" \
+    "file://${fixture_directory}/registry"
+if [[ "$(<"${user_agent_record}")" != "${expected_user_agent}" ]]; then
+    echo "expected the payload verifier to send its descriptive User-Agent" >&2
+    exit 1
+fi
+
 printf 'different fixture crate payload\n' > "${registry_directory}/download"
 if "${helper}" \
     "${crate_name}" \
