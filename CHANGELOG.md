@@ -1442,6 +1442,15 @@ entries below retain their original wording.
 
 ### Fixed
 
+- **Default command and operation observers now cover their complete retry
+  budget** (#749). The shared observer rule used by inquiries now also governs
+  ordinary commands and operation handles: the default wait is the larger of
+  the governing completion/reply deadline and `retry.total_budget`. A lost ACK,
+  `CommandBufferFull`, or a sequence-correlated Sony completion retry therefore
+  cannot physically replay a command after the default observer returned
+  `Timeout`. Explicit `*_with_timeout` calls and `detach` retain their existing
+  observer-only semantics; neither cancels the engine entry nor sends STOP.
+
 - **Aligned typed value domains with advertised profile ranges and metadata**
   (#754). `IrisLevel` now accepts the built-in `0x00..=0x1E` wire union and
   `GainLevel` the full `0x00..=0x0F` nibble domain; profile admission still
