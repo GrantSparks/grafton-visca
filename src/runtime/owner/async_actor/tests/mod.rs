@@ -191,20 +191,22 @@ impl Runtime for ManualRuntime {
     #[cfg(feature = "transport-serial-tokio")]
     type SerialTransport = std::convert::Infallible;
 
-    async fn connect_tcp(
-        &self,
-        _addr: &str,
+    #[allow(clippy::manual_async_fn)]
+    fn connect_tcp<'a>(
+        &'a self,
+        _addr: &'a str,
         _cfg: crate::transport::builder::TransportConfig,
-    ) -> Result<Self::TcpTransport, Error> {
-        Err(Error::NotSupported)
+    ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
+        async { Err(Error::NotSupported) }
     }
 
-    async fn connect_udp(
-        &self,
-        _addr: &str,
+    #[allow(clippy::manual_async_fn)]
+    fn connect_udp<'a>(
+        &'a self,
+        _addr: &'a str,
         _cfg: crate::transport::builder::TransportConfig,
-    ) -> Result<Self::UdpTransport, Error> {
-        Err(Error::NotSupported)
+    ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
+        async { Err(Error::NotSupported) }
     }
 
     fn now(&self) -> Instant {

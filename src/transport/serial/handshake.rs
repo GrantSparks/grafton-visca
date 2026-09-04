@@ -24,7 +24,7 @@ use tracing::warn;
 use tracing::{debug, trace};
 
 #[cfg(feature = "transport-serial-tokio")]
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 #[cfg(any(
     feature = "transport-serial-tokio",
@@ -269,110 +269,124 @@ pub mod async_handshake {
     /// Send I/F Clear command to reset all devices on the bus.
     ///
     /// This is executor-driven and runtime-agnostic.
-    pub async fn if_clear_async<E, S>(
-        exec: &E,
-        io: &mut S,
+    #[allow(clippy::manual_async_fn)]
+    pub fn if_clear_async<'a, E, S>(
+        exec: &'a E,
+        io: &'a mut S,
         configured_write_timeout: Duration,
-    ) -> Result<()>
+    ) -> impl Future<Output = Result<()>> + Send + 'a
     where
         E: Executor,
         S: AsyncWriteExt + Send + ?Sized,
     {
-        debug!("Sending I/F Clear command");
-        let cmd = InterfaceClearCommand::new();
-        let mut buffer = [0u8; 16];
+        async move {
+            debug!("Sending I/F Clear command");
+            let cmd = InterfaceClearCommand::new();
+            let mut buffer = [0u8; 16];
 
-        // InterfaceClearCommand is const-constructed and guaranteed to encode
-        let len = cmd
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
+            // InterfaceClearCommand is const-constructed and guaranteed to encode
+            let len = cmd
+                .write_into(CameraId::CAMERA_1, &mut buffer)
+                .map_err(|e| {
+                    Error::TransportError(format!("Failed to encode IF Clear: {e}").into())
+                })?;
 
-        let attempt_started = exec.now();
-        write_all_within_attempt(
-            exec,
-            io,
-            &buffer[..len],
-            attempt_started,
-            IF_CLEAR_OPERATION_TIMEOUT,
-            configured_write_timeout,
-        )
-        .await?;
-
-        // Keep the required settle delay inside the same bounded startup
-        // operation rather than allowing a stalled write to consume it all.
-        let remaining =
-            remaining_attempt_budget(exec, attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?;
-        if remaining < IF_CLEAR_SETTLE_DELAY {
-            return Err(Error::Timeout);
-        }
-        exec.timeout(remaining, exec.sleep(IF_CLEAR_SETTLE_DELAY))
+            let attempt_started = exec.now();
+            write_all_within_attempt(
+                exec,
+                io,
+                &buffer[..len],
+                attempt_started,
+                IF_CLEAR_OPERATION_TIMEOUT,
+                configured_write_timeout,
+            )
             .await?;
-        Ok(())
+
+            // Keep the required settle delay inside the same bounded startup
+            // operation rather than allowing a stalled write to consume it all.
+            let remaining =
+                remaining_attempt_budget(exec, attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?;
+            if remaining < IF_CLEAR_SETTLE_DELAY {
+                return Err(Error::Timeout);
+            }
+            exec.timeout(remaining, exec.sleep(IF_CLEAR_SETTLE_DELAY))
+                .await?;
+            Ok(())
+        }
     }
 
     /// Send Address Set command to assign addresses to devices.
     ///
     /// Returns the number of cameras detected.
     /// This is executor-driven and runtime-agnostic.
-    pub async fn address_set_async<E, S>(
-        exec: &E,
-        io: &mut S,
+    #[allow(clippy::manual_async_fn)]
+    pub fn address_set_async<'a, E, S>(
+        exec: &'a E,
+        io: &'a mut S,
         timeout: Duration,
         configured_write_timeout: Duration,
         buffer_config: BufferConfig,
-    ) -> Result<u8>
+    ) -> impl Future<Output = Result<u8>> + Send + 'a
     where
         E: Executor,
         S: AsyncReadExt + AsyncWriteExt + Send + ?Sized,
     {
-        let max_attempts = 3;
+        async move {
+            let max_attempts = 3;
 
-        for attempt in 0..max_attempts {
-            debug!("Address Set attempt {}", attempt + 1);
-            let attempt_started = exec.now();
-            let cmd = AddressSetCommand::new();
-            let mut buffer = [0u8; 16];
+            for attempt in 0..max_attempts {
+                debug!("Address Set attempt {}", attempt + 1);
+                let attempt_started = exec.now();
+                let cmd = AddressSetCommand::new();
+                let mut buffer = [0u8; 16];
 
-            // AddressSetCommand is const-constructed and guaranteed to encode
-            let len = cmd
-                .write_into(CameraId::CAMERA_1, &mut buffer)
-                .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode Address Set: {e}").into())
-                })?;
+                // AddressSetCommand is const-constructed and guaranteed to encode
+                let len = cmd
+                    .write_into(CameraId::CAMERA_1, &mut buffer)
+                    .map_err(|e| {
+                        Error::TransportError(format!("Failed to encode Address Set: {e}").into())
+                    })?;
 
-            // A cancelled async write has an unknowable stream position, so
-            // preserve its failure. A receive-side timeout or a resynchronized
-            // oversized noise frame leaves the stream usable for another
-            // Address Set attempt.
-            write_all_within_attempt(
-                exec,
-                io,
-                &buffer[..len],
-                attempt_started,
-                timeout,
-                configured_write_timeout,
-            )
-            .await?;
+                // A cancelled async write has an unknowable stream position, so
+                // preserve its failure. A receive-side timeout or a resynchronized
+                // oversized noise frame leaves the stream usable for another
+                // Address Set attempt.
+                write_all_within_attempt(
+                    exec,
+                    io,
+                    &buffer[..len],
+                    attempt_started,
+                    timeout,
+                    configured_write_timeout,
+                )
+                .await?;
 
-            match recv_address_set_response_async(exec, io, attempt_started, timeout, buffer_config)
+                match recv_address_set_response_async(
+                    exec,
+                    io,
+                    attempt_started,
+                    timeout,
+                    buffer_config,
+                )
                 .await
-            {
-                Ok(camera_count) => {
-                    debug!("Address Set successful, found {camera_count} cameras");
-                    return Ok(camera_count);
-                }
-                Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
-                    if attempt < max_attempts - 1 =>
                 {
-                    warn!(?error, "Address Set attempt failed, retrying...");
-                    exec.sleep(ADDRESS_SET_RETRY_DELAY).await;
-                    continue;
+                    Ok(camera_count) => {
+                        debug!("Address Set successful, found {camera_count} cameras");
+                        return Ok(camera_count);
+                    }
+                    Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
+                        if attempt < max_attempts - 1 =>
+                    {
+                        warn!(?error, "Address Set attempt failed, retrying...");
+                        exec.sleep(ADDRESS_SET_RETRY_DELAY).await;
+                        continue;
+                    }
+                    Err(e) => return Err(e),
                 }
-                Err(e) => return Err(e),
             }
-        }
 
-        Err(Error::MaxRetriesExceeded)
+            Err(Error::MaxRetriesExceeded)
+        }
     }
 
     /// Receive and parse Address Set response using executor-driven timeout.
