@@ -210,8 +210,10 @@ legacy PT30X SDI/NDI G2/Gen-2 profile explicitly listed by PTZOptics; it is not
 a generic 30X grant and does not cover Move, Link, or newer 30X products. The
 R14 portal describes its list as the full G2/G3 VISCA list, which establishes
 the G3 inquiry evidence; no profile is admitted by group membership alone.
-Runtime NR discovery facts remain broader product metadata and do not grant
-typed wire access. Aggregate aliases remain absent (`HasNoiseReduction`,
+Runtime NR discovery facts and both inquiry/control typed markers agree for
+every built-in profile. A model without source-backed shared NR command-family
+evidence reports the conservative false metadata rather than advertising a
+feature that typed requests must reject. Aggregate aliases remain absent (`HasNoiseReduction`,
 aggregate `TypedSupportSurface::NoiseReduction` and its `noise-reduction` serde
 tag, `noise_reduction_level`, `noise_reduction_mode`, and aggregate
 modes/speeds/strength mappings); raw/custom requests remain the extension path
@@ -244,8 +246,11 @@ The inventory and marker are equivalent for built-ins. Custom runtime profiles
 must still provide both before a dynamic call can encode.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
-grant. `HasIrisControl` covers standard iris reset/up/down/direct control and
-the `09 04 4B` position inquiry. It is enabled for the same eight built-ins:
+grant. `IrisLevel` covers the built-in wire-domain union (`0x00..=0x1E`) and
+`GainLevel` covers the VISCA nibble domain (`0x00..=0x0F`); profile ranges make
+the model-specific admission decision for either value. `HasIrisControl`
+covers standard iris reset/up/down/direct control and the `09 04 4B` position
+inquiry. It is enabled for the same eight built-ins:
 the three PTZOptics profiles, BRC-H900, EVI-H100, BRC-300, Nearus BRC-300, and
 Generic VISCA. R10/R14, R11, and R12 establish the model-specific rows; the
 EVI-H100, Nearus, and generic grants follow the compatibility decisions above.

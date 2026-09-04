@@ -3001,9 +3001,9 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: false,
                         hue_range: None,
-                        noise_reduction: true,
-                        nr_2d: true,
-                        nr_3d: true,
+                        noise_reduction: false,
+                        nr_2d: false,
+                        nr_3d: false,
                         luminance: false,
                         picture_effect: false,
                         luminance_range: None,
@@ -3060,6 +3060,7 @@ macro_rules! define_builtin_profiles {
                         ("exposure_mode", "The BRC-H900 command list R11 lines 706-717 and 1003 documents the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri commands and `09 04 39` inquiry. Bright mode is not listed and is therefore absent from this profile's inventory."),
                         ("iris", "The BRC-H900 command list R11 lines 706-717 and 1012 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
                         ("brightness", "The BRC-H900 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
+                        ("noise_reduction", "The BRC-H900 model command list R11 does not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family, so both discovery metadata and typed surfaces remain unavailable."),
                         ("picture_effect", "The BRC-H900 model command list does not establish picture-effect control or inquiry; leave the typed surface unavailable."),
                     ],
                 }
@@ -3173,7 +3174,7 @@ macro_rules! define_builtin_profiles {
                         mirror: true,
                         hue: false,
                         hue_range: None,
-                        noise_reduction: true,
+                        noise_reduction: false,
                         nr_2d: false,
                         nr_3d: false,
                         luminance: false,
@@ -3224,6 +3225,7 @@ macro_rules! define_builtin_profiles {
                         ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("exposure_mode", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for the standard `04 39` family pending a direct line-item audit of the model authority R8; do not remove it without a contradictory model-specific citation."),
                         ("iris", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for standard iris reset/up/down, direct `04 4B`, and the position inquiry pending a direct R8 line-item audit. The distinct `09 04 2B` status inquiry remains unavailable."),
+                        ("noise_reduction", "The EVI-H100 sources do not establish the shared `04 50`/`04 53`/`04 54` noise-reduction family, so both discovery metadata and typed surfaces remain unavailable."),
                     ],
                 }
 
@@ -3504,7 +3506,7 @@ macro_rules! define_builtin_profiles {
                         base_support: true,
                         contrast_range: None,
                         sharpness_range: None,
-                        saturation_range: Some(range!(u8, 0, 15)),
+                        saturation_range: Some(range!(u8, 0, 14)),
                         flip: false,
                         mirror: false,
                         hue: false,
@@ -3555,6 +3557,7 @@ macro_rules! define_builtin_profiles {
                         ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
                         ("exposure_mode", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard shared `04 39` family documented by Sony R12 while model-specific vendor exposure extensions remain withheld."),
                         ("iris", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard iris `04 0B`/`04 4B` controls and `09 04 4B` position inquiry documented by Sony R12. The distinct status inquiry remains unavailable."),
+                        ("saturation", "The standard saturation wire table records the documented 0x00..=0x0E range; the BRC-300 compatibility surface does not advertise the syntactically unused 0x0F value."),
                     ],
                 }
 

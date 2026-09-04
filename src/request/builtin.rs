@@ -276,24 +276,40 @@ fn validate_pan_tilt_position_speed(
 
 /// Lowers one coarse position speed through the profile-owned position grammar.
 ///
-/// Standard VISCA keeps [`SpeedLevel`]'s asymmetric pan/tilt mapping. Sony
-/// BRC-300 position frames carry one `VV` byte, so both public speed wrappers
-/// deliberately receive that one numeric value before the paired-speed
-/// validator runs.
+/// Standard VISCA keeps [`SpeedLevel`]'s asymmetric pan/tilt mapping. The
+/// profile still owns the usable maximum for each axis, so a coarse level such
+/// as [`SpeedLevel::Fastest`] means that profile's fastest valid speed rather
+/// than an unconditional `24`/`20` pair. Sony BRC-300 position frames carry
+/// one `VV` byte, so both public speed wrappers deliberately receive one value
+/// from the intersection of the profile's pan and tilt ranges before the
+/// paired-speed validator runs.
 fn pan_tilt_position_speeds_from_level(
     speed: SpeedLevel,
     profile: &crate::ProfileSpec,
 ) -> Result<(PanSpeed, TiltSpeed), Error> {
-    let pan_speed = PanSpeed::from(speed);
-    let tilt_speed = if profile
+    let capabilities = profile.capabilities();
+    let brc300_framing = profile
         .pan_tilt_coordinates()
-        .is_some_and(|conversion| conversion.wire_codec() == PanTiltWireCodec::SonyBrc300)
-    {
-        TiltSpeed::new(pan_speed.value())?
+        .is_some_and(|conversion| conversion.wire_codec() == PanTiltWireCodec::SonyBrc300);
+
+    if brc300_framing {
+        let minimum = (*capabilities.pan_speed.start()).max(*capabilities.tilt_speed.start());
+        let maximum = (*capabilities.pan_speed.end()).min(*capabilities.tilt_speed.end());
+        let speed = speed.to_pan_speed().clamp(minimum, maximum);
+        let pan_speed = PanSpeed::new(speed)?;
+        let tilt_speed = TiltSpeed::new(speed)?;
+        Ok((pan_speed, tilt_speed))
     } else {
-        TiltSpeed::from(speed)
-    };
-    Ok((pan_speed, tilt_speed))
+        let pan_speed = PanSpeed::new(speed.to_pan_speed().clamp(
+            *capabilities.pan_speed.start(),
+            *capabilities.pan_speed.end(),
+        ))?;
+        let tilt_speed = TiltSpeed::new(speed.to_tilt_speed().clamp(
+            *capabilities.tilt_speed.start(),
+            *capabilities.tilt_speed.end(),
+        ))?;
+        Ok((pan_speed, tilt_speed))
+    }
 }
 
 fn validate_pan_tilt_position(
@@ -4801,7 +4817,14 @@ mod tests {
     #[test]
     fn profile_aware_speed_level_lowering_keeps_standard_pairs_and_mirrors_brc300() {
         let standard = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
+        let thirty_x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
+        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
         let brc300 = ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile");
+        let nearus = ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile");
+        let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
 
         let standard_absolute = PanTiltAbsolute::for_profile_speed_level(
             Degrees(10.0),
@@ -4846,6 +4869,52 @@ mod tests {
                 0x81, 0x01, 0x06, 0x03, 0x18, 0x00, 0x0F, 0x0D, 0x0B, 0x07, 0x00, 0x00, 0x0C, 0x03,
                 0x00, 0xFF,
             ]
+        );
+
+        for profile in [
+            &standard, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
+        ] {
+            PanTiltAbsolute::for_profile_speed_level(
+                Degrees(0.0),
+                Degrees(0.0),
+                SpeedLevel::Fastest,
+                profile,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{} must lower SpeedLevel::Fastest to a valid absolute request: {error}",
+                    profile.capabilities().model_name
+                )
+            });
+            PanTiltRelative::for_profile_speed_level(
+                Degrees(0.0),
+                Degrees(0.0),
+                SpeedLevel::Fastest,
+                profile,
+            )
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{} must lower SpeedLevel::Fastest to a valid relative request: {error}",
+                    profile.capabilities().model_name
+                )
+            });
+        }
+
+        assert_eq!(
+            pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &evi)
+                .expect("EVI-H100 fastest speed"),
+            (
+                PanSpeed::new(18).expect("EVI pan maximum"),
+                TiltSpeed::new(18).expect("EVI tilt maximum"),
+            )
+        );
+        assert_eq!(
+            pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &nearus)
+                .expect("Nearus fastest speed"),
+            (
+                PanSpeed::new(18).expect("Nearus pan maximum"),
+                TiltSpeed::new(17).expect("Nearus tilt maximum"),
+            )
         );
     }
 
@@ -6071,7 +6140,7 @@ mod tests {
     }
 
     #[test]
-    fn noise_reduction_controls_require_control_support_before_request_encoding() {
+    fn noise_reduction_metadata_requires_matching_inquiry_and_control_support() {
         let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let coordinates = source
             .pan_tilt_coordinates()
@@ -6083,7 +6152,7 @@ mod tests {
             .typed_support
             .without(TypedSupportSurface::NoiseReduction2DControl)
             .without(TypedSupportSurface::NoiseReduction3DControl);
-        let profile = ProfileSpec::builder(capabilities)
+        let error = ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(
                 coordinates.coordinate_system(),
                 coordinates.pan_degrees_to_units(),
@@ -6099,77 +6168,16 @@ mod tests {
             .preset_recall_axes(source.preset_recall_axes())
             .position_inquiries(source.position_inquiries())
             .build()
-            .expect("inquiry-only NR runtime profile");
-
-        assert!(profile
-            .capabilities()
-            .supports_typed(TypedSupportSurface::NoiseReduction2D));
-        assert!(profile
-            .capabilities()
-            .supports_typed(TypedSupportSurface::NoiseReduction3D));
-
-        reset_request_write_count();
-        for command in [
-            crate::command::NoiseReduction2DModeCommand::new(
-                crate::command::NoiseReduction2DMode::Manual,
-            ),
-            crate::command::NoiseReduction2DModeCommand::new(
-                crate::command::NoiseReduction2DMode::Auto,
-            ),
-        ] {
-            let error = prepare_builtin_command(
-                &command,
-                CameraId::CAMERA_1,
-                &profile,
-                OperationalTuning::new(),
-            )
-            .expect_err("the 2D control surface must reject before encoding");
-            assert!(matches!(
-                error,
-                Error::FeatureNotSupported {
-                    feature: "2D noise reduction control"
-                }
-            ));
-        }
-        for command in [
-            crate::command::NoiseReduction2D::off(),
-            crate::command::NoiseReduction2D::with_level(crate::types::NoiseReduction2DLevel::MAX),
-        ] {
-            assert!(matches!(
-                prepare_builtin_command(
-                    &command,
-                    CameraId::CAMERA_1,
-                    &profile,
-                    OperationalTuning::new(),
-                ),
-                Err(Error::FeatureNotSupported {
-                    feature: "2D noise reduction control"
-                })
-            ));
-        }
-        for command in [
-            crate::command::NoiseReduction3D::off(),
-            crate::command::NoiseReduction3D::with_level(crate::types::NoiseReduction3DLevel::MAX),
-        ] {
-            assert!(matches!(
-                prepare_builtin_command(
-                    &command,
-                    CameraId::CAMERA_1,
-                    &profile,
-                    OperationalTuning::new(),
-                ),
-                Err(Error::FeatureNotSupported {
-                    feature: "3D noise reduction control"
-                })
-            ));
-        }
-        assert_eq!(request_write_count(), 0);
+            .expect_err("inquiry-only NR runtime profile must be rejected");
+        assert!(matches!(error, Error::InvalidRequest(message)
+            if message.contains("noise-reduction metadata and typed support must agree")));
     }
 
     #[test]
     fn profile_validation_limits_typed_iris_to_supported_profiles() {
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
         let iris = IrisDirect::new(IrisLevel::new(4).unwrap());
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
@@ -6183,6 +6191,13 @@ mod tests {
             &iris,
             CameraId::CAMERA_1,
             &ptz,
+            OperationalTuning::new(),
+        )
+        .is_ok());
+        assert!(prepare_builtin_operation::<completion::Targeted, _>(
+            &IrisDirect::new(IrisLevel::new(0x1E).unwrap()),
+            CameraId::CAMERA_1,
+            &h900,
             OperationalTuning::new(),
         )
         .is_ok());
@@ -6225,6 +6240,29 @@ mod tests {
             OperationalTuning::new(),
         )
         .is_ok());
+    }
+
+    #[test]
+    fn high_gain_values_are_admitted_by_profiles_that_advertise_them() {
+        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
+        let gain = crate::command::Gain::SetValue(
+            crate::types::GainLevel::new(0x0C).expect("gain nibble must be representable"),
+        );
+
+        for profile in [&fr7, &h900] {
+            assert!(
+                prepare_builtin_command(
+                    &gain,
+                    CameraId::CAMERA_1,
+                    profile,
+                    OperationalTuning::new(),
+                )
+                .is_ok(),
+                "{} advertises 0x0C gain",
+                profile.capabilities().model_name,
+            );
+        }
     }
 
     #[test]

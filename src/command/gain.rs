@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_gain_command_set_value() {
-        let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07];
+        let test_values = vec![0x00, 0x01, 0x03, 0x05, 0x07, 0x0C, 0x0F];
         for value in test_values {
             let gain =
                 GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_gain_valid_values() {
-        for value in 0x00..=0x07 {
+        for value in 0x00..=0x0F {
             let gain =
                 GainLevel::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
             let _cmd = Gain::SetValue(gain);

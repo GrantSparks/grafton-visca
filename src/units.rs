@@ -370,7 +370,7 @@ impl TryFrom<Percentage<f32>> for PanSpeed {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "pan speed percentage")?;
-        let value = (percentage / 100.0 * 24.0) as u8;
+        let value = (percentage / 100.0 * f32::from(PanSpeed::MAX.value())).round() as u8;
         PanSpeed::new(value)
     }
 }
@@ -380,7 +380,7 @@ impl TryFrom<Percentage<f32>> for TiltSpeed {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "tilt speed percentage")?;
-        let value = (percentage / 100.0 * f32::from(TiltSpeed::MAX.value())) as u8;
+        let value = (percentage / 100.0 * f32::from(TiltSpeed::MAX.value())).round() as u8;
         TiltSpeed::new(value)
     }
 }
@@ -402,7 +402,8 @@ impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "gain percentage")?;
-        let value = (percentage / 100.0 * 7.0).round() as u8;
+        let value =
+            (percentage / 100.0 * f32::from(crate::types::GainLevel::MAX.value())).round() as u8;
         crate::types::GainLevel::new(value)
     }
 }
@@ -418,7 +419,8 @@ impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "sharpness percentage")?;
-        let value = (percentage / 100.0 * 7.0).round() as u8;
+        let value = (percentage / 100.0 * f32::from(crate::types::SharpnessLevel::MAX.value()))
+            .round() as u8;
         crate::types::SharpnessLevel::new(value)
     }
 }
@@ -434,7 +436,8 @@ impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "brightness percentage")?;
-        let value = (percentage / 100.0 * 0x11 as f32).round() as u16;
+        let value = (percentage / 100.0 * f32::from(crate::types::BrightnessLevel::MAX.value()))
+            .round() as u16;
         crate::types::BrightnessLevel::new(value)
     }
 }
@@ -450,7 +453,8 @@ impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "contrast percentage")?;
-        let value = (percentage / 100.0 * 14.0).round() as u8;
+        let value = (percentage / 100.0 * f32::from(crate::types::ContrastLevel::MAX.value()))
+            .round() as u8;
         crate::types::ContrastLevel::new(value)
     }
 }
@@ -466,7 +470,8 @@ impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "saturation percentage")?;
-        let value = (percentage / 100.0 * 0x0E as f32).round() as u8;
+        let value = (percentage / 100.0 * f32::from(crate::types::SaturationLevel::MAX.value()))
+            .round() as u8;
         crate::types::SaturationLevel::new(value)
     }
 }
@@ -482,7 +487,8 @@ impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
 
     fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
         let percentage = validate_percentage(percentage.0, "hue percentage")?;
-        let value = (percentage / 100.0 * 0x0E as f32).round() as u8;
+        let value =
+            (percentage / 100.0 * f32::from(crate::types::HueLevel::MAX.value())).round() as u8;
         crate::types::HueLevel::new(value)
     }
 }
@@ -533,14 +539,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn tilt_speed_percentage_uses_the_syntactic_union_maximum() {
-        let speed = TiltSpeed::try_from(Percentage::new(100.0)).unwrap();
-        assert_eq!(speed.value(), 0x18);
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn percentage_conversions_reject_invalid_values_and_iris_uses_its_declared_maximum() {
+    fn percentage_conversions_reject_invalid_values_and_reach_each_declared_maximum() {
         for invalid in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -0.1, 100.1] {
             assert!(
                 IrisLevel::try_from(Percentage::new(invalid)).is_err(),
@@ -548,7 +547,60 @@ mod tests {
             );
         }
 
-        let iris = IrisLevel::try_from(Percentage::new(100.0)).unwrap();
-        assert_eq!(iris, IrisLevel::MAX);
+        let percentage = Percentage::new(100.0);
+        let conversions = [
+            (
+                "iris",
+                IrisLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(IrisLevel::MAX.value()),
+            ),
+            (
+                "pan speed",
+                PanSpeed::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(PanSpeed::MAX.value()),
+            ),
+            (
+                "tilt speed",
+                TiltSpeed::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(TiltSpeed::MAX.value()),
+            ),
+            (
+                "gain",
+                crate::types::GainLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(crate::types::GainLevel::MAX.value()),
+            ),
+            (
+                "sharpness",
+                crate::types::SharpnessLevel::try_from(percentage)
+                    .map(|value| u16::from(value.value())),
+                u16::from(crate::types::SharpnessLevel::MAX.value()),
+            ),
+            (
+                "brightness",
+                crate::types::BrightnessLevel::try_from(percentage).map(|value| value.value()),
+                crate::types::BrightnessLevel::MAX.value(),
+            ),
+            (
+                "contrast",
+                crate::types::ContrastLevel::try_from(percentage)
+                    .map(|value| u16::from(value.value())),
+                u16::from(crate::types::ContrastLevel::MAX.value()),
+            ),
+            (
+                "saturation",
+                crate::types::SaturationLevel::try_from(percentage)
+                    .map(|value| u16::from(value.value())),
+                u16::from(crate::types::SaturationLevel::MAX.value()),
+            ),
+            (
+                "hue",
+                crate::types::HueLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(crate::types::HueLevel::MAX.value()),
+            ),
+        ];
+
+        for (name, actual, maximum) in conversions {
+            assert_eq!(actual.unwrap(), maximum, "{name}");
+        }
     }
 }

@@ -5,13 +5,18 @@ use std::{borrow::Cow, fmt};
 use crate::{error::Error, units::Percentage, ViscaValue};
 
 /// Gain level value for direct gain control.
+///
+/// This is the syntactic VISCA nibble domain. Individual camera profiles
+/// retain their documented gain range and reject values outside it during
+/// request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07]",
+    min = "0x00",
+    max = "0x0F",
     display_format = "hex",
     display_prefix = "Gain Level"
 )]
@@ -63,13 +68,18 @@ pub trait IntoIrisLevel {
 }
 
 /// Iris level for direct iris control.
+///
+/// This covers the union of the standard built-in profiles' wire domains.
+/// Individual camera profiles retain their documented iris range and reject
+/// values outside it during request preparation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 #[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C]",
+    min = "0x00",
+    max = "0x1E",
     display_format = "hex",
     display_prefix = "Iris"
 )]
@@ -1096,11 +1106,11 @@ mod tests {
     #[test]
     fn test_gain_value() {
         assert!(GainLevel::new(0x00).is_ok());
-        assert!(GainLevel::new(0x07).is_ok());
-        assert!(GainLevel::new(0x08).is_err());
+        assert!(GainLevel::new(0x0F).is_ok());
+        assert!(GainLevel::new(0x10).is_err());
 
         assert_eq!(GainLevel::MIN.value(), 0x00);
-        assert_eq!(GainLevel::MAX.value(), 0x07);
+        assert_eq!(GainLevel::MAX.value(), 0x0F);
     }
 
     #[test]
