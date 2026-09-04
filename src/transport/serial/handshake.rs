@@ -170,7 +170,7 @@ fn process_address_set_chunk(
 // Async handshake functions (feature-gated for tokio-serial)
 #[cfg(feature = "transport-serial-tokio")]
 pub mod async_handshake {
-    use std::time::Instant;
+    use std::{pin::Pin, time::Instant};
 
     use super::*;
     use crate::{
@@ -185,6 +185,28 @@ pub mod async_handshake {
     const IF_CLEAR_SETTLE_DELAY: Duration = Duration::from_millis(100);
     const ADDRESS_SET_RETRY_DELAY: Duration = Duration::from_millis(100);
     const ADDRESS_SET_IDLE_PAUSE: Duration = Duration::from_millis(10);
+
+    type SendFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+    /// Erase the executor's RPITIT future before it enters another generic
+    /// async state machine. Older compilers cannot always prove the equivalent
+    /// higher-ranked lifetime bound through nested opaque futures.
+    fn timeout<'a, E, F, T>(exec: &'a E, duration: Duration, future: F) -> SendFuture<'a, Result<T>>
+    where
+        E: Executor,
+        F: Future<Output = T> + Send + 'a,
+        T: Send + 'a,
+    {
+        Box::pin(exec.timeout(duration, future))
+    }
+
+    /// Erase the executor's sleep future at the same private handshake seam.
+    fn sleep<E>(exec: &E, duration: Duration) -> SendFuture<'_, ()>
+    where
+        E: Executor,
+    {
+        Box::pin(exec.sleep(duration))
+    }
 
     /// Return the unspent portion of one fixed attempt budget.
     ///
@@ -227,8 +249,12 @@ pub mod async_handshake {
         S: AsyncWriteExt + Send + ?Sized,
     {
         let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        exec.timeout(configured_write_timeout.min(remaining), io.write_all(bytes))
-            .await??;
+        timeout(
+            exec,
+            configured_write_timeout.min(remaining),
+            io.write_all(bytes),
+        )
+        .await??;
         Ok(())
     }
 
@@ -247,7 +273,7 @@ pub mod async_handshake {
         E: Executor,
     {
         let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        exec.sleep(ADDRESS_SET_IDLE_PAUSE.min(remaining)).await;
+        sleep(exec, ADDRESS_SET_IDLE_PAUSE.min(remaining)).await;
         Ok(())
     }
 
@@ -309,8 +335,7 @@ pub mod async_handshake {
             if remaining < IF_CLEAR_SETTLE_DELAY {
                 return Err(Error::Timeout);
             }
-            exec.timeout(remaining, exec.sleep(IF_CLEAR_SETTLE_DELAY))
-                .await?;
+            timeout(exec, remaining, sleep(exec, IF_CLEAR_SETTLE_DELAY)).await?;
             Ok(())
         }
     }
@@ -378,7 +403,7 @@ pub mod async_handshake {
                         if attempt < max_attempts - 1 =>
                     {
                         warn!(?error, "Address Set attempt failed, retrying...");
-                        exec.sleep(ADDRESS_SET_RETRY_DELAY).await;
+                        sleep(exec, ADDRESS_SET_RETRY_DELAY).await;
                         continue;
                     }
                     Err(e) => return Err(e),
@@ -421,7 +446,7 @@ pub mod async_handshake {
                 Err(Error::Timeout) => break,
                 Err(error) => return Err(error),
             };
-            match exec.timeout(remaining, stream.read(&mut temp_buf)).await {
+            match timeout(exec, remaining, stream.read(&mut temp_buf)).await {
                 Ok(Ok(n)) if n > 0 => {
                     trace!("Address Set response: {:02X?}", &temp_buf[..n]);
 
@@ -482,7 +507,10 @@ pub mod async_handshake {
         struct PendingRead;
 
         impl AsyncReadExt for PendingRead {
-            fn read(&mut self, _buf: &mut [u8]) -> impl Future<Output = Result<usize>> + Send {
+            fn read<'a>(
+                &'a mut self,
+                _buf: &'a mut [u8],
+            ) -> impl Future<Output = Result<usize>> + Send + 'a {
                 std::future::pending()
             }
         }
@@ -508,7 +536,7 @@ pub mod async_handshake {
         }
 
         impl AsyncReadExt for DelayedRead {
-            async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize> {
                 let Some((delay, chunk)) = self.chunks.pop_front() else {
                     return std::future::pending().await;
                 };

@@ -49,14 +49,14 @@ impl TokioSerialAdapter {
 }
 
 impl AsyncReadExtTrait for TokioSerialAdapter {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         use tokio::io::AsyncReadExt;
         Ok(self.stream.read(buf).await?)
     }
 }
 
 impl AsyncWriteExtTrait for TokioSerialAdapter {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         use tokio::io::AsyncWriteExt;
         Ok(self.stream.write_all(buf).await?)
     }
@@ -256,7 +256,7 @@ mod tests {
     }
 
     impl AsyncReadExtTrait for TranscriptIo {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize> {
             self.read_buffer_sizes.push(buf.len());
             let bytes = self.reads.pop_front().expect("unexpected serial read");
             buf[..bytes.len()].copy_from_slice(&bytes);
@@ -265,7 +265,7 @@ mod tests {
     }
 
     impl AsyncWriteExtTrait for TranscriptIo {
-        async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+        async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
             self.writes.push(buf.to_vec());
             Ok(())
         }
@@ -351,13 +351,13 @@ mod tests {
     struct PendingWriteIo;
 
     impl AsyncReadExtTrait for PendingWriteIo {
-        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+        async fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> Result<usize> {
             std::future::pending().await
         }
     }
 
     impl AsyncWriteExtTrait for PendingWriteIo {
-        async fn write_all(&mut self, _buf: &[u8]) -> Result<()> {
+        async fn write_all<'a>(&'a mut self, _buf: &'a [u8]) -> Result<()> {
             std::future::pending().await
         }
 

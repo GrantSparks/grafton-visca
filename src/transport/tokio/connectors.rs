@@ -38,7 +38,7 @@ impl<R: AsyncReadExt + Unpin> TokioBufferedReader<R> {
 }
 
 impl<R: AsyncReadExt + Unpin + Send> AsyncReadExtTrait for TokioBufferedReader<R> {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         Ok(self.inner.read(buf).await?)
     }
 }
@@ -56,7 +56,7 @@ impl<W> TokioWriter<W> {
 }
 
 impl<W: AsyncWriteExt + Unpin + Send> AsyncWriteExtTrait for TokioWriter<W> {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         Ok(self.inner.write_all(buf).await?)
     }
 
@@ -73,13 +73,13 @@ pub struct TokioTcpStream {
 }
 
 impl AsyncReadExtTrait for TokioTcpStream {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         self.reader.read(buf).await
     }
 }
 
 impl AsyncWriteExtTrait for TokioTcpStream {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         self.writer.write_all(buf).await
     }
 

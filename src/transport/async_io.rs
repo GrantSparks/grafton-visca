@@ -16,7 +16,13 @@ pub trait AsyncReadExt {
     /// Read data into a buffer, returning the number of bytes read.
     ///
     /// Returns 0 when the stream is closed.
-    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
+    /// The returned future borrows both the transport and buffer for the same
+    /// operation lifetime, stated explicitly so callers do not need to recover
+    /// that relationship through an opaque future type.
+    fn read<'a>(
+        &'a mut self,
+        buf: &'a mut [u8],
+    ) -> impl Future<Output = Result<usize, Error>> + Send + 'a;
 }
 
 /// Trait abstracting async write operations across different runtimes.
@@ -27,10 +33,15 @@ pub trait AsyncWriteExt {
     /// Write all data in the buffer.
     ///
     /// This ensures all bytes are written before returning.
-    fn write_all(&mut self, buf: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
+    /// The returned future borrows both the transport and buffer for the same
+    /// explicitly named operation lifetime.
+    fn write_all<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+    ) -> impl Future<Output = Result<(), Error>> + Send + 'a;
 
     /// Flush any buffered data to the underlying transport.
-    fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + Send;
+    fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + Send + '_;
 }
 
 /// Trait abstracting async datagram (UDP) operations across different runtimes.
