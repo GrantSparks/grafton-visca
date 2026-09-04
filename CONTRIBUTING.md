@@ -343,7 +343,10 @@ issue number, hides the reversal from the record and is not allowed.
 The `release-validation` CI job enforces four parts of this record mechanically:
 
 - Text outside the top `## [Unreleased]` body is byte-for-byte immutable
-  relative to the pull request's merge base. Correct an old statement with a
+  relative to the pull request's merge base, except for a release cut that
+  moves the prior Unreleased lines in order into one new strict dated section
+  below an otherwise empty Unreleased heading. Every pre-existing released
+  section remains byte-for-byte immutable. Correct an old statement with a
   dated superseding entry under Unreleased; do not edit the released entry.
 - A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
   same pull request.
