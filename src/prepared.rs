@@ -683,7 +683,10 @@ where
         profile,
         tuning,
         affected_axes,
-        settlement_budget(operation.timeout_class(), profile, tuning),
+        observation_timeout(
+            &context,
+            settlement_budget(operation.timeout_class(), profile, tuning),
+        ),
     )?;
     let wire = encode(operation, target)?;
     Ok(PreparedOperation {
@@ -974,7 +977,7 @@ const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
 
 impl PreparedCommand {
     pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
-        let timeout = self.context.timeout.completion;
+        let timeout = observation_timeout(&self.context, self.context.timeout.completion);
         let request = RuntimeRequest::Command {
             wire: self.wire,
             context: self.context,
@@ -984,11 +987,21 @@ impl PreparedCommand {
     }
 }
 
-/// The default observer for a typed inquiry must outlive its automatic retry
-/// policy. A zero total budget is the engine's explicit no-total-budget mode,
-/// so it deliberately leaves the inquiry reply deadline unchanged.
-fn inquiry_observation_timeout(context: &RequestContext) -> Duration {
-    context.timeout.inquiry.max(context.retry.total_budget)
+/// Returns the default lifetime for a caller observer.
+///
+/// An observer that expires while its request can still be retried would turn
+/// detach into an unintentional physical fire-and-forget operation. Keep the
+/// command, operation, and inquiry paths on this one rule: an automatic retry
+/// can never outlive the default observer. A zero total budget remains the
+/// engine's explicit no-total-budget mode and therefore leaves the governing
+/// deadline unchanged.
+fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -> Duration {
+    let timeout = governing_deadline.max(context.retry.total_budget);
+    debug_assert!(
+        timeout >= context.retry.total_budget,
+        "a default observer must outlive its request's retry budget"
+    );
+    timeout
 }
 
 impl<R> PreparedInquiry<R> {
@@ -1005,7 +1018,7 @@ impl<R> PreparedInquiry<R> {
     // (`runtime::owner::blocking`), which an async-only leg does not compile.
     #[allow(dead_code)]
     pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
-        let timeout = inquiry_observation_timeout(&self.context);
+        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
         let request = RuntimeRequest::Inquiry {
             wire: self.wire,
             context: self.context,
@@ -1018,7 +1031,7 @@ impl<R> PreparedInquiry<R> {
         self,
         admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
-        let timeout = inquiry_observation_timeout(&self.context);
+        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
         let request = RuntimeRequest::Inquiry {
             wire: self.wire,
             context: self.context,
@@ -1064,7 +1077,7 @@ where
         self,
         admit: impl FnOnce(RuntimeRequest, AffectedAxes, completion::Settlement<K>, Duration) -> T,
     ) -> T {
-        let timeout = self.context.timeout.completion;
+        let timeout = observation_timeout(&self.context, self.context.timeout.completion);
         let request = RuntimeRequest::Command {
             wire: self.wire,
             context: self.context,
@@ -1239,6 +1252,41 @@ mod tests {
     plain_timeout_request!(PresetTimeoutCommand, TimeoutClass::Preset);
     plain_timeout_request!(LongRunningTimeoutCommand, TimeoutClass::LongRunning);
     plain_timeout_request!(NetworkTimeoutCommand, TimeoutClass::Network);
+
+    /// A retrying command used to pin default observer lifetimes independently
+    /// of the generated command inventory.
+    struct RetryingQuickCommand;
+
+    impl Request for RetryingQuickCommand {
+        type Class = crate::request::Plain;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Standard;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
+
+    /// A retrying movement command used to pin the 30 s/60 s default window.
+    struct RetryingMovementCommand;
+
+    impl Request for RetryingMovementCommand {
+        type Class = crate::request::Plain;
+
+        const MAX_SIZE: usize = 2;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
+        const RETRY_CLASS: RetryClass = RetryClass::Movement;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            buffer[..2].copy_from_slice(&[target.to_address_byte(), VISCA_TERMINATOR]);
+            Ok(2)
+        }
+    }
 
     struct ClassifiedInquiry;
 
@@ -1754,7 +1802,11 @@ mod tests {
         assert_eq!(axes, AffectedAxes::ZOOM);
         assert_eq!(tolerance, MovementTolerance::default());
         assert_eq!(interval, Duration::from_millis(40));
-        assert_eq!(default_budget, Duration::from_secs(9));
+        assert_eq!(
+            default_budget,
+            Duration::from_secs(62),
+            "the settlement observer also covers this movement operation's retry budget"
+        );
         assert!(queries.pan_tilt.is_none());
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
@@ -2319,7 +2371,7 @@ mod tests {
     }
 
     #[test]
-    fn inquiry_default_observation_covers_the_total_retry_budget() {
+    fn default_observers_cover_the_total_retry_budget_for_every_request_class() {
         fn prepared_with_budget(total_budget: Duration) -> PreparedInquiry<Vec<u8>> {
             let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("built-in profile");
@@ -2348,6 +2400,198 @@ mod tests {
             let (_request, _decoder, blocking) = prepared_with_budget(budget).into_parts();
             assert_eq!(blocking, expected, "blocking budget {budget:?}");
         }
+
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+
+        // Every timeout class takes the common command path, including a
+        // no-retry policy whose default total budget is still part of the
+        // prepared request. This catches a future split between the command
+        // and inquiry rules.
+        for (name, prepared, budget) in [
+            (
+                "quick",
+                prepare_command(
+                    &QuickTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                )
+                .expect("quick preparation"),
+                Duration::from_secs(10),
+            ),
+            (
+                "movement",
+                prepare_command(
+                    &MovementTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                )
+                .expect("movement preparation"),
+                Duration::from_secs(60),
+            ),
+            (
+                "preset",
+                prepare_command(
+                    &PresetTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                )
+                .expect("preset preparation"),
+                Duration::from_secs(120),
+            ),
+            (
+                "long-running",
+                prepare_command(
+                    &LongRunningTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                )
+                .expect("long-running preparation"),
+                Duration::from_secs(600),
+            ),
+            (
+                "network",
+                prepare_command(
+                    &NetworkTimeoutCommand,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new(),
+                    ClassSelection::Request,
+                )
+                .expect("network preparation"),
+                Duration::from_secs(10),
+            ),
+        ] {
+            let observer = prepared.admit_with(|_request, timeout| timeout);
+            assert!(
+                observer >= budget,
+                "{name} observer must cover retry budget"
+            );
+        }
+
+        // Operations use the same command lifecycle but reach a different
+        // receipt constructor. Pin that seam separately from plain commands.
+        let operation = prepare_operation::<completion::Targeted, _>(
+            &CountingTargeted,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("targeted operation preparation");
+        let operation_budget = operation.context.retry.total_budget;
+        assert!(
+            operation
+                .settlement
+                .default_budget()
+                .expect("targeted operation carries a settlement observer")
+                >= operation_budget,
+            "targeted settlement observer must cover retry budget"
+        );
+        let observer = operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        assert!(
+            observer >= operation_budget,
+            "operation observer must cover retry budget"
+        );
+
+        let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
+            &ZoomStop,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("applied-only operation preparation");
+        let applied_only_budget = applied_only.context.retry.total_budget;
+        let observer = applied_only.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        assert!(
+            observer >= applied_only_budget,
+            "applied-only observer must cover retry budget"
+        );
+    }
+
+    /// Issue #749: these are the three retry triggers that can issue a
+    /// physical replay. The test stays at preparation time so it is entirely
+    /// deterministic while asserting the exact receipt timeout delivered to
+    /// both owner implementations.
+    #[test]
+    fn physical_retries_cannot_outlive_their_default_observer() {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+
+        // A lost ACK for an absolute movement can consume the full 60 s
+        // movement retry window. Previously its command observer returned at
+        // 30 s, so a later replay could move the camera after Timeout.
+        let movement = prepare_command(
+            &RetryingMovementCommand,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
+            ClassSelection::Request,
+        )
+        .expect("movement preparation");
+        let movement_budget = movement.context.retry.total_budget;
+        let movement_observer = movement.admit_with(|_request, timeout| timeout);
+        assert_eq!(movement_budget, Duration::from_secs(60));
+        assert!(
+            movement_observer >= movement_budget,
+            "a lost-ACK movement replay must stay within the observer window"
+        );
+
+        // A CommandBufferFull at t=2 s may schedule another write inside the
+        // quick request's full retry window; the observer must remain alive
+        // for that whole window, not merely the first completion deadline.
+        let busy = prepare_command(
+            &RetryingQuickCommand,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new().retry_timing(
+                Duration::from_millis(1),
+                Duration::from_millis(1),
+                Duration::from_secs(10),
+            ),
+            ClassSelection::Request,
+        )
+        .expect("busy-command preparation");
+        let busy_budget = busy.context.retry.total_budget;
+        let busy_observer = busy.admit_with(|_request, timeout| timeout);
+        assert_eq!(busy_budget, Duration::from_secs(10));
+        assert!(
+            busy_observer > Duration::from_secs(2),
+            "the t=2 s CommandBufferFull retry must precede observer Timeout"
+        );
+        assert!(busy_observer >= busy_budget);
+
+        // Sony's sequence envelope makes a post-ACK completion retry safe.
+        // It may occur at the 30 s completion deadline, so the operation
+        // receipt must observe through the 60 s retry budget rather than
+        // detach at completion's first deadline.
+        let sony =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
+        let sony_operation = prepare_operation::<completion::Targeted, _>(
+            &CountingTargeted,
+            CameraId::CAMERA_1,
+            &sony,
+            OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
+            ClassSelection::Request,
+        )
+        .expect("Sony operation preparation");
+        let sony_budget = sony_operation.context.retry.total_budget;
+        let sony_observer =
+            sony_operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        assert_eq!(sony_budget, Duration::from_secs(60));
+        assert!(
+            sony_observer > Duration::from_secs(30),
+            "the Sony completion retry must precede observer Timeout"
+        );
+        assert!(sony_observer >= sony_budget);
     }
 
     #[test]

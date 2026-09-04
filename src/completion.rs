@@ -84,7 +84,7 @@ where
 }
 
 impl Settlement<Targeted> {
-    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn default_budget(&self) -> Option<Duration> {
         match &self.plan {
             LoweredPlan::Targeted(plan) => plan.inner.default_budget(),

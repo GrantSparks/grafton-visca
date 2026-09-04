@@ -194,7 +194,7 @@ fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
 mod blocking {
     use std::{
         collections::{BTreeMap, VecDeque},
-        sync::Arc,
+        sync::{Arc, Mutex},
         time::{Duration, Instant},
     };
 
@@ -896,6 +896,382 @@ mod blocking {
             crate::prepared::ClassSelection::Request,
         )
         .unwrap()
+    }
+
+    /// A deterministic owner clock shared by the receipt observer and engine.
+    /// Each scripted receive advances it to the next relevant deadline without
+    /// putting a wall-clock delay in the regression.
+    #[derive(Clone, Debug)]
+    struct ReplayClock(Arc<Mutex<Instant>>);
+
+    impl ReplayClock {
+        fn new(now: Instant) -> Self {
+            Self(Arc::new(Mutex::new(now)))
+        }
+
+        fn now(&self) -> Instant {
+            *self.0.lock().expect("replay clock lock")
+        }
+
+        fn set(&self, now: Instant) {
+            *self.0.lock().expect("replay clock lock") = now;
+        }
+    }
+
+    impl BlockingClock for ReplayClock {
+        fn now(&self) -> Instant {
+            self.now()
+        }
+
+        fn sleep(&self, duration: Duration) {
+            self.set(
+                self.now()
+                    .checked_add(duration)
+                    .expect("replay clock remains representable"),
+            );
+        }
+    }
+
+    /// Supplies scripted camera responses, otherwise advancing to the owner's
+    /// exact requested deadline. The latter makes a default wait reach its
+    /// observer boundary deterministically.
+    #[derive(Debug)]
+    enum ReplayFrameAt {
+        At(Instant),
+        Now,
+        Timeout,
+    }
+
+    #[derive(Debug)]
+    struct ReplayReader {
+        clock: ReplayClock,
+        frames: VecDeque<ReplayFrameAt>,
+        deadlines: Vec<Instant>,
+    }
+
+    impl ReplayReader {
+        fn with_frame(clock: ReplayClock, frame_at: Instant) -> Self {
+            Self::with_frames(clock, [ReplayFrameAt::At(frame_at)])
+        }
+
+        fn with_frames(
+            clock: ReplayClock,
+            frames: impl IntoIterator<Item = ReplayFrameAt>,
+        ) -> Self {
+            Self {
+                clock,
+                frames: frames.into_iter().collect(),
+                deadlines: Vec::new(),
+            }
+        }
+    }
+
+    impl BlockingReadDriver for ReplayReader {
+        fn receive(
+            &mut self,
+            receive_buffer: &mut [u8],
+            owner_deadline: Option<Instant>,
+        ) -> Result<BlockingReceive, Error> {
+            let deadline = owner_deadline.expect("receipt pump carries a deadline");
+            self.deadlines.push(deadline);
+            if let Some(frame_at) = self.frames.pop_front() {
+                let frame_at = match frame_at {
+                    ReplayFrameAt::At(frame_at) => frame_at,
+                    ReplayFrameAt::Now => self.clock.now(),
+                    ReplayFrameAt::Timeout => {
+                        self.clock.set(deadline);
+                        return Ok(BlockingReceive::TimedOut);
+                    }
+                };
+                assert!(
+                    frame_at <= deadline,
+                    "scripted response must be visible before the owner deadline"
+                );
+                self.clock.set(frame_at);
+                receive_buffer[0] = 1;
+                return Ok(BlockingReceive::Bytes(1));
+            }
+            self.clock.set(deadline);
+            Ok(BlockingReceive::TimedOut)
+        }
+    }
+
+    /// After the configured default observer boundary, run the engine past
+    /// any remaining scheduler wake. The receipt may report `Timeout` or an
+    /// engine terminal result at the shared boundary, but its retry budget has
+    /// elapsed in either case and must not permit another physical write.
+    fn assert_no_rewrite_after_default_observer_boundary(
+        owner: &mut BlockingOwner,
+        driver: &mut FakeDriver,
+        clock: &ReplayClock,
+        observer_deadline: Instant,
+    ) {
+        let writes_before = driver.writes.len();
+        clock.set(observer_deadline + Duration::from_secs(10));
+        owner
+            .wake(driver, clock.now())
+            .expect("engine processes work after the observer detached");
+        assert_eq!(
+            driver.writes.len(),
+            writes_before,
+            "the engine must not physically rewrite after the default observer boundary"
+        );
+    }
+
+    /// Issue #749: a movement-class Sony command can safely replay a lost ACK,
+    /// but the replay must happen before the default observer can return
+    /// `Timeout`. The owner is driven at exact synthetic instants rather than
+    /// sleeping through the 30 s movement deadline.
+    #[test]
+    fn lost_movement_ack_rewrite_stays_inside_the_default_observer_window() {
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
+        let tuning = crate::OperationalTuning::new()
+            .ack_timeout(Duration::from_secs(30))
+            .movement_timeout(Duration::from_secs(30))
+            .retry_timing(
+                Duration::from_secs(2),
+                Duration::from_secs(2),
+                Duration::from_secs(60),
+            );
+        let start = Instant::now();
+        let clock = ReplayClock::new(start);
+        let mut owner = BlockingOwner::with_clock(
+            sony_policy(1, TransportKind::Datagram),
+            Arc::new(clock.clone()),
+        )
+        .unwrap();
+        let mut driver = sony_driver([0, 0]);
+        let receipt = owner
+            .submit_operation(
+                &mut driver,
+                crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
+                    &crate::request::builtin::PanTiltHome,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let observer_deadline = start + Duration::from_secs(60);
+        let mut reader = ReplayReader::with_frame(clock.clone(), start + Duration::from_secs(30));
+        let mut decoder = EmptyDecoder;
+        let error = {
+            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
+            receipt
+                .applied(&mut control)
+                .expect_err("the configured default observer expires only after its retry budget")
+        };
+
+        assert!(
+            matches!(error, Error::Timeout),
+            "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
+            clock.now(),
+            driver.writes,
+            reader.deadlines,
+        );
+        assert_eq!(clock.now(), observer_deadline);
+        assert_eq!(driver.writes.len(), 2, "the lost ACK reissues the movement");
+        assert!(
+            reader.deadlines.contains(&observer_deadline),
+            "the observer remains alive past the legacy 30 s completion bound"
+        );
+        assert_no_rewrite_after_default_observer_boundary(
+            &mut owner,
+            &mut driver,
+            &clock,
+            observer_deadline,
+        );
+    }
+
+    /// Issue #749: a camera can answer CommandBufferFull at t=2 s, with its
+    /// retry write delayed past a quick command's old 5 s observer. The exact
+    /// owner timeline proves the physical rewrite remains before the 10 s
+    /// retry-budget observer and that no later rewrite survives it.
+    #[test]
+    fn command_buffer_full_at_two_seconds_stays_inside_the_default_observer_window() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
+        let tuning = crate::OperationalTuning::new()
+            .ack_timeout(Duration::from_secs(10))
+            .retry_timing(
+                Duration::from_secs(6),
+                Duration::from_secs(6),
+                Duration::from_secs(10),
+            );
+        let retry = crate::prepared::prepare_command(
+            &crate::request::builtin::FocusModeCommand::Manual,
+            CameraId::CAMERA_1,
+            &profile,
+            tuning,
+            crate::prepared::ClassSelection::Request,
+        )
+        .unwrap()
+        .admit_with(|request, _timeout| request.context().retry);
+        assert!(
+            retry.buffer_full,
+            "a standard command retries CommandBufferFull"
+        );
+        let start = Instant::now();
+        let clock = ReplayClock::new(start);
+        let mut owner = BlockingOwner::with_clock(
+            sony_policy(1, TransportKind::Datagram),
+            Arc::new(clock.clone()),
+        )
+        .unwrap();
+        let mut driver = sony_driver([17, 17]);
+        let receipt = owner
+            .submit_command(
+                &mut driver,
+                crate::prepared::prepare_command(
+                    &crate::request::builtin::FocusModeCommand::Manual,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                    crate::prepared::ClassSelection::Request,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let observer_deadline = start + Duration::from_secs(10);
+        let mut reader = ReplayReader::with_frame(clock.clone(), start + Duration::from_secs(2));
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([vec![sony_frame(
+                CameraId::CAMERA_1,
+                17,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03,
+                },
+            )]]),
+        };
+        let error = {
+            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
+            receipt
+                .wait(&mut control)
+                .expect_err("the configured default observer expires only after its retry budget")
+        };
+
+        assert!(
+            matches!(error, Error::CommandBufferFull),
+            "the engine's total-budget terminal result wins at the shared observer boundary, got {error:?}"
+        );
+        assert_eq!(clock.now(), observer_deadline);
+        assert_eq!(
+            driver.writes.len(),
+            2,
+            "the busy command is physically reissued"
+        );
+        assert!(
+            reader.deadlines.contains(&observer_deadline),
+            "the observer remains alive past the legacy 5 s completion bound"
+        );
+        assert_no_rewrite_after_default_observer_boundary(
+            &mut owner,
+            &mut driver,
+            &clock,
+            observer_deadline,
+        );
+    }
+
+    /// Issue #749: Sony's sequence correlation permits a post-ACK completion
+    /// retry at the 30 s movement deadline. That retry must also remain inside
+    /// an operation's default observer, not become a physical rewrite after a
+    /// detached `Timeout`.
+    #[test]
+    fn sony_completion_retry_stays_inside_the_default_operation_observer_window() {
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
+        let tuning = crate::OperationalTuning::new()
+            .movement_timeout(Duration::from_secs(30))
+            .retry_timing(
+                Duration::from_secs(2),
+                Duration::from_secs(2),
+                Duration::from_secs(60),
+            );
+        let start = Instant::now();
+        let clock = ReplayClock::new(start);
+        let mut owner = BlockingOwner::with_clock(
+            sony_policy(1, TransportKind::Datagram),
+            Arc::new(clock.clone()),
+        )
+        .unwrap();
+        let mut driver = sony_driver([0, 0]);
+        let receipt = owner
+            .submit_operation(
+                &mut driver,
+                crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
+                    &crate::request::builtin::PanTiltHome,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    tuning,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let observer_deadline = start + Duration::from_secs(60);
+        let mut reader = ReplayReader::with_frames(
+            clock.clone(),
+            [
+                ReplayFrameAt::At(start + Duration::from_millis(1)),
+                // Let the first attempt's completion deadline schedule and
+                // dispatch its retry before supplying the retry's ACK.
+                ReplayFrameAt::Timeout,
+                ReplayFrameAt::Timeout,
+                // Once the completion retry is physically sent, acknowledge
+                // its new attempt so the test isolates the completion retry
+                // rather than exercising a later lost-ACK recovery as well.
+                ReplayFrameAt::Now,
+            ],
+        );
+        let mut decoder = ScriptedDecoder {
+            batches: VecDeque::from([
+                vec![sony_frame(
+                    CameraId::CAMERA_1,
+                    0,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                )],
+                vec![sony_frame(
+                    CameraId::CAMERA_1,
+                    0,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                )],
+            ]),
+        };
+        let error = {
+            let control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
+            receipt
+                .settled(control)
+                .wait()
+                .expect_err("the configured default observer expires only after its retry budget")
+        };
+
+        assert!(
+            matches!(error, Error::Timeout),
+            "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
+            clock.now(),
+            driver.writes,
+            reader.deadlines,
+        );
+        assert_eq!(clock.now(), observer_deadline);
+        assert_eq!(
+            driver.writes.len(),
+            2,
+            "the Sony operation is physically reissued after completion timeout"
+        );
+        assert!(
+            reader.deadlines.contains(&observer_deadline),
+            "the observer remains alive past the legacy 30 s completion bound"
+        );
+        assert_no_rewrite_after_default_observer_boundary(
+            &mut owner,
+            &mut driver,
+            &clock,
+            observer_deadline,
+        );
     }
 
     /// Out-of-order peer-receipt retention on the Sony sequence-bearing
