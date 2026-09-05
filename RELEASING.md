@@ -187,17 +187,33 @@ test -z "$(git -C "$grafton_candidate" status --porcelain=v1 --untracked-files=a
 test -z "$(git -C "$synemantic_candidate" status --porcelain=v1 --untracked-files=all)"
 ```
 
-In the disposable Synemantic worktree, run its required Make validation
-sequence with `CARGO_HOME` pointing at `$pair_cargo_home`:
+Before replacing `CARGO_HOME`, record the ordinary absolute Cargo home used by
+the host:
+
+```sh
+synemantic_unpatched_cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+case "$synemantic_unpatched_cargo_home" in
+    /*) ;;
+    *) echo "the ordinary Cargo home must be absolute" >&2; exit 1 ;;
+esac
+```
+
+Synemantic's audio-classifier package tool is an independent locked Cargo
+workspace whose feature graph does not include grafton-visca. The paired
+source override must reach Synemantic's root and WASM workspaces, but it must
+not dirty that independent lock with an unused patch. Synemantic therefore
+accepts `SYNEMANTIC_UNPATCHED_CARGO_HOME` for only that package tool. In the
+disposable Synemantic worktree, run its required Make validation sequence with
+both Cargo homes explicit:
 
 ```sh
 cd "$synemantic_candidate"
-CARGO_HOME="$pair_cargo_home" make dev-check DEV_CHECK_SCOPE=rust
-CARGO_HOME="$pair_cargo_home" make check-bindings
-CARGO_HOME="$pair_cargo_home" make quick-check
-CARGO_HOME="$pair_cargo_home" make test
-CARGO_HOME="$pair_cargo_home" make build
-CARGO_HOME="$pair_cargo_home" make pre-commit
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make dev-check DEV_CHECK_SCOPE=rust
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make check-bindings
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make quick-check
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make test
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make build
+SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make pre-commit
 ```
 
 The temporary resolver may update that worktree's lockfile, which is why this
