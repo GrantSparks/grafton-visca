@@ -294,8 +294,11 @@ cargo test -- --nocapture
 
 ## Public API Snapshots
 
-`api/2.0.0-rc.1/` holds the approved public-surface baseline for the 2.0
-release candidate: one `cargo public-api` listing per tracked feature surface.
+`api/2.0.0-rc.1/` holds the rolling approved public-surface baseline for the
+2.0 release-candidate line: one `cargo public-api` listing per tracked feature
+surface. The directory name records where the baseline was established; it is
+not a per-release archive. Approved prerelease API changes regenerate these
+files in place, while immutable release tags preserve their historical bytes.
 The `public API RC snapshot` CI job regenerates each listing and byte-compares
 it with the committed file, so any change to the crate's public API — including
 one you did not intend, such as a type escaping its feature gate or a public
@@ -454,15 +457,15 @@ mapped-v2-test-row counts in its job summary.
 
 Releases use a two-crate prerelease/final publish sequence because the main crate
 depends on the same-version `grafton-visca-macros` package. Follow
-[RELEASING.md](RELEASING.md) for `2.0.0-rc.1` versioning, changelog
+[RELEASING.md](RELEASING.md) for `2.0.0-rc.2` versioning, changelog
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
 release tag from a commit that has not passed the complete 2.0 matrix — public
 API snapshots included — on a pull request.
 
 `cargo-semver-checks` is not part of that matrix while 2.0 is a release
-candidate: 2.0.0-rc.1 is unpublished, so there is no crates.io baseline to
-compare against, and comparing with 1.x would only re-report the intended major
+candidate. Prerelease API drift is reviewed directly in the pinned public API
+snapshots, and comparing with 1.x would only re-report the intended major
 break. It returns once 2.0.0 is published.
 
 ## Feature Flags

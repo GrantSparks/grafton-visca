@@ -438,20 +438,22 @@ mod async_single_camera {
         #[cfg(feature = "transport-serial-tokio")]
         type SerialTransport = std::convert::Infallible;
 
-        async fn connect_tcp(
-            &self,
-            address: &str,
+        #[allow(clippy::manual_async_fn)]
+        fn connect_tcp<'a>(
+            &'a self,
+            address: &'a str,
             _config: TransportConfig,
-        ) -> Result<Self::TcpTransport, Error> {
-            self.take_transport(address)
+        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
+            async move { self.take_transport(address) }
         }
 
-        async fn connect_udp(
-            &self,
-            address: &str,
+        #[allow(clippy::manual_async_fn)]
+        fn connect_udp<'a>(
+            &'a self,
+            address: &'a str,
             _config: TransportConfig,
-        ) -> Result<Self::UdpTransport, Error> {
-            self.take_transport(address)
+        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
+            async move { self.take_transport(address) }
         }
     }
 

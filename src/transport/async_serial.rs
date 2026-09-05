@@ -98,7 +98,7 @@ mod tests {
     }
 
     impl AsyncReadExt for FlushCountingIo {
-        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize, Error> {
+        async fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> Result<usize, Error> {
             Err(Error::ConnectionClosed {
                 reason: Some("test read is unused".into()),
             })
@@ -106,7 +106,7 @@ mod tests {
     }
 
     impl AsyncWriteExt for FlushCountingIo {
-        async fn write_all(&mut self, bytes: &[u8]) -> Result<(), Error> {
+        async fn write_all<'a>(&'a mut self, bytes: &'a [u8]) -> Result<(), Error> {
             self.writes.push(bytes.to_vec());
             Ok(())
         }

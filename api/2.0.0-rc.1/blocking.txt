@@ -1606,6 +1606,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
@@ -4384,6 +4385,7 @@ impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOptics30X
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG2
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::PtzOpticsG3
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyFR7
@@ -13871,6 +13873,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
@@ -15970,6 +15973,7 @@ impl grafton_visca::capabilities::HasBacklightCompensation for grafton_visca::ca
 impl grafton_visca::capabilities::HasDirectZoom for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300

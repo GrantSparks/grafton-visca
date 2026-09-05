@@ -81,6 +81,14 @@ fn base_image_surface<'session, P: CompileTimeProfile + HasImageProcessing>(
     let _ = camera.image();
 }
 
+fn backlight_surface<'session, P>(camera: &Camera<'session, P>)
+where
+    P: CompileTimeProfile + HasImageProcessing + HasBacklightCompensation,
+{
+    let _ = camera.image().backlight();
+    plain(camera.image().set_backlight(true));
+}
+
 fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session, P>) {
     let _ = camera.power().state();
     let _ = camera.zoom().position();
@@ -287,6 +295,8 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
         exposure_mode_surface::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
         base_image_surface::<PtzOpticsG2>;
+    let _: for<'session> fn(&'session Camera<'session, SonyBRC300>) =
+        backlight_surface::<SonyBRC300>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
         all_base_inquiries::<PtzOpticsG2>;
     let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =

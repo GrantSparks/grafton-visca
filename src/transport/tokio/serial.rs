@@ -2,11 +2,11 @@
 
 use tokio_serial::{SerialPortBuilderExt, SerialStream};
 
-use std::{sync::Arc, time::Duration};
+use std::{future::Future, sync::Arc, time::Duration};
 
 use crate::{
     error::{Error, Result},
-    executor::{Executor, TokioBoundFuture, TokioExecutor},
+    executor::{TokioBoundFuture, TokioExecutor},
     transport::{
         async_io::{AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait},
         builder::TransportConfig,
@@ -17,6 +17,9 @@ use crate::{
         },
     },
 };
+
+#[cfg(test)]
+use crate::executor::Executor;
 
 /// Serial transport for async VISCA communication using tokio.
 ///
@@ -46,14 +49,14 @@ impl TokioSerialAdapter {
 }
 
 impl AsyncReadExtTrait for TokioSerialAdapter {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         use tokio::io::AsyncReadExt;
         Ok(self.stream.read(buf).await?)
     }
 }
 
 impl AsyncWriteExtTrait for TokioSerialAdapter {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         use tokio::io::AsyncWriteExt;
         Ok(self.stream.write_all(buf).await?)
     }
@@ -70,58 +73,71 @@ impl Serial {
     ///
     /// This method opens the serial port, configures it, and optionally performs
     /// I/F Clear and Address Set initialization.
-    pub async fn connect(config: SerialConfig) -> Result<Self> {
-        // Construct and validate before opening the descriptor. Canonical
-        // CameraConfig already preflights this, but direct serial connectors
-        // must provide the same no-I/O guarantee.
-        let transport_config = TransportConfig {
-            connect_timeout: Duration::from_secs(5), // Not used for serial
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            buffer_config: config.buffer_config,
-            addressing: crate::transport::builder::AddressingMode::Serial,
-            tcp_nodelay: None,
-            ttl: None,
-            tcp_keepalive: None,
-        };
-        transport_config.validate()?;
+    #[allow(clippy::manual_async_fn)]
+    pub fn connect(config: SerialConfig) -> impl Future<Output = Result<Self>> + Send {
+        async move {
+            // Construct and validate before opening the descriptor. Canonical
+            // CameraConfig already preflights this, but direct serial connectors
+            // must provide the same no-I/O guarantee.
+            let transport_config = TransportConfig {
+                connect_timeout: Duration::from_secs(5), // Not used for serial
+                read_timeout: config.read_timeout,
+                write_timeout: config.write_timeout,
+                buffer_config: config.buffer_config,
+                addressing: crate::transport::builder::AddressingMode::Serial,
+                tcp_nodelay: None,
+                ttl: None,
+                tcp_keepalive: None,
+            };
+            transport_config.validate()?;
+            let startup_operations = startup_plan(&config);
+            let write_timeout = config.write_timeout;
+            let buffer_config = config.buffer_config;
 
-        // Open serial port
-        #[cfg(unix)]
-        let mut port = tokio_serial::new(&config.port, config.baud_rate)
-            .timeout(device_timeout(config.read_timeout))
-            .open_native_async()
-            .map_err(|e| Error::ConnectionFailed {
-                addr: config.port.clone().into(),
-                source: Arc::new(std::io::Error::other(format!(
-                    "Failed to open serial port: {e}"
-                ))),
-            })?;
+            // Open serial port
+            #[cfg(unix)]
+            let mut port = tokio_serial::new(&config.port, config.baud_rate)
+                .timeout(device_timeout(config.read_timeout))
+                .open_native_async()
+                .map_err(|e| Error::ConnectionFailed {
+                    addr: config.port.clone().into(),
+                    source: Arc::new(std::io::Error::other(format!(
+                        "Failed to open serial port: {e}"
+                    ))),
+                })?;
 
-        #[cfg(not(unix))]
-        let port = tokio_serial::new(&config.port, config.baud_rate)
-            .timeout(device_timeout(config.read_timeout))
-            .open_native_async()
-            .map_err(|e| Error::ConnectionFailed {
-                addr: config.port.clone().into(),
-                source: Arc::new(std::io::Error::other(format!(
-                    "Failed to open serial port: {e}"
-                ))),
-            })?;
+            #[cfg(not(unix))]
+            let port = tokio_serial::new(&config.port, config.baud_rate)
+                .timeout(device_timeout(config.read_timeout))
+                .open_native_async()
+                .map_err(|e| Error::ConnectionFailed {
+                    addr: config.port.clone().into(),
+                    source: Arc::new(std::io::Error::other(format!(
+                        "Failed to open serial port: {e}"
+                    ))),
+                })?;
 
-        // Configure port settings
-        #[cfg(unix)]
-        port.set_exclusive(false)
-            .map_err(|e| Error::Io(Arc::new(std::io::Error::other(e))))?;
+            // Configure port settings
+            #[cfg(unix)]
+            port.set_exclusive(false)
+                .map_err(|e| Error::Io(Arc::new(std::io::Error::other(e))))?;
 
-        let mut adapter = TokioSerialAdapter::new(port);
+            let mut adapter = TokioSerialAdapter::new(port);
 
-        // Create executor for handshake operations
-        let executor = TokioExecutor::from_current()?;
+            // Create executor for handshake operations
+            let executor = TokioExecutor::from_current()?;
 
-        perform_startup_handshakes(&executor, &mut adapter, &config).await?;
+            perform_startup_handshakes(
+                executor,
+                &mut adapter,
+                startup_operations,
+                write_timeout,
+                buffer_config,
+            )
+            .await?;
 
-        Ok(Self::new(adapter, transport_config))
+            Ok(Self::new(adapter, transport_config))
+        }
     }
 
     /// Connect on an explicitly selected Tokio runtime.
@@ -129,15 +145,14 @@ impl Serial {
     /// `TokioRuntime::from_handle` uses this path so opening the async serial
     /// descriptor and its optional timer-driven handshake both bind to the
     /// same runtime that will own the session actor.
-    pub(crate) async fn connect_on(
-        handle: &tokio::runtime::Handle,
+    pub(crate) fn connect_on(
+        handle: tokio::runtime::Handle,
         config: SerialConfig,
-    ) -> Result<Self> {
-        // `Serial::connect` has borrowed RPITIT handshake futures, so it
-        // cannot be moved into `Handle::spawn` on every supported compiler.
-        // Polling it through this wrapper still installs the selected handle
-        // before opening the async descriptor and at every handshake poll.
-        TokioBoundFuture::new(handle.clone(), Self::connect(config)).await
+    ) -> impl Future<Output = Result<Self>> + Send {
+        // Polling through this wrapper retains the caller-owned future while
+        // still installing the selected handle before opening the async
+        // descriptor and at every handshake poll.
+        TokioBoundFuture::new(handle, Self::connect(config))
     }
 
     /// Connect to a serial port with default configuration.
@@ -148,7 +163,44 @@ impl Serial {
 }
 
 /// Perform the requested serial bus startup operations in protocol order.
-async fn perform_startup_handshakes<E, S>(
+#[allow(clippy::manual_async_fn)]
+fn perform_startup_handshakes<'a>(
+    executor: TokioExecutor,
+    io: &'a mut TokioSerialAdapter,
+    startup_operations: [Option<StartupOperation>; 2],
+    write_timeout: Duration,
+    buffer_config: crate::transport::BufferConfig,
+) -> impl Future<Output = Result<()>> + Send + 'a {
+    async move {
+        for operation in startup_operations.into_iter().flatten() {
+            match operation {
+                StartupOperation::AddressSet => {
+                    address_set_async(
+                        &executor,
+                        io,
+                        Duration::from_secs(2),
+                        write_timeout,
+                        buffer_config,
+                    )
+                    .await?;
+                }
+                StartupOperation::InterfaceClear => {
+                    if_clear_async(&executor, io, write_timeout).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Generic transcript seam for startup sequencing tests.
+///
+/// Production startup uses the concrete Tokio adapter above so its returned
+/// constructor future can promise `Send`; tests retain this runtime-agnostic
+/// seam to exercise the protocol order and deadline behavior without a device.
+#[cfg(test)]
+async fn perform_startup_handshakes_for_test<E, S>(
     executor: &E,
     io: &mut S,
     config: &SerialConfig,
@@ -204,7 +256,7 @@ mod tests {
     }
 
     impl AsyncReadExtTrait for TranscriptIo {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize> {
             self.read_buffer_sizes.push(buf.len());
             let bytes = self.reads.pop_front().expect("unexpected serial read");
             buf[..bytes.len()].copy_from_slice(&bytes);
@@ -213,7 +265,7 @@ mod tests {
     }
 
     impl AsyncWriteExtTrait for TranscriptIo {
-        async fn write_all(&mut self, buf: &[u8]) -> Result<()> {
+        async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<()> {
             self.writes.push(buf.to_vec());
             Ok(())
         }
@@ -277,7 +329,7 @@ mod tests {
                 max_buffer_size: 32,
             });
 
-        perform_startup_handshakes(&executor, &mut io, &config)
+        perform_startup_handshakes_for_test(&executor, &mut io, &config)
             .await
             .expect("startup handshakes succeed");
 
@@ -299,13 +351,13 @@ mod tests {
     struct PendingWriteIo;
 
     impl AsyncReadExtTrait for PendingWriteIo {
-        async fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+        async fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> Result<usize> {
             std::future::pending().await
         }
     }
 
     impl AsyncWriteExtTrait for PendingWriteIo {
-        async fn write_all(&mut self, _buf: &[u8]) -> Result<()> {
+        async fn write_all<'a>(&'a mut self, _buf: &'a [u8]) -> Result<()> {
             std::future::pending().await
         }
 
@@ -325,7 +377,7 @@ mod tests {
 
         let bounded = tokio::time::timeout(
             Duration::from_millis(100),
-            perform_startup_handshakes(&executor, &mut io, &config),
+            perform_startup_handshakes_for_test(&executor, &mut io, &config),
         )
         .await;
         assert!(matches!(bounded, Ok(Err(Error::Timeout))));

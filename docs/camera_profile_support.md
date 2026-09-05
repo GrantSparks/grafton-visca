@@ -247,6 +247,13 @@ compatibility breadth pending the direct R8 line-item audit required by #716.
 The inventory and marker are equivalent for built-ins. Custom runtime profiles
 must still provide both before a dynamic call can encode.
 
+`HasBacklightCompensation` is likewise a paired typed control and inquiry under
+`camera.image()`, not a consequence of broad exposure metadata. For Sony
+BRC-300, R12 explicitly lists `CAM_BackLight` `8x 01 04 33 02/03 FF` on manual
+p. 11 and `CAM_BackLightModeInq` `8x 09 04 33 FF` with `y0 50 02/03 FF` replies
+on manual p. 14. Runtime profiles must therefore provide image base support,
+the backlight fact, and the typed marker together.
+
 An iris range in runtime metadata is a discovery fact, not a typed-support
 grant. `IrisLevel` covers the built-in wire-domain union (`0x00..=0x1E`) and
 `GainLevel` covers the VISCA nibble domain (`0x00..=0x0F`); profile ranges make

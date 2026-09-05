@@ -42,13 +42,13 @@ impl SmolTcpStream {
 }
 
 impl AsyncReadExtTrait for SmolTcpStream {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         Ok(self.stream.read(buf).await?)
     }
 }
 
 impl AsyncWriteExtTrait for SmolTcpStream {
-    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+    async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         Ok(self.stream.write_all(buf).await?)
     }
 

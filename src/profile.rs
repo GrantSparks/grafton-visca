@@ -1846,7 +1846,14 @@ impl ProfileSpec {
                     capabilities.has_focus && capabilities.has_focus_near_limit_inquiry
                 }
                 capabilities::TypedSupportSurface::BacklightCompensation => {
-                    capabilities.has_exposure && capabilities.has_backlight_comp
+                    // Backlight is implemented by the canonical `image()`
+                    // noun. Runtime profiles must therefore retain the base
+                    // image surface as well as the source-backed exposure
+                    // fact; otherwise dynamic callers could advertise a
+                    // typed row they cannot reach.
+                    capabilities.has_image_processing
+                        && capabilities.has_exposure
+                        && capabilities.has_backlight_comp
                 }
                 capabilities::TypedSupportSurface::WideDynamicRange => {
                     capabilities.has_exposure && capabilities.has_wdr
@@ -3409,6 +3416,38 @@ mod tests {
         let mut usb_audio = valid_runtime_capabilities();
         usb_audio.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::UsbAudio);
         assert!(runtime_builder(usb_audio).build().is_err());
+    }
+
+    #[test]
+    fn runtime_builder_requires_image_base_for_typed_backlight() {
+        let mut backlight = valid_runtime_capabilities();
+        backlight.has_exposure = true;
+        backlight.exposure_modes.push(ExposureMode::Auto);
+        backlight.shutter_speeds.push(RuntimeShutterSpeed {
+            label: "1/60".into(),
+            value: 1,
+        });
+        backlight.gain_range = 0..=1;
+        backlight.has_backlight_comp = true;
+        backlight.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::BacklightCompensation);
+
+        let error = invalid_request_message(runtime_builder(backlight.clone()).build())
+            .expect("typed backlight without image base support must be rejected");
+        assert!(
+            error.contains("BacklightCompensation"),
+            "the rejected typed surface must be named: {error}"
+        );
+
+        backlight.has_image_processing = true;
+        let profile = runtime_builder(backlight)
+            .build()
+            .expect("image-backed typed backlight profile");
+        crate::Request::validate_for_profile(
+            &crate::command::BacklightCommand::new(true),
+            &profile,
+        )
+        .expect("image-backed typed backlight command");
     }
 
     #[test]

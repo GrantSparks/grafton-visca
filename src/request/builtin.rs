@@ -989,12 +989,13 @@ impl BuiltinValidation for crate::command::image::GammaCommand {
 impl BuiltinValidation for crate::command::image::BacklightCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_exposure, "exposure control")?;
-        require(
-            capabilities.has_backlight_comp
-                && capabilities.supports_typed(TypedSupportSurface::BacklightCompensation),
+        validate_image_control(
+            profile,
+            TypedSupportSurface::BacklightCompensation,
             "backlight compensation",
-        )
+        )?;
+        require(capabilities.has_exposure, "exposure control")?;
+        require(capabilities.has_backlight_comp, "backlight compensation")
     }
 }
 

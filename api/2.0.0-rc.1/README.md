@@ -1,9 +1,12 @@
 # Public API snapshot: 2.0.0-rc.1
 
-These files are the approved public-surface baseline for the 2.0 release
-candidate. They intentionally establish a new semver baseline instead of
-comparing the 2.0 API break with the 1.x API. Future changes are reviewed by
-diffing the same selected feature surfaces against these files.
+These files are the rolling approved public-surface baseline for the 2.0
+release-candidate line. The directory name records the candidate where the
+baseline was established; it is not a per-release archive. They intentionally
+establish a new semver baseline instead of comparing the 2.0 API break with the
+1.x API. Future approved prerelease changes regenerate the same files in place,
+while immutable release tags preserve each release's historical snapshot
+bytes.
 
 They exist only for CI and for review; `api/` is in the `exclude` list of the
 root `Cargo.toml`, so none of it ships in the published crate.

@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.2] - 2026-09-04
+
+The 2.0.0-rc.2 release candidate corrects two public integration defects found
+while porting Synemantic to the owner-backed 2.0 API.
+
+No physical hardware validation has been performed, and no hardware support has been verified for this release candidate.
+
+### Changed
+
+- **BREAKING** (#773): Superseded the Sony BRC-300 portion of #716's broad
+  image-subcontrol verdict after a direct R12 audit established the standard
+  `CAM_BackLight` control and inquiry rows. `SonyBRC300` now reaches that typed
+  surface through the canonical `camera.image()` noun while every other image
+  row remains independently capability-gated. Runtime `ProfileSpec` values
+  must likewise grant the base image noun before granting typed backlight
+  support; previously accepted contradictory custom profiles are rejected.
+- **BREAKING** (#772): Runtime TCP, UDP, and Tokio serial connectors now
+  explicitly return `Send` futures. Standard Tokio `Connect` constructors can
+  therefore be boxed or spawned before polling; custom `Runtime`
+  implementations must return `Send` connector futures as well.
+- Expanded the 2.0 migration guide with a downstream adapter recipe validated
+  while porting Synemantic: exact async `Connect` renames, owner-backed
+  `Camera<P>` storage, root-control-to-noun and idle-wait mappings, consuming
+  type-erased operation handles, single-boundary future erasure for layered
+  async traits, resilient application error conversion, and the
+  2.0.0-rc.1 generic connector-future `Send` defect fixed in rc.2.
+
 ## [2.0.0-rc.1] - 2026-09-04
 
 The 2.0.0-rc.1 release candidate. 2.0 is a clean break from the 1.x API;

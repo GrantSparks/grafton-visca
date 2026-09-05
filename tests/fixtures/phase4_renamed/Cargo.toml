@@ -18,4 +18,4 @@ range-helper-derives = [
 [dependencies]
 derive_shadows = { package = "phase4-derive-shadows", path = "../phase4_derive_shadows" }
 serde_json = { version = "1.0", optional = true }
-visca_renamed = { package = "grafton-visca", path = "../../..", version = "=2.0.0-rc.1", default-features = false }
+visca_renamed = { package = "grafton-visca", path = "../../..", version = "=2.0.0-rc.2", default-features = false }

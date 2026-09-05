@@ -1,6 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if ! repository_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+    echo "release validation requires a Git worktree" >&2
+    exit 1
+fi
+cd "${repository_root}"
+
+# Release metadata must be read from an immutable committed candidate, never
+# from staged, unstaged, or nonignored-untracked working-tree contents. This
+# deliberately leaves ignored build products (including this library
+# workspace's generated Cargo.lock) outside the gate.
+if ! git rev-parse --verify --quiet HEAD^{commit} >/dev/null; then
+    echo "release validation requires HEAD to resolve to a committed candidate" >&2
+    exit 1
+fi
+worktree_status="$(git status --porcelain=v1 --untracked-files=all)"
+if [[ -n "${worktree_status}" ]]; then
+    echo "release validation requires a clean candidate worktree (staged, unstaged, and nonignored untracked files are forbidden)" >&2
+    printf '%s\n' "${worktree_status}" >&2
+    exit 1
+fi
+
 release_tag="${1:-${GITHUB_REF_NAME:-}}"
 
 # Build metadata is refused outright rather than stripped and re-gated. This

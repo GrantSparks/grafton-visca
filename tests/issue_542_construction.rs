@@ -147,30 +147,36 @@ mod async_standard {
         #[cfg(feature = "transport-serial-tokio")]
         type SerialTransport = std::convert::Infallible;
 
-        async fn connect_tcp(
-            &self,
-            address: &str,
+        #[allow(clippy::manual_async_fn)]
+        fn connect_tcp<'a>(
+            &'a self,
+            address: &'a str,
             config: TransportConfig,
-        ) -> Result<Self::TcpTransport, Error> {
-            self.calls.lock().expect("calls lock").push(Call {
-                kind: Kind::Tcp,
-                address: address.to_owned(),
-                config,
-            });
-            Ok(ProbeTransport { config })
+        ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
+            async move {
+                self.calls.lock().expect("calls lock").push(Call {
+                    kind: Kind::Tcp,
+                    address: address.to_owned(),
+                    config,
+                });
+                Ok(ProbeTransport { config })
+            }
         }
 
-        async fn connect_udp(
-            &self,
-            address: &str,
+        #[allow(clippy::manual_async_fn)]
+        fn connect_udp<'a>(
+            &'a self,
+            address: &'a str,
             config: TransportConfig,
-        ) -> Result<Self::UdpTransport, Error> {
-            self.calls.lock().expect("calls lock").push(Call {
-                kind: Kind::Udp,
-                address: address.to_owned(),
-                config,
-            });
-            Ok(ProbeTransport { config })
+        ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
+            async move {
+                self.calls.lock().expect("calls lock").push(Call {
+                    kind: Kind::Udp,
+                    address: address.to_owned(),
+                    config,
+                });
+                Ok(ProbeTransport { config })
+            }
         }
     }
 

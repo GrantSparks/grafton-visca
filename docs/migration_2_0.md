@@ -28,7 +28,7 @@ the required position inquiry and that distinction matters.
 | 1.x category | 2.0 destination |
 | --- | --- |
 | `mode-async` | `async`; add `runtime-tokio` or `runtime-smol` when using a built-in runtime. |
-| Generic mode/transport/executor `Camera<Mode, P, T, E>` and `AsyncCamera` | `blocking::Session` or async `Session`, then `Camera<P>` for a target view. |
+| Generic mode/transport/executor `Camera<Mode, P, T, E>`, `CameraSession<Async, P, T, E>`, and `AsyncCamera` | `blocking::Session` or async `Session`, then a target view. An owned async adapter generally stores `Camera<P>`; a single-target connection may instead retain `CameraSession<P>`. Transport and executor types no longer appear in either facade type. |
 | `BlockingClient` and direct generic camera constructors | `blocking::Connect`, `blocking::CameraConfig`, or `blocking::Session::open`. |
 | 1.2.0's deprecation of the blocking `CameraSession` methods, which pointed at `BlockingClient` | `blocking::CameraSession<P>` again — see [The `BlockingClient` inversion](#the-blockingclient-inversion) below. |
 | Legacy `Connect`/`CameraConfig` single-target shortcuts | Keep the convenience path, but use `SessionConfig` when configuration must be cloned, reused, or shared across targets. |
@@ -38,13 +38,51 @@ the required position inquiry and that distinction matters.
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
 | `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
-| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). |
+| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). In 2.0.0-rc.2 the generic **connector** futures carry the `Send` contract needed to box or spawn this construction path; this does not change `Session::open` after a caller has already created a custom transport. See the rc.1 note below. |
 | Preview-only `BufferConfig::send_buffer_size` / `NetTransportBuilder::send_buffer_size` | Removed before rc.1 because neither affected production allocation. Owner transmit buffers are fixed and reused at protocol-bounded capacity; configure only receive/framing memory with `recv_buffer_size` and `max_buffer_size`. |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are
 errors before I/O. `camera()` is only for a sole target; multi-target code must
 select `camera_for(target)`.
+
+### Porting an async connection adapter
+
+The 1.x async suffix is gone from `Connect`; the enclosing async facade now
+provides the distinction:
+
+| 1.x call | 2.0 call and result |
+| --- | --- |
+| `Connect::open_tcp_async::<P, _>(address, runtime).await?` | `Connect::open_tcp::<P, _>(address, runtime).await?` → `CameraSession<P>` |
+| `Connect::open_udp_async::<P, _>(address, runtime).await?` | `Connect::open_udp::<P, _>(address, runtime).await?` → `CameraSession<P>` |
+| `Connect::open_serial_async::<P, _>(port, baud, runtime).await?` | `Connect::open_serial::<P, _>(port, baud, runtime).await?` → `Session` |
+
+> **2.0.0-rc.1 construction-future defect.** The rc.1 `Runtime` connector
+> trait did not expose a usable `Send` guarantee through generic TCP, UDP, and
+> serial construction. An application that boxed or spawned a
+> **connector-backed** camera-opening future could therefore see
+> `implementation of Send is not general enough`. Upgrade to 2.0.0-rc.2: its
+> connector contract fixes the `Connect`/`CameraConfig::open_async` and
+> `Runtime::connect_*` boundary. It does not change direct `Session::open` with
+> an already-created transport or the `Send` obligations of a custom transport
+> implementation. This is not an application ownership, noun-accessor, or
+> cancellation rewrite.
+
+For TCP or UDP, call `into_camera()` when an application abstraction should own
+only a cloneable `Camera<P>` view. That view keeps the owner and connection
+alive; the tradeoff is giving up the consuming `CameraSession::close` teardown
+barrier. Serial is a multi-target transport even when only one target was
+configured, so select an owned view with `session.camera::<P>()?` for the sole
+target or `session.camera_for::<P>(target)?` for an explicit target. Keep the
+`Session` as well when the application needs deterministic `close` or additional
+target views.
+
+This changes generic adapter design. A blanket implementation over
+`CameraSession<Async, P, T, E>` cannot preserve its old type parameters because
+transport and executor are now private owner details. Implement the adapter for
+`Camera<P>`, retain `CameraSession<P>` when single-target teardown is part of
+the abstraction, or use `Session` plus `Camera<P>` / `DynSessionCamera` when
+targets or profiles are selected at runtime.
 
 ### Feature resolution inverted
 
@@ -62,7 +100,7 @@ by `cfg(mode-async)` on the exported items rather than by a check.
 | 1.x feature reality | 2.0 |
 | --- | --- |
 | `default = []`, blocking implicit | `default = ["blocking"]`, blocking explicit |
-| `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime |
+| `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime. For dynamic async views, enable `dyn-api` **and** `async` (or a `runtime-*` feature); `dyn-api` alone is the native blocking projection when `blocking` is enabled. |
 | blocking XOR async, enforced by `cfg` | `blocking` and `async` are independent and **co-enableable** in one build |
 | `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ pure engine/domain layers only |
 | `transport-serial` did not select an explicit blocking feature | `transport-serial` now enables `blocking`; use `transport-serial-tokio` for async Tokio serial |
@@ -71,7 +109,12 @@ So one 2.0 build can expose both `grafton_visca::Camera` (async) and
 `grafton_visca::blocking::Camera`. If you relied on 1.x's implicit-blocking
 default you are unaffected — it is now the explicit default. If you enabled
 `mode-async`, switch to `async` (or a `runtime-*` feature) and add `blocking`
-only if you also want the blocking facade in the same build.
+only if you also want the blocking facade in the same build. A manifest that
+used 1.x `dyn-api` for an async object-safe surface should be explicit in 2.0:
+use `default-features = false, features = ["async", "dyn-api"]` (or
+`runtime-tokio`/`runtime-smol` in place of `async`). With defaults retained,
+`features = ["dyn-api"]` selects the blocking dynamic projection as well as
+the default blocking facade; it does not enable async by itself.
 
 ### The `BlockingClient` inversion
 
@@ -130,9 +173,70 @@ the async `Session` / `CameraSession<P>` rows above.
 | Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
 | Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | Same names on `zoom()`: `zoom().set_normalized(UnitInterval)` and `zoom().set_normalized_in_domain(UnitInterval, ZoomDomain)`. They are now **targeted operations** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 
-Dynamic views remain async and object-safe. They erase profile/request types but
-share the static session's owner, timeout, pacing, cancellation, and state
-cache. There is no dynamic policy layer that can bypass static preparation.
+The **async** dynamic views are object-safe and erase profile/request types;
+the blocking dynamic projection is native and has no futures. Both share the
+static session's owner, timeout, pacing, cancellation, and state cache. There
+is no dynamic policy layer that can bypass static preparation.
+
+For an adapter that previously expressed support through root control-trait
+bounds, replace each call site with its noun rather than looking for a renamed
+root trait:
+
+| 1.x trait family | 2.0 noun |
+| --- | --- |
+| `MotionControl` / `PanTiltControl` | `camera.pan_tilt()` for commands; `camera.motion()` for aggregate observation, idle waits, and STOP-all |
+| `ZoomControl` / `DirectZoomControl` | `camera.zoom()` |
+| `FocusControl` | `camera.focus()` |
+| `ExposureControl` / iris traits | `camera.exposure()` |
+| `WhiteBalanceControl` and its color-temperature/gain controls | `camera.white_balance()`; saturation, hue, and general image controls belong to `camera.image()` |
+| `PresetsControl`, `PowerControl`, `MenuControl` | `camera.presets()`, `camera.power()`, and `camera.menu()` respectively; vendor streaming-quality controls live under the profile-gated `camera.advanced()` noun. |
+| `InquiryControl` | The inquiry on the noun that owns the value; there is no aggregate replacement trait. |
+| `SystemControl` | `camera.system().version()` for firmware information and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::serial::Config::{address_set_on_connect, if_clear_on_connect}` (Address Set runs first when both are selected). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
+
+### Layered async trait adapters
+
+A noun accessor is a borrowed view, and its async methods borrow that accessor.
+Do not return a future directly from a temporary such as
+`camera.image().contrast()` through an application-erased future. Bind the
+accessor inside the async block and await its method there:
+
+```rust,ignore
+let future = Box::pin(async move {
+    let image = camera.image();
+    image.contrast().await
+});
+```
+
+The rc.1 constructor-future defect above is separate: if the diagnostic passes
+through connector-backed `Connect`, `CameraConfig::open_async`, or
+`Runtime::connect_*` construction, upgrade to rc.2. Direct `Session::open`
+with an already-created/custom transport is outside that fix; its future and
+transport bounds remain the application's responsibility. Boxing domain futures
+or cloning a `Camera<P>` cannot repair a connector future before the camera has
+been constructed.
+
+There is also an application-owned Rust type-system edge for libraries with
+multiple trait layers. If *your* domain trait returns
+`impl Future + Send + '_` and a second object-safe trait boxes that opaque
+future, some compiler versions can report `implementation of Send is not
+general enough` because the higher-ranked lifetime proof crosses both opaque
+layers (the general limitation is tracked by
+[rust-lang/rust#100013](https://github.com/rust-lang/rust/issues/100013)). Box
+once at the application domain-trait boundary instead—for example, return the
+application's `Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>` alias from
+that trait—and have the outer facade delegate that boxed future directly. An
+owned adapter may instead clone an already-open `Camera<P>` into a `'static`
+future. Dropping `Send` merely moves the failure to an executor boundary and is
+not a migration.
+
+The old duration-only movement helpers map mechanically to `IdleWait` values:
+
+| 1.x | 2.0 |
+| --- | --- |
+| `await_pan_tilt_idle(duration)` | `motion().wait_until_idle(IdleWait::for_pan_tilt().with_timeout(duration))` |
+| `await_zoom_idle(duration)` | `motion().wait_until_idle(IdleWait::for_zoom().with_timeout(duration))` |
+| `await_focus_idle(duration)` | `motion().wait_until_idle(IdleWait::for_focus().with_timeout(duration))` |
+| `await_idle(duration)` | `motion().wait_until_idle(IdleWait::default().with_timeout(duration))` |
 
 ### Pan/tilt widths and explicit profile gates
 
@@ -164,13 +268,14 @@ Optional typed controls now name the exact evidence boundary:
 | Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
 | USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
+| `SonyBRC300` in 2.0.0-rc.1 advertised typed backlight support but could not construct `image()` | Upgrade to rc.2, which restores `camera.image().backlight()` and `camera.image().set_backlight(...)` while keeping every other image row independently capability-gated. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
 
 ### Wire corrections and removed ambiguous inquiries
 
 2.0 deliberately does not preserve several incorrect 1.x byte sequences. The
 complete audited delta is recorded in the
-[CHANGELOG wire-corrections table](../CHANGELOG.md#changed); the migrations a
+[immutable rc.1 CHANGELOG entry for "Breaking wire corrections versus 1.x"](https://github.com/GrantSparks/grafton-visca/blob/ad6982fb95d3d13c3dd6ec496fa59b495fe3107d/CHANGELOG.md#L682-L725); the migrations a
 caller can observe directly are:
 
 | 1.x assumption | 2.0 destination |
@@ -278,7 +383,7 @@ ND-filter position inquiries.
 | Concrete async `_op` methods (`pan_tilt_*_op`, `set_*_op`, `preset_recall_op`, and similar) | Construct the typed request and call `submit`; use the returned targeted/applied-only handle. |
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
-| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and observes its profile-selected protocol settlement condition; it is not a 2.0.0-rc.1 bench-verified assertion of physical rest. |
+| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and observes its profile-selected protocol settlement condition; it is not a 2.0.0-rc.2 bench-verified assertion of physical rest. |
 | `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns a linear `Operation<K>` **handle**; hold it and call `operation.cancel()`. The handle itself is the cancellation authority. |
 | `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` / `Cancellation` handle. |
 | `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
@@ -294,6 +399,24 @@ ND-filter position inquiries.
 The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
 does not infer lifecycle semantics.
+
+### Type-erasing operation handles
+
+1.x `InFlight` was borrow-oriented, so downstream crates could put it behind an
+object-safe trait whose `await_applied`, `await_settled`, and `cancel` methods
+took `&self`. That interface does not mechanically port: every 2.0 terminal
+method consumes the operation, and an applied-only operation has no settlement
+method.
+
+Prefer keeping `Operation<Targeted>` or `Operation<AppliedOnly>` concrete until
+its terminal action. If an application boundary must erase the kind, give the
+wrapper consuming methods such as `self: Box<Self>` and return an owned future.
+For a targeted operation, dispatch settlement to `settled_with_timeout`; for an
+applied-only operation, report that settlement is unsupported. Cancellation
+also needs an explicit policy for `CancelRejected`: recover the returned
+operation when observation must continue, or deliberately convert the rejection
+to `Error` and detach it. A borrowed wrapper cannot honestly represent that
+ownership transfer.
 
 ## Submission priority
 
@@ -422,14 +545,13 @@ async fn recover_refused_cancel(
 conversion keeps the reason and detaches the handle, which is exactly what the
 consuming shape did before.
 
-1.x's async and dyn handles borrowed for `cancel` (`InFlight::cancel(&self)` at
-`src/camera/inflight.rs:344`, documented at `:337` as "This method borrows the
-handle, so its exact response may still be awaited"), so a `NotSupported` there
-also left the caller holding the handle. 2.0 keeps that recovery while keeping
-its linear consuming terminal methods. 1.x's *blocking* handle consumed on this
-path (`src/camera/inflight.rs:615`) and `src/runtime/blocking_runner.rs:413`
-discarded the retained result with it; 2.0 does not reproduce that asymmetry —
-both facades behave like the 1.x async one.
+The [v1.1.0 `InFlight` implementation](https://github.com/GrantSparks/grafton-visca/blob/v1.1.0/src/camera/inflight.rs)
+made async and dynamic `cancel` borrow the handle and documented that its exact
+response could still be awaited, so a `NotSupported` result also left the
+caller holding the handle. 2.0 keeps that recovery while keeping its linear
+consuming terminal methods. The same v1.1.0 implementation made the blocking
+handle consume on this path; 2.0 does not reproduce that asymmetry — both
+facades behave like the historical async one.
 
 ### Scoped stop-on-exit guard
 
@@ -438,9 +560,11 @@ write a guard whose own `Drop` submits the typed STOP. This is caller-owned
 code — the library deliberately offers no such type, so the policy, the axes,
 and the failure handling stay yours.
 
-Every Rust snippet on this page is compiled by the crate's own test suite, so
-the `#[cfg(feature = "...")]` attributes below are load-bearing: they name the
-Cargo feature a snippet needs.
+Every complete Rust snippet on this page other than the explicitly marked
+`rust,ignore` adapter sketch is compiled by the crate's own test suite. That
+sketch intentionally omits application-specific profile/capability bounds; the
+`#[cfg(feature = "...")]` attributes below are load-bearing and name the Cargo
+feature a compiled snippet needs.
 
 ```rust
 use grafton_visca::blocking::Camera;
@@ -560,6 +684,19 @@ camera operation. They have no name-preserving alias in 2.0:
 | `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
 | `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure is normalized to `RuntimeShutdown`; actual session death is `ConnectionClosed` or `StreamPoisoned`. Prefer `requires_new_session()` for the recovery decision. |
 | `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout`; VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
+
+For a central application error adapter, prefer `error.kind()` when several
+wire-level variants have the same application meaning. Map `ErrorKind::Timeout`
+to a request timeout, `BufferFull` to a retryable busy/capacity state, and
+`NotExecutable` to a current-state or precondition rejection: it can be the
+camera's `0x41` response or a local `InvalidState` validation failure. Re-query
+or establish the prerequisite before retrying, and retry only when the command's
+semantics make that safe. Map `Unsupported` to an unsupported feature; retain a
+wildcard because `ErrorKind` is non-exhaustive. Preserve the original `Error`
+as the source when possible. Decide whether to rebuild the
+connection with `error.requires_new_session()` rather than treating every
+`IoClosed` kind as an unexpected disconnect: deliberate `RuntimeShutdown` has
+that kind but does not require a replacement session.
 
 Retained public protocol values also changed shape:
 

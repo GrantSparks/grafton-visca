@@ -19,4 +19,5 @@ fn main() {
 
 //~ E0277
 //~ "GenericVisca` does not declare image-processing support"
-//~ "profile `SonyBRC300` does not declare image-processing support"
+//~ "profile `SonyBRC300` does not declare validated image-freeze support"
+//~ "profile `SonyBRC300` does not declare validated defog-level inquiry support"

@@ -437,7 +437,7 @@ jobs:
     # it instead of at publish time.
     #
     # It is expected to report drift for most of a release cycle: the validator
-    # requires a dated `## [2.0.0-rc.1] - YYYY-MM-DD` CHANGELOG heading, while
+    # requires a dated `## [2.0.0-rc.2] - YYYY-MM-DD` CHANGELOG heading, while
     # RELEASING.md keeps the notes under `## [Unreleased]` until the release
     # commit. Those stage-dependent findings are why this job is advisory
     # rather than required; it still surfaces version, dependency-pin,
@@ -451,7 +451,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          tag=v2.0.0-rc.1
+          tag=v2.0.0-rc.2
           bash .github/scripts/validate-release.sh "${tag}" && status=0 || status=$?
           if [ "${status}" -eq 0 ]; then
             echo "::notice title=Release drift::The release validator accepts this checkout as ${tag}."
@@ -524,14 +524,18 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo check --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
-      - name: Report external-head limitation
+      - run: cargo test --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
+      - name: Report external-candidate limitation
         run: >-
-          echo "External Synemantic main is not asserted: its published manifest
-          still targets the 1.x feature surface and private sibling paths; the
-          local RC fixture above is the reproducible contract."
+          echo "The local fixture is a reproducible API contract, not an
+          assertion about an external Synemantic branch. RELEASING.md defines
+          the immutable paired-candidate gate required before publication."
 
   windows:
     name: Windows check and serial tests
