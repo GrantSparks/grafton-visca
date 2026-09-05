@@ -216,9 +216,36 @@ SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$
 SYNEMANTIC_UNPATCHED_CARGO_HOME="$synemantic_unpatched_cargo_home" CARGO_HOME="$pair_cargo_home" make pre-commit
 ```
 
-The temporary resolver may update that worktree's lockfile, which is why this
-is a disposable copy rather than either candidate checkout. Discard it after
-recording the result. The source inputs remain the two recorded commits, while
+Reassert both identities and inspect the final worktree state after the last
+target. `make pre-commit` may include formatters, so a successful exit status
+alone does not prove that it validated the recorded source. The only permitted
+tracked drift is an unstaged update to Synemantic's root `Cargo.lock` from the
+temporary resolver:
+
+```sh
+test "$(git -C "$grafton_candidate" rev-parse --verify HEAD^{commit})" = "$release_commit"
+test "$(git -C "$synemantic_candidate" rev-parse --verify HEAD^{commit})" = "$synemantic_commit"
+test -z "$(git -C "$grafton_candidate" status --porcelain=v1 --untracked-files=all)"
+
+synemantic_status="$(git -C "$synemantic_candidate" status --porcelain=v1 --untracked-files=all)"
+case "$synemantic_status" in
+    "") ;;
+    " M Cargo.lock")
+        git -C "$synemantic_candidate" diff --check -- Cargo.lock
+        git -C "$synemantic_candidate" diff -- Cargo.lock
+        ;;
+    *)
+        printf '%s\n' "unexpected Synemantic gate drift:" "$synemantic_status" >&2
+        exit 1
+        ;;
+esac
+```
+
+Record an allowed `Cargo.lock` diff with the result; any other source or index
+change invalidates the gate even when every Make target passed. The temporary
+resolver is why this is a disposable copy rather than either candidate
+checkout. Discard it after recording the result. Subject only to that recorded
+resolver output, the source inputs remain the two recorded commits, while
 Cargo builds the unpublished grafton-visca and macro packages from the exact
 local source.
 
