@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING** (#781): `is_moving` and `is_moving_axes` now observe over an
+  explicit time window instead of comparing two back-to-back snapshots.
+  `MotionQuery` gains a public `window` field (default
+  `MotionQuery::DEFAULT_WINDOW`, 100 ms) and `with_window`. The second
+  snapshot starts only once that window has elapsed on the owner clock after
+  the first was received, so `false` now means "no movement detected over at
+  least `window`", not "no movement between two incidental inquiries". A zero
+  window is rejected with `Error::InvalidParameter` before any inquiry. The
+  single observation deadline now covers the window plus the existing 30 s
+  inquiry budget, and a window that cannot elapse before it returns
+  `Error::Timeout` rather than `false`. Each call now takes at least
+  `window`. Struct-literal `MotionQuery { axes, tolerance }` construction must
+  add `window`. Blocking, async, and both dynamic facades share one
+  implementation of these rules. `IdleWait` is unchanged.
+
 ## [2.0.0-rc.2] - 2026-09-04
 
 The 2.0.0-rc.2 release candidate corrects two public integration defects found

@@ -2478,9 +2478,12 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::IdleWait
 pub struct grafton_visca::camera::MotionQuery
 pub grafton_visca::camera::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::camera::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
+pub grafton_visca::camera::MotionQuery::window: core::time::Duration
 impl grafton_visca::camera::MotionQuery
+pub const grafton_visca::camera::MotionQuery::DEFAULT_WINDOW: core::time::Duration
 pub const fn grafton_visca::camera::MotionQuery::new(grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::MotionQuery::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
+pub const fn grafton_visca::camera::MotionQuery::with_window(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera::MotionQuery
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
@@ -15240,9 +15243,12 @@ impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::MotionAcces
 pub struct grafton_visca::prelude::async::MotionQuery
 pub grafton_visca::prelude::async::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::async::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
+pub grafton_visca::prelude::async::MotionQuery::window: core::time::Duration
 impl grafton_visca::camera::MotionQuery
+pub const grafton_visca::camera::MotionQuery::DEFAULT_WINDOW: core::time::Duration
 pub const fn grafton_visca::camera::MotionQuery::new(grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::MotionQuery::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
+pub const fn grafton_visca::camera::MotionQuery::with_window(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera::MotionQuery
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
@@ -19246,9 +19252,12 @@ impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca:
 pub struct grafton_visca::prelude::blocking::MotionQuery
 pub grafton_visca::prelude::blocking::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::blocking::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
+pub grafton_visca::prelude::blocking::MotionQuery::window: core::time::Duration
 impl grafton_visca::camera::MotionQuery
+pub const grafton_visca::camera::MotionQuery::DEFAULT_WINDOW: core::time::Duration
 pub const fn grafton_visca::camera::MotionQuery::new(grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::MotionQuery::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
+pub const fn grafton_visca::camera::MotionQuery::with_window(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera::MotionQuery
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery

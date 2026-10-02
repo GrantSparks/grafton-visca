@@ -31,17 +31,36 @@ impl Default for MovementTolerance {
     }
 }
 
-/// Exact axes and tolerance for one movement observation.
+/// Exact axes, tolerance, and observation window for one movement observation.
+///
+/// `is_moving` reads one complete position snapshot, waits until at least
+/// [`window`](Self::window) has elapsed on the owner clock since that snapshot
+/// was received, and then reads a second snapshot. It reports movement when
+/// any selected axis changed by more than its tolerance between the two.
+///
+/// `false` therefore means *no movement was detected over at least `window`*.
+/// It is evidence about two separated samples, not proof that the camera is
+/// physically at rest: an axis that moves slowly enough to stay within
+/// tolerance over the window, or that returns to its starting position within
+/// it, is not detected. A longer window detects slower movement but makes the
+/// call take longer. Profile inquiry pacing can only lengthen the effective
+/// window, never shorten it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MotionQuery {
     /// Axes to sample. Unselected axes are never queried.
     pub axes: AffectedAxes,
     /// Maximum stable delta for each selected axis.
     pub tolerance: MovementTolerance,
+    /// Minimum owner-clock time between the end of the first snapshot and the
+    /// start of the second. Must be greater than zero.
+    pub window: Duration,
 }
 
 impl MotionQuery {
-    /// Creates a query with the default tolerance.
+    /// Default observation window, matching [`IdleWait`]'s default interval.
+    pub const DEFAULT_WINDOW: Duration = Duration::from_millis(100);
+
+    /// Creates a query with the default tolerance and observation window.
     #[must_use]
     pub const fn new(axes: AffectedAxes) -> Self {
         Self {
@@ -53,6 +72,7 @@ impl MotionQuery {
                 iris: 0,
                 nd_filter: 0,
             },
+            window: Self::DEFAULT_WINDOW,
         }
     }
 
@@ -62,17 +82,31 @@ impl MotionQuery {
         self.tolerance = tolerance;
         self
     }
+
+    /// Replaces the observation window.
+    ///
+    /// A zero window is rejected with [`Error::InvalidParameter`] before any
+    /// inquiry is sent: two back-to-back samples cannot establish movement
+    /// evidence over a positive duration.
+    ///
+    /// [`Error::InvalidParameter`]: crate::Error::InvalidParameter
+    #[must_use]
+    pub const fn with_window(mut self, window: Duration) -> Self {
+        self.window = window;
+        self
+    }
 }
 
 impl Default for MotionQuery {
-    /// Samples every mechanical movement axis with the default tolerance.
+    /// Samples every mechanical movement axis with the default tolerance and
+    /// observation window.
     fn default() -> Self {
         Self::new(AffectedAxes::MOVEMENT)
     }
 }
 
 impl From<AffectedAxes> for MotionQuery {
-    /// Samples `axes` with the default tolerance.
+    /// Samples `axes` with the default tolerance and observation window.
     fn from(axes: AffectedAxes) -> Self {
         Self::new(axes)
     }
