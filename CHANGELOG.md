@@ -20,9 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   single observation deadline now covers the window plus the existing 30 s
   inquiry budget, and a window that cannot elapse before it returns
   `Error::Timeout` rather than `false`. Each call now takes at least
-  `window`. Struct-literal `MotionQuery { axes, tolerance }` construction must
-  add `window`. Blocking, async, and both dynamic facades share one
-  implementation of these rules. `IdleWait` is unchanged.
+  `window`. Blocking, async, and both dynamic facades share one
+  implementation of these rules. `MotionQuery` and `IdleWait` are now
+  `#[non_exhaustive]` (D22, D27): their fields stay readable, but they are
+  built with `new`, `Default`, `From`, the `for_*` presets and the `with_*`
+  methods instead of struct literals, so later fields can be added without a
+  break. `wait_until_idle` behavior is unchanged.
 
 ## [2.0.0-rc.2] - 2026-09-04
 

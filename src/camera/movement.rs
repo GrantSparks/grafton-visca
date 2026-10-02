@@ -45,7 +45,11 @@ impl Default for MovementTolerance {
 /// it, is not detected. A longer window detects slower movement but makes the
 /// call take longer. Profile inquiry pacing can only lengthen the effective
 /// window, never shorten it.
+///
+/// The type is `#[non_exhaustive]`: build it with [`MotionQuery::new`],
+/// [`Default`] or [`From<AffectedAxes>`], then the `with_*` methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MotionQuery {
     /// Axes to sample. Unselected axes are never queried.
     pub axes: AffectedAxes,
@@ -113,7 +117,12 @@ impl From<AffectedAxes> for MotionQuery {
 }
 
 /// Complete policy for waiting until selected axes become idle.
+///
+/// The type is `#[non_exhaustive]`: build it with [`IdleWait::new`], the
+/// `for_*` presets, [`Default`] or [`From<Duration>`], then the `with_*`
+/// methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct IdleWait {
     /// Axes to sample. Unselected axes are never queried.
     pub axes: AffectedAxes,
