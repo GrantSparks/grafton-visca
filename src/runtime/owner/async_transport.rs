@@ -20,7 +20,7 @@ use super::{
         response_target_for_raw_prefix, validate_profile_transport, OwnerEnvelope, RoutingState,
         TargetRegistry,
     },
-    AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, WireWrite,
+    AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, RetainedStreamInput, WireWrite,
 };
 
 #[derive(Debug)]
@@ -305,7 +305,12 @@ where
             .map(AsyncReceive::Frames)
         }
     }
+}
 
+impl<T> RetainedStreamInput for AsyncTransportAdapter<T>
+where
+    T: AsyncTransport + HasTransportConfig,
+{
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(
             self.policy.protocol.transport == crate::runtime::engine::TransportKind::Stream
@@ -320,7 +325,7 @@ where
         )
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
         if self.policy.protocol.transport != crate::runtime::engine::TransportKind::Stream {
             return Ok(None);
         }
@@ -653,7 +658,7 @@ mod tests {
                 .expect("a partial prefix is ordinary stream input");
             assert!(matches!(received, AsyncReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
-                adapter.buffered_stream_input().unwrap(),
+                adapter.buffered_raw_prefix_evidence().unwrap(),
                 Some(RawPrefixEvidence::Incomplete {
                     target: CameraId::CAMERA_1,
                     kind: expected_kind,
@@ -678,7 +683,7 @@ mod tests {
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
             assert_eq!(
-                adapter.buffered_stream_input().unwrap(),
+                adapter.buffered_raw_prefix_evidence().unwrap(),
                 Some(RawPrefixEvidence::Malformed),
                 "prefix {prefix:02x?}",
             );

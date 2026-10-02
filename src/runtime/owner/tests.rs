@@ -502,6 +502,8 @@ mod blocking {
         }
     }
 
+    impl RetainedStreamInput for EmptyDecoder {}
+
     #[derive(Debug, Default)]
     struct ScriptedReader;
 
@@ -533,6 +535,8 @@ mod blocking {
                 .ok_or_else(|| Error::InvalidState("scripted frame batch exhausted".into()))
         }
     }
+
+    impl RetainedStreamInput for ScriptedDecoder {}
 
     #[derive(Debug)]
     enum FragmentDecode {
@@ -617,13 +621,11 @@ mod blocking {
                 }
             }
         }
+    }
 
+    impl RetainedStreamInput for FragmentTrackingDecoder {
         fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
             Ok(self.pending)
-        }
-
-        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
-            Ok(self.pending.then_some(CameraId::CAMERA_1))
         }
 
         fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
@@ -665,13 +667,18 @@ mod blocking {
             self.pending = true;
             Ok(Vec::new())
         }
+    }
 
+    impl RetainedStreamInput for NonClearingFragmentDecoder {
         fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
             Ok(self.pending)
         }
 
-        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
-            Ok(self.pending.then_some(CameraId::CAMERA_1))
+        fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+            Ok(self.pending.then_some(RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S1),
+            }))
         }
 
         fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -807,6 +814,8 @@ mod blocking {
             )])
         }
     }
+
+    impl RetainedStreamInput for CompleteStaleFrameDecoder {}
 
     #[derive(Debug)]
     enum TombstoneRead {
@@ -6401,6 +6410,7 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
         Error::TransportError(_)
     ));
 }
+
 /// Issue #634: every normative issue-542 lifecycle fixture replays through the
 /// production owner and engine.
 ///

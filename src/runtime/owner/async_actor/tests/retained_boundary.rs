@@ -1,4 +1,4 @@
-//! The raw-release coordinator's single deferred-boundary slot (#775).
+//! The raw-release coordinator's single retained-boundary slot (#775).
 //!
 //! An admission or cancellation selected while a raw correlation release is
 //! due is retained, not applied, until that release resolves. The actor has
@@ -8,7 +8,7 @@
 //! replaced the first, dropping its reply.
 //!
 //! Every case here parks the owner inside a retained-prefix release grace
-//! with one boundary already deferred, then offers a second boundary. The
+//! with one boundary already retained, then offers a second boundary. The
 //! assertions check that each caller receives its own reply, rather than only
 //! that the actor did not panic, so they catch the optimized-build overwrite
 //! as well as the debug assertion.
@@ -131,7 +131,10 @@ impl RetainedRelease {
             TurnOutcome::ContinueBuffered,
             "the retained prefix holds the release in its grace"
         );
-        assert_eq!(actor.raw_release.await_until(), at_h.checked_add(GRACE));
+        assert_eq!(
+            actor.coordinator.release().await_until(),
+            at_h.checked_add(GRACE)
+        );
 
         Self {
             handle,
@@ -146,7 +149,7 @@ impl RetainedRelease {
     }
 
     /// Start the actor with the boundaries the test has already queued. The
-    /// first one is selected at H and deferred into the slot.
+    /// first one is selected at H and retained into the slot.
     fn start(&mut self) -> tokio::task::JoinHandle<OwnerSnapshot> {
         let actor = self.actor.take().unwrap();
         let driver = self.driver.take().unwrap();
@@ -156,7 +159,7 @@ impl RetainedRelease {
     /// Wait until the actor has polled the release-grace timer.
     ///
     /// The grace wake is polled only when no earlier source was ready, so the
-    /// first such poll proves the deferred boundary was taken and the actor
+    /// first such poll proves the retained boundary was taken and the actor
     /// is now parked on the following turn. The 5 s read-timeout sleeps
     /// announced on each receive poll are skipped.
     async fn parked_in_grace(&self) {
@@ -246,7 +249,7 @@ async fn cancelled_within(
 }
 
 /// The issue's reproduction: B and C are both ready at H while receive is
-/// pending. B is deferred; C must wait in its channel and then be admitted in
+/// pending. B is retained; C must wait in its channel and then be admitted in
 /// its own right.
 #[tokio::test]
 async fn two_live_admissions_at_h_each_receive_their_own_reply() {

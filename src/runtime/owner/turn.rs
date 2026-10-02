@@ -1,13 +1,25 @@
 //! Executor-free policy shared by the async and blocking owner shells.
 //!
 //! This module is the landing point for the owner-turn unification in issue
-//! #723.  It contains no transport, channel, executor, or wall-clock access:
+//! #723, and holds the source-arbitration coordinator from #776 (decision
+//! D25). It contains no transport, channel, executor, or wall-clock access:
 //! callers sample time and map the returned durations onto their native wait
 //! mechanism.
 
 use std::time::{Duration, Instant};
 
 use crate::runtime::engine::RawCorrelationReleaseSet;
+
+// The blocking owner adopts the coordinator with its worker thread (D24).
+#[cfg(feature = "async")]
+mod coordinator;
+#[cfg(all(test, feature = "async"))]
+pub(super) use coordinator::SourcePhase;
+#[cfg(feature = "async")]
+pub(super) use coordinator::{
+    Disposition, OwnerCoordinator, ReceiveArm, ReceiveClass, Selected, Selection, Source, TimerArm,
+    TurnOutcome, TurnPlan,
+};
 
 /// Pause applied after the first transient receive fault or immediately-idle
 /// read so a transport cannot hot-spin an owner.
@@ -106,13 +118,13 @@ impl RawReleaseTurn {
     }
 
     /// Record that a no-data receive was sampled for this exact release set.
-    #[cfg_attr(not(feature = "async"), allow(dead_code))]
+    #[cfg(feature = "async")]
     pub(super) fn fence_no_input(&mut self, releases: RawCorrelationReleaseSet) {
         debug_assert!(!releases.is_empty());
         self.no_input_fence = Some(releases);
     }
 
-    #[cfg_attr(not(feature = "async"), allow(dead_code))]
+    #[cfg(feature = "async")]
     pub(super) fn is_fenced(&self, releases: RawCorrelationReleaseSet) -> bool {
         self.no_input_fence.is_some_and(|fenced| fenced == releases)
     }
