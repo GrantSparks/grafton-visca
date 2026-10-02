@@ -24,12 +24,13 @@ with a one-paragraph summary linking its record here.
 
 Handled separately and not recorded here:
 
-- **#775** (P1, raw-release deferred-slot overwrite) is fixed in its own PR,
-  independently of any proposal.
-- **#781** (`is_moving` temporal window) is fixed in its own PR; the sampling
-  and evidence contract is chosen in that PR and is also awaiting
-  ratification. It changes `MotionQuery`, which has public fields and is not
-  `#[non_exhaustive]`; that PR should decide the struct's shape before 2.0.0.
+- **#775** (P1, raw-release deferred-slot overwrite) is fixed in its own PR
+  (#785), independently of any proposal.
+- **#781** (`is_moving` temporal window) is fixed in its own PR (#786). That
+  PR chooses the sampling and evidence contract, which is also awaiting
+  ratification. It keeps `MotionQuery` parallel to `IdleWait` (public fields,
+  not `#[non_exhaustive]`) and lists the builder/private-field alternative
+  for the 2.0 freeze decision.
 
 ## Recommended order of ratification
 
