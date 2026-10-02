@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instant hit a debug assertion in debug builds. In optimized builds the
   first boundary was replaced, its caller saw a spurious owner-disconnected
   error, and a deferred cancellation never reached the engine.
+- Fixed a boundary retained behind a raw release being lost, rather than
+  answered with the terminal error, when the async owner task unwinds (D25,
+  #776).
+
+### Changed
+
+- The async owner's source arbitration (source phase, fairness ceiling,
+  control allowance, raw-release proof and retained-boundary slot) now lives
+  in one executor-free coordinator, and the actor polls its sources in the
+  coordinator's single planned order. Both owners resolve retained raw stream
+  input with one shared routine. Decision D25 (#776); no public API change.
 
 ## [2.0.0-rc.2] - 2026-09-04
 
