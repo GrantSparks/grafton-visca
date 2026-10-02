@@ -131,11 +131,19 @@ where
 /// engine wake, but must not otherwise hand-roll a smaller boundary set.  In
 /// particular, cancellation, admission, and control retain the same ordering
 /// and fairness treatment as an ordinary receive turn.
+///
+/// The one exception is the deferred raw-release slot (#775).  While it holds
+/// an admission or cancellation, `cancellations` and `admissions` are `None`:
+/// those two sources are ineligible, so the actor can never dequeue a second
+/// boundary that it has nowhere to retain.  Their payloads stay in their
+/// bounded channels, in FIFO order, behind the retained boundary.  Shutdown,
+/// receive, the release timer, and control keep their usual order, so the
+/// release that the slot is waiting on can still resolve.
 #[derive(Clone, Copy)]
 struct ActorBoundaryReceivers<'a> {
     shutdown: &'a flume::Receiver<()>,
-    cancellations: &'a flume::Receiver<CancellationBoundary>,
-    admissions: &'a flume::Receiver<AdmissionBoundary>,
+    cancellations: Option<&'a flume::Receiver<CancellationBoundary>>,
+    admissions: Option<&'a flume::Receiver<AdmissionBoundary>>,
     control: &'a flume::Receiver<ControlBoundary>,
 }
 
@@ -157,12 +165,20 @@ where
         }
     };
     let cancellation = async {
-        match boundaries.cancellations.recv_async().await {
+        let Some(cancellations) = boundaries.cancellations else {
+            return future::pending().await;
+        };
+        match cancellations.recv_async().await {
             Ok(value) => ActorEvent::Cancellation(value),
             Err(_) => future::pending().await,
         }
     };
-    let admission = async { ActorEvent::Admission(boundaries.admissions.recv_async().await) };
+    let admission = async {
+        let Some(admissions) = boundaries.admissions else {
+            return future::pending().await;
+        };
+        ActorEvent::Admission(admissions.recv_async().await)
+    };
     let control = async {
         match boundaries.control.recv_async().await {
             Ok(value) => ActorEvent::Control(value),
@@ -573,6 +589,11 @@ struct CancellationBoundary {
 /// not yet engine input: both admission and cancellation normally end an input
 /// turn, which would otherwise run the due release and dispatch a successor
 /// behind unresolved raw evidence.
+///
+/// The actor retains at most one of these. Selection makes admission and
+/// cancellation ineligible while one is held (see [`ActorBoundaryReceivers`]),
+/// so a second boundary stays in its bounded channel instead of replacing
+/// this one (#775).
 ///
 /// `AdmissionBoundary` keeps its request inline so accepting an admission does
 /// not add a heap allocation at the actor-channel boundary.
@@ -1998,10 +2019,15 @@ where
 
             let event = {
                 let frame_limit = self.state.policy().limits.frames_per_receive;
+                // The deferred slot holds at most one boundary. While it is
+                // occupied, leave further admissions and cancellations queued
+                // in their bounded channels rather than dequeuing one that
+                // would have to replace it (#775).
+                let boundary_slot_free = deferred_raw_boundary.is_none();
                 let boundaries = ActorBoundaryReceivers {
                     shutdown: &self.shutdown,
-                    cancellations: &self.cancellations,
-                    admissions: &self.admissions,
+                    cancellations: boundary_slot_free.then_some(&self.cancellations),
+                    admissions: boundary_slot_free.then_some(&self.admissions),
                     control: &self.control,
                 };
                 // A complete stream frame retained by the adapter's batch
@@ -2193,7 +2219,10 @@ where
                     }
                     ActorEvent::Admission(Ok(mut admission)) => {
                         if self.claim_admission_boundary(&mut admission, selected_at) {
-                            debug_assert!(deferred_raw_boundary.is_none());
+                            debug_assert!(
+                                deferred_raw_boundary.is_none(),
+                                "admission is ineligible while the deferred slot is occupied"
+                            );
                             deferred_raw_boundary = Some(DeferredRawBoundary::Admission(admission));
                         }
                         // Do not reset the retained-input work counters: this
@@ -2209,7 +2238,10 @@ where
                                 Some(observation),
                             )));
                         } else {
-                            debug_assert!(deferred_raw_boundary.is_none());
+                            debug_assert!(
+                                deferred_raw_boundary.is_none(),
+                                "cancellation is ineligible while the deferred slot is occupied"
+                            );
                             deferred_raw_boundary =
                                 Some(DeferredRawBoundary::Cancellation(cancellation));
                         }

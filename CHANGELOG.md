@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed a second admission or cancellation overwriting the one the async owner
+  retains while a raw correlation release is due (#775). While that single
+  deferred slot is occupied, the actor no longer selects further admissions
+  or cancellations. They wait, in order, in their existing bounded channels.
+  Receive, the release timer, shutdown, and control are still driven, so the
+  release can resolve. Previously, two ready boundaries at the release
+  instant hit a debug assertion in debug builds. In optimized builds the
+  first boundary was replaced, its caller saw a spurious owner-disconnected
+  error, and a deferred cancellation never reached the engine.
+
 ## [2.0.0-rc.2] - 2026-09-04
 
 The 2.0.0-rc.2 release candidate corrects two public integration defects found
