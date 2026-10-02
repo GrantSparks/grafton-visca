@@ -32,6 +32,8 @@ use crate::runtime::TokioRuntime;
 
 use super::*;
 
+#[cfg(feature = "runtime-tokio")]
+mod deferred_boundary;
 mod fairness;
 mod faults;
 #[cfg(feature = "runtime-tokio")]
