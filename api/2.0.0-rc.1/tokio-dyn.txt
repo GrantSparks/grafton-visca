@@ -1688,7 +1688,7 @@ impl core::marker::Unpin for grafton_visca::Connect
 impl core::marker::UnsafeUnpin for grafton_visca::Connect
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Connect
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::Connect
-pub struct grafton_visca::camera::IdleWait
+#[non_exhaustive] pub struct grafton_visca::camera::IdleWait
 pub grafton_visca::camera::IdleWait::axes: grafton_visca::AffectedAxes
 pub grafton_visca::camera::IdleWait::interval: core::time::Duration
 pub grafton_visca::camera::IdleWait::timeout: core::time::Duration
@@ -1723,12 +1723,15 @@ impl core::marker::Unpin for grafton_visca::camera::IdleWait
 impl core::marker::UnsafeUnpin for grafton_visca::camera::IdleWait
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::IdleWait
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::IdleWait
-pub struct grafton_visca::camera::MotionQuery
+#[non_exhaustive] pub struct grafton_visca::camera::MotionQuery
 pub grafton_visca::camera::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::camera::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
+pub grafton_visca::camera::MotionQuery::window: core::time::Duration
 impl grafton_visca::camera::MotionQuery
+pub const grafton_visca::camera::MotionQuery::DEFAULT_WINDOW: core::time::Duration
 pub const fn grafton_visca::camera::MotionQuery::new(grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::MotionQuery::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
+pub const fn grafton_visca::camera::MotionQuery::with_window(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera::MotionQuery
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery
@@ -13139,7 +13142,7 @@ impl core::marker::Unpin for grafton_visca::camera::profiles::GenericVisca
 impl core::marker::UnsafeUnpin for grafton_visca::camera::profiles::GenericVisca
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::profiles::GenericVisca
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::profiles::GenericVisca
-pub struct grafton_visca::prelude::async::IdleWait
+#[non_exhaustive] pub struct grafton_visca::prelude::async::IdleWait
 pub grafton_visca::prelude::async::IdleWait::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::async::IdleWait::interval: core::time::Duration
 pub grafton_visca::prelude::async::IdleWait::timeout: core::time::Duration
@@ -13294,12 +13297,15 @@ impl<'a, P> core::marker::Unpin for grafton_visca::MotionAccessor<'a, P> where &
 impl<'a, P> core::marker::UnsafeUnpin for grafton_visca::MotionAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::MotionAccessor<'a, P>
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::MotionAccessor<'a, P>
-pub struct grafton_visca::prelude::async::MotionQuery
+#[non_exhaustive] pub struct grafton_visca::prelude::async::MotionQuery
 pub grafton_visca::prelude::async::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::async::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
+pub grafton_visca::prelude::async::MotionQuery::window: core::time::Duration
 impl grafton_visca::camera::MotionQuery
+pub const grafton_visca::camera::MotionQuery::DEFAULT_WINDOW: core::time::Duration
 pub const fn grafton_visca::camera::MotionQuery::new(grafton_visca::AffectedAxes) -> Self
 pub const fn grafton_visca::camera::MotionQuery::with_tolerance(self, grafton_visca::camera::MovementTolerance) -> Self
+pub const fn grafton_visca::camera::MotionQuery::with_window(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::camera::MotionQuery
 pub fn grafton_visca::camera::MotionQuery::clone(&self) -> grafton_visca::camera::MotionQuery
 impl core::cmp::Eq for grafton_visca::camera::MotionQuery

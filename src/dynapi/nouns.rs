@@ -429,13 +429,19 @@ pub trait DynMotion: Send + Sync {
     /// Reports whether protocol position samples indicate movement on any
     /// mechanical movement axis.
     ///
-    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance; use
-    /// [`Self::is_moving_axes`] to pick the axes or the tolerance.
+    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance and
+    /// observation window; use [`Self::is_moving_axes`] to pick the axes, the
+    /// tolerance, or the window. `false` means no movement was detected over
+    /// the window, not that the camera is physically at rest.
     ///
     /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
     fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>>;
-    /// Reports whether two protocol position samples indicate movement on the
-    /// selected axes.
+    /// Reports whether two protocol position samples, separated by at least
+    /// [`MotionQuery::window`], indicate movement on the selected axes.
+    ///
+    /// A zero window fails with `Error::InvalidParameter` before any inquiry,
+    /// and a window that cannot elapse within the observation deadline fails
+    /// with `Error::Timeout` rather than reporting no movement.
     fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>>;
     /// Waits until the selected axes meet the protocol idle condition.
     fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>>;

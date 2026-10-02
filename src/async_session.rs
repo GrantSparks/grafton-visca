@@ -603,28 +603,34 @@ impl AsyncCameraCore {
     }
 
     pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
+        let mut observation = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
             self.target,
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
         )?;
-        let deadline = self.owner.deadline_after(MOTION_QUERY_OBSERVER_BUDGET)?;
+        let deadline = self
+            .owner
+            .deadline_after(observation.budget(MOTION_QUERY_OBSERVER_BUDGET)?)?;
         let control = self.owner.receipt_control();
-        let mut detector = crate::prepared::MotionDetector::new(query.axes, query.tolerance);
 
         let baseline = sample_positions_async(&self.owner, &control, &queries, deadline).await?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
+        let final_not_before =
+            observation.observe_baseline(baseline, self.owner.now(), deadline)?;
+        loop {
+            let now = self.owner.now();
+            if now >= final_not_before {
+                break;
+            }
+            self.owner
+                .sleep(final_not_before.saturating_duration_since(now))
+                .await;
         }
         ensure_async_before_deadline(&self.owner, deadline)?;
+        let started_at = self.owner.now();
         let next = sample_positions_async(&self.owner, &control, &queries, deadline).await?;
-        Ok(matches!(
-            detector.observe(next)?,
-            crate::prepared::MotionState::Moving
-        ))
+        observation.observe_final(next, started_at)
     }
 
     pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
