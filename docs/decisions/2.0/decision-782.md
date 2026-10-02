@@ -1,11 +1,35 @@
 # Decision record: Settlement evidence and supersession for targeted operations (#782)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: evidence and supersession are in 2.0) — 2026-10-02
 
-Decision number: assigned at ratification. Any change to what `settled`
+Decision number: D23 (`docs/issue_542_design_review.md`). Any change to what `settled`
 means is a revision of the #542 targeted-settlement contract and needs its own
 `### Changed` CHANGELOG entry naming #542 plus a migration example; it must
 not be recorded by editing the existing #542 entries.
+
+## Decision
+
+1. The owner keeps an owner-ordered motion generation per target and axis,
+   shared with the halt fence (D21).
+2. **Supersession point: admission.** When a later conflicting library
+   operation on the same target and axes is admitted before an earlier
+   operation's polled settlement is established, the earlier operation's
+   `settled()` returns a distinct, documented superseded error instead of
+   `Ok`.
+3. A profile operation-complete signal (`CompletionIsSettled`) is the
+   operation's own completion and is treated as exact; supersession applies
+   to polled settlement evidence.
+4. `settled()` and `settled_with_timeout()` return a `#[non_exhaustive]`
+   evidence value (illustrative: `Settlement`) instead of `()`. It records
+   the evidence class (profile completion, or polled stability with axes,
+   window and tolerance) using the sampling vocabulary from D22.
+   Position-reached evidence can be added later as a field.
+5. Documentation on every facade and in `docs/architecture_2_0.md` states
+   that polled settlement means observed stability, not arrival at the
+   requested endpoint.
+
+Revises the #542 targeted-settlement contract. Record it as a new CHANGELOG
+`### Changed` entry naming #542, with a migration example.
 
 ## Context
 
@@ -23,7 +47,10 @@ condition, not a bench-verified assertion of physical rest"
 conflicting move on the same axes can satisfy an earlier operation's
 settlement.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Defer to 2.x; in 2.0, document the current meaning precisely and reserve
 room for a report and a supersession outcome.**
@@ -107,12 +134,8 @@ themselves.
 - Leave as is with no documentation: callers may infer endpoint arrival from
   `Ok(())`.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Accept deferral with the 2.0 documentation of current meaning and the
-   reserved supersession outcome?
-2. For 2.x: supersession point at admission of the later operation, or at its
-   first write?
-3. Should `CompletionIsSettled` profiles (`supports_operation_complete`) also
-   be subject to supersession, or is the profile completion signal treated as
-   exact?
+1. Deferral is superseded: implemented in 2.0.
+2. Supersession point: admission of the later operation.
+3. Profile completion is exact; supersession applies to polled evidence.

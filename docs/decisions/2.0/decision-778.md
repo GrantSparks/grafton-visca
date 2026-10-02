@@ -1,13 +1,29 @@
 # Decision record: Bounded admission reserved for stop/halt control (#778)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted — 2026-10-02
 
-Decision number: assigned at ratification. This extends D10 ("intrinsically
+Decision number: D26 (`docs/issue_542_design_review.md`). This extends D10 ("intrinsically
 urgent cancellation bypasses queued ordinary work but never bypasses physical
 command pacing") and D1 (urgency is request-owned metadata) in
 `docs/issue_542_design_review.md`; it reverses neither. It changes the
 documented meaning of `SessionConfig::admission_capacity`, which needs a
 `### Changed` CHANGELOG entry and a migration row.
+
+## Decision
+
+As recommended below:
+
+1. `admission_capacity` bounds ordinary requests. The total bound is
+   `capacity + reserve`.
+2. Each registered target has a reserve sized to its profile's supported
+   typed STOP paths (at most three). Only `ControlClass::Urgent` typed stops
+   may use it.
+3. Exhausting the reserve returns a distinct error. It joins the D20 matrix
+   update.
+4. `MetricsSnapshot` becomes `#[non_exhaustive]` (also covered by D27) and
+   gains control-reserve counters.
+5. No coalescing. The halt (D21) admits its STOPs through this reserve.
+   With the blocking worker (D24), the reserve also protects blocking stops.
 
 ## Context
 
@@ -118,10 +134,8 @@ another thread holds the owner turn (see #780).
 - Document the limitation only: leaves stop availability dependent on
   application discipline.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Redefine `admission_capacity` as the ordinary bound (total = capacity +
-   reserve), or keep it total and carve the reserve out of it (which reduces
-   ordinary capacity and breaks capacity-1 configurations)?
-2. Reserve size: per-target "supported stop paths" (≤ 3), or a fixed constant?
-3. Approve `#[non_exhaustive]` on `MetricsSnapshot` before 2.0.0?
+1. `admission_capacity` is the ordinary bound; total = capacity + reserve.
+2. Reserve sized per target by supported stop paths (at most three).
+3. `#[non_exhaustive]` on `MetricsSnapshot`: yes.

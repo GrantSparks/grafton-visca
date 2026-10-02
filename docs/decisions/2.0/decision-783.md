@@ -1,13 +1,44 @@
 # Decision record: Typed timeout stage and operation certainty (#783)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: typed stage and certainty are in 2.0) — 2026-10-02
 
-Decision number: assigned at ratification. If accepted, the first row of the
+Decision number: D20 (`docs/issue_542_design_review.md`). The first row of the
 canonical owner failure matrix in `src/error.rs:13-32` changes; record that as
 a `### Changed` CHANGELOG entry and name the classification it refines (#755;
 #726 for the earlier public failure model). This does not reverse D8
 (per-request raw uncertainty, #671) and must not reinstate blanket session
 poisoning.
+
+## Decision
+
+1. A new `Error` variant (name chosen in the implementation PR; illustrative:
+   `ObservationTimeout`) is returned only when a caller-side observer deadline
+   on an admitted operation, cancellation or inquiry expires while the owner
+   still holds the request. `kind()` is `ErrorKind::Timeout`,
+   `is_retryable()` is `false`, `requires_new_session()` is `false`. It
+   carries the `OperationId`. The documented response is to wait again (D19)
+   or reconcile, never to resubmit.
+2. Every timeout carries typed failure context, available through one
+   accessor (illustrative: `Error::failure_context() ->
+   Option<FailureContext>`). `FailureContext` and its enums are
+   `#[non_exhaustive]`:
+   - stage: pre-admission, observation, terminal (engine/protocol lifecycle),
+     cancellation attempt, session;
+   - certainty: not accepted (replay-safe), still live, failed conclusively,
+     unconfirmed.
+   An accessor keeps the context extensible without reshaping variants.
+3. Admission-deadline expiry stays `Error::Timeout`, with stage
+   pre-admission and certainty "not accepted".
+4. `Error::Timeout` otherwise keeps meaning that the engine/protocol
+   lifecycle reached a terminal deadline.
+5. The canonical failure matrix row in `src/error.rs` is split, and
+   `is_retryable()` is documented as classifying temporary conditions, not
+   replay safety. No rename.
+6. Recovery examples per stage go into `docs/observability_and_recovery.md`.
+
+Refines the #755 matrix classification (and #726). Does not reverse D8 and
+does not reinstate blanket session poisoning. The control-reserve rejection
+variant from D26 is added in the same matrix update.
 
 ## Context
 
@@ -25,7 +56,10 @@ resubmit a command that is still running. `Error` and `ErrorKind` are already
 `#[non_exhaustive]` (`src/error.rs:60`, `:196`), so adding a variant is not a
 compile break.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Accept for 2.0 (narrow: distinct observation-deadline error); defer the
 structured stage/certainty report to 2.x.**
@@ -108,12 +142,8 @@ stage/certainty from the variant plus their own knowledge of the call site.
 - Attach context via `Error::WithContext`: string context does not give code
   a typed distinction.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Approve a new variant for observer-deadline expiry, with `is_retryable() ==
-   false`?
-2. Should admission-deadline expiry (`async_actor.rs:2835`) use the new
-   variant, `Error::Timeout`, or a third variant? (It is pre-admission: nothing
-   was accepted, so replay is safe; this record leans to keeping it distinct
-   from observation timeout.)
-3. Should the new variant carry the `OperationId`?
+1. New observer-deadline variant with `is_retryable() == false`: yes.
+2. Admission-deadline expiry stays `Error::Timeout` (stage pre-admission).
+3. The new variant carries the `OperationId`: yes.

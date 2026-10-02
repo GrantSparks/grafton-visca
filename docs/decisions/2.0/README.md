@@ -1,91 +1,84 @@
 # 2.0 review decisions (#784)
 
-Proposed decision records for the proposals filed under review index #784,
-drafted against `main` @ `894a2e7` (`v2.0.0-rc.2`). Every record has status
-"Proposed — awaiting maintainer ratification"; nothing here is decided.
+Decision records for the proposals filed under review index #784, drafted
+against `main` @ `894a2e7` (`v2.0.0-rc.2`) and ratified on 2026-10-02. Each
+record keeps its original recommendation; its `## Decision` section is what
+was ratified. Several decisions were expanded beyond the original
+recommendation, on the principle that 2.0 is where breaking changes belong
+and that extra effort now is preferred over a weaker or less stable 2.x API.
 
-These records live in `docs/decisions/2.0/`, a new directory. Ratified
-decisions are currently a numbered list in `docs/issue_542_design_review.md`
-("Decisions from this review", items 1-18). On ratification, each accepted or
-deferred record should also get the next free number in that list (D19 onward)
-with a one-paragraph summary linking its record here.
+The ratified decisions are numbered D19-D27 in
+`docs/issue_542_design_review.md` ("Decisions from this review").
 
 ## Summary
 
-| Issue | Title | Recommendation | Breaking? | Effort | Depends on |
-| --- | --- | --- | --- | --- | --- |
-| [#777](decision-777.md) | Reusable operation observation, separate cancellation intent | Accept for 2.0 (borrowing `&mut self` waits with cached terminal; `CancellationOutcome` non-exhaustive); defer `&self` idempotent cancel and dual delivery to 2.x | Yes (receiver change; supersedes #552 criteria) | M | none |
-| [#783](decision-783.md) | Timeout stage and operation certainty | Accept for 2.0 (distinct non-retryable observation-deadline error); defer structured stage/certainty report to 2.x | Semantic (compile-compatible) | S-M | #777 |
-| [#779](decision-779.md) | Owner-level halt, prompt STOP dispatch, per-axis results | Defer to 2.x (new `halt` owner action); 2.0: async/dyn `stop_all_motion` submits all stops before awaiting, plus docs | No (2.0 slice); 2.x additive | S now; L-XL later | #778, #777, #776, #780 |
-| [#782](decision-782.md) | Settlement evidence and supersession | Defer to 2.x; 2.0: document current meaning and reserve a supersession outcome | No (docs) | S now; L later | #781, #777, #779 |
-| [#780](decision-780.md) | Native blocking owner worker | Defer to 2.x; 2.0: loosen blocking submission and `TransportBusy` contract in docs | No (docs) | S now; XL later | #776, #778 |
-| [#776](decision-776.md) | Explicit boundary arbitration and invariant replay | Defer to 2.x; 2.0 slice is #775's enforced single-slot invariant | No (internal) | L | #775 |
-| [#778](decision-778.md) | Bounded admission reserved for stop/halt | Accept for 2.0 (per-target reserve for intrinsically Urgent typed stops; distinct rejection error; `MetricsSnapshot` non-exhaustive) | Semantic (capacity meaning, new variant, non-exhaustive struct) | M | none (#776 optional) |
+| Decision | Issue | Ratified | Breaking? | Effort |
+| --- | --- | --- | --- | --- |
+| D19 | [#777](decision-777.md) | Borrowing waits with a cached terminal result; idempotent `cancel(&mut self)`; terminal result kept after cancellation; `CancellationOutcome` non-exhaustive | Yes | M-L |
+| D20 | [#783](decision-783.md) | Distinct non-retryable observer-deadline error with `OperationId`; typed stage/certainty context on timeouts | Semantic | M |
+| D21 | [#779](decision-779.md) | `stop_all_motion` becomes an owner-level halt with a per-axis report and a one-time fence; raw/custom commands suppressed only when axes are declared | Yes | L-XL |
+| D22 | [#781](decision-781.md) | `is_moving` observes across an explicit window (PR #786); `MotionQuery`/`IdleWait` non-exhaustive | Yes | S |
+| D23 | [#782](decision-782.md) | Per-axis motion generations; supersession at admission; `settled()` returns evidence | Yes | L |
+| D24 | [#780](decision-780.md) | Native worker thread is the only blocking model; no `TransportBusy` on concurrent use | Semantic | XL |
+| D25 | [#776](decision-776.md) | Shared executor-free coordinator, first, with generated sequence tests | No (internal) | L |
+| D26 | [#778](decision-778.md) | Per-target control reserve for typed stops; capacity is the ordinary bound | Semantic | M |
+| D27 | [#788](decision-788.md) | Extensible public types become `#[non_exhaustive]` before 2.0.0 | Yes | M |
 
-Handled separately and not recorded here:
+#775 (P1, raw-release deferred-slot overwrite) is fixed independently in
+PR #785. Its enforced single-slot invariant is the first acceptance example
+for D25.
 
-- **#775** (P1, raw-release deferred-slot overwrite) is fixed in its own PR
-  (#785), independently of any proposal.
-- **#781** (`is_moving` temporal window) is fixed in its own PR (#786). That
-  PR chooses the sampling and evidence contract, which is also awaiting
-  ratification. It keeps `MotionQuery` parallel to `IdleWait` (public fields,
-  not `#[non_exhaustive]`) and lists the builder/private-field alternative
-  for the 2.0 freeze decision.
+## Implementation order
 
-## Recommended order of ratification
+Each step is its own PR, with full local checks, merged before the next
+starts:
 
-Consistent with #784's suggested order (decide public-shape questions before
-the API freeze; implement correctness fixes first and independently):
-
-1. #775 fix merged (no ratification needed beyond review).
-2. #777 operation ownership (largest API-shape decision).
-3. #783 failure context (depends on what an observation timeout leaves
-   behind, i.e. #777).
-4. #779 halt meaning (decides what `stop_all_motion` promises in 2.0 and
-   reserves the 2.x halt).
-5. #781 sampling contract (in its PR), then #782 settlement evidence.
-6. #780 blocking progress model.
-7. #776 coordination seam scope.
-8. #778 control reserve (implementation order: before the 2.x halt; it can be
-   ratified any time after #779's meaning is set, and early ratification is
-   fine because it does not depend on the others).
-
-Implementation order for 2.0 items: #775, #777, #783, #778, #779 (2.0 slice),
-documentation slices of #780 and #782, then API snapshot refresh, CHANGELOG,
-migration rows, and only then the stable hardware pass.
+1. #785 (#775 fix).
+2. D25 coordinator (#776).
+3. D19 operation handles (#777).
+4. D20 failure context (#783), with the D26 error variant in the same matrix
+   update if D26 is ready.
+5. Prepared axis/effect metadata and per-target motion generations (shared
+   by D21 and D23).
+6. D26 control reserve (#778).
+7. D24 blocking worker (#780).
+8. D21 owner halt (#779).
+9. D23 settlement evidence and supersession (#782).
+10. D22 (#786, rebased and adjusted to D27's shape) can merge any time before
+    D23.
+11. D27 public type audit (#788).
+12. API snapshot refresh, CHANGELOG and migration review, then
+    `v2.0.0-rc.3`.
+13. The stable hardware pass (including HW-04 for the halt), then 2.0.0.
 
 ## Dependency graph
 
-"A -> B" means A should be decided or implemented before B.
+"A -> B" means A is implemented before B.
 
 ```
-#775 fix        -> #776 seam (2.x)          first acceptance example
-#776 seam       -> #779 halt (2.x)           ordering/suppression rules
-#776 seam       -> #780 worker (2.x)         shared executor-free coordination
-#776 seam       -> #782 generations (2.x)    supersession rules
-#777 (2.0)      -> #783 (2.0)                observation timeout leaves a live handle
-#777 (2.0)      -> #782 (2.x)                re-observation / additive report method
-#777 (2.0)      -> #779 (2.x)                per-axis result collection
-#778 (2.0)      -> #779 (2.0 slice and 2.x)  admission for up to three stops per target
-#780 (2.x)      -> #779 (blocking)           concurrent STOP dispatch in blocking mode
-#780 (2.x)      -> #778 (blocking)           reserve is only reachable without owner-turn contention
-#781 fix PR     -> #782 (2.x)                sampling policy that evidence describes
-#779 (2.x)     <-> #782 (2.x)                share one owner-ordered motion generation
+#775 fix   -> D25 coordinator            first acceptance example
+D25        -> D26, D24, D21, D23          built on the shared coordinator
+D19        -> D20                          observation timeout leaves a live handle
+D19        -> D21, D23                     per-axis results and evidence on borrowing handles
+axis metadata / motion generations -> D21, D23
+D26        -> D21                          admission for up to three stops per target
+D24        -> D21 (blocking)               concurrent STOP dispatch
+D22        -> D23                          sampling vocabulary for evidence
+D27        -> rc.3                          last shape change before the snapshot freeze
 ```
 
-## Cross-cutting 2.0 items that keep 2.x additive
+## Cross-cutting rules
 
-- `#[non_exhaustive]` on `CancellationOutcome` (#777) and `MetricsSnapshot`
-  (#778); new report types introduced in 2.x (#779, #782, #783) should be
-  `#[non_exhaustive]` from the start.
-- `Error` and `ErrorKind` are already `#[non_exhaustive]`, so new variants for
-  #778/#782/#783 are compile-compatible; reclassifying an existing path is
-  still a semantic change and is only proposed for #783 before 2.0.0.
-- Documentation reservations in #780 and #782 are what make their 2.x
-  implementations compatible; if those are not landed, the corresponding 2.x
-  work becomes a documented-contract change.
+- New public report, outcome and context types from D19-D26 are
+  `#[non_exhaustive]` from the start (D27).
+- `Error` and `ErrorKind` are already `#[non_exhaustive]`. The new variants
+  (D20 observer deadline, D21 halt supersession, D23 settlement supersession,
+  D26 reserve exhausted) go into one consistent failure matrix.
+- Each implementation PR adds its CHANGELOG `### Changed`/`### Removed`
+  entry naming the decision and any superseded finding, a migration row or
+  section, and regenerated API snapshots.
 
-## How to ratify
+## How decisions were ratified (process for future records)
 
 Follows the process adopted in #692 and written into `CONTRIBUTING.md`
 ("Changelog discipline for reversals and waivers").

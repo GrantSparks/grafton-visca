@@ -1,12 +1,43 @@
 # Decision record: Reusable operation observation and separate cancellation intent (#777)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: borrowing idempotent cancellation and dual delivery are in 2.0) — 2026-10-02
 
-Decision number: assigned at ratification (next free entry after D18 in
-`docs/issue_542_design_review.md`). If accepted, this record supersedes part of
+Decision number: D19 (`docs/issue_542_design_review.md`). This record supersedes part of
 the #552 exit criteria ("Wait, cancel, and detach consume the owning receipt";
 "Drop and observer timeout detach"), so it needs its own CHANGELOG
 `### Changed` entry naming #552 and must not be filed under #552.
+
+## Decision
+
+All of the following land before 2.0.0 final:
+
+1. `applied`, `applied_with_timeout`, `settled` and `settled_with_timeout`
+   take `&mut self` on the async `Operation<K>`, the blocking
+   `Operation<'_, K>`, and `DynTargetedOperation`/`DynAppliedOperation`.
+2. The handle caches the authoritative terminal observation. Later waits
+   return the cached result, and `settled` after `applied` continues from the
+   cached application.
+3. An expired explicit observer deadline, or a dropped wait future, releases
+   only that wait. It never detaches, cancels, renews or shortens engine
+   budgets (#749 relationship preserved).
+4. `cancel` takes `&mut self` and is idempotent. The first call records the
+   cancellation intent at the owner; later calls observe the same intent
+   instead of sending another. Once a terminal result is cached, `cancel`
+   returns `CancellationOutcome::Completed` without sending. Because the
+   handle is no longer consumed, a refused cancel is a plain error and the
+   `CancelRejected<Self>` wrapper (#612) is removed.
+5. The original operation's terminal result stays observable after a
+   cancellation outcome or a cancellation-send failure. The owner keeps
+   separate observation slots for cancellation and for the terminal result,
+   so `CancellationFailed` no longer consumes the only route to the
+   operation's outcome.
+6. `detach(self)` stays consuming, and drop remains detach (#567).
+7. `CancellationOutcome` becomes `#[non_exhaustive]`.
+
+Supersedes the #552 exit criteria "Wait, cancel, and detach consume the owning
+receipt" and "Drop and observer timeout detach" (except drop), and the
+consuming-refusal shape from #612. Record both supersessions in the CHANGELOG
+`### Changed` entry.
 
 ## Context
 
@@ -28,7 +59,10 @@ enum (`src/outcome.rs:16-21`). For history: 1.1.0 `InFlight::cancel` borrowed
 the handle (`docs/migration_2_0.md:546-552`), so a borrowing shape is closer to
 1.x than the current one.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Accept for 2.0 (observation shape); defer independent idempotent
 cancellation intent and dual cancellation/original delivery to 2.x.**
@@ -115,11 +149,10 @@ wrap the wait in an application-owned future that is never dropped.
   more owner work (second observation slot, idempotent intent recording) than
   is realistic before freeze; additive later.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Accept the receiver change (`self` -> `&mut self`) before 2.0 final?
-2. Should `cancel` also move to `&mut self` now (larger owner change), or stay
-   consuming with `CancelRejected` as proposed here?
-3. After a terminal result is cached, should a later `cancel` return the
-   cached outcome (`Completed`) or an `InvalidState` error?
-4. Approve `#[non_exhaustive]` on `CancellationOutcome`?
+1. Receiver change before 2.0 final: yes.
+2. `cancel` moves to `&mut self` now, with idempotent intent and dual
+   delivery (expanded from the original recommendation).
+3. A `cancel` after a cached terminal result returns `Completed`.
+4. `#[non_exhaustive]` on `CancellationOutcome`: yes.

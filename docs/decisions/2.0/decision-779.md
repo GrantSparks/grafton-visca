@@ -1,9 +1,35 @@
 # Decision record: Owner-level halt with prompt STOP dispatch and per-axis results (#779)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: owner-level halt in 2.0; `stop_all_motion` becomes the halt) — 2026-10-02
 
-Decision number: assigned at ratification. Does not reverse #567
+Decision number: D21 (`docs/issue_542_design_review.md`). Does not reverse #567
 (detach-on-drop) or D10; cancellation stays distinct from STOP.
+
+## Decision
+
+1. `stop_all_motion()` becomes an owner-level halt on every facade (async,
+   blocking, both dynamic projections). An axis-selecting form of the same
+   operation may be offered; there is no second, weaker spelling.
+2. It returns a `#[non_exhaustive]` per-axis report (illustrative:
+   `HaltReport`) under one end-to-end deadline, replacing `Result<()>`. Each
+   supported axis reports its own STOP outcome; unsupported axes are reported
+   as such.
+3. **One-time fence.** The halt establishes an ordering point at the owner.
+   Unsent motion on the selected axes that was submitted before the halt is
+   superseded with a distinct error, and its retries are suppressed. Motion
+   submitted after the halt runs normally. There is no persistent inhibit and
+   no `resume()`.
+4. Raw and custom commands are suppressed only when the caller declared the
+   axes they affect. Undeclared raw/custom commands are never suppressed, and
+   the documentation says so.
+5. STOPs are dispatched independently of each other's observation. Each
+   still obeys protocol pacing and in-progress writes. Their admission uses
+   the control reserve (D26), and blocking dispatch relies on the worker
+   (D24).
+6. Prepared requests carry immutable axis/effect metadata into the engine.
+   The per-target motion generation used for the fence is shared with
+   settlement supersession (D23).
+7. HW-04 is re-validated in the rc.3 hardware pass.
 
 ## Context
 
@@ -20,7 +46,10 @@ metadata (`RuntimeRequest` in `src/runtime/engine/types.rs:387-400`;
 currently identify which queued or retrying requests affect a given axis.
 Nothing prevents older queued motion from being dispatched after the STOPs.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Defer to 2.x (owner-level halt as a new named operation); in 2.0, land only
 the submit-before-observe ordering and documentation for `stop_all_motion()`.**
@@ -111,11 +140,9 @@ mode, a slow pan/tilt completion still delays the zoom/focus STOP.
   design.
 - Leave the facade loop as is: keeps avoidable cross-axis latency in async.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Accept the 2.0 async/dyn submit-before-observe change with blocking left
-   sequential (a documented latency difference between facades)?
-2. For 2.x: new method (`halt`) versus redefining `stop_all_motion()`?
-3. One-time fence versus persistent inhibit for post-halt motion?
-4. Contract for raw/custom commands with undeclared effects (never suppressed,
-   or suppressed only when the caller declares axes)?
+1. Async-only reordering is superseded: every facade gets the owner halt.
+2. `stop_all_motion()` becomes the halt; no separate later method.
+3. One-time fence.
+4. Raw/custom commands are suppressed only when the caller declares axes.

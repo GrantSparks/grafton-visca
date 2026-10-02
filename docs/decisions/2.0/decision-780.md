@@ -1,13 +1,39 @@
 # Decision record: Native blocking owner worker with autonomous progress (#780)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: native worker in 2.0, as the only blocking model) — 2026-10-02
 
-Decision number: assigned at ratification. A worker would revise the
+Decision number: D24 (`docs/issue_542_design_review.md`). A worker would revise the
 documented invariant "There are no public callbacks, user-supplied lifecycle
 IDs, unbounded queues, or per-camera background workers"
 (`docs/architecture_2_0.md:57-58`) and the caller-thread model stated at
 `docs/architecture_2_0.md:36`; if adopted, record that as a new decision and a
 `### Changed` entry, not as an edit to the old text.
+
+## Decision
+
+1. Every blocking session owns one native worker thread, which runs the
+   shared executor-free coordinator (D25). Callers talk to it through bounded
+   channels. The `blocking` feature stays executor-free (#723).
+2. There is one blocking execution model; no opt-in or caller-driven mode.
+3. No `BlockingTransport` trait change. The trait is already `Send`, and
+   `recv_into_with_timeout` is already bounded, so the worker stays
+   interruptible at read-timeout granularity. The transport documentation
+   states that bound as the close latency.
+4. Blocking submission success means the owner accepted the operation. A
+   transport write failure is reported through the operation's outcome.
+5. Concurrent use of a blocking session no longer returns `TransportBusy`.
+   The implementation PR removes the variant if no other producer remains.
+6. Detached operations, timers and correlation cleanup progress without a
+   caller inside the session.
+7. Close, drop and constructor failure are defined in the implementation PR.
+   `close()` joins the worker. Dropping the last handle signals it without
+   self-join.
+8. The implementation PR records resource measurements (thread count, idle
+   CPU, memory, control latency) as validation.
+
+Revises the documented invariant "no per-camera background workers"
+(`docs/architecture_2_0.md`) and the caller-thread model. Record both as a
+`### Changed` entry naming this decision; do not edit the old text in place.
 
 ## Context
 
@@ -24,7 +50,10 @@ documents `TransportBusy` for blocking re-entry (`src/error.rs:29`). The
 (`docs/issue_542_design_review.md:82-84`, `docs/architecture_2_0.md:87-94`,
 #723); a native thread does not violate that.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Defer to 2.x; in 2.0, reserve the contract so a worker can be introduced
 without a 3.0.**
@@ -115,10 +144,8 @@ or use the async API with an executor.
 - Two permanent public modes: the issue warns about maintenance cost; if
   chosen, prefer opt-in worker in 2.x and decide the default in 3.0.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Accept deferral with the 2.0 documentation loosening of the blocking
-   submission contract?
-2. For 2.x: worker as default or opt-in constructor option?
-3. Should 2.0 instead make blocking owner turns wait (bounded) rather than
-   fail fast with `TransportBusy`? This record does not recommend it.
+1. Deferral is superseded: the worker lands in 2.0.
+2. The worker is the only blocking model.
+3. No bounded-wait variant of the current mutex design.

@@ -1,10 +1,29 @@
 # Decision record: Explicit owner boundary arbitration and invariant replay (#776)
 
-Status: Proposed — awaiting maintainer ratification
+Status: Accepted (expanded: the coordinator refactor is in 2.0, first) — 2026-10-02
 
-Decision number: assigned at ratification. Builds on #723's unification audit
+Decision number: D25 (`docs/issue_542_design_review.md`). Builds on #723's unification audit
 and D2/D18 (receive arbitration, correlation-expiry boundary) in
 `docs/issue_542_design_review.md`; reverses none of them.
+
+## Decision
+
+1. The refactor lands in 2.0, before the implementations of D26 (reserve),
+   D24 (blocking worker), D21 (halt) and D23 (settlement supersession), which
+   are built on it.
+2. The executor-free coordinator in `src/runtime/owner/turn.rs` owns source
+   eligibility, retained-boundary ordering, the release proof and deadline
+   turns. It is shared by the async actor and the blocking worker; shells
+   supply only I/O and wakeups.
+3. Tests: generated bounded event sequences over receive, wake, admission,
+   cancellation, control and shutdown. They assert conservation of boundary
+   payloads and permits, plus differential production-facade fixtures. The
+   #785 multi-boundary regression is the first acceptance example.
+4. A retained-boundary transition table is added to
+   `docs/architecture_2_0.md` ("Scheduling and async source arbitration")
+   with the refactor, not with #785.
+5. Acceptance test from the issue: an abstraction that only relocates
+   nesting is rejected.
 
 ## Context
 
@@ -21,7 +40,10 @@ defect. `src/runtime/owner/async_actor.rs` is 3,284 lines and
 `fairness.rs`, `faults.rs`, `lifecycle.rs`, `receipts.rs`). No public API is
 involved.
 
-## Recommendation
+## Original recommendation
+
+The ratified decision above expands this recommendation. It is kept as
+the record of what was proposed.
 
 **Defer to 2.x**, with one 2.0 slice delivered by the #775 fix rather than by
 this proposal:
@@ -80,9 +102,7 @@ are affected only through such defects.
   invariant tests; the issue's own guidance is to reject an abstraction that
   only relocates nesting, which remains the acceptance test for the 2.x work.
 
-## Open questions for the maintainer
+## Resolved questions
 
-1. Accept deferral, with #775 delivering the enforced single-slot invariant
-   for 2.0?
-2. Should the #775 PR also add the retained-boundary transition table to
-   `docs/architecture_2_0.md`, or leave documentation to the 2.x refactor?
+1. Deferral is superseded: the refactor is in 2.0 and comes first.
+2. The transition table lands with the refactor.
