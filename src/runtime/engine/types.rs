@@ -30,11 +30,6 @@ impl EngineTurn {
         run_due: true,
         dispatch: true,
     };
-    #[allow(dead_code)] // Used by blocking owner turns; async-only builds omit them.
-    pub(crate) const DEADLINES_ONLY: Self = Self {
-        run_due: true,
-        dispatch: false,
-    };
     pub(crate) const INPUT_ONLY: Self = Self {
         run_due: false,
         dispatch: false,
@@ -255,9 +250,9 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
-    // Consumed by `runtime::owner::blocking_transport` and the engine tests; the
-    // async legs compile neither, so it reads as dead there (#636).
-    #[allow(dead_code)]
+    // A fixed no-retry policy for the engine and owner test fixtures;
+    // production requests always carry a prepared retry policy (#636).
+    #[cfg(test)]
     pub(crate) const NEVER: Self = Self {
         max_retries: 0,
         initial_backoff: Duration::ZERO,
@@ -634,7 +629,7 @@ impl RawCorrelationReleaseSet {
     }
 }
 
-#[cfg(all(test, feature = "async"))]
+#[cfg(all(test, any(feature = "async", feature = "blocking")))]
 impl RawCorrelationReleaseSet {
     /// Add `target`'s broad terminal release, for owner arbitration tests that
     /// need distinct non-empty sets without a running engine.

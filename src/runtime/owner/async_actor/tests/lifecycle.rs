@@ -8,7 +8,7 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let frames = harness.frames.clone();
     let admission = handle.try_submit(command()).unwrap();
     handle.shutdown().await.unwrap();
-    frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(
@@ -36,8 +36,8 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
 
     let outcome = actor
         .handle_event(
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::Closed),
+            OwnerEvent::Receive {
+                result: Ok(OwnerReceive::Closed),
                 received_at: Executor::now(&runtime),
             },
             &mut driver,
@@ -51,7 +51,7 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
     let error = handle.shutdown().await.unwrap_err();
     assert!(matches!(error, Error::ConnectionClosed { .. }));
     assert!(
-        actor.shutdown.is_empty(),
+        actor.core.receivers.shutdown.is_empty(),
         "a terminal session must not retain a shutdown signal it can never poll"
     );
 }
@@ -107,7 +107,7 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
         let observer = cancel_handle.cancel_test(&operation).await;
         (observer, operation)
     });
-    while handle.cancellations.is_empty() {
+    while handle.core.cancellations.is_empty() {
         tokio::task::yield_now().await;
     }
     frames
@@ -162,7 +162,7 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
     assert_eq!(started.recv_async().await.unwrap(), first.id);
     let queued_handle = handle.clone();
     let queued = tokio::spawn(async move { queued_handle.submit(command()).await });
-    while handle.permits.available() != 0 {
+    while handle.core.permits.available() != 0 {
         tokio::task::yield_now().await;
     }
     // The permit is acquired before the bounded boundary send. One more
@@ -230,7 +230,7 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
     let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
 
     let queued = handle.try_submit(inquiry()).unwrap();
-    assert_eq!(handle.permits.available(), 0);
+    assert_eq!(handle.core.permits.available(), 0);
 
     // The receive-first actor turn panics before it can consume the
     // already-buffered admission. Awaiting the task makes Drop's final
@@ -248,8 +248,8 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
     let published = handle.shutdown().await.unwrap_err();
     assert_eq!(queued_error.to_string(), published.to_string());
     assert_eq!(
-        handle.permits.available(),
-        handle.permits.capacity(),
+        handle.core.permits.available(),
+        handle.core.permits.capacity(),
         "the drained admission must return its permit"
     );
 }
@@ -389,7 +389,7 @@ async fn a_boundary_request_racing_teardown_never_hangs() {
         // boundary work is actually moving. The exact interleaving is left
         // to the scheduler; over this many iterations both orders occur.
         tokio::task::yield_now().await;
-        frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+        frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
 
         // The bug this guards is an unbounded park, so the bound only has
         // to be longer than a healthy teardown ever takes. It is generous
@@ -419,10 +419,10 @@ async fn teardown_answers_queued_work_before_the_liveness_lane_fires() {
     let frames = harness.frames.clone();
     let control_handle = handle.clone();
     let queued = tokio::spawn(async move { control_handle.metrics().await });
-    while handle.control.is_empty() {
+    while handle.core.control.is_empty() {
         tokio::task::yield_now().await;
     }
-    frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(

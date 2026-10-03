@@ -199,13 +199,13 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     fn assert_send_sync<T: Send + Sync>() {}
 
     assert_profile::<PtzOpticsG2>();
-    let _: PhantomData<Camera<'static, PtzOpticsG2>> = PhantomData;
+    let _: PhantomData<Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<Session> = PhantomData;
     let _: PhantomData<SessionConfig> = PhantomData;
-    let _: PhantomData<Operation<'static, AppliedOnly>> = PhantomData;
-    let _: PhantomData<Operation<'static, Targeted>> = PhantomData;
+    let _: PhantomData<Operation<AppliedOnly>> = PhantomData;
+    let _: PhantomData<Operation<Targeted>> = PhantomData;
     assert_send_sync::<Session>();
-    assert_send_sync::<Camera<'static, PtzOpticsG2>>();
+    assert_send_sync::<Camera<PtzOpticsG2>>();
 }
 
 #[cfg(all(feature = "blocking", feature = "async"))]
@@ -214,7 +214,7 @@ fn blocking_and_async_facades_coexist() {
     use grafton_visca::completion::{AppliedOnly, Targeted};
     use grafton_visca::{blocking, profiles::PtzOpticsG2, Camera, Operation, Session};
 
-    let _: PhantomData<blocking::Camera<'static, PtzOpticsG2>> = PhantomData;
+    let _: PhantomData<blocking::Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<blocking::Session> = PhantomData;
     let _: PhantomData<Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<Session> = PhantomData;
@@ -249,7 +249,7 @@ fn dyn_root_is_object_safe() {
 fn blocking_dyn_root_is_runtime_profile_view() {
     use grafton_visca::dynapi::BlockingDynSessionCamera;
 
-    let _: PhantomData<BlockingDynSessionCamera<'static>> = PhantomData;
+    let _: PhantomData<BlockingDynSessionCamera> = PhantomData;
 }
 
 #[test]

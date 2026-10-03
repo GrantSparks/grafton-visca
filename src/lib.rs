@@ -87,8 +87,8 @@
 //!
 //! - **Session** — the sole owner of one transport, its framer/envelope state,
 //!   the protocol engine, the observer registry, the target-local state caches,
-//!   and the session metrics. A blocking session is driven on the caller's
-//!   thread; an async session owns one detached actor. Every camera view is a
+//!   and the session metrics. A blocking session owns one native worker thread;
+//!   an async session owns one detached actor task. Every camera view is a
 //!   view onto this one owner, never a second connection.
 //! - **Target** — one registered camera: a [`CameraId`] plus a validated
 //!   profile. Targets are registered before the owner starts and are immutable
@@ -776,7 +776,7 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn position_units(
-//!     camera: &grafton_visca::blocking::Camera<'_, grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{units::Degrees, SpeedLevel};
 //!

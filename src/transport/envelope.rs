@@ -265,12 +265,6 @@ impl Envelope for SonyEncapsulated {
 }
 
 impl SonyEncapsulated {
-    /// Seed the sequence allocator for production-path correlation tests.
-    #[cfg(all(test, feature = "blocking"))]
-    pub(crate) fn set_sequence_for_test(&self, sequence: u32) {
-        self.sequence_counter.store(sequence, Ordering::Relaxed);
-    }
-
     pub(crate) fn frame_into_with_sequence(
         &self,
         visca_bytes: &[u8],

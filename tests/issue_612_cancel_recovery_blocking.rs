@@ -11,7 +11,8 @@
 use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 
 use grafton_visca::{
@@ -66,6 +67,19 @@ impl TransportProbe {
 
     fn writes(&self) -> Vec<Vec<u8>> {
         self.writes.lock().expect("writes lock").clone()
+    }
+
+    /// Waits until the owner worker has written `count` frames, so a scripted
+    /// reply is queued only after the request it answers is on the wire.
+    fn wait_for_writes(&self, count: usize) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while self.writes().len() < count {
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for {count} writes"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
@@ -122,6 +136,7 @@ fn blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available(
 
     // A continuous zoom: the axis keeps moving until something stops it.
     let mut moving = camera.zoom().tele().expect("continuous zoom admitted");
+    probe.wait_for_writes(1);
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
     // The G2 has no socket-cancel, so the owner refuses. `cancel` borrows the
@@ -155,6 +170,7 @@ fn blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available(
     // The documented recourse for a profile without socket-cancel: an
     // explicit typed STOP, which still reaches the wire.
     let mut stop = camera.zoom().stop().expect("typed stop admitted");
+    probe.wait_for_writes(2);
     probe.push(ACK_AND_COMPLETE_SOCKET_ONE);
     stop.applied().expect("the stop applies");
     assert_eq!(

@@ -58,12 +58,11 @@ own ACK deadline — so it does not increment this retry path.
 
 ## Diagnostics
 
-Async sessions expose `subscribe_diagnostics(capacity)` and
-`DiagnosticSubscription::{try_recv,recv}`. Blocking sessions expose
-`drain_diagnostics()`. A subscription capacity must be `1..=128`, and one owner
-retains at most four live subscriptions. The owner ring retains at most 128
-events. Blocking drains return at most that ring bound; another drain after an
-empty drain is empty until a new event is recorded.
+Both facades expose `subscribe_diagnostics(capacity)`. An async subscription
+is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
+`try_recv` and `recv_timeout`. A subscription capacity must be `1..=128`, and
+one owner retains at most four live subscriptions. The owner ring retains at
+most 128 events.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
@@ -438,9 +437,10 @@ precise about which one a failure belongs to:
   drop correlated with network events) is the signature of this application-side
   timeout.
 
-The library never sends VISCA on its own — there are no per-camera background
-workers (see [`architecture_2_0.md`](architecture_2_0.md)) — so if a camera
-enforces an application idle timeout there are two application-side levers:
+The library never sends VISCA on its own: the owner, including a blocking
+session's worker thread, only carries out work the application submitted (see
+[`architecture_2_0.md`](architecture_2_0.md)). If a camera enforces an
+application idle timeout there are two application-side levers:
 
 1. **Detect or prevent it with an application heartbeat.** While the session would
    otherwise be idle, periodically issue a cheap inquiry (for example a power

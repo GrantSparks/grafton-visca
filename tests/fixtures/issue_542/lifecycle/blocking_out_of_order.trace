@@ -1,6 +1,7 @@
-# Normative #542: blocking submission returns only after the initial write
-# result, and pumping one receipt retains exact terminal outcomes for all other
-# attached blocking receipts. Times are monotonic milliseconds.
+# Normative #542: an owner retains exact terminal outcomes for every attached
+# blocking receipt until that receipt waits, whatever order the camera
+# completes them in. A blocking submission is admission followed by the
+# owner's ordinary dispatch (D24). Times are monotonic milliseconds.
 #
 # Raw VISCA allows only one same-target command in its unacknowledged window.
 # That gate makes each ACK's command candidate unique; the socket carried by
@@ -15,7 +16,6 @@
 1 effect transmit tx=1 id=1 kind=request target=1 wire=81010604ff
 1 driver-input transmission-finished tx=1 result=ok
 1 effect state id=1 from=sending to=awaiting-ack
-1 outcome blocking-handle ticket=a id=1 initial-write=complete
 2 input frame ack a socket=1 bytes=9041ff
 2 effect frame-routed id=1 target=1 via=target-socket socket=1 bytes=9041ff
 2 effect state id=1 from=awaiting-ack to=executing(socket=1)
@@ -26,7 +26,6 @@
 3 effect transmit tx=2 id=2 kind=request target=1 wire=8101040700ff
 3 driver-input transmission-finished tx=2 result=ok
 3 effect state id=2 from=sending to=awaiting-ack
-3 outcome blocking-handle ticket=b id=2 initial-write=complete
 4 input frame ack b socket=2 bytes=9042ff
 4 effect frame-routed id=2 target=1 via=target-socket socket=2 bytes=9042ff
 4 effect state id=2 from=awaiting-ack to=executing(socket=2)
@@ -49,7 +48,6 @@
 10 effect transmit tx=3 id=3 kind=request target=1 wire=81010604ff
 10 driver-input transmission-finished tx=3 result=ok
 10 effect state id=3 from=sending to=awaiting-ack
-10 outcome blocking-handle ticket=c id=3 initial-write=complete
 11 input frame ack c socket=1 bytes=9041ff
 11 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9041ff
 11 effect state id=3 from=awaiting-ack to=executing(socket=1)
@@ -60,7 +58,6 @@
 12 effect transmit tx=4 id=4 kind=request target=1 wire=8101040700ff
 12 driver-input transmission-finished tx=4 result=ok
 12 effect state id=4 from=sending to=awaiting-ack
-12 outcome blocking-handle ticket=d id=4 initial-write=complete
 13 input frame ack d socket=2 bytes=9042ff
 13 effect frame-routed id=4 target=1 via=target-socket socket=2 bytes=9042ff
 13 effect state id=4 from=awaiting-ack to=executing(socket=2)

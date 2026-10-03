@@ -1,5 +1,7 @@
 //! Issue #714: raw lost-ACK recovery has the same bounded-wait and Urgent
-//! safety-lane behavior on the async owner as on the blocking owner.
+//! safety-lane behavior on the async owner as on the blocking owner. Both
+//! owners drive the same shell core (#780), so the parity legs give each the
+//! same script and the same write barriers.
 
 #![cfg(all(
     feature = "async",
@@ -199,7 +201,7 @@ async fn wait_for_writes<E: Executor>(
 
 async fn run_lost_ack_regressions<E: Executor>(executor: E) {
     // Ordinary work stays queued until the predecessor's 100 ms ACK deadline
-    // plus its one-second ambiguity window, then writes without TransportBusy.
+    // plus its one-second ambiguity window, then writes.
     let (transport, probe) = AsyncScriptTransport::new(vec![
         vec![],
         vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
@@ -359,9 +361,12 @@ mod parity {
         fn recv_into_with_timeout(
             &mut self,
             dst: &mut [u8],
-            _timeout: Duration,
+            timeout: Duration,
         ) -> Result<usize, Error> {
-            let reply = self.replies.try_recv().map_err(|_| Error::io_timeout())?;
+            let reply = self
+                .replies
+                .recv_timeout(timeout)
+                .map_err(|_| Error::io_timeout())?;
             dst[..reply.len()].copy_from_slice(&reply);
             Ok(reply.len())
         }
@@ -372,6 +377,18 @@ mod parity {
 
         fn send_semantics(&self) -> SendSemantics {
             SendSemantics::Datagram
+        }
+    }
+
+    /// Waits until the blocking owner worker has written `expected` frames.
+    fn wait_for_blocking_writes(writes: impl Fn() -> usize, expected: usize) {
+        let started = Instant::now();
+        while writes() < expected {
+            assert!(
+                started.elapsed() < Duration::from_secs(1),
+                "timed out waiting for blocking write {expected}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
@@ -392,12 +409,15 @@ mod parity {
         let camera = session
             .camera::<NonDefaultCompileTimeProfile>()
             .expect("camera view");
+        let write_count = || writes.lock().expect("writes lock").len();
         let _predecessor = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("blocking predecessor");
+        wait_for_blocking_writes(write_count, 1);
         let _urgent = camera
             .submit::<AppliedOnly, _>(&FocusStop)
             .expect("blocking urgent");
+        wait_for_blocking_writes(write_count, 2);
         let transcript = writes.lock().expect("writes lock").clone();
         session.shutdown().expect("blocking shutdown");
         transcript
@@ -426,12 +446,15 @@ mod parity {
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
+        let write_count = || probe.writes().len();
         let mut predecessor = camera_two
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("camera two predecessor");
+        wait_for_blocking_writes(write_count, 1);
         let _socket_successor = camera_two
             .submit::<AppliedOnly, _>(&ordinary_operation_for(CameraId::CAMERA_2))
-            .expect("camera two ACK drain");
+            .expect("camera two successor");
+        wait_for_blocking_writes(write_count, 2);
         // A zero-length wait records the paced cancellation and returns; the
         // camera never answers it.
         assert!(matches!(
@@ -440,7 +463,8 @@ mod parity {
         ));
         let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
-            .expect("camera one ordinary first write");
+            .expect("camera one ordinary admission");
+        wait_for_blocking_writes(write_count, 4);
         assert!(matches!(
             ordinary.applied(),
             Err(Error::UnsequencedCommandUnconfirmed)
@@ -448,6 +472,7 @@ mod parity {
         let mut stop = camera_one
             .submit::<AppliedOnly, _>(&FocusStop)
             .expect("urgent stop crosses camera-one PreAck hold");
+        wait_for_blocking_writes(write_count, 5);
         stop.applied()
             .expect("the urgent stop ACK is attributable and completes");
 

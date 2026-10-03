@@ -1,7 +1,7 @@
 use grafton_visca::{blocking::Camera, profiles::GenericVisca};
 
 fn main() {
-    let camera: Option<Camera<'static, GenericVisca>> = None;
+    let camera: Option<Camera<GenericVisca>> = None;
     let camera = camera.as_ref().unwrap();
 
     let _ = camera

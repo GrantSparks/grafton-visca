@@ -1,6 +1,6 @@
 use grafton_visca::{blocking::Operation, completion::AppliedOnly};
 
-fn invalid(handle: Operation<'static, AppliedOnly>) {
+fn invalid(handle: Operation<AppliedOnly>) {
     let _ = handle.settled();
 }
 

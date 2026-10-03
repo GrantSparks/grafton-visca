@@ -33,7 +33,11 @@ only component allowed to perform protocol scheduling, pacing, correlation,
 retry, cancellation, transport I/O, state-cache mutation, and diagnostic
 delivery.
 
-* A blocking session drives that owner on the caller's thread.
+* A blocking session runs that owner on one native worker thread the session
+  owns (D24, #780, revising the earlier caller-thread model). Callers enqueue
+  work through the same bounded boundary lanes the async owner uses and wait
+  on their own observation slots; the owner makes progress with no caller
+  inside the session.
 * An async session spawns one detached owner task on the caller-selected
   executor. Tokio and smol adapters may both be compiled, but a session picks
   one runtime at construction.
@@ -54,17 +58,19 @@ delivery.
   sending `close`'s shutdown signal is preserved. Neither API is a second
   protocol authority or an implicit command resubmission mechanism.
 
-There are no public callbacks, user-supplied lifecycle IDs, unbounded queues,
-or per-camera background workers. Drop is not a protocol motion action:
+There are no public callbacks, user-supplied lifecycle IDs, or unbounded
+queues. The only background thread is a blocking session's owner worker: one
+per session, not per camera (D24, #780, revising the earlier "no per-camera
+background workers" invariant). Drop is not a protocol motion action:
 dropping an operation handle detaches its observation, and dropping a
-non-final shared async `Session` or camera view leaves the shared owner and
-other views running. Dropping the final async owner handle may release the
-detached owner and transport; a blocking `Session` owns its caller-thread host
-and releases that host and transport by RAII when dropped. Neither release path
-issues a protocol STOP. Use `shutdown` for an explicit shutdown signal or
-consuming `close` for the async deterministic release barrier. An operation
-handle must be explicitly cancelled or detached according to its documented
-lifecycle.
+non-final shared `Session`, camera view, or operation leaves the shared owner
+and other views running. Dropping the final owner handle signals the owner to
+stop; the async owner task or blocking worker then releases its transport,
+without the drop joining it. Neither release path issues a protocol STOP. Use
+`shutdown` for an explicit shutdown signal or consuming `close` for the
+deterministic release barrier: blocking `close` joins the worker thread. An
+operation handle must be explicitly cancelled or detached according to its
+documented lifecycle.
 
 ### Timeout and retry ownership
 
@@ -86,10 +92,12 @@ monotonically within a session and are never reused. If the 64-bit identity
 space is exhausted, admission or transmission fails closed with
 `RuntimeIdentityExhausted`; an old owner input must never alias new work.
 
-The two execution modes share protocol state-machine semantics, not an async
-implementation hidden behind a blocking wrapper. `blocking` drives
-`BlockingTransport` directly and has no Tokio, smol, futures executor, or
-pollster dependency in its downstream graph. `async` drives `AsyncTransport`
+The two execution modes share one owner core, not an async implementation
+hidden behind a blocking wrapper. Boundary handling, source arbitration, turn
+logic, and receipt observation are executor-free shared code; each shell
+supplies only its I/O. The blocking worker drives `BlockingTransport` directly
+with bounded reads and has no Tokio, smol, futures executor, or pollster
+dependency in its downstream graph. `async` drives `AsyncTransport`
 through the caller-selected executor. CI checks the native blocking dependency
 boundary for the network, serial, and `test-utils` feature sets; the async
 testkit's executor rides on `async`, so enabling `test-utils` on a blocking-only
@@ -97,9 +105,8 @@ build links no executor.
 
 Internally, both shells complete engine input through the same executor-free
 `EngineTurn` policy. A complete turn runs due work, pending cancellation, and
-one ordinary dispatch; a deadline-only turn withholds ordinary dispatch while
-an exact first write is reconsidered; an input-only turn preserves retained
-wire evidence ahead of deadlines at the same sampled instant. These are
+one ordinary dispatch; an input-only turn preserves retained wire evidence
+ahead of deadlines at the same sampled instant. These are
 options on one engine boundary, not feature-gated owner entry points. A
 correlated frame sampled exactly at its response deadline therefore wins; a
 frame sampled strictly later is ignored as stale before the due transition,
@@ -358,43 +365,42 @@ the deadline expires first, the orphan prefix is discarded, one malformed-frame
 diagnostic is recorded, and the session remains `Running`; only framer overflow
 or a decoder that cannot perform the requested discard poisons the stream.
 
-### Blocking raw dispatch and the urgent safety lane
+### Blocking worker and the urgent safety lane
 
-Blocking operation submission has one additional ownership boundary: a
-returned operation handle always names a request whose initial transport write
-already succeeded. An ordinary `AckThenCompletion` submission may drain the
-sole live ACK-capable raw predecessor, bounded by its own ACK budget, when that
-pre-ACK gate is the only obstacle (#673). Recorded cancellation may extend that
-live `AwaitingAck` phase to its ambiguity deadline, and it remains drainable so
-an ACK can assign a socket and trigger the cancel. Once an uncancelled ACK
-deadline passes, however, the request is terminal and only an inert keyed
-`PreAck` hold remains; ordinary work receives through that hold boundary and
-then writes, without trying to rescue the old request. Neither case is reported
-as generic contention; the async owner queues to the same deadline
-(#714/#723/#724).
+A blocking session's worker runs the same coordinator, turn logic, and engine
+policy as the async owner (D24, #780). Blocking submission therefore means
+admission, exactly as on async: a returned operation handle names an admitted
+request, and a transport write failure is reported through that operation's
+outcome. Socket-capacity contention and an earlier scheduler winner queue the
+request until it is eligible; there is no blocking-only first-write boundary,
+pre-ACK drain, or busy-transport rejection.
 
-An intrinsically `Urgent` stop skips the #673 drain and may cross one raw
-positional candidate after command pacing. The resulting explicit
-two-candidate state makes every unsequenced ACK/error ambiguous, so it binds to
-neither request and either handle may later report
-`UnsequencedCommandUnconfirmed`; that uncertainty does not retract the stop
-bytes already sent to the camera. A `CompletionOnly` successor still requires
-target idleness and does not meet either exception. Genuine socket-capacity
-contention (every command socket already occupied), re-entrancy, and losing the
-global dispatch race remain fail-fast `Error::TransportBusy` boundaries.
+The worker polls the boundary lanes in the coordinator's order and reads the
+transport in bounded slices of at most 10 ms (1 ms when a later source is
+already ready), so a STOP, cancellation, control request, or shutdown waits at
+most one slice behind an idle read, plus any write already in progress. An
+idle read is reported only when the configured `read_timeout` has elapsed
+without data, and the coordinator paces an eagerly idle or faulting transport
+while every other source stays selectable.
 
-A deadline-bound blocking submission that has not written by its caller
-deadline returns no receipt, regardless of whether its class ordinarily allows
-queueing. The owner terminalizes that exact ready entry before returning
-`Timeout`, releasing its admission permit and preventing a later scheduler turn
-from writing work the caller can no longer observe (#723).
-Ordinary blocking commands, inquiries, and owner-internal requests retain
-bounded queueing.
+Measured cost and latency (`tests/blocking_worker_resources.rs`, release
+build, UDP loopback, 4-core Linux VM, October 2026; the harness is ignored by
+default because the figures depend on the host):
 
-These are the ratified #673/#714 exceptions to issue #542 §4's older blanket
-sentence that blocking submission “never waits for ACK.” This repository
-records the superseding design decision; the GitHub issue bodies remain
-historical and are not claimed to have changed.
+| Measure | Result |
+| --- | --- |
+| Threads | exactly one per session; `close` joins it |
+| Idle CPU | about 0.1% of one core per session |
+| Resident memory | about 94 KiB per idle session |
+| `close` latency | 12–20 ms (one read slice plus the join) |
+| STOP call to bytes at the camera, while another thread waits on a running zoom | p50 5.6 ms, p99 10.7 ms |
+
+An intrinsically `Urgent` stop may cross one raw positional candidate after
+command pacing. The resulting explicit two-candidate state makes every
+unsequenced ACK/error ambiguous, so it binds to neither request and either
+handle may later report `UnsequencedCommandUnconfirmed`; that uncertainty does
+not retract the stop bytes already sent to the camera. A `CompletionOnly`
+successor still requires target idleness (#714).
 
 This ordering is what permits a detached observer or a dropped subscription to
 miss an event without losing an already-applied state update.
@@ -456,8 +462,8 @@ Other targets and all command work remain independently eligible (#712).
 | Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
 | Admit to a non-`Running` session | Reject with the session's terminal error (or `Error::RuntimeShutdown`). |
 | Select a `Ready` request | Transition to `Sending`, allocate one `TransmissionId`, emit exactly one request `Transmit` (Sony carries its retained sequence; raw carries none). |
-| Ordinary blocking first dispatch behind a live raw `AwaitingAck` candidate or inert `PreAck` hold | Drain a live ACK-capable candidate within its request bound. For an inert hold, return a correlation `WaitUntil`, receive through its boundary, and then write; the old terminal request cannot be rescued. Never classify either known bound as `TransportBusy` (#714/#723/#724). The async scheduler queues to the same evidence boundary. |
-| `Urgent` raw command behind one positional candidate | Skip the blocking pre-ACK drain and cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
+| Ordinary dispatch behind a live raw `AwaitingAck` candidate or inert `PreAck` hold | Queue to the evidence boundary: the candidate's ACK or the hold's deadline; the old terminal request cannot be rescued (#714/#723/#724). |
+| `Urgent` raw command behind one positional candidate | Cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start. Another `NoReply` may write and extend that key. |
@@ -690,10 +696,10 @@ that kernel call is not bounded by the write timeout; a VISCA reply or the
 required startup settle interval confirms queued output instead. Finally, both
 owner shells use one executor-free idle-receive
 run. Immediately-returning no-data reads are paced by the same escalating
-10–250 ms, next-wake/caller-deadline-clamped pause the transient-fault path uses
-(recording no fault and spending no retry budget). Async maps that decision to
-an executor sleep; blocking maps it to a caller-thread sleep, so an eager custom
-driver cannot hot-spin either owner (#723).
+10–250 ms, next-wake-clamped pause the transient-fault path uses (recording no
+fault and spending no retry budget). The coordinator paces only the receive
+source, so boundaries, timers, and control stay selectable during the pause in
+both shells, and an eager custom driver cannot hot-spin either owner (#723).
 
 ## Request and motion semantics
 

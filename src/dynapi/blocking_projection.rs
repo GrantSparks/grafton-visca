@@ -12,17 +12,18 @@ use crate::{
 
 /// An owner-backed blocking camera view for a runtime [`ProfileSpec`].
 ///
-/// This view borrows the same caller-thread owner as a typed blocking
-/// [`Camera`]. It erases only the compile-time profile marker: commands,
+/// This view shares the same owner worker as a typed blocking [`Camera`] and,
+/// like it, is `Clone + Send + Sync` and borrows nothing. It erases only the
+/// compile-time profile marker: commands,
 /// inquiries, and operations still use their ordinary typed request values and
 /// are validated against the stored runtime profile before any wire I/O.
 #[must_use]
-#[derive(Clone, Copy)]
-pub struct BlockingDynSessionCamera<'session> {
-    core: BlockingCameraCore<'session>,
+#[derive(Clone)]
+pub struct BlockingDynSessionCamera {
+    core: BlockingCameraCore,
 }
 
-impl fmt::Debug for BlockingDynSessionCamera<'_> {
+impl fmt::Debug for BlockingDynSessionCamera {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("BlockingDynSessionCamera")
@@ -32,18 +33,18 @@ impl fmt::Debug for BlockingDynSessionCamera<'_> {
     }
 }
 
-impl<'session> BlockingDynSessionCamera<'session> {
-    pub(crate) const fn new(core: BlockingCameraCore<'session>) -> Self {
+impl BlockingDynSessionCamera {
+    pub(crate) const fn new(core: BlockingCameraCore) -> Self {
         Self { core }
     }
 
     /// Creates a runtime-profile view for the session's sole target.
-    pub fn from_session(session: &'session Session) -> Result<Self> {
+    pub fn from_session(session: &Session) -> Result<Self> {
         session.camera_dyn()
     }
 
     /// Creates a runtime-profile view for one registered target.
-    pub fn from_session_target(session: &'session Session, target: CameraId) -> Result<Self> {
+    pub fn from_session_target(session: &Session, target: CameraId) -> Result<Self> {
         session.camera_dyn_for(target)
     }
 
@@ -55,13 +56,13 @@ impl<'session> BlockingDynSessionCamera<'session> {
 
     /// Returns this view's validated runtime profile facts.
     #[must_use]
-    pub const fn profile(&self) -> &ProfileSpec {
+    pub fn profile(&self) -> &ProfileSpec {
         self.core.profile()
     }
 
     /// Returns this view's validated runtime capability inventory.
     #[must_use]
-    pub const fn capabilities(&self) -> &Capabilities {
+    pub fn capabilities(&self) -> &Capabilities {
         self.profile().capabilities()
     }
 
@@ -81,11 +82,11 @@ impl<'session> BlockingDynSessionCamera<'session> {
     ///
     /// Every stored profile fact must match the compile-time projection for
     /// `P`; no owner or transport is created by this conversion.
-    pub fn camera<P>(&self) -> Result<Camera<'session, P>>
+    pub fn camera<P>(&self) -> Result<Camera<P>>
     where
         P: CompileTimeProfile,
     {
-        self.core.into_typed::<P>()
+        self.core.clone().into_typed::<P>()
     }
 
     /// Returns this view's ordinary-work submission-class default.
@@ -99,7 +100,7 @@ impl<'session> BlockingDynSessionCamera<'session> {
     /// The original view is unchanged, and intrinsically urgent stops remain
     /// urgent through the returned view.
     pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
-        let mut selected = *self;
+        let mut selected = self.clone();
         selected.set_submission_class(Some(class));
         selected
     }
@@ -128,7 +129,7 @@ impl<'session> BlockingDynSessionCamera<'session> {
     }
 
     /// Admits a typed operation and returns its native blocking handle.
-    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
+    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
     where
         K: completion::Kind,
         O: OperationCommand<K> + ?Sized,

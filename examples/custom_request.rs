@@ -176,7 +176,7 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
         .build()
 }
 
-fn submit_custom(camera: &BlockingDynSessionCamera<'_>) -> Result<(), Error> {
+fn submit_custom(camera: &BlockingDynSessionCamera) -> Result<(), Error> {
     // A plain command returns one final `Result`.
     camera.execute(&SetVendorTone(3))?;
     // An applied-only operation returns a handle you wait on with `applied`.

@@ -23,15 +23,21 @@ fn constructor_result_cannot_change_profile() -> grafton_visca::Result<CameraSes
     Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")
 }
 
-fn view_cannot_change_profile(session: &CameraSession<PtzOpticsG2>) -> Camera<'_, PtzOpticsG3> {
+fn view_cannot_change_profile(session: &CameraSession<PtzOpticsG2>) -> &Camera<PtzOpticsG3> {
     session.camera()
+}
+
+fn owned_camera_cannot_change_profile(session: CameraSession<PtzOpticsG2>) -> Camera<PtzOpticsG3> {
+    session.into_camera()
 }
 
 fn main() {
     let _ = constructor_result_cannot_change_profile;
     let _ = view_cannot_change_profile;
+    let _ = owned_camera_cannot_change_profile;
 }
 
 //~ E0308
 //~ "found `Result<CameraSession<PtzOpticsG2>, ...>`"
-//~ "expected `Camera<'_, PtzOpticsG3>`, found `Camera<'_, PtzOpticsG2>`"
+//~ "expected `&Camera<PtzOpticsG3>`, found `&Camera<PtzOpticsG2>`"
+//~ "expected `Camera<PtzOpticsG3>`, found `Camera<PtzOpticsG2>`"

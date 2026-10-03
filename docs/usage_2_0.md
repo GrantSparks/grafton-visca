@@ -307,7 +307,9 @@ the same boundary, taking the profile from `P` instead of a runtime
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
 correct stream/datagram send semantics. A blocking implementation must bound
 both `send_with_timeout` and `recv_into_with_timeout` by the supplied positive
-duration; the owner cannot preempt arbitrary synchronous code. Zero advertised
+duration; the owner cannot preempt arbitrary synchronous code. The blocking
+worker reads in slices of at most 10 ms, so a read that overruns its duration
+delays every STOP, cancellation, and `close` by the overrun. Zero advertised
 read/write timeouts are rejected at construction. A standard-kind caller-owned
 transport is checked against the profile transport registry; one that reports
 no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
@@ -318,31 +320,21 @@ one runtime.
 
 ### Sharing a blocking session
 
-`blocking::Session` and its borrowed `Camera<'_, P>` views are `Send + Sync`.
-The owner still admits only one fail-fast turn at a time, so overlapping calls
-from multiple threads return `Error::TransportBusy`. `Session::metrics()` is a
-read-only exception: it returns the last completed owner-turn snapshot while a
-different thread is in a bounded transport wait. If callers should wait rather
-than retry for a control operation, put the session in `Arc<Mutex<Session>>`,
-lock it for one operation, and derive the camera view from the guard. The view
-must remain inside the guard's scope:
+`blocking::Session`, its `Camera<P>` views, and their operation handles are
+owned, `Clone + Send + Sync` handles on one owner worker thread. Clone them
+into other threads instead of locking: the worker serializes every call, so a
+thread waiting on one operation never blocks another thread's submit, cancel,
+or STOP.
 
 ```rust,no_run
-use std::sync::{Arc, Mutex};
 use grafton_visca::{blocking, profiles::PtzOpticsG2};
 
-fn share(session: blocking::Session) -> grafton_visca::Result<()> {
-    let session = Arc::new(Mutex::new(session));
+fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
+    let camera = session.camera::<PtzOpticsG2>()?;
     std::thread::scope(|scope| {
-        let session = Arc::clone(&session);
-        let worker = scope.spawn(move || -> grafton_visca::Result<()> {
-            let guard = session.lock().expect("camera session lock");
-            let camera = guard.camera::<PtzOpticsG2>()?;
-            camera.power().on()
-        });
+        let worker = scope.spawn(move || camera.power().on());
         worker.join().expect("camera worker")
-    })?;
-    Ok(())
+    })
 }
 ```
 

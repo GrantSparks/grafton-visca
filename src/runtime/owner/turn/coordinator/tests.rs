@@ -116,6 +116,104 @@ fn an_ordinary_turn_selects_every_source_with_the_engine_timer() {
 }
 
 #[test]
+fn a_paced_receive_keeps_every_other_source_selectable_until_it_elapses() {
+    let mut coordinator = OwnerCoordinator::<u32>::default();
+    let now = Instant::now();
+    let until = now + ms(10);
+    coordinator.pace_receive(until);
+    assert!(coordinator.finish(
+        Selected::Receive {
+            due_at_receive: empty(),
+            class: ReceiveClass::NoInput,
+        },
+        None,
+        TurnOutcome::YieldBoundaries,
+    ));
+
+    coordinator.begin_turn();
+    let paced = select(coordinator.plan(now, None, empty(), || false));
+    assert_eq!(paced.receive, ReceiveArm::Paced { until });
+    assert_eq!(
+        paced.order().collect::<Vec<_>>(),
+        [
+            Source::Shutdown,
+            Source::Cancellation,
+            Source::Admission,
+            Source::Control,
+            Source::Timer,
+            Source::Receive,
+        ],
+        "a pause defers only the read; every boundary stays selectable"
+    );
+
+    // A boundary turn during the pause leaves it in force.
+    assert!(coordinator.finish(Selected::Boundary, None, TurnOutcome::Continue));
+    coordinator.begin_turn();
+    let still_paced = select(coordinator.plan(now + ms(9), None, empty(), || false));
+    assert_eq!(still_paced.receive, ReceiveArm::Paced { until });
+
+    // At the pause's end the receive is polled again, and stays polled.
+    coordinator.begin_turn();
+    assert_eq!(
+        select(coordinator.plan(until, None, empty(), || false)).receive,
+        ReceiveArm::Poll
+    );
+    coordinator.begin_turn();
+    assert_eq!(
+        select(coordinator.plan(now, None, empty(), || false)).receive,
+        ReceiveArm::Poll,
+        "an elapsed pause is cleared, not re-armed by an earlier sample"
+    );
+
+    // A write ends a pause early: its reply must not wait behind it.
+    coordinator.pace_receive(until);
+    coordinator.end_receive_pause();
+    coordinator.begin_turn();
+    assert_eq!(
+        select(coordinator.plan(now, None, empty(), || false)).receive,
+        ReceiveArm::Poll
+    );
+}
+
+#[test]
+fn a_pending_release_keeps_its_probe_paced_and_proof_complete_unpaced() {
+    let mut coordinator = OwnerCoordinator::<u32>::default();
+    let now = Instant::now();
+    let until = now + ms(10);
+    coordinator.pace_receive(until);
+    coordinator.begin_turn();
+    let probe = select(coordinator.plan(now, Some(now), set(&[1]), || false));
+    assert_eq!(probe.receive, ReceiveArm::Paced { until });
+
+    assert_eq!(
+        coordinator.classify(
+            Selected::Receive {
+                due_at_receive: set(&[1]),
+                class: ReceiveClass::NoInput,
+            },
+            set(&[1]),
+        ),
+        Disposition::Apply {
+            suppress_due: false
+        }
+    );
+    assert!(coordinator.finish(
+        Selected::Receive {
+            due_at_receive: set(&[1]),
+            class: ReceiveClass::NoInput,
+        },
+        None,
+        TurnOutcome::YieldBoundaries,
+    ));
+    coordinator.begin_turn();
+    assert_eq!(
+        select(coordinator.plan(now, Some(now), set(&[1]), || false)).receive,
+        ReceiveArm::ProofComplete,
+        "a completed no-input proof needs no read, so it is never paced"
+    );
+}
+
+#[test]
 fn a_pending_release_plans_each_proof_state() {
     let now = Instant::now();
     let s1 = set(&[1]);

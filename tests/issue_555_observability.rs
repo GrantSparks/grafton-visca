@@ -66,7 +66,6 @@ fn assert_clear(cache: &StateCache, key: StateKey, values: &[i64]) {
 mod blocking_observability {
     use std::{
         collections::VecDeque,
-        sync::mpsc,
         thread,
         time::{Duration, Instant},
     };
@@ -161,20 +160,20 @@ mod blocking_observability {
         }
     }
 
+    /// A camera that accepts every write and never answers, so a request
+    /// stays in flight for as long as the test needs.
     #[derive(Debug)]
-    struct InFlightProbe {
+    struct SilentProbe {
         config: TransportConfig,
-        entered_receive: mpsc::Sender<()>,
-        release_receive: mpsc::Receiver<()>,
     }
 
-    impl HasTransportConfig for InFlightProbe {
+    impl HasTransportConfig for SilentProbe {
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
     }
 
-    impl BlockingTransport for InFlightProbe {
+    impl BlockingTransport for SilentProbe {
         fn send_with_timeout(
             &mut self,
             _bytes: &[u8],
@@ -187,22 +186,15 @@ mod blocking_observability {
         fn recv_into_with_timeout(
             &mut self,
             _dst: &mut [u8],
-            _timeout: Duration,
+            timeout: Duration,
         ) -> Result<usize, Error> {
-            self.entered_receive
-                .send(())
-                .map_err(|_| Error::RuntimeShutdown)?;
-            self.release_receive
-                .recv()
-                .map_err(|_| Error::RuntimeShutdown)?;
-            Err(Error::ConnectionClosed {
-                reason: Some("test peer closed after metrics observation".into()),
-            })
+            thread::sleep(timeout);
+            Err(Error::io_timeout())
         }
     }
 
     #[test]
-    fn metrics_drain_bounds_and_cache_apply_only_after_terminal() {
+    fn metrics_diagnostics_bounds_and_cache_apply_only_after_terminal() {
         let session = Session::open(Probe::new(), SessionConfig::new(profile())).unwrap();
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
@@ -212,7 +204,8 @@ mod blocking_observability {
         assert_unknown(&cache, StateKey::PanTiltLimits);
         assert_metrics_shape(session.metrics().unwrap());
 
-        assert!(session.drain_diagnostics().unwrap().is_empty());
+        let diagnostics = session.subscribe_diagnostics(128).unwrap();
+        assert!(diagnostics.try_recv().is_none());
         camera.advanced().multicast_on().unwrap();
         assert_set(&cache, StateKey::MulticastStreaming, &[1]);
         camera
@@ -223,9 +216,9 @@ mod blocking_observability {
             StateKey::PanTiltLimits,
             &[PanTiltLimitCorner::UpRight.to_byte().into()],
         );
-        let drained = session.drain_diagnostics().unwrap();
-        assert!(drained.len() <= 128);
-        assert!(session.drain_diagnostics().unwrap().is_empty());
+        let received = std::iter::from_fn(|| diagnostics.try_recv()).count();
+        assert!((1..=128).contains(&received));
+        assert!(diagnostics.try_recv().is_none());
         let metrics = session.metrics().unwrap();
         assert!(metrics.cache_updates >= 2);
         assert_eq!(metrics.received_frames, 4);
@@ -282,14 +275,10 @@ mod blocking_observability {
     }
 
     #[test]
-    fn metrics_are_observable_while_another_thread_waits_on_the_transport() {
-        let (entered_receive_tx, entered_receive_rx) = mpsc::channel();
-        let (release_receive_tx, release_receive_rx) = mpsc::channel();
+    fn metrics_are_observable_while_another_thread_waits_on_a_request() {
         let session = Session::open(
-            InFlightProbe {
+            SilentProbe {
                 config: TransportConfig::default(),
-                entered_receive: entered_receive_tx,
-                release_receive: release_receive_rx,
             },
             SessionConfig::new(profile()),
         )
@@ -297,35 +286,27 @@ mod blocking_observability {
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera");
-        let session_ref = &session;
 
         thread::scope(|scope| {
             let request = scope.spawn(|| camera.advanced().multicast_on());
-            entered_receive_rx
-                .recv_timeout(Duration::from_secs(1))
-                .expect("request must enter the bounded receive wait");
-
-            let (metrics_tx, metrics_rx) = mpsc::sync_channel(1);
-            scope.spawn(move || {
-                let _ = metrics_tx.send(session_ref.metrics());
-            });
-            let started = Instant::now();
-            let metrics = metrics_rx.recv_timeout(Duration::from_millis(100));
-
-            // Always release the request before asserting, so this regression
-            // test fails cleanly instead of leaving a pre-fix metrics call
-            // blocked behind the transport turn.
-            release_receive_tx
-                .send(())
-                .expect("release blocked receive");
-            assert!(request.join().expect("request thread panicked").is_err());
-
-            let metrics = metrics
-                .expect("metrics must not wait for the in-flight transport turn")
-                .expect("metrics must not report TransportBusy");
-            assert!(started.elapsed() < Duration::from_secs(1));
-            assert_eq!(metrics.writes, 1);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let metrics = loop {
+                let started = Instant::now();
+                let metrics = session.metrics().expect("metrics");
+                assert!(
+                    started.elapsed() < Duration::from_millis(100),
+                    "metrics must not wait behind another caller's request"
+                );
+                if metrics.writes == 1 {
+                    break metrics;
+                }
+                assert!(Instant::now() < deadline, "the request was never written");
+                thread::sleep(Duration::from_millis(1));
+            };
             assert_eq!(metrics.active, 1);
+
+            session.shutdown().expect("shutdown");
+            assert!(request.join().expect("request thread panicked").is_err());
         });
     }
 }

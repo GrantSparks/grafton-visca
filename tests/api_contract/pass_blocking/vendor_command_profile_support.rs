@@ -5,7 +5,7 @@ use grafton_visca::{
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
 };
 
-fn ptzoptics_vendor_commands<'session>(camera: &Camera<'session, PtzOpticsG2>) {
+fn ptzoptics_vendor_commands(camera: &Camera<PtzOpticsG2>) {
     let _ = camera
         .exposure()
         .set_anti_flicker(grafton_visca::command::AntiFlickerMode::Hz50);
@@ -21,27 +21,27 @@ fn ptzoptics_vendor_commands<'session>(camera: &Camera<'session, PtzOpticsG2>) {
         .set_ndi_quality(grafton_visca::types::NdiQuality::High);
 }
 
-fn sony_spotlight_commands<'session>(camera: &Camera<'session, SonyFR7>) {
+fn sony_spotlight_commands(camera: &Camera<SonyFR7>) {
     let _ = camera.exposure().spotlight_on();
     let _ = camera.exposure().spotlight_off();
 }
 
-fn sony_tally_commands<'session>(camera: &Camera<'session, SonyFR7>) {
+fn sony_tally_commands(camera: &Camera<SonyFR7>) {
     let _ = camera.tally().red_on();
     let _ = camera.tally().red_off();
     let _ = camera.tally().green_on();
     let _ = camera.tally().green_off();
 }
 
-fn sony_auto_slow_shutter_commands<'session>(camera: &Camera<'session, SonyEVIH100>) {
+fn sony_auto_slow_shutter_commands(camera: &Camera<SonyEVIH100>) {
     let _ = camera.exposure().auto_slow_shutter_on();
     let _ = camera.exposure().auto_slow_shutter_off();
 }
 
 fn main() {
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) = ptzoptics_vendor_commands;
-    let _: for<'session> fn(&'session Camera<'session, SonyFR7>) = sony_spotlight_commands;
-    let _: for<'session> fn(&'session Camera<'session, SonyFR7>) = sony_tally_commands;
-    let _: for<'session> fn(&'session Camera<'session, SonyEVIH100>) =
+    let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_commands;
+    let _: fn(&Camera<SonyFR7>) = sony_spotlight_commands;
+    let _: fn(&Camera<SonyFR7>) = sony_tally_commands;
+    let _: fn(&Camera<SonyEVIH100>) =
         sony_auto_slow_shutter_commands;
 }

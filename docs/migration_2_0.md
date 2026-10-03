@@ -479,17 +479,13 @@ already carries an intrinsic class — ordinary control is `Normal`, drives and
 absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
 — so an emergency stop preempts queued work with no API call at all. Public QoS
 can move ordinary traffic among the lower three lanes but cannot cross that
-safety boundary. On the blocking facade this holds even on a raw profile while a
-caller still holds an un-awaited operation handle: the emergency stop's first
-write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
-gate. Ordinary ACK-bearing work still uses the bounded #673 ACK drain, but an
-intrinsically `Urgent` stop bypasses that drain and may create one explicit
-two-candidate safety-lane state (#714). An ACK observed while both raw
-candidates are open binds to neither; either operation may therefore report
+safety boundary. On a raw profile an intrinsically `Urgent` stop may also cross
+one un-acknowledged raw command and create one explicit two-candidate
+safety-lane state (#714). An ACK observed while both raw candidates are open
+binds to neither; either operation may therefore report
 `UnsequencedCommandUnconfirmed` even though the stop bytes reached the camera.
-Only genuine socket-capacity contention — every command socket occupied by a
-distinct in-flight command — still fails a blocking operation submit fast with
-`TransportBusy`.
+Both facades queue work that cannot be written yet; nothing fails with a
+contention error.
 
 | 1.x call | 2.0 call |
 | --- | --- |
@@ -606,11 +602,11 @@ use grafton_visca::command::PanTiltDirection;
 use grafton_visca::types::{PanSpeed, TiltSpeed};
 use grafton_visca::Error;
 
-struct StopPanTiltOnExit<'a, 'session> {
-    camera: &'a Camera<'session, PtzOpticsG2>,
+struct StopPanTiltOnExit<'a> {
+    camera: &'a Camera<PtzOpticsG2>,
 }
 
-impl Drop for StopPanTiltOnExit<'_, '_> {
+impl Drop for StopPanTiltOnExit<'_> {
     fn drop(&mut self) {
         // `Drop` cannot report a failure and may run while unwinding, so the
         // stop is best effort — as in any scope guard.
@@ -621,7 +617,7 @@ impl Drop for StopPanTiltOnExit<'_, '_> {
 }
 
 fn bounded_drive(
-    camera: &Camera<'_, PtzOpticsG2>,
+    camera: &Camera<PtzOpticsG2>,
     direction: PanTiltDirection,
     pan: PanSpeed,
     tilt: TiltSpeed,
@@ -693,7 +689,7 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
-| `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, async `subscribe_diagnostics`, and blocking `drain_diagnostics`. |
+| `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, and `subscribe_diagnostics` on either facade. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
 | 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
 
@@ -705,7 +701,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | 1.x API | 2.0 destination |
 | --- | --- |
 | `mode::{Mode, Blocking, Async}` and the public `mode` module | Select the `blocking` and/or `async` Cargo feature and use `blocking::Camera<P>` or async `Camera<P>`. The two facades can coexist; mode is no longer a camera type parameter. |
-| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<'session, Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
+| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
 | Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
 | `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
 | `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
@@ -852,12 +848,12 @@ use grafton_visca::{
     Error, OperationCommand, OperationalTuning,
 };
 
-fn resubmit_after_widening<'session, O>(
+fn resubmit_after_widening<O>(
     session: &Session,
-    camera: &Camera<'session, PtzOpticsG2>,
-    mut operation: Operation<'session, AppliedOnly>,
+    camera: &Camera<PtzOpticsG2>,
+    mut operation: Operation<AppliedOnly>,
     command: O,
-) -> Result<Operation<'session, AppliedOnly>, Error>
+) -> Result<Operation<AppliedOnly>, Error>
 where
     O: OperationCommand<AppliedOnly>,
 {
@@ -899,7 +895,6 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| The blocking owner is re-entered or a new operation-handle request cannot win its immediate first-dispatch boundary (socket capacity or an earlier normative scheduler winner) | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An
@@ -928,12 +923,10 @@ urgent command-spacing clock, while consecutive commands and cancellations
 still honor physical command pacing.
 
 **Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
-quarantined only to its known ambiguity deadline. Ordinary blocking operation
-submission now waits through that bounded correlation release and writes at the
-deadline instead of returning `TransportBusy`; async submission remains queued
-to the same release. An intrinsically `Urgent` stop takes the safety-lane
-exception immediately (subject to command pacing and actual socket capacity)
-and skips the blocking pre-ACK drain. While the predecessor and stop are both
+quarantined only to its known ambiguity deadline. Ordinary work queues to that
+bounded correlation release on both facades. An intrinsically `Urgent` stop
+takes the safety-lane exception immediately (subject to command pacing and
+actual socket capacity). While the predecessor and stop are both
 open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
 later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
 the reply, not evidence that the urgent stop failed to reach the camera.
@@ -1007,7 +1000,7 @@ use grafton_visca::transport::{BlockingTransport, HasTransportConfig};
 use grafton_visca::{Error, PlainCommand, SessionConfig};
 
 fn execute_or_reopen<C, T>(
-    camera: &Camera<'_, PtzOpticsG2>,
+    camera: &Camera<PtzOpticsG2>,
     command: &C,
     config: &SessionConfig,
     new_transport: impl FnOnce() -> Result<T, Error>,

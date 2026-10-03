@@ -31,12 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let camera = session.camera();
-    let result = observe_and_stop(&camera);
+    let result = observe_and_stop(camera);
     finish_session(result, session.close())?;
     Ok(())
 }
 
-fn observe_and_stop(camera: &Camera<'_, PtzOpticsG2>) -> Result<(), Error> {
+fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`
     // (pan/tilt + zoom + focus).
     println!(

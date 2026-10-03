@@ -149,53 +149,53 @@
     },
     {
       "id": "v2-owner-transport-receive",
-      "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking::sony_transient_blocking_read_fault_retries_and_keeps_the_session",
-      "test_path": "runtime::owner::tests::blocking::sony_transient_blocking_read_fault_retries_and_keeps_the_session",
+      "file": "src/runtime/owner/blocking/tests.rs",
+      "symbol": "sony_transient_blocking_read_fault_retries_and_keeps_the_session",
+      "test_path": "runtime::owner::blocking::tests::sony_transient_blocking_read_fault_retries_and_keeps_the_session",
       "envelope": "sony",
-      "profile": "SonyBRC300",
+      "profile": "SonyFR7",
       "receipt_class": "transport",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "command": ["cargo", "test", "--lib", "runtime::owner::blocking::tests"]
     },
     {
       "id": "v2-owner-out-of-order",
-      "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking::sony_typed_blocking_wait_pumps_and_retains_out_of_order_peer_results",
-      "test_path": "runtime::owner::tests::blocking::sony_typed_blocking_wait_pumps_and_retains_out_of_order_peer_results",
+      "file": "src/runtime/owner/blocking/tests.rs",
+      "symbol": "sony_blocking_waits_retain_out_of_order_peer_results",
+      "test_path": "runtime::owner::blocking::tests::sony_blocking_waits_retain_out_of_order_peer_results",
       "envelope": "sony",
-      "profile": "SonyBRC300",
+      "profile": "SonyFR7",
       "receipt_class": "targeted",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "command": ["cargo", "test", "--lib", "runtime::owner::blocking::tests"]
     },
     {
       "id": "v2-owner-lifecycle-trace",
-      "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking::blocking_owner_matches_canonical_lifecycle_trace",
-      "test_path": "runtime::owner::tests::blocking::blocking_owner_matches_canonical_lifecycle_trace",
+      "file": "src/runtime/owner/blocking/tests.rs",
+      "symbol": "blocking_owner_matches_canonical_lifecycle_trace",
+      "test_path": "runtime::owner::blocking::tests::blocking_owner_matches_canonical_lifecycle_trace",
       "envelope": "raw",
       "profile": "n/a",
       "receipt_class": "trace",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "command": ["cargo", "test", "--lib", "runtime::owner::blocking::tests"]
     },
     {
       "id": "v2-owner-observer-late",
-      "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking::observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
-      "test_path": "runtime::owner::tests::blocking::observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
+      "file": "src/runtime/owner/blocking/tests.rs",
+      "symbol": "observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
+      "test_path": "runtime::owner::blocking::tests::observer_timeout_detaches_without_cancel_and_late_applied_still_caches",
       "envelope": "raw",
       "profile": "GenericVisca",
       "receipt_class": "detach",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "command": ["cargo", "test", "--lib", "runtime::owner::blocking::tests"]
     },
     {
       "id": "v2-owner-detached-late",
-      "file": "src/runtime/owner/tests.rs",
-      "symbol": "tests::blocking::detached_late_completion_still_updates_cache_and_subscription",
-      "test_path": "runtime::owner::tests::blocking::detached_late_completion_still_updates_cache_and_subscription",
+      "file": "src/runtime/owner/blocking/tests.rs",
+      "symbol": "detached_late_completion_still_updates_the_state_cache",
+      "test_path": "runtime::owner::blocking::tests::detached_late_completion_still_updates_the_state_cache",
       "envelope": "raw",
       "profile": "n/a",
       "receipt_class": "detach",
-      "command": ["cargo", "test", "--lib", "runtime::owner::tests"]
+      "command": ["cargo", "test", "--lib", "runtime::owner::blocking::tests"]
     },
     {
       "id": "v2-faults-blocking",
@@ -709,8 +709,8 @@
         "v2-owner-lifecycle-trace",
         "v2-raw-lifecycle-trace"
       ],
-      "clause": "#542 \u00a74 Blocking owner: pump receipts while retaining exact terminal outcomes for other observed blocking receipts; blocking completion attribution is independent per request.",
-      "rationale": "The owner test and blocking lifecycle fixture exercise real caller-thread receipt retention and out-of-order protocol completion, including an error alongside a success."
+      "clause": "#542 \u00a74 Blocking owner: retain exact terminal outcomes for every observed blocking receipt while other receipts are waited on; blocking completion attribution is independent per request.",
+      "rationale": "The worker test and blocking lifecycle fixture exercise real blocking receipt retention and out-of-order protocol completion, including an error alongside a success, on the native owner worker (#780)."
     },
     {
       "id": "cancellation-detach-observer-late-delivery",

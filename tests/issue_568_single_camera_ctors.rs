@@ -195,9 +195,16 @@ mod blocking_single_camera {
         assert!(!rejected.requires_new_session());
 
         // Dropping the value alone is a complete teardown: the session it owns
-        // goes with it.
+        // goes with it. The last handle only signals the owner worker (#780),
+        // which drops the transport as it exits.
         drop(camera);
-        assert!(probe.transport_dropped());
+        for _ in 0..100 {
+            if probe.transport_dropped() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("dropping the owned camera must end the owner and its transport");
     }
 
     #[test]

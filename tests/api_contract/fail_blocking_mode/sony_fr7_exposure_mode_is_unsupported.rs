@@ -3,7 +3,7 @@
 use grafton_visca::{blocking::Camera, profiles::SonyFR7};
 
 fn main() {
-    let camera: Option<Camera<'static, SonyFR7>> = None;
+    let camera: Option<Camera<SonyFR7>> = None;
     let camera = camera.as_ref().unwrap();
 
     let _ = camera.exposure().mode();

@@ -72,10 +72,13 @@ impl BlockingTransport for ProbeTransport {
     fn recv_into_with_timeout(
         &mut self,
         _dst: &mut [u8],
-        _timeout: std::time::Duration,
+        timeout: std::time::Duration,
     ) -> Result<usize, Error> {
+        // An idle peer: the owner worker reads continuously, so a read must
+        // honor its timeout rather than report end of stream.
         self.counts.reads.fetch_add(1, Ordering::SeqCst);
-        Ok(0)
+        std::thread::sleep(timeout);
+        Err(Error::io_timeout())
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -125,7 +128,7 @@ fn custom_transport_remains_an_explicit_unchecked_escape_hatch() {
 }
 
 #[test]
-fn non_default_downstream_profile_projects_as_a_borrowed_camera() {
+fn non_default_downstream_profile_projects_as_a_typed_camera() {
     let counts = Arc::new(ProbeCounts::default());
     let transport = ProbeTransport::new(None, Arc::clone(&counts));
     let session = Session::open(
@@ -135,13 +138,15 @@ fn non_default_downstream_profile_projects_as_a_borrowed_camera() {
     )
     .expect("session");
 
-    let camera: Camera<'_, NonDefaultCompileTimeProfile> = session
+    let camera: Camera<NonDefaultCompileTimeProfile> = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("exact non-default profile projection");
-    let _borrowed: &Camera<'_, NonDefaultCompileTimeProfile> = &camera;
     assert_eq!(camera.target(), grafton_visca::CameraId::CAMERA_1);
-    assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-    assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        counts.writes.load(Ordering::SeqCst),
+        0,
+        "a projection writes nothing"
+    );
     session.shutdown().expect("shutdown");
 }
 
@@ -174,7 +179,10 @@ fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() {
         session.camera_for::<SonyFR7>(grafton_visca::CameraId::CAMERA_2),
         Err(Error::InvalidRequest(_))
     ));
-    assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-    assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        counts.writes.load(Ordering::SeqCst),
+        0,
+        "a rejected projection admits and writes nothing"
+    );
     session.shutdown().expect("shutdown");
 }

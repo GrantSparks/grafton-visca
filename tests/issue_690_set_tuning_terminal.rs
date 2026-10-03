@@ -4,10 +4,10 @@
 //! owner is gone," but the blocking `reconfigure` path mutated owner state
 //! directly and never consulted the boundary gate, so it returned `Ok(())` on a
 //! poisoned or closed session — a silent no-op contradicting its contract. It
-//! now takes the same `enter` turn every submission does: a live session still
-//! reconfigures, a re-entrant call is `TransportBusy`, and a terminated session
+//! now travels through the owner worker's control boundary (#780), as on the
+//! async facade: a live session still reconfigures, and a terminated session
 //! yields its terminal error. Profile validation failures travel through that
-//! turn too, so an invalid proposal cannot mask an existing terminal cause.
+//! boundary too, so an invalid proposal cannot mask an existing terminal cause.
 
 #![cfg(feature = "blocking")]
 

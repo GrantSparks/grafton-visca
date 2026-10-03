@@ -2,7 +2,7 @@
 
 use grafton_visca::{blocking::Camera, profiles::SonyFR7, types::NoiseReduction2DLevel};
 
-fn sony_fr7_cannot_set_2d_noise_reduction(camera: &Camera<'_, SonyFR7>) {
+fn sony_fr7_cannot_set_2d_noise_reduction(camera: &Camera<SonyFR7>) {
     let _ = camera
         .image()
         .set_noise_reduction_2d(NoiseReduction2DLevel::MAX);

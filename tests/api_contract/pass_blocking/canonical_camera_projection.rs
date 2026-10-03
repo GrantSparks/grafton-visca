@@ -8,7 +8,7 @@ use grafton_visca::{
     CompileTimeProfile,
 };
 
-fn profile_gated_view<'a, P>(camera: &Camera<'a, P>)
+fn profile_gated_view<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + PanTilt,
 {
@@ -20,7 +20,7 @@ fn generic_operation_handle<K: Kind>(handle: Operation<K>) {
 }
 
 fn main() {
-    let _: fn(&Camera<'static, PtzOpticsG2>) = profile_gated_view::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = profile_gated_view::<PtzOpticsG2>;
     let _: fn(Operation<grafton_visca::completion::AppliedOnly>) =
         generic_operation_handle::<grafton_visca::completion::AppliedOnly>;
 }

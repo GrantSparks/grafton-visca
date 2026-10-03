@@ -1,4 +1,7 @@
 use super::*;
+use crate::runtime::owner::turn::{
+    clamp_receive_pause, transient_receive_pause, TransientFaultRun,
+};
 /// A zero-length stream read is still the only close signal.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -58,7 +61,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
 
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
         )))))
         .await
@@ -116,7 +119,7 @@ async fn fatal_receive_fault_closes_the_session() {
         .await
         .unwrap();
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::BrokenPipe),
         )))))
         .await
@@ -302,7 +305,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // Two consecutive faults, each retransmitting the very same request.
     for _ in 0..2 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -341,7 +344,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // transient and the session is still answering.
     for _ in 0..3 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -388,11 +391,11 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         ))),
     ] {
         frames
-            .send_async(Ok(AsyncReceive::Fault(timeout)))
+            .send_async(Ok(OwnerReceive::Fault(timeout)))
             .await
             .unwrap();
     }
-    frames.send_async(Ok(AsyncReceive::NoData)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
 
     // Control still answers, and nothing was retransmitted.
     assert_eq!(
@@ -472,9 +475,9 @@ fn a_fault_run_only_counts_consecutive_failures() {
         TRANSIENT_RECEIVE_FAULT_SPAN
     ));
 }
-/// Issue #625. The blocking owner clamps its transient pause to the
-/// caller's deadline; the async owner clamps to the next scheduler wake, so
-/// a fault can never delay a due deadline by the length of the pause.
+/// Issue #625. The shell clamps a transient fault pause to the next
+/// scheduler wake, so a fault can never delay a due deadline by the length of
+/// the pause.
 #[test]
 fn the_transient_pause_never_outlives_the_next_wake() {
     let now = Instant::now();
@@ -861,4 +864,57 @@ fn smol_stalled_write_never_parks_close() {
         terminated,
     ));
     join.join().unwrap();
+}
+/// Issue #780: an idle read paces the *receive* source only. While that pause
+/// is pending, admission, control and shutdown are still selected, so a
+/// boundary is applied before the pause ends rather than behind it. The
+/// admission's write ends the pause, because its reply may follow at once;
+/// the next read is idle again and re-arms it.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn a_boundary_is_applied_during_an_idle_receive_pause() {
+    let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(Instant::now());
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let actor_task = tokio::spawn(actor.run(NoDataDriver {
+        reads: Arc::clone(&reads),
+    }));
+
+    // The first read is idle; the next selection parks with receive paced.
+    let pause = sleeps.recv_async().await.unwrap();
+    assert!(!pause.is_zero());
+    let paused_at = Executor::now(&runtime);
+
+    // Virtual time is frozen, so the pause cannot elapse. The admission is
+    // still applied and written, and only the write lifts the pause: exactly
+    // one more read follows it.
+    let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(command()))
+        .await
+        .expect("an admission must not wait behind an idle receive pause")
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while reads.load(Ordering::Relaxed) < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the write ends the receive pause");
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(Executor::now(&runtime), paused_at);
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        2,
+        "the idle read re-paced receive"
+    );
+
+    handle.shutdown().await.unwrap();
+    let snapshot = tokio::time::timeout(Duration::from_secs(1), actor_task)
+        .await
+        .expect("shutdown must not wait behind an idle receive pause")
+        .unwrap();
+    assert_eq!(snapshot.state, SessionState::Shutdown);
+    assert_eq!(reads.load(Ordering::Relaxed), 2);
+    drop(receipt);
 }

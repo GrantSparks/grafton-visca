@@ -93,15 +93,18 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     // Install a real inquiry release hold without first running the eager
     // flood. The zero-length response deadline terminalizes A immediately;
     // H remains one second away.
-    let (predecessor_completion, predecessor_admitted) =
-        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
@@ -119,7 +122,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -128,16 +131,18 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.coordinator.release().await_until().is_some());
+    assert!(actor.core.coordinator.release().await_until().is_some());
 
-    let (urgent_completion, urgent_admitted) =
-        handle.enqueue_admission(urgent_command(), None).unwrap();
-    assert!(!handle.admissions.is_empty());
+    let (urgent_completion, urgent_admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
+    assert!(!handle.core.admissions.is_empty());
     let actor_task = tokio::spawn(actor.run(driver));
     // The admission is deliberately queued before the flood starts. It cannot
     // be consumed until the raw selector spends a forced fairness turn; once
     // removed it remains retained behind the release proof.
-    while !handle.admissions.is_empty() {
+    while !handle.core.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
     let reads_before_release = reads.load(Ordering::Relaxed);
@@ -201,10 +206,19 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     if latched_raw_release {
-        let (completion, admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-        let predecessor = actor.admissions.try_recv().unwrap();
+        let (completion, admitted) = handle
+            .core
+            .enqueue_admission(timed_out_inquiry(), None)
+            .unwrap();
+        let predecessor = actor.core.receivers.admissions.try_recv().unwrap();
         actor
-            .handle_admission(predecessor, &mut driver, &runtime, Executor::now(&runtime))
+            .handle_event(
+                OwnerEvent::Admission(Ok(predecessor)),
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
             .await;
         let predecessor = admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(writes.recv_async().await.unwrap(), predecessor);
@@ -217,7 +231,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         assert_eq!(
             actor
                 .handle_event(
-                    ActorEvent::Wake,
+                    OwnerEvent::Wake,
                     &mut driver,
                     &runtime,
                     Executor::now(&runtime),
@@ -226,10 +240,13 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .await,
             TurnOutcome::ContinueBuffered
         );
-        assert!(actor.coordinator.release().await_until().is_some());
+        assert!(actor.core.coordinator.release().await_until().is_some());
     }
 
-    let (_completion, _admitted) = handle.enqueue_admission(urgent_command(), None).unwrap();
+    let (_completion, _admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
     let mut run = Box::pin(actor.run(driver));
     let waker = std::task::Waker::noop();
     let mut context = std::task::Context::from_waker(waker);
@@ -237,14 +254,14 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
     let first_yield_reads = reads.load(Ordering::Relaxed);
     assert!(
-        !handle.admissions.is_empty(),
+        !handle.core.admissions.is_empty(),
         "the forced boundary begins on the next poll"
     );
 
     assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
     let second_yield_reads = reads.load(Ordering::Relaxed);
     assert!(
-        handle.admissions.is_empty(),
+        handle.core.admissions.is_empty(),
         "the same boundary poll must consume the queued urgent admission"
     );
     drop(run);
@@ -288,17 +305,26 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 
     // Install one sent inquiry without running the event loop yet. Its
     // reply deadline is therefore the next authoritative engine wake.
-    let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
+        .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
-    assert_eq!(actor.state.active_len(), 1);
+    assert_eq!(actor.core.state.active_len(), 1);
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -314,11 +340,11 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     for expected_queued in 1..=CONTROL_CHAIN {
         let control_handle = handle.clone();
         controls.push(tokio::spawn(async move { control_handle.metrics().await }));
-        while handle.control.len() < expected_queued {
+        while handle.core.control.len() < expected_queued {
             tokio::task::yield_now().await;
         }
     }
-    assert!(handle.control.is_full());
+    assert!(handle.core.control.is_full());
 
     // Make the protocol deadline due before selection begins. Tokio's
     // paused clock keeps this exact and avoids a wall-clock liveness race.
@@ -371,16 +397,25 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
 
-    let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
+        .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -402,10 +437,12 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let (first_reply, first_result) = flume::bounded(1);
     let (second_reply, second_result) = flume::bounded(1);
     handle
+        .core
         .control
         .try_send(ControlBoundary::Metrics(first_reply))
         .unwrap();
     handle
+        .core
         .control
         .try_send(ControlBoundary::Metrics(second_reply))
         .unwrap();
@@ -651,15 +688,18 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     };
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
-    let (predecessor_completion, predecessor_admitted) =
-        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
@@ -669,8 +709,10 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
-    let (_urgent_completion, urgent_admitted) =
-        handle.enqueue_admission(urgent_command(), None).unwrap();
+    let (_urgent_completion, urgent_admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
     let actor_task = tokio::spawn(actor.run(driver));
     // The hold matures while the flood is already running.
     runtime.advance(HOLD);

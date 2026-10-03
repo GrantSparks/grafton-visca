@@ -105,6 +105,7 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
 #[test]
 fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     let session = silent_session();
+    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     let camera = session.camera::<PtzOpticsG2>().expect("camera facade");
     let error = camera
         .execute(&PowerOn::new())
@@ -119,10 +120,10 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     );
 
     let metrics = session.metrics().expect("metrics");
-    let events = session.drain_diagnostics().expect("diagnostics");
+    let events: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     assert_eq!(
         metrics.dropped_diagnostics, 0,
-        "the scenario must fit the diagnostic ring for the pairing below to hold"
+        "the scenario must fit the diagnostic subscription for the pairing below to hold"
     );
 
     let expiries: Vec<bool> = events
@@ -162,12 +163,11 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     // Issue #671: the raw ACK ambiguity fails only this command; the session is
     // still running afterwards rather than poisoned.
     assert_eq!(metrics.session, grafton_visca::SessionStatus::Running);
-    // A later explicit shutdown ends the still-live session in the ordinary way.
+    // A later explicit shutdown ends the still-live session in the ordinary
+    // way. Metrics are a control boundary served by the owner worker (#780),
+    // so once it has shut down they report that, as on the async facade.
     session.shutdown().expect("the live session shuts down");
-    assert_eq!(
-        session.metrics().expect("metrics remain readable").session,
-        grafton_visca::SessionStatus::Shutdown
-    );
+    assert!(matches!(session.metrics(), Err(Error::RuntimeShutdown)));
 }
 
 /// The pairing above holds even with retries removed engine-wide — every count
@@ -187,6 +187,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
     const RETRY_LIMIT: u32 = 2;
 
     let session = retrying_silent_session(RETRY_LIMIT);
+    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     let camera = session.camera::<SonyFR7>().expect("camera facade");
     let error = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
@@ -199,10 +200,10 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
     );
 
     let metrics = session.metrics().expect("metrics");
-    let events = session.drain_diagnostics().expect("diagnostics");
+    let events: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     assert_eq!(
         metrics.dropped_diagnostics, 0,
-        "the scenario must fit the diagnostic ring for the pairing below to hold"
+        "the scenario must fit the diagnostic subscription for the pairing below to hold"
     );
 
     assert_eq!(metrics.retries_scheduled, RETRY_LIMIT as u64);

@@ -441,6 +441,8 @@ fn datagram_write_failure_fails_one_command_and_keeps_the_session() {
 
     let error = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission succeeds at admission")
+        .applied()
         .expect_err("the first write fails on the wire");
     assert!(
         matches!(error, Error::Io(_)),
@@ -495,6 +497,8 @@ fn stream_write_failure_poisons_and_names_the_transport_cause() {
 
     let error = second_camera
         .submit::<AppliedOnly, _>(&FocusStop)
+        .expect("submission succeeds at admission")
+        .applied()
         .expect_err("the second write fails on the wire");
     let Error::StreamPoisoned { reason } = &error else {
         panic!("a stream write failure is terminal for the session, got {error:?}");

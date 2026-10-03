@@ -270,41 +270,6 @@ pub(crate) struct InputTurn {
     now: Instant,
 }
 
-/// Why an otherwise-ready first dispatch needs an owner-side wait.
-///
-/// A raw correlation hold needs an ordered input turn at its boundary so a
-/// buffered stale frame is made inert before the hold releases. Ordinary
-/// pacing has no such input authority: consuming a peer frame while waiting
-/// for it would violate the blocking first-write admission boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FirstDispatchWait {
-    RawCorrelationTombstone,
-    Pacing,
-    /// A safety-critical request owns the next physical pacing slot ahead of
-    /// every already-pending cancellation. Its owner must not service due
-    /// cancellations at that boundary before retrying this exact dispatch.
-    UrgentPacing,
-}
-
-/// Result of attempting one exact first dispatch without running due work.
-#[derive(Debug)]
-pub(crate) enum FirstDispatch {
-    // Both payloads are read by the blocking owner's caller-thread submission
-    // (`runtime::owner::blocking`) and by the engine tests; the async owner never
-    // takes this seam, so an async-only leg compiles neither reader (#636).
-    #[allow(dead_code)]
-    Effects(Vec<Effect>),
-    #[allow(dead_code)]
-    WaitUntil {
-        deadline: Instant,
-        reason: FirstDispatchWait,
-    },
-    /// The request stays queued: it is admitted and ready, but some other
-    /// request currently owns the capacity it needs. It is never terminal.
-    Blocked,
-    Missing,
-}
-
 impl DueWork {
     fn key(self) -> (Instant, u64, u8) {
         (self.at, self.admission_order, self.kind_order)
@@ -655,95 +620,6 @@ impl ProtocolEngine {
         effects
     }
 
-    /// Dispatches `id` only when it is the normative global scheduler winner.
-    /// No queue, peer request, deadline, or pacing state is mutated when a
-    /// different request would win: [`FirstDispatch::Blocked`] leaves `id`
-    /// queued so an ordinary later turn can dispatch it once capacity frees.
-    #[allow(dead_code)] // Consumed by blocking builds and engine tests (#723).
-    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
-        let dispatch = self.first_dispatch_inner(id, now);
-        self.debug_assert_invariants();
-        dispatch
-    }
-
-    /// Rejects an admitted request that has not had its first write yet.
-    ///
-    /// This is the blocking operation admission boundary: a caller may ask
-    /// for a lifecycle handle only after this request's initial write has
-    /// succeeded.  The helper deliberately goes through the normal terminal
-    /// transition so queue tickets, correlations, and any engine-owned
-    /// admission state are cleaned up by one authority.  It does not run due
-    /// work or dispatch another request.
-    #[allow(dead_code)] // Consumed by the blocking owner (#542).
-    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> Vec<Effect> {
-        let mut effects = Vec::new();
-        match self.entries.get(&id) {
-            Some(entry) if matches!(entry.phase, Phase::Ready { .. }) => {
-                self.finish(id, RuntimeOutcome::Failed(error), &mut effects);
-            }
-            Some(_) => effects.push(Effect::Ignored(
-                IgnoreReason::IncompatibleTransmissionResult,
-            )),
-            None => effects.push(Effect::Ignored(IgnoreReason::UnknownRequest)),
-        }
-        self.debug_assert_invariants();
-        effects
-    }
-
-    #[allow(dead_code)] // See `first_dispatch` (#723).
-    fn first_dispatch_inner(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
-        if self.state != SessionState::Running {
-            return FirstDispatch::Missing;
-        }
-        // Admission has already been applied at this sampled instant. This
-        // exact-dispatch seam deliberately does *not* run any due work: a raw
-        // target tombstone can only be released by the ordered owner turn
-        // after that turn has given already-sampled frames at its boundary a
-        // chance to be attributed. In particular, locally expiring it here
-        // would let a same-target successor write before a stale reply at the
-        // exact hold deadline is made inert, and would bypass an earlier total
-        // retry budget on the ready successor.
-        let Some(entry) = self.entries.get(&id) else {
-            return FirstDispatch::Missing;
-        };
-        if !matches!(entry.phase, Phase::Ready { .. }) {
-            return FirstDispatch::Missing;
-        }
-        let target = entry.request.context().target;
-        let urgent = entry.request.context().control.class == ControlClass::Urgent;
-        let pending_cancellation = self.has_pending_cancellation();
-        if !urgent && self.has_pending_cancellation_for(target) {
-            return FirstDispatch::Blocked;
-        }
-        if let Some(deadline) = self.raw_hold_dispatch_deadline(entry) {
-            return FirstDispatch::WaitUntil {
-                deadline,
-                reason: FirstDispatchWait::RawCorrelationTombstone,
-            };
-        }
-        if !self.capacity_available_for(entry) {
-            return FirstDispatch::Blocked;
-        }
-        let ready_at = self.candidate_send_at(entry);
-        match self.select_dispatch(now) {
-            Some(selected) if selected.ticket.request != id => FirstDispatch::Blocked,
-            Some(selected) => {
-                let mut effects = Vec::new();
-                self.dispatch_selected(selected, now, &mut effects);
-                FirstDispatch::Effects(effects)
-            }
-            None if ready_at > now => FirstDispatch::WaitUntil {
-                deadline: ready_at,
-                reason: if urgent && pending_cancellation {
-                    FirstDispatchWait::UrgentPacing
-                } else {
-                    FirstDispatchWait::Pacing
-                },
-            },
-            None => FirstDispatch::Blocked,
-        }
-    }
-
     /// Entries holding `slot`, for `target` when the slot is a control
     /// reserve.
     fn entries_holding(&self, slot: AdmissionSlot, target: CameraId) -> usize {
@@ -1072,18 +948,6 @@ impl ProtocolEngine {
         }
     }
 
-    fn has_pending_cancellation(&self) -> bool {
-        self.entries
-            .values()
-            .any(|entry| pending_cancellation_socket(entry).is_some())
-    }
-
-    fn has_pending_cancellation_for(&self, target: CameraId) -> bool {
-        self.entries.values().any(|entry| {
-            entry.request.context().target == target && pending_cancellation_socket(entry).is_some()
-        })
-    }
-
     fn dispatch_selected(
         &mut self,
         selected: DispatchSelection,
@@ -1288,18 +1152,6 @@ impl ProtocolEngine {
             .saturating_add(self.raw_socket_hold_count(target))
     }
 
-    /// Whether a released uncorrelatable command retains a broad raw-response
-    /// hold on `target`.
-    ///
-    /// The narrow #712 inquiry hold is deliberately excluded: it cannot make a
-    /// command ACK ambiguous and therefore must not disable the blocking
-    /// pre-ACK drain for ordinary ACK-bearing work.
-    fn raw_target_command_correlation_quarantined(&self, target: CameraId) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
-            && (self.raw_hold(target, RawHoldScope::AllResponses).is_some()
-                || self.raw_hold(target, RawHoldScope::PreAck).is_some())
-    }
-
     fn raw_hold(&self, target: CameraId, scope: RawHoldScope) -> Option<RawHold> {
         self.holds.get(&RawHoldKey::new(target, scope)).copied()
     }
@@ -1405,15 +1257,6 @@ impl ProtocolEngine {
                     .map(|hold| hold.until)
             })
             .min()
-    }
-
-    /// The deterministic release time for a ready request blocked only by a
-    /// fixed raw target tombstone. Blocking first-write submission uses this
-    /// to classify a caller deadline as a time-bound wait rather than generic
-    /// queue backpressure.
-    fn raw_hold_dispatch_deadline(&self, entry: &Entry) -> Option<Instant> {
-        let target = entry.request.context().target;
-        self.raw_hold_dispatch_deadline_for(entry, target)
     }
 
     /// Whether a raw completion-only command can be made the target's sole
@@ -1539,65 +1382,6 @@ impl ProtocolEngine {
             }
             ReplyShape::AckThenCompletion => false,
         }
-    }
-
-    /// Whether the raw single-candidate pre-ACK gate — and not genuine
-    /// socket-capacity exhaustion — is what currently blocks a *new* command on
-    /// `target`, such that pumping the pending peer ACK would free a socket for
-    /// it.
-    ///
-    /// This deliberately uses the sole *ACK-capable* predecessor rather than
-    /// [`Self::raw_command_unacknowledged`]. The latter is the broader
-    /// correlation/exclusivity predicate and must continue to count
-    /// completion-only commands. `AwaitingCompletion` cannot release a socket
-    /// by accepting an ACK.
-    ///
-    /// When the sole ACK-capable predecessor is still in its unacknowledged
-    /// window while a command socket remains free, its ACK clears the gate and
-    /// the next command can use that socket. When every socket is already
-    /// occupied this is `false`, because the pending ACK only moves a command
-    /// from awaiting-ACK to executing without releasing a socket — that is real
-    /// contention, and the caller's fail-fast rejection must stand. Consumed by
-    /// the first-write admission planner (issue #673).
-    #[allow(dead_code)] // Consumed by blocking builds and engine tests (#723).
-    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
-        !self.raw_target_command_correlation_quarantined(target)
-            && self.raw_ack_capable_candidate(target).is_some()
-            && self.targets[target.id() as usize].is_some_and(|policy| {
-                self.command_capacity_used(target) < usize::from(policy.command_sockets)
-            })
-    }
-
-    /// Returns the sole raw command on `target` whose next accepted frame may
-    /// be an ACK, or `None` when there is no such command or the state is
-    /// ambiguous.
-    ///
-    /// The `Sending` phase is included for the deferred-ACK race. A cancelled
-    /// pre-ACK request remains in `AwaitingAck` through its ambiguity deadline,
-    /// so an attributable ACK may still establish its socket before that
-    /// window closes.
-    fn raw_ack_capable_candidate(&self, target: CameraId) -> Option<RequestId> {
-        if self.policy.envelope != EnvelopeKind::Raw {
-            return None;
-        }
-        let mut sole = None;
-        for (id, entry) in &self.entries {
-            if entry.request.is_inquiry()
-                || entry.request.context().target != target
-                || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !matches!(
-                    entry.phase,
-                    Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                )
-            {
-                continue;
-            }
-            if sole.is_some() {
-                return None;
-            }
-            sole = Some(*id);
-        }
-        sole
     }
 
     fn transition(
@@ -3743,11 +3527,6 @@ impl ProtocolEngine {
         self.queue_mut(inquiry, priority).push_back(ticket);
     }
 
-    /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
-    pub(crate) fn next_wake(&self) -> Option<Instant> {
-        self.next_wake_for(EngineTurn::COMPLETE)
-    }
-
     /// Raw correlation scopes which can be released by advancing at `now`.
     ///
     /// Byte-stream owners use this typed projection before a due pass.  It
@@ -3914,20 +3693,8 @@ impl ProtocolEngine {
         }
     }
 
-    /// Earliest wake relevant to the scheduler work permitted by `turn`.
-    ///
-    /// A dispatch-suppressed turn still wakes for protocol deadlines and
-    /// pending cancellation pacing, but deliberately excludes ready-queue
-    /// eligibility. This keeps an unrelated ready request from turning a
-    /// submission-side read into a zero-timeout loop (issue #673).
-    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
-        if !turn.runs_due() {
-            return None;
-        }
-        self.next_wake_inner(turn.allows_dispatch())
-    }
-
-    fn next_wake_inner(&self, include_ready: bool) -> Option<Instant> {
+    /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
+    pub(crate) fn next_wake(&self) -> Option<Instant> {
         if self.state != SessionState::Running {
             return None;
         }
@@ -3938,8 +3705,7 @@ impl ProtocolEngine {
             .chain(self.raw_hold_wake())
             .min();
         for entry in self.entries.values() {
-            let candidate = if include_ready
-                && matches!(entry.phase, Phase::Ready { .. })
+            let candidate = if matches!(entry.phase, Phase::Ready { .. })
                 && self.capacity_available_for(entry)
             {
                 Some(self.candidate_send_at(entry))

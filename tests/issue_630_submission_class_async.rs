@@ -1,6 +1,6 @@
 //! Issue #630: the engine's four control-class lanes, through async API.
 //!
-//! The blocking counterpart lives in
+//! The blocking twin lives in
 //! `tests/issue_630_submission_class_blocking.rs`; both observe the same
 //! engine behaviour at the transport boundary. This file additionally checks
 //! that the erased `dyn-api` projection carries the same surface.

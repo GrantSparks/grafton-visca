@@ -309,9 +309,9 @@ impl SessionConfig {
         Ok(profile)
     }
 
-    /// Owned counterpart of [`Self::profile_for_compile_time`] for async
+    /// Owned counterpart of [`Self::profile_for_compile_time`] for owned
     /// camera views.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn profile_arc_for_compile_time<P>(
         &self,
         target: CameraId,

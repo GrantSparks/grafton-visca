@@ -1,7 +1,7 @@
 use grafton_visca::{blocking::Operation, completion::Targeted};
 
 // Detaching consumes the handle (#777): nothing can observe it afterwards.
-fn use_after_detach(mut handle: Operation<'static, Targeted>) {
+fn use_after_detach(mut handle: Operation<Targeted>) {
     handle.detach();
     let _ = handle.applied();
 }

@@ -6,13 +6,13 @@ use grafton_visca::{
 };
 
 fn main() {
-    let image: Option<Camera<'static, PtzOpticsG2>> = None;
+    let image: Option<Camera<PtzOpticsG2>> = None;
     let image = image.as_ref().unwrap();
     let _ = image.image().freeze_on();
     let _ = image.image().freeze_off();
     let _ = image.image().defog_level();
 
-    let tally: Option<Camera<'static, SonyFR7>> = None;
+    let tally: Option<Camera<SonyFR7>> = None;
     let tally = tally.as_ref().unwrap();
     let _ = tally.tally().bright_lo();
     let _ = tally.tally().bright_hi();
@@ -22,7 +22,7 @@ fn main() {
     let _ = tally.tally().off();
     let _ = tally.tally().auto_adjust_enabled();
 
-    let brc_h900: Option<Camera<'static, SonyBRCH900>> = None;
+    let brc_h900: Option<Camera<SonyBRCH900>> = None;
     let brc_h900 = brc_h900.as_ref().unwrap();
     let _ = brc_h900.tally().red_on();
     let _ = brc_h900.tally().red_off();
