@@ -1054,11 +1054,11 @@ impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
 {
-    /// Returns the target selected during preparation without consuming the
-    /// operation.
+    /// Returns the request context selected during preparation without
+    /// consuming the operation.
     #[cfg(feature = "blocking")]
-    pub(crate) const fn target(&self) -> CameraId {
-        self.context.target
+    pub(crate) const fn context(&self) -> &RequestContext {
+        &self.context
     }
 
     /// Returns the optional ACK budget the blocking owner may use to drain the

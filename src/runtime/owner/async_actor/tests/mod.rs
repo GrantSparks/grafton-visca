@@ -234,6 +234,7 @@ fn policy(capacity: usize) -> OwnerPolicy {
         TargetPolicy {
             command_sockets: 2,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         },
     )
     .unwrap()
@@ -280,6 +281,7 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let target = TargetPolicy {
         command_sockets: 2,
         cancellation: CancellationPolicy::Supported,
+        control_reserve: 0,
     };
     let mut targets = [None; 9];
     targets[usize::from(CameraId::CAMERA_1.id())] = Some(target);

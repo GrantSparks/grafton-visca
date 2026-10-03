@@ -186,6 +186,7 @@ pub(crate) struct Entry {
     cancellation_observation_open: bool,
     deferred_ack: Option<DeferredAck>,
     deferred_completion: Option<DeferredCompletion>,
+    slot: AdmissionSlot,
 }
 
 impl Entry {
@@ -600,7 +601,11 @@ impl ProtocolEngine {
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
         match input {
-            Input::Admit { ticket, request } => self.admit(ticket, request, now, effects),
+            Input::Admit {
+                ticket,
+                request,
+                slot,
+            } => self.admit(ticket, request, slot, now, effects),
             Input::TransmissionFinished {
                 transmission,
                 result,
@@ -739,10 +744,59 @@ impl ProtocolEngine {
         }
     }
 
+    /// Entries holding `slot`, for `target` when the slot is a control
+    /// reserve.
+    fn entries_holding(&self, slot: AdmissionSlot, target: CameraId) -> usize {
+        self.entries
+            .values()
+            .filter(|entry| {
+                entry.slot == slot
+                    && (slot == AdmissionSlot::Ordinary || entry.request.context().target == target)
+            })
+            .count()
+    }
+
+    /// Whether `request` may take `slot` (D26, #778). Ordinary slots are
+    /// bounded by `capacity`; a target's reserved slots by its
+    /// `control_reserve`, and only an urgent request may hold one.
+    fn admission_slot_available(
+        &self,
+        request: &RuntimeRequest,
+        slot: AdmissionSlot,
+    ) -> Result<(), Error> {
+        let target = request.context().target;
+        match slot {
+            AdmissionSlot::Ordinary => {
+                if self.entries_holding(slot, target) >= self.policy.capacity {
+                    return Err(Error::RuntimeQueueFull {
+                        capacity: self.policy.capacity,
+                    });
+                }
+            }
+            AdmissionSlot::ControlReserve => {
+                if request.context().control.class != ControlClass::Urgent {
+                    return Err(Error::InvalidState(
+                        "only an urgent request may hold a control-reserve slot".into(),
+                    ));
+                }
+                let reserve =
+                    self.targets[target.id() as usize].map_or(0, |policy| policy.control_reserve);
+                if self.entries_holding(slot, target) >= usize::from(reserve) {
+                    return Err(Error::ControlReserveExhausted {
+                        target,
+                        reserve: usize::from(reserve),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn admit(
         &mut self,
         ticket: AdmissionTicket,
         request: RuntimeRequest,
+        slot: AdmissionSlot,
         now: Instant,
         effects: &mut Vec<Effect>,
     ) {
@@ -756,16 +810,11 @@ impl ProtocolEngine {
             });
             return;
         }
-        if self.entries.len() >= self.policy.capacity {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::RuntimeQueueFull {
-                    capacity: self.policy.capacity,
-                },
-            });
+        let context = *request.context();
+        if let Err(error) = self.admission_slot_available(&request, slot) {
+            effects.push(Effect::AdmissionRejected { ticket, error });
             return;
         }
-        let context = *request.context();
         let Some(target_policy) = self.targets[context.target.id() as usize] else {
             effects.push(Effect::AdmissionRejected {
                 ticket,
@@ -828,6 +877,7 @@ impl ProtocolEngine {
                 cancellation_observation_open: false,
                 deferred_ack: None,
                 deferred_completion: None,
+                slot,
             },
         );
         self.queue_mut(inquiry, priority).push_back(queue_ticket);
@@ -4029,8 +4079,32 @@ impl ProtocolEngine {
 
     /// Audits every derived index against authoritative entries.
     pub(crate) fn assert_invariants(&self) -> Result<(), Box<str>> {
-        if self.entries.len() > self.policy.capacity {
-            return Err("entry capacity exceeded".into());
+        let ordinary = self
+            .entries
+            .values()
+            .filter(|entry| entry.slot == AdmissionSlot::Ordinary)
+            .count();
+        if ordinary > self.policy.capacity {
+            return Err("ordinary entry capacity exceeded".into());
+        }
+        for (index, policy) in self.targets.iter().enumerate() {
+            let reserved = self
+                .entries
+                .values()
+                .filter(|entry| {
+                    entry.slot == AdmissionSlot::ControlReserve
+                        && usize::from(entry.request.context().target.id()) == index
+                })
+                .count();
+            if reserved > policy.map_or(0, |policy| usize::from(policy.control_reserve)) {
+                return Err("control reserve exceeded".into());
+            }
+        }
+        if self.entries.values().any(|entry| {
+            entry.slot == AdmissionSlot::ControlReserve
+                && entry.request.context().control.class != ControlClass::Urgent
+        }) {
+            return Err("a non-urgent entry holds a control-reserve slot".into());
         }
         let mut queued = 0_usize;
         for (inquiry, queues) in [(false, &self.command_queues), (true, &self.inquiry_queues)] {
@@ -4841,6 +4915,7 @@ mod cancellation_regression_tests {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .expect("target");
@@ -4907,6 +4982,7 @@ mod cancellation_regression_tests {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(),
+                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -5029,6 +5105,7 @@ mod cancellation_regression_tests {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -5103,6 +5180,7 @@ mod cancellation_regression_tests {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with(ReplyShape::CompletionOnly, retrying_buffer_full()),
+                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -5174,6 +5252,7 @@ mod cancellation_regression_tests {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with(ReplyShape::AckThenCompletion, retrying_buffer_full()),
+                slot: AdmissionSlot::Ordinary,
             },
             now,
         );

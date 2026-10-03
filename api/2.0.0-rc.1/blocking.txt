@@ -11619,7 +11619,7 @@ impl core::marker::Unpin for grafton_visca::observability::DiagnosticSubscriptio
 impl core::marker::UnsafeUnpin for grafton_visca::observability::DiagnosticSubscription
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::DiagnosticSubscription
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::DiagnosticSubscription
-pub struct grafton_visca::observability::MetricsSnapshot
+#[non_exhaustive] pub struct grafton_visca::observability::MetricsSnapshot
 pub grafton_visca::observability::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::observability::MetricsSnapshot::active: usize
 pub grafton_visca::observability::MetricsSnapshot::admission_rejected: u64
@@ -11628,6 +11628,8 @@ pub grafton_visca::observability::MetricsSnapshot::busy_errors: u64
 pub grafton_visca::observability::MetricsSnapshot::cache_updates: u64
 pub grafton_visca::observability::MetricsSnapshot::cancellations: u64
 pub grafton_visca::observability::MetricsSnapshot::completion_timeouts: u64
+pub grafton_visca::observability::MetricsSnapshot::control_reserve_admitted: u64
+pub grafton_visca::observability::MetricsSnapshot::control_reserve_rejected: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_applied_events: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::observability::MetricsSnapshot::dropped_diagnostic_events: u64
@@ -11721,6 +11723,9 @@ pub grafton_visca::prelude::blocking::Error::ConnectionClosed::reason: core::opt
 pub grafton_visca::prelude::blocking::Error::ConnectionFailed
 pub grafton_visca::prelude::blocking::Error::ConnectionFailed::addr: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::blocking::Error::ConnectionFailed::source: alloc::sync::Arc<core::io::error::Error>
+pub grafton_visca::prelude::blocking::Error::ControlReserveExhausted
+pub grafton_visca::prelude::blocking::Error::ControlReserveExhausted::reserve: usize
+pub grafton_visca::prelude::blocking::Error::ControlReserveExhausted::target: grafton_visca::CameraId
 pub grafton_visca::prelude::blocking::Error::DecoderNotFound
 pub grafton_visca::prelude::blocking::Error::DecoderNotFound::inquiry_kind: grafton_visca::command::InquiryKind
 pub grafton_visca::prelude::blocking::Error::DecoderNotFound::payload_hex: alloc::boxed::Box<str>
@@ -12670,7 +12675,7 @@ impl<'view, 'session, P> core::marker::Unpin for grafton_visca::blocking::MenuAc
 impl<'view, 'session, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::marker::UnsafeUnpin
 impl<'view, 'session, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::RefUnwindSafe
 impl<'view, 'session, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, 'session, P> where &'view grafton_visca::blocking::Camera<'session, P>: core::panic::unwind_safe::UnwindSafe
-pub struct grafton_visca::prelude::blocking::MetricsSnapshot
+#[non_exhaustive] pub struct grafton_visca::prelude::blocking::MetricsSnapshot
 pub grafton_visca::prelude::blocking::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::active: usize
 pub grafton_visca::prelude::blocking::MetricsSnapshot::admission_rejected: u64
@@ -12679,6 +12684,8 @@ pub grafton_visca::prelude::blocking::MetricsSnapshot::busy_errors: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::cache_updates: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::cancellations: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::completion_timeouts: u64
+pub grafton_visca::prelude::blocking::MetricsSnapshot::control_reserve_admitted: u64
+pub grafton_visca::prelude::blocking::MetricsSnapshot::control_reserve_rejected: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_applied_events: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::prelude::blocking::MetricsSnapshot::dropped_diagnostic_events: u64
@@ -20349,6 +20356,9 @@ pub grafton_visca::Error::ConnectionClosed::reason: core::option::Option<alloc::
 pub grafton_visca::Error::ConnectionFailed
 pub grafton_visca::Error::ConnectionFailed::addr: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::ConnectionFailed::source: alloc::sync::Arc<core::io::error::Error>
+pub grafton_visca::Error::ControlReserveExhausted
+pub grafton_visca::Error::ControlReserveExhausted::reserve: usize
+pub grafton_visca::Error::ControlReserveExhausted::target: grafton_visca::CameraId
 pub grafton_visca::Error::DecoderNotFound
 pub grafton_visca::Error::DecoderNotFound::inquiry_kind: grafton_visca::command::InquiryKind
 pub grafton_visca::Error::DecoderNotFound::payload_hex: alloc::boxed::Box<str>
@@ -21296,7 +21306,7 @@ impl core::marker::Unpin for grafton_visca::InquiryRoute
 impl core::marker::UnsafeUnpin for grafton_visca::InquiryRoute
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::InquiryRoute
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::InquiryRoute
-pub struct grafton_visca::MetricsSnapshot
+#[non_exhaustive] pub struct grafton_visca::MetricsSnapshot
 pub grafton_visca::MetricsSnapshot::ack_timeouts: u64
 pub grafton_visca::MetricsSnapshot::active: usize
 pub grafton_visca::MetricsSnapshot::admission_rejected: u64
@@ -21305,6 +21315,8 @@ pub grafton_visca::MetricsSnapshot::busy_errors: u64
 pub grafton_visca::MetricsSnapshot::cache_updates: u64
 pub grafton_visca::MetricsSnapshot::cancellations: u64
 pub grafton_visca::MetricsSnapshot::completion_timeouts: u64
+pub grafton_visca::MetricsSnapshot::control_reserve_admitted: u64
+pub grafton_visca::MetricsSnapshot::control_reserve_rejected: u64
 pub grafton_visca::MetricsSnapshot::dropped_applied_events: u64
 pub grafton_visca::MetricsSnapshot::dropped_boundary_work: u64
 pub grafton_visca::MetricsSnapshot::dropped_diagnostic_events: u64

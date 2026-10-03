@@ -89,6 +89,8 @@ record_construction Timeout src/runtime/engine/mod.rs \
   'Error::timeout(FailureStage::Terminal, certainty)'
 record_construction ObservationTimeout src/runtime/owner/mod.rs \
   'Error::ObservationTimeout {'
+record_construction ControlReserveExhausted src/runtime/owner/mod.rs \
+  'return Err(Error::ControlReserveExhausted {'
 record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
   'Err(Error::MaxRetriesExceeded)'
 record_construction NotSupported src/runtime/owner/adapter.rs \
@@ -106,7 +108,7 @@ record_construction UnsequencedCommandUnconfirmed src/runtime/engine/mod.rs \
 record_construction RuntimeIdentityExhausted src/runtime/engine/mod.rs \
   'error: Error::RuntimeIdentityExhausted,'
 record_construction RuntimeQueueFull src/runtime/engine/mod.rs \
-  'error: Error::RuntimeQueueFull {'
+  'return Err(Error::RuntimeQueueFull {'
 record_construction StreamPoisoned src/runtime/engine/mod.rs \
   'Error::StreamPoisoned {'
 record_construction DecoderNotFound src/command/inquiry_structs.rs \

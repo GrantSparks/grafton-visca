@@ -9,9 +9,9 @@ fn admission_rejection_ingress_total_saturates() {
     };
     ingress.total.store(u64::MAX - 1, Ordering::Release);
 
-    assert!(ingress.record(rejection));
+    assert!(ingress.record(rejection, false));
     assert_eq!(ingress.total(), u64::MAX);
-    assert!(!ingress.record(rejection));
+    assert!(!ingress.record(rejection, false));
     assert_eq!(ingress.total(), u64::MAX);
 }
 #[cfg(feature = "runtime-tokio")]
@@ -561,7 +561,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new()).unwrap();
     let held = handle
         .permits
-        .try_acquire()
+        .try_acquire_ordinary()
         .expect("the test reserves the only admission slot");
 
     let error = match handle.enqueue_admission(inquiry(), None) {
@@ -609,9 +609,9 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
         error: crate::ErrorKind::IoClosed,
     };
 
-    assert!(actor.admission_rejections.record(first));
+    assert!(actor.admission_rejections.record(first, false));
     assert!(
-        !actor.admission_rejections.record(second),
+        !actor.admission_rejections.record(second, false),
         "one bounded actor wake coalesces the burst"
     );
     actor.flush_pre_admission_rejections(true);

@@ -148,13 +148,23 @@ impl SessionConfig {
         self.tuning
     }
 
-    /// Returns the immutable request-admission capacity for this session.
+    /// Returns the immutable ordinary request-admission capacity for this
+    /// session.
     ///
-    /// Admission is fail-fast: once this many requests are pending or active,
-    /// a new submission returns [`Error::RuntimeQueueFull`](crate::Error::RuntimeQueueFull)
-    /// rather than waiting for another request to finish. The capacity is
-    /// fixed when the session opens and is independent of transport buffers
-    /// and per-camera VISCA socket capacity.
+    /// Admission is fail-fast: once this many ordinary requests are pending or
+    /// active, a new submission returns
+    /// [`Error::RuntimeQueueFull`](crate::Error::RuntimeQueueFull) rather than
+    /// waiting for another request to finish.
+    ///
+    /// Each registered camera also has a control reserve: one admission slot
+    /// per typed STOP its profile supports (pan/tilt, zoom, focus; at most
+    /// three), which only an urgent typed STOP may use. A STOP therefore
+    /// still gets through when ordinary work fills this capacity. At most
+    /// `capacity` plus the sum of the reserves can be pending or active at
+    /// once (D26, #778).
+    ///
+    /// The capacity is fixed when the session opens and is independent of
+    /// transport buffers and per-camera VISCA socket capacity.
     #[must_use]
     pub const fn admission_capacity(&self) -> NonZeroUsize {
         self.admission_capacity

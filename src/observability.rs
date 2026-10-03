@@ -34,11 +34,19 @@ pub enum SessionStatus {
 /// immutable session admission policy.  A snapshot contains only scalar data
 /// and therefore does not clone the diagnostic ring or any subscriber queue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MetricsSnapshot {
     /// Requests admitted into authoritative engine state.
     pub admitted: u64,
     /// Requests rejected before admission.
     pub admission_rejected: u64,
+    /// Urgent typed STOPs admitted into their target's control reserve
+    /// rather than an ordinary admission slot (D26, #778).
+    pub control_reserve_admitted: u64,
+    /// Urgent typed STOPs rejected because their target's control reserve
+    /// and the ordinary admission budget were both full. Included in
+    /// `admission_rejected`.
+    pub control_reserve_rejected: u64,
     /// Transport writes attempted.
     pub writes: u64,
     /// Transport writes that returned an error.
@@ -632,6 +640,8 @@ pub(crate) fn metrics_snapshot(
     MetricsSnapshot {
         admitted: metrics.admitted,
         admission_rejected: metrics.admission_rejected,
+        control_reserve_admitted: metrics.control_reserve_admitted,
+        control_reserve_rejected: metrics.control_reserve_rejected,
         writes: metrics.writes,
         write_failures: metrics.write_failures,
         terminal: metrics.terminal,

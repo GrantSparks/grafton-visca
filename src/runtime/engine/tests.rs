@@ -55,6 +55,7 @@ fn strict_poison_engine() -> ProtocolEngine {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -155,6 +156,7 @@ fn admit(
         Input::Admit {
             ticket: AdmissionTicket(ticket),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -169,7 +171,11 @@ fn admit_input_only(
     now: Instant,
 ) -> Vec<Effect> {
     engine.handle_turn(
-        Input::Admit { ticket, request },
+        Input::Admit {
+            ticket,
+            request,
+            slot: AdmissionSlot::Ordinary,
+        },
         now,
         EngineTurn::INPUT_ONLY,
     )
@@ -223,6 +229,7 @@ fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap();
@@ -232,6 +239,7 @@ fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap();
@@ -252,6 +260,7 @@ fn single_flight_raw_engine() -> ProtocolEngine {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -346,6 +355,7 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_micros(2),
     );
@@ -385,6 +395,7 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -394,6 +405,7 @@ fn explicit_target_not_wire_bytes_drives_independent_socket_ownership() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: target_two,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -446,6 +458,7 @@ fn stale_transmission_and_queue_tickets_are_inert() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -497,6 +510,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -506,6 +520,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -523,6 +538,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -531,6 +547,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -548,6 +565,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -559,6 +577,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -594,6 +613,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -619,6 +639,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1, ZOOM),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -628,6 +649,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry(1, FOCUS),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -677,6 +699,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
         Input::Admit {
             ticket: AdmissionTicket(4),
             request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -707,6 +730,7 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -774,6 +798,7 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -842,6 +867,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -922,6 +948,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         retry_ready,
     );
@@ -951,6 +978,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1021,6 +1049,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(2),
     );
@@ -1168,6 +1197,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap();
@@ -1176,6 +1206,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry(1, POWER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1189,6 +1220,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1, ZOOM),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -1341,6 +1373,7 @@ fn raw_inquiries_route_by_unique_content_then_per_target_fifo() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: inquiry(target, route),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1410,6 +1443,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1438,6 +1472,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry(1, POWER),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1447,6 +1482,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: inquiry(1, ZOOM),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1488,6 +1524,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry(1, POWER),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1497,6 +1534,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1585,6 +1623,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: inquiry(1, POWER),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1593,6 +1632,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1634,6 +1674,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1671,6 +1712,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -1733,6 +1775,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -1758,6 +1801,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
     );
@@ -1767,6 +1811,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry_with_retry(2, POWER, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
     );
@@ -2439,6 +2484,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2463,6 +2509,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         b_started,
     );
@@ -2581,6 +2628,7 @@ fn engine_turn_options_share_one_input_tail_without_implicit_dispatch() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
         EngineTurn::INPUT_ONLY,
@@ -2612,6 +2660,7 @@ fn engine_with_target(
             TargetPolicy {
                 command_sockets: sockets,
                 cancellation,
+                control_reserve: 0,
             },
         )
         .unwrap();
@@ -2631,6 +2680,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Unsupported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2640,6 +2690,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Unsupported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2732,6 +2783,7 @@ fn sending_and_pre_ack_cancellation_record_intent_then_emit_one_cancel_on_ack() 
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2828,6 +2880,7 @@ fn requested_cancellation_waits_for_shared_command_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2869,6 +2922,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2890,6 +2944,7 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -2932,6 +2987,7 @@ fn zero_spacing_drains_pending_cancellations_in_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2951,6 +3007,7 @@ fn zero_spacing_drains_pending_cancellations_in_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -2972,6 +3029,7 @@ fn zero_spacing_drains_pending_cancellations_in_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -3049,6 +3107,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
                 context: request_context,
                 applied_state: None,
             },
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3105,6 +3164,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3168,6 +3228,7 @@ fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3238,6 +3299,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3265,6 +3327,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
     );
@@ -3305,6 +3368,7 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3341,6 +3405,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3405,6 +3470,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3424,6 +3490,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3471,6 +3538,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3480,6 +3548,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(2, POWER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3514,6 +3583,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: inquiry(1, POWER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3552,6 +3622,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3624,6 +3695,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                     context: context(1, CancellationPolicy::Supported),
                     applied_state: Some(projection),
                 },
+                slot: AdmissionSlot::Ordinary,
             },
             now,
         );
@@ -3673,6 +3745,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                     AppliedStateProjection::set(WriteOnlyState::Spotlight, &[0]).unwrap(),
                 ),
             },
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(153),
     );
@@ -3710,6 +3783,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -3718,6 +3792,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3735,6 +3810,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: background_command,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3752,6 +3828,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: user_inquiry,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3773,6 +3850,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(10),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3791,6 +3869,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(11),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3799,6 +3878,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         Input::Admit {
             ticket: AdmissionTicket(12),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3831,6 +3911,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -3840,6 +3921,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3848,6 +3930,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3862,6 +3945,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: inquiry(2, POWER),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -3893,6 +3977,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3915,6 +4000,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -3937,6 +4023,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
     );
@@ -4055,6 +4142,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap();
@@ -4068,6 +4156,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: first_request,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -4077,6 +4166,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(1, ZOOM),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -4191,6 +4281,7 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
             Input::Admit {
                 ticket: AdmissionTicket(7),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -4291,6 +4382,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                                 TargetPolicy {
                                     command_sockets: 2,
                                     cancellation: CancellationPolicy::Supported,
+                                    control_reserve: 0,
                                 },
                             )
                             .unwrap();
@@ -4321,6 +4413,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     Input::Admit {
                         ticket: AdmissionTicket(ticket),
                         request,
+                        slot: AdmissionSlot::Ordinary,
                     },
                     now,
                 );
@@ -4596,6 +4689,7 @@ fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
                 TargetPolicy {
                     command_sockets: 2,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -4743,6 +4837,7 @@ fn fuzz_step(
                 Input::Admit {
                     ticket: AdmissionTicket(*ticket),
                     request,
+                    slot: AdmissionSlot::Ordinary,
                 },
                 *now,
             )
@@ -4956,6 +5051,7 @@ fn seed_admit(
         Input::Admit {
             ticket: AdmissionTicket(*ticket),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         now,
     );
@@ -5556,6 +5652,7 @@ fn raw_late_ack_at_ambiguity_boundary_is_routed_and_cancel_remains_active() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5600,6 +5697,7 @@ fn full_width_sony_miss_never_uses_lower16_fallback() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5632,6 +5730,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5695,6 +5794,7 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
                 context: request_context,
                 applied_state: None,
             },
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5816,6 +5916,7 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5857,6 +5958,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, POWER, custom_retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5889,6 +5991,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry_with_retry(1, POWER, retrying()),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5930,6 +6033,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
                 TargetPolicy {
                     command_sockets: 1,
                     cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
                 },
             )
             .unwrap();
@@ -5938,6 +6042,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5956,6 +6061,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -5965,6 +6071,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -5983,6 +6090,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
         Input::Admit {
             ticket: AdmissionTicket(20),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6011,6 +6119,7 @@ fn retry_backoff_must_fit_inside_total_budget() {
                 context: request_context,
                 applied_state: None,
             },
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6070,6 +6179,7 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6079,6 +6189,7 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6131,6 +6242,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
                 context: once,
                 applied_state: None,
             },
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6140,6 +6252,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: inquiry(2, POWER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6205,6 +6318,7 @@ fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6214,6 +6328,7 @@ fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6261,6 +6376,7 @@ fn datagram_write_failure_fails_exactly_one_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6270,6 +6386,7 @@ fn datagram_write_failure_fails_exactly_one_request() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(2, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6297,6 +6414,7 @@ fn socketless_ack_assigns_the_first_free_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6324,6 +6442,7 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6343,6 +6462,7 @@ fn socketless_ack_takes_the_second_socket_when_the_first_is_busy() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6366,6 +6486,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6385,6 +6506,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6438,6 +6560,7 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6475,6 +6598,7 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6498,6 +6622,7 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
         Input::Admit {
             ticket: AdmissionTicket(3),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6540,6 +6665,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6559,6 +6685,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6637,6 +6764,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6671,6 +6799,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(41),
     );
@@ -6744,6 +6873,7 @@ fn ack_racing_its_own_write_result_is_latched_and_applied() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6818,6 +6948,7 @@ fn raw_ack_in_awaiting_ack_uses_the_unique_command_candidate() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -6864,6 +6995,7 @@ fn raw_gate_serializes_pre_ack_while_sony_allows_pipeline() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6873,6 +7005,7 @@ fn raw_gate_serializes_pre_ack_while_sony_allows_pipeline() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6922,6 +7055,7 @@ fn raw_gate_serializes_pre_ack_while_sony_allows_pipeline() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6931,6 +7065,7 @@ fn raw_gate_serializes_pre_ack_while_sony_allows_pipeline() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -6987,6 +7122,7 @@ fn a_second_racing_ack_cannot_steal_the_latch_from_the_first() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7051,6 +7187,7 @@ fn a_latched_ack_never_survives_into_the_next_attempt() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7140,6 +7277,7 @@ fn socketless_completion_needs_a_sole_socket_holder() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7159,6 +7297,7 @@ fn socketless_completion_needs_a_sole_socket_holder() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7214,6 +7353,7 @@ fn sony_socketless_completion_finishes_the_sequenced_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7325,6 +7465,7 @@ fn ack_deadline_expiry_reports_its_own_retry_decision_before_the_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7354,6 +7495,7 @@ fn ack_deadline_expiry_without_retry_policy_reports_no_retry() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7394,6 +7536,7 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7450,6 +7593,7 @@ fn inquiry_reply_deadline_expiry_is_reported_as_an_inquiry_deadline() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry(1, POWER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7479,6 +7623,7 @@ fn deadline_expiry_reports_no_retry_once_the_attempt_budget_is_spent() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, policy),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7569,6 +7714,7 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7651,6 +7797,7 @@ fn concurrent_retries_of_the_same_instant_are_separated() {
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
                 request: command(target, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -7677,6 +7824,7 @@ fn the_jitter_sequence_moves_with_the_seed() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7699,6 +7847,7 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, ack_capped_retry()),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7763,6 +7912,7 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(1, ack_capped_retry()),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7851,6 +8001,7 @@ fn a_command_that_never_acks_exhausts_its_attempt_budget() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7910,6 +8061,7 @@ fn a_retry_waiting_in_backoff_fails_when_the_total_budget_expires() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -7970,6 +8122,7 @@ fn raw_sending_with_reply_shape(
                 reply_shape,
                 retry,
             ),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8020,6 +8173,7 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8031,6 +8185,7 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -8077,6 +8232,7 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8092,6 +8248,7 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8112,6 +8269,7 @@ fn initial_active_phases_expire_at_admission_budget() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8148,6 +8306,7 @@ fn initial_active_phases_expire_at_admission_budget() {
                     ReplyShape::CompletionOnly,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8172,6 +8331,7 @@ fn initial_active_phases_expire_at_admission_budget() {
                     POWER,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8471,6 +8631,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
                     ReplyShape::NoReply,
                     retry,
                 ),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8523,6 +8684,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request,
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8573,6 +8735,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request,
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8643,6 +8806,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8688,6 +8852,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8732,6 +8897,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8809,6 +8975,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, immediate_retry_budget(budget)),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8819,6 +8986,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(2),
                 request: command_with_retry(2, immediate_retry_budget(budget)),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -8876,6 +9044,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             Input::Admit {
                 ticket: AdmissionTicket(3),
                 request: command(1, CancellationPolicy::Supported),
+                slot: AdmissionSlot::Ordinary,
             },
             late_at,
         );
@@ -9039,6 +9208,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
                     POWER,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -9077,6 +9247,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
                     POWER,
                     immediate_retry_budget(Duration::from_millis(10)),
                 ),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -9126,6 +9297,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
             Input::Admit {
                 ticket: AdmissionTicket(1),
                 request: command_with_retry(1, retry),
+                slot: AdmissionSlot::Ordinary,
             },
             start,
         );
@@ -9169,6 +9341,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request,
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9238,6 +9411,7 @@ fn initial_budget_does_not_shorten_raw_unconfirmed_quarantine() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9282,6 +9456,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9337,6 +9512,7 @@ fn retry_budget_expires_while_executing_sony_command() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9397,6 +9573,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: inquiry_with_retry(1, POWER, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9447,6 +9624,7 @@ fn raw_ready_retry_budget_expiry_reports_last_error_without_poisoning() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9496,6 +9674,7 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9556,6 +9735,7 @@ fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, retry),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9604,6 +9784,7 @@ fn raw_receive_fault_leaves_unacked_command_and_keeps_the_session() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9650,6 +9831,7 @@ fn raw_receive_fault_poisons_under_strict_opt_in() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9685,6 +9867,7 @@ fn strict_raw_receive_fault_after_cancel_uses_cancellation_resolution() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9780,6 +9963,7 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9807,6 +9991,7 @@ fn raw_ack_timeout_hold_rejects_late_ack_and_protects_successor() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(21),
     );
@@ -9853,6 +10038,7 @@ fn raw_completion_timeout_hold_rejects_exact_late_completion() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9918,6 +10104,7 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command_with_retry(1, movement),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9946,6 +10133,7 @@ fn command_not_executable_retries_only_where_the_policy_allows_it() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(2, standard),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -9983,6 +10171,7 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -10008,6 +10197,7 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
         Input::Admit {
             ticket: AdmissionTicket(2),
             request: command_with_retry(2, RetryPolicy::NEVER),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -10043,6 +10233,7 @@ fn a_post_ack_completion_timeout_retries_the_command() {
         Input::Admit {
             ticket: AdmissionTicket(1),
             request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
         },
         start,
     );
@@ -13666,5 +13857,174 @@ fn raw_inquiry_capacity_is_per_target() {
     ));
     assert_eq!(request_transmit(&first_reply).1, third_id);
     assert!(engine.entry(second_id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// A capacity-1 engine whose two cameras each reserve two control slots.
+fn reserved_engine() -> ProtocolEngine {
+    let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
+    configured.capacity = 1;
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    for target in [1, 2] {
+        engine
+            .register_target(
+                camera(target),
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                    control_reserve: 2,
+                },
+            )
+            .unwrap();
+    }
+    engine
+}
+
+fn admit_into(
+    engine: &mut ProtocolEngine,
+    ticket: u64,
+    request: RuntimeRequest,
+    slot: AdmissionSlot,
+    now: Instant,
+) -> Result<RequestId, Error> {
+    let effects = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(ticket),
+            request,
+            slot,
+        },
+        now,
+    );
+    effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Admitted { id, .. } => Some(Ok(*id)),
+            Effect::AdmissionRejected { error, .. } => Some(Err(error.clone())),
+            _ => None,
+        })
+        .expect("an admission verdict")
+}
+
+/// D26 (#778): ordinary saturation leaves each camera's control reserve to
+/// urgent stops, and a full reserve is a distinct rejection.
+#[test]
+fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
+    let now = Instant::now();
+    let mut engine = reserved_engine();
+    let supported = CancellationPolicy::Supported;
+    admit_into(
+        &mut engine,
+        1,
+        command(1, supported),
+        AdmissionSlot::Ordinary,
+        now,
+    )
+    .expect("the one ordinary slot");
+    assert!(matches!(
+        admit_into(
+            &mut engine,
+            2,
+            command(1, supported),
+            AdmissionSlot::Ordinary,
+            now
+        ),
+        Err(Error::RuntimeQueueFull { capacity: 1 })
+    ));
+
+    for ticket in [3, 4] {
+        admit_into(
+            &mut engine,
+            ticket,
+            urgent_command(1, supported),
+            AdmissionSlot::ControlReserve,
+            now,
+        )
+        .expect("an urgent stop takes camera 1's reserve");
+    }
+    assert!(matches!(
+        admit_into(
+            &mut engine,
+            5,
+            urgent_command(1, supported),
+            AdmissionSlot::ControlReserve,
+            now,
+        ),
+        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1)
+    ));
+
+    // Camera 1 cannot use camera 2's reserve, so camera 2 keeps its own.
+    admit_into(
+        &mut engine,
+        6,
+        urgent_command(2, supported),
+        AdmissionSlot::ControlReserve,
+        now,
+    )
+    .expect("camera 2's reserve is untouched");
+    engine.assert_invariants().unwrap();
+}
+
+/// D26 (#778): only an urgent request may hold a reserved slot, and a freed
+/// reserved slot is available again.
+#[test]
+fn control_reserve_is_urgent_only_and_released_at_terminal() {
+    let now = Instant::now();
+    let mut engine = reserved_engine();
+    let supported = CancellationPolicy::Supported;
+    assert!(matches!(
+        admit_into(
+            &mut engine,
+            1,
+            command(1, supported),
+            AdmissionSlot::ControlReserve,
+            now
+        ),
+        Err(Error::InvalidState(_))
+    ));
+
+    let admission = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(2),
+            request: urgent_command(1, supported),
+            slot: AdmissionSlot::ControlReserve,
+        },
+        now,
+    );
+    let first = admitted(&admission);
+    let sequence = sony_sequence(first);
+    send_ok(&mut engine, &admission, Some(sequence), now);
+    admit_into(
+        &mut engine,
+        3,
+        urgent_command(1, supported),
+        AdmissionSlot::ControlReserve,
+        now,
+    )
+    .unwrap();
+    for response in [
+        DecodedResponse::Ack {
+            socket: Some(ViscaSocket::S1),
+        },
+        DecodedResponse::Completion {
+            socket: Some(ViscaSocket::S1),
+        },
+    ] {
+        let effects = engine.handle(
+            frame(1, Some((sequence, SequenceWidth::Full32)), response),
+            now,
+        );
+        if let Some(outcome) = terminal_outcome(&effects, first) {
+            assert!(matches!(outcome, RuntimeOutcome::Applied));
+        }
+    }
+    assert!(engine.entry(first).is_none(), "the first stop concluded");
+    admit_into(
+        &mut engine,
+        4,
+        urgent_command(1, supported),
+        AdmissionSlot::ControlReserve,
+        now,
+    )
+    .expect("the terminal stop released its reserved slot");
     engine.assert_invariants().unwrap();
 }

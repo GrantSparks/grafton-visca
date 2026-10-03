@@ -335,6 +335,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             } else {
                 CancellationPolicy::Unsupported
             },
+            control_reserve: profile.typed_stop_paths(),
         });
     }
 

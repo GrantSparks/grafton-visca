@@ -28,7 +28,7 @@ use super::{
 };
 use crate::runtime::engine::{
     DecodedFrame, Effect, EngineTurn, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
-    RawCorrelationReleaseSet, TransportKind,
+    RawCorrelationReleaseSet, RequestContext, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -401,8 +401,8 @@ impl BlockingSessionHost {
             // without waiting for an ACK that cannot make room for this
             // request. The owner turn is serialized by `parts`, so the probe
             // and the subsequent admission cannot race another submission.
-            let target = prepared.target();
-            owner.ensure_admission_capacity(target)?;
+            let target = prepared.context().target;
+            owner.ensure_admission_capacity(prepared.context())?;
             // Issue #673: before an ordinary first-write submit, drain the raw
             // single-candidate pre-ACK gate if that alone blocks this target.
             // The peer's ACK is pumped under this request's own ACK budget so a
@@ -1207,18 +1207,18 @@ impl BlockingOwner {
     /// raw pre-ACK drain. The owner is caller-thread serialized, so the actual
     /// admission immediately afterward cannot lose the permit to another
     /// blocking submission.
-    fn ensure_admission_capacity(&mut self, target: crate::CameraId) -> Result<(), Error> {
-        let permits = self.state.permits();
-        let Some(probe) = permits.try_acquire() else {
-            let error = Error::RuntimeQueueFull {
-                capacity: permits.capacity(),
-            };
-            self.state
-                .record_admission_rejection(target, RequestLane::Command, &error);
-            return Err(error);
-        };
-        drop(probe);
-        Ok(())
+    fn ensure_admission_capacity(&mut self, context: &RequestContext) -> Result<(), Error> {
+        match self.state.permits().try_acquire(context) {
+            Ok(probe) => {
+                drop(probe);
+                Ok(())
+            }
+            Err(error) => {
+                self.state
+                    .record_admission_rejection(context.target, RequestLane::Command, &error);
+                Err(error)
+            }
+        }
     }
 
     /// Mutably accesses the owner state for caller-thread control operations.
@@ -2029,23 +2029,31 @@ impl BlockingOwner {
         } else {
             RequestLane::Command
         };
-        let permits = self.state.permits();
-        let Some(permit) = permits.try_acquire() else {
-            let error = Error::RuntimeQueueFull {
-                capacity: permits.capacity(),
-            };
-            self.state.record_admission_rejection(target, lane, &error);
-            return Err(error);
+        let permit = match self.state.permits().try_acquire(request.context()) {
+            Ok(permit) => permit,
+            Err(error) => {
+                self.state.record_admission_rejection(target, lane, &error);
+                return Err(error);
+            }
         };
         let origin = self.state.origin();
         let (input, completion, admission) = self.state.stage_admission(request, permit);
-        let Input::Admit { ticket, request } = input else {
+        let Input::Admit {
+            ticket,
+            request,
+            slot,
+        } = input
+        else {
             return Err(Error::InvalidState(
                 "staged blocking admission did not produce an admit input".into(),
             ));
         };
         let effects = self.state.input_with_turn(
-            Input::Admit { ticket, request },
+            Input::Admit {
+                ticket,
+                request,
+                slot,
+            },
             self.now(),
             EngineTurn::INPUT_ONLY,
         );
@@ -3114,6 +3122,7 @@ pub(crate) fn raw_tombstone_fault_timeout_verdict() -> RawReleaseObserverDeadlin
     let target = crate::runtime::engine::TargetPolicy {
         command_sockets: 1,
         cancellation: crate::runtime::engine::CancellationPolicy::Supported,
+        control_reserve: 0,
     };
     let mut targets = [None; 9];
     targets[usize::from(crate::CameraId::CAMERA_1.id())] = Some(target);
@@ -3124,7 +3133,7 @@ pub(crate) fn raw_tombstone_fault_timeout_verdict() -> RawReleaseObserverDeadlin
             crate::runtime::engine::EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff])
                 .expect("valid raw request"),
         ),
-        context: crate::runtime::engine::RequestContext {
+        context: RequestContext {
             target: crate::CameraId::CAMERA_1,
             timeout: crate::runtime::engine::TimeoutPolicy {
                 ack: Duration::from_secs(1),
@@ -3278,6 +3287,7 @@ mod tests {
             TargetPolicy {
                 command_sockets: 1,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .expect("valid raw owner policy")
@@ -3301,6 +3311,7 @@ mod tests {
             targets[usize::from(target.id())] = Some(TargetPolicy {
                 command_sockets: 1,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             });
         }
         OwnerPolicy::with_targets(protocol, targets).expect("valid two-target raw policy")
@@ -3812,14 +3823,23 @@ mod tests {
         let permit = owner
             .state()
             .permits()
-            .try_acquire()
+            .try_acquire(request.context())
             .expect("test admission capacity");
         let (input, _completion, admission) = owner.state_mut().stage_admission(request, permit);
-        let Input::Admit { ticket, request } = input else {
+        let Input::Admit {
+            ticket,
+            request,
+            slot,
+        } = input
+        else {
             unreachable!("staged admission must retain its ticket");
         };
         let effects = owner.state_mut().input_with_turn(
-            Input::Admit { ticket, request },
+            Input::Admit {
+                ticket,
+                request,
+                slot,
+            },
             Instant::now(),
             EngineTurn::INPUT_ONLY,
         );
