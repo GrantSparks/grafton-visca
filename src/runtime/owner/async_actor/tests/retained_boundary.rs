@@ -69,9 +69,15 @@ impl RetainedRelease {
         let a_request = timed_out_inquiry();
         let a_timeout = a_request.context().timeout.inquiry;
         let (a_completion, a_admitted) = handle.core.enqueue_admission(a_request, None).unwrap();
-        let a_boundary = actor.receivers.admissions.try_recv().unwrap();
+        let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
         actor
-            .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
+            .handle_event(
+                OwnerEvent::Admission(Ok(a_boundary)),
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a);
@@ -88,9 +94,15 @@ impl RetainedRelease {
                 .core
                 .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, second_hold), None)
                 .unwrap();
-            let boundary = actor.receivers.admissions.try_recv().unwrap();
+            let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor
-                .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
+                .handle_event(
+                    OwnerEvent::Admission(Ok(boundary)),
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
             assert_eq!(harness.writes.recv_async().await.unwrap(), id);
@@ -101,9 +113,15 @@ impl RetainedRelease {
             let request = command();
             let timeout = request.context().timeout.completion;
             let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
-            let boundary = actor.receivers.admissions.try_recv().unwrap();
+            let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor
-                .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
+                .handle_event(
+                    OwnerEvent::Admission(Ok(boundary)),
+                    &mut driver,
+                    &runtime,
+                    Executor::now(&runtime),
+                    false,
+                )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
             live_receipts.push(ReceiptCore::new(
@@ -127,13 +145,13 @@ impl RetainedRelease {
         let at_h = Executor::now(&runtime);
         assert_eq!(
             actor
-                .handle_event(ActorEvent::Wake, &mut driver, &runtime, at_h, false)
+                .handle_event(OwnerEvent::Wake, &mut driver, &runtime, at_h, false)
                 .await,
             TurnOutcome::ContinueBuffered,
             "the retained prefix holds the release in its grace"
         );
         assert_eq!(
-            actor.coordinator.release().await_until(),
+            actor.core.coordinator.release().await_until(),
             at_h.checked_add(GRACE)
         );
 

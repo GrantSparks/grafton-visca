@@ -97,13 +97,14 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         .core
         .enqueue_admission(timed_out_inquiry(), None)
         .unwrap();
-    let predecessor_boundary = actor.receivers.admissions.try_recv().unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
@@ -121,7 +122,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -130,7 +131,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.coordinator.release().await_until().is_some());
+    assert!(actor.core.coordinator.release().await_until().is_some());
 
     let (urgent_completion, urgent_admitted) = handle
         .core
@@ -209,9 +210,15 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
             .core
             .enqueue_admission(timed_out_inquiry(), None)
             .unwrap();
-        let predecessor = actor.receivers.admissions.try_recv().unwrap();
+        let predecessor = actor.core.receivers.admissions.try_recv().unwrap();
         actor
-            .handle_admission(predecessor, &mut driver, &runtime, Executor::now(&runtime))
+            .handle_event(
+                OwnerEvent::Admission(Ok(predecessor)),
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
             .await;
         let predecessor = admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(writes.recv_async().await.unwrap(), predecessor);
@@ -224,7 +231,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         assert_eq!(
             actor
                 .handle_event(
-                    ActorEvent::Wake,
+                    OwnerEvent::Wake,
                     &mut driver,
                     &runtime,
                     Executor::now(&runtime),
@@ -233,7 +240,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .await,
             TurnOutcome::ContinueBuffered
         );
-        assert!(actor.coordinator.release().await_until().is_some());
+        assert!(actor.core.coordinator.release().await_until().is_some());
     }
 
     let (_completion, _admitted) = handle
@@ -300,16 +307,24 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     // reply deadline is therefore the next authoritative engine wake.
     let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
         .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
-    assert_eq!(actor.state.active_len(), 1);
+    assert_eq!(actor.core.state.active_len(), 1);
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -384,15 +399,23 @@ async fn parked_future_wake_charges_the_first_ready_control() {
 
     let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
         .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -669,13 +692,14 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         .core
         .enqueue_admission(timed_out_inquiry(), None)
         .unwrap();
-    let predecessor_boundary = actor.receivers.admissions.try_recv().unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();

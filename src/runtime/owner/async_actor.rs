@@ -16,29 +16,24 @@ use crate::{
 };
 
 use super::boundary::{
-    missing_terminal_error, AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress,
     AdmissionValidity, AdmissionWait, BoundaryReceivers, CancellationBoundary, ControlBoundary,
-    OwnerHandleCore, OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    OwnerHandleCore, OwnerSnapshot,
 };
+use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
-    clamp_receive_pause, normalize_command_outcome, normalize_inquiry_outcome, prepend_effects,
-    transient_receive_pause, AppliedEffect, CancellationObserver, CancellationRequest,
-    DecodedFrame, DiagnosticSubscription, IdleReceiveRun, Input, OperationObservation,
-    OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseResolution, ReceiptCore, RequestLane,
-    RetainedStreamInput, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason,
-    TerminalObserver, TransientFaultRun, TransmissionMeta, WireWrite,
+    normalize_command_outcome, normalize_inquiry_outcome, CancellationObserver,
+    CancellationRequest, DiagnosticSubscription, OperationObservation, OwnerInputTurn, OwnerPolicy,
+    OwnerReceive, OwnerState, ReceiptCore, RequestLane, RetainedStreamInput, RuntimeOutcome,
+    RuntimeRequest, TerminalObserver, TransmissionMeta, WireWrite,
 };
 
-use super::turn::{
-    Disposition, OwnerCoordinator, ReceiveArm, ReceiveClass, Selected, Selection, Source, TimerArm,
-    TurnOutcome, TurnPlan,
-};
+use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::{
     MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
     TRANSIENT_RECEIVE_FAULT_SPAN, TRANSIENT_RECEIVE_PAUSE,
 };
-use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, TransportKind};
+use crate::runtime::engine::Effect;
 
 /// Poll the six actor sources in the coordinator's planned order.
 ///
@@ -97,27 +92,27 @@ async fn select_actor_event<Receive, Timer>(
     receive: Receive,
     boundaries: &BoundaryReceivers,
     timer: Timer,
-) -> ActorEvent
+) -> OwnerEvent
 where
-    Receive: Future<Output = ActorEvent>,
-    Timer: Future<Output = ActorEvent>,
+    Receive: Future<Output = OwnerEvent>,
+    Timer: Future<Output = OwnerEvent>,
 {
     let shutdown = async {
         match boundaries.shutdown.recv_async().await {
-            Ok(()) => ActorEvent::Shutdown,
+            Ok(()) => OwnerEvent::Shutdown,
             Err(_) => future::pending().await,
         }
     };
     let cancellation = async {
         match boundaries.cancellations.recv_async().await {
-            Ok(value) => ActorEvent::Cancellation(value),
+            Ok(value) => OwnerEvent::Cancellation(value),
             Err(_) => future::pending().await,
         }
     };
-    let admission = async { ActorEvent::Admission(boundaries.admissions.recv_async().await) };
+    let admission = async { OwnerEvent::Admission(boundaries.admissions.recv_async().await) };
     let control = async {
         match boundaries.control.recv_async().await {
-            Ok(value) => ActorEvent::Control(value),
+            Ok(value) => OwnerEvent::Control(value),
             Err(_) => future::pending().await,
         }
     };
@@ -138,12 +133,12 @@ where
 /// This is deliberately a separate future from transport receive: selection
 /// still polls both ordered sources, so an eagerly-idle custom transport
 /// cannot prevent the grace timer from becoming ready.
-async fn raw_release_wake<R: Executor>(runtime: &R, deadline: Instant, now: Instant) -> ActorEvent {
+async fn raw_release_wake<R: Executor>(runtime: &R, deadline: Instant, now: Instant) -> OwnerEvent {
     let remaining = deadline.saturating_duration_since(now);
     if !remaining.is_zero() {
         Executor::sleep(runtime, remaining).await;
     }
-    ActorEvent::Wake
+    OwnerEvent::Wake
 }
 
 /// Yield one poll to the current executor without depending on a runtime.
@@ -207,34 +202,6 @@ impl std::fmt::Debug for BoundClock {
     }
 }
 
-/// Outcome of one async driver receive.
-///
-/// The distinction is load bearing on byte-stream transports: only a zero-length
-/// transport read means the peer closed. A read that carried bytes but did not
-/// finish a frame decodes to an empty batch, and the owner must keep pumping so
-/// the remainder of the frame can arrive in a later read.
-#[derive(Debug)]
-pub(crate) enum AsyncReceive {
-    /// The transport reported end of stream, i.e. a zero-length read.
-    Closed,
-    /// The read carried bytes and decoded to zero or more complete frames, in
-    /// source order. An empty batch means the chunk only advanced a partially
-    /// received frame; the transport is still open.
-    Frames(Vec<DecodedFrame>),
-    /// The read reported that no bytes arrived — an expired idle read timeout,
-    /// which is how a custom transport implements a non-blocking read. Nothing
-    /// was consumed and nothing failed: the owner keeps the session, keeps the
-    /// framing state, and does not touch any request's retry budget (#625).
-    NoData,
-    /// The transport read itself failed and consumed nothing, so framing state
-    /// is intact. The owner classifies the error: a transient fault retries
-    /// in-flight work and keeps the session, a fatal one ends it.
-    ///
-    /// This is deliberately distinct from `Err`, which the driver reserves for
-    /// a framing or decode failure over bytes that were already consumed.
-    Fault(Error),
-}
-
 /// Async transport/framing adapter. Both operations finish outside any mutable
 /// engine borrow. A receive may return multiple decoded frames in source order.
 pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
@@ -247,7 +214,7 @@ pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
         &mut self,
         buffers: &mut super::OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send;
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send;
 }
 
 /// Async-mode linear command observation right.
@@ -1058,38 +1025,14 @@ impl AsyncOwnerHandle {
     }
 }
 
+/// The async owner shell: an executor-driven I/O dispatcher over the shared
+/// [`OwnerShellCore`], which makes every arbitration and turn decision.
 #[derive(Debug)]
 pub(crate) struct AsyncOwnerActor<R>
 where
     R: Executor,
 {
-    state: OwnerState,
-    receivers: BoundaryReceivers,
-    admission_rejections: Arc<AdmissionRejectionIngress>,
-    /// Preallocated actor-owned scratch keeps ingress draining bounded without
-    /// allocating on a rejected submission path.
-    admission_rejection_scratch: VecDeque<PreAdmissionRejection>,
-    /// Monotonic total already merged into `OwnerState` metrics.
-    observed_pre_admission_rejections: u64,
-    observed_control_reserve_rejections: u64,
-    /// Dropped as `run` returns, after the driver/transport is explicitly
-    /// dropped, disconnecting every handle's `actor_alive` receiver. Nothing
-    /// is ever sent on it (#626).
-    alive: flume::Sender<()>,
-    /// Shared with the handles so terminal publication and a concurrent
-    /// shutdown acceptance have one lifecycle linearization point.
-    lifecycle: Arc<OwnerLifecycle>,
-    faults: TransientFaultRun,
-    /// Consecutive receives that carried no data (an idle read timeout, or a
-    /// driver that reports "no data" immediately). Escalates a cooperative
-    /// pause so an immediately-returning idle read cannot hot-spin the actor,
-    /// without recording a transport fault or spending any retry budget (#675).
-    idle_receives: IdleReceiveRun,
-    /// Executor-free source arbitration (#776): source phase and fairness, the
-    /// control allowance, the receive-first raw-release proof shared with the
-    /// blocking owner (#723), and the retained-boundary slot (#775). A field
-    /// rather than a `run` local so `Drop` can answer a retained boundary.
-    coordinator: OwnerCoordinator<RetainedBoundary>,
+    core: OwnerShellCore,
     runtime: Arc<R>,
 }
 
@@ -1101,24 +1044,13 @@ where
         let state = OwnerState::new(policy)?;
         let runtime = Arc::new(runtime);
         let (core, ends) = OwnerHandleCore::new(&state);
-        let rejection_capacity = state.policy().limits.diagnostics;
         Ok((
             AsyncOwnerHandle {
                 core,
                 clock: BoundClock::from_shared(Arc::clone(&runtime)),
             },
             Self {
-                state,
-                receivers: ends.receivers,
-                admission_rejections: ends.admission_rejections,
-                admission_rejection_scratch: VecDeque::with_capacity(rejection_capacity),
-                observed_pre_admission_rejections: 0,
-                observed_control_reserve_rejections: 0,
-                alive: ends.alive,
-                lifecycle: ends.lifecycle,
-                faults: TransientFaultRun::default(),
-                idle_receives: IdleReceiveRun::default(),
-                coordinator: OwnerCoordinator::default(),
+                core: OwnerShellCore::new(state, ends),
                 runtime,
             },
         ))
@@ -1129,39 +1061,16 @@ where
         D: AsyncOwnerDriver,
     {
         let runtime = Arc::clone(&self.runtime);
-        // #542's deterministic source order keeps valid protocol input first:
-        // an already-buffered ACK/completion settles state before concurrent
-        // control observes it. A receive that makes no protocol progress
-        // yields the next selection to the boundary channels. That makes an
-        // always-failing or idle transport unable to starve shutdown,
-        // cancellation, admission, control, or a due timer (#625), without the
-        // previous arbitrary receive-history counter.
-        //
-        // The *succeeding* arm needs its own bound (#675): a peer that returns a
-        // valid frame on every poll keeps winning the left-biased receive-first
-        // selection forever and would starve those same boundary sources. A
-        // fairness ceiling forces one boundary-first turn after this many
-        // consecutive receive-first wins, restoring #625's acceptance criterion
-        // — the boundary channels are always eventually polled — even against an
-        // unbounded flood of valid frames. It is tied to the receive batch limit
-        // because a burst that large is adversarial rather than a real camera's
-        // reply stream, so the settle-first ordering above still holds for real
-        // traffic.
-        self.coordinator
-            .set_fairness_ceiling(self.state.policy().limits.frames_per_receive);
         // Enforced around each receive so the caller's advertised read timeout is
         // live on the async surface, where the runtime-agnostic transports have
         // no timer of their own (#675). A timed-out read consumed nothing, so it
         // is reported as an idle no-data receive.
-        let read_timeout = self.state.policy().read_timeout;
-        // Every arbitration decision below is the coordinator's; this loop only
-        // samples the clock, polls the futures the plan describes, and runs
-        // the selected event's engine turn.
-        loop {
-            if self.state.state() != SessionState::Running {
-                break;
-            }
-            if self.coordinator.begin_turn() {
+        let read_timeout = self.core.state.policy().read_timeout;
+        // Every arbitration and turn decision below is the shell core's; this
+        // loop only samples the clock, polls the futures the plan describes,
+        // and runs the I/O the selected event's turn asks for.
+        while self.core.is_running() {
+            if self.core.begin_turn() {
                 // Polling boundaries first alone is not a cooperative handoff:
                 // if they are all pending, the ready receive wins immediately
                 // and this task can monopolize a single-thread executor.
@@ -1170,61 +1079,26 @@ where
             // Sample after the cooperative yield: a timer that became due
             // while another task ran must not inherit a stale positive delay.
             let now = Executor::now(runtime.as_ref());
-            let plan = self.coordinator.plan(
-                now,
-                self.state.next_wake(),
-                self.state.raw_correlation_releases_due(now),
-                || {
-                    matches!(
-                        driver.buffered_raw_prefix_evidence(),
-                        Ok(Some(RawPrefixEvidence::Complete))
-                    )
-                },
-            );
-
-            let event = match plan {
-                TurnPlan::Redeliver(retained) => {
-                    // The retained boundary predates the just-cleared raw
-                    // gate. Preserve shutdown's established priority without
-                    // re-entering any channel ahead of it. A signal arriving
-                    // after this nonblocking check races exactly as it did
-                    // with an ordinary already-selected boundary; the final
-                    // drain answers the retained payload if shutdown wins.
-                    match self.receivers.shutdown.try_recv() {
-                        Ok(()) => {
-                            self.coordinator.restore(retained);
-                            ActorEvent::Shutdown
-                        }
-                        Err(flume::TryRecvError::Empty | flume::TryRecvError::Disconnected) => {
-                            match retained {
-                                RetainedBoundary::Admission(admission) => {
-                                    ActorEvent::Admission(Ok(admission))
-                                }
-                                RetainedBoundary::Cancellation(cancellation) => {
-                                    ActorEvent::Cancellation(cancellation)
-                                }
-                            }
-                        }
-                    }
-                }
+            let event = match self.core.plan(now, &mut driver) {
+                TurnPlan::Redeliver(retained) => self.core.redeliver(retained),
                 TurnPlan::Select(selection) => {
-                    let frame_limit = self.state.policy().limits.frames_per_receive;
+                    let frame_limit = self.core.state.policy().limits.frames_per_receive;
                     let receive = async {
                         if selection.receive == ReceiveArm::ProofComplete {
                             // The exact no-input probe for this release set is
                             // done: the receive source is immediately ready
                             // with the timer event instead of another read.
-                            return ActorEvent::Wake;
+                            return OwnerEvent::Wake;
                         }
                         let result = Self::receive_within(
                             &mut driver,
-                            self.state.buffers(),
+                            self.core.state.buffers(),
                             frame_limit,
                             runtime.as_ref(),
                             read_timeout,
                         )
                         .await;
-                        ActorEvent::Receive {
+                        OwnerEvent::Receive {
                             result,
                             received_at: Executor::now(runtime.as_ref()),
                         }
@@ -1238,7 +1112,7 @@ where
                                 // Do not rely on a zero-duration executor
                                 // sleep being ready on its first poll: the
                                 // plan already established that this timer is
-                                // due, and `ActorEvent::Wake` remains the only
+                                // due, and `OwnerEvent::Wake` remains the only
                                 // path that advances engine time.
                                 if !due {
                                     let delay = at.map_or(Duration::from_secs(86_400), |wake| {
@@ -1246,75 +1120,28 @@ where
                                     });
                                     Executor::sleep(runtime.as_ref(), delay).await;
                                 }
-                                ActorEvent::Wake
+                                OwnerEvent::Wake
                             }
                         }
                     };
-                    select_actor_event(selection, receive, &self.receivers, wake).await
+                    select_actor_event(selection, receive, &self.core.receivers, wake).await
                 }
             };
 
-            // One sampled instant is carried through the selected event's
-            // engine turn. If it is still before a hold deadline, that turn
-            // cannot cross it merely because a later `Executor::now()` call
-            // happens a few instructions later; the next plan then enters the
-            // raw-release proof.
             let selected_at = Executor::now(runtime.as_ref());
-            let selected = match &event {
-                ActorEvent::Wake => Selected::Timer,
-                ActorEvent::Admission(Ok(_)) | ActorEvent::Cancellation(_) => Selected::Boundary,
-                ActorEvent::Receive {
-                    result,
-                    received_at,
-                } => Selected::Receive {
-                    due_at_receive: self.state.raw_correlation_releases_due(*received_at),
-                    // A normalized idle fault is semantically identical to
-                    // `NoData`: it consumed no bytes. A genuine transient
-                    // fault cannot prove there is no ready stale frame
-                    // behind it.
-                    class: match result {
-                        Ok(AsyncReceive::NoData) => ReceiveClass::NoInput,
-                        Ok(AsyncReceive::Fault(error))
-                            if super::receive_reported_no_data(error) =>
-                        {
-                            ReceiveClass::NoInput
-                        }
-                        Ok(AsyncReceive::Fault(_)) => ReceiveClass::TransientFault,
-                        _ => ReceiveClass::Other,
-                    },
-                },
-                _ => Selected::Other,
-            };
-            let disposition = self.coordinator.classify(
+            let Some(ClassifiedEvent {
+                event,
                 selected,
-                self.state.raw_correlation_releases_due(selected_at),
-            );
-            let (event, suppress_due) = match disposition {
-                Disposition::Restart => continue,
-                Disposition::Retain => match self.retain_selected_boundary(event, selected_at) {
-                    None => {
-                        self.coordinator.restart_after_retain();
-                        continue;
-                    }
-                    // Unreachable while selection keeps boundaries ineligible
-                    // behind an occupied slot; the boundary is applied rather
-                    // than overwriting the retained one.
-                    Some(event) => (event, false),
-                },
-                Disposition::Apply { suppress_due } => (event, suppress_due),
+                suppress_due,
+            }) = self.core.classify(event, selected_at)
+            else {
+                continue;
             };
-
-            // `selected` describes the instant before the selection began. If
-            // the timer matured while both tail futures were parked, the
-            // left-biased control future can still win this poll. Re-sample
-            // the engine before the control handler mutates it and charge that
-            // control to the exact planned wake.
-            let control_consumed_wake = if matches!(&event, ActorEvent::Control(_)) {
-                let observed_at = Executor::now(runtime.as_ref());
-                self.coordinator
-                    .control_consumed_wake(self.state.next_wake(), observed_at)
-            } else {
-                None
+            let control_consumed_wake = match &event {
+                OwnerEvent::Control(_) => self
+                    .core
+                    .control_consumed_wake(Executor::now(runtime.as_ref())),
+                _ => None,
             };
             let outcome = self
                 .handle_event(
@@ -1325,38 +1152,24 @@ where
                     suppress_due,
                 )
                 .await;
-            if !self
-                .coordinator
-                .finish(selected, control_consumed_wake, outcome)
-            {
+            if !self.core.finish(selected, control_consumed_wake, outcome) {
                 break;
             }
         }
-        let boundary_error = self
-            .state
-            .boundary_error()
-            .unwrap_or(Error::RuntimeShutdown);
-        self.lifecycle.publish_terminal(boundary_error.clone());
-        self.flush_pre_admission_rejections(true);
-        if let Some(retained) = self.coordinator.take_retained() {
-            self.answer_retained_boundary(retained, boundary_error.clone());
-        }
-        self.drain_boundaries(boundary_error);
-        #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-        let snapshot = self.snapshot_now();
-        #[cfg(not(all(test, any(feature = "runtime-tokio", feature = "runtime-smol"))))]
-        let snapshot = OwnerSnapshot {};
+        let snapshot = self.core.conclude();
         // #626: drop the driver first so a waiter using the liveness lane gets
-        // a deterministic transport-release barrier. The actor's `Drop`
-        // implementation performs one final boundary drain before its alive
-        // sender is dropped, covering messages that race the explicit drain.
+        // a deterministic transport-release barrier. The shell core's `Drop`
+        // performs one final boundary drain before its alive sender is
+        // dropped, covering messages that race the explicit drain.
         drop(driver);
         snapshot
     }
 
+    /// Run the engine turn of one classified event, performing the writes and
+    /// pauses its [`TurnStep`]s ask for.
     async fn handle_event<D>(
         &mut self,
-        event: ActorEvent,
+        event: OwnerEvent,
         driver: &mut D,
         runtime: &R,
         selected_at: Instant,
@@ -1365,562 +1178,24 @@ where
     where
         D: AsyncOwnerDriver,
     {
-        match event {
-            ActorEvent::Shutdown => {
-                self.terminate_at(driver, runtime, ShutdownReason::Explicit, selected_at)
-                    .await;
-                TurnOutcome::Stop
-            }
-            ActorEvent::Cancellation(cancel) => {
-                self.handle_cancellation(cancel, driver, runtime, selected_at)
-                    .await;
-                TurnOutcome::Continue
-            }
-            ActorEvent::Control(control) => {
-                self.handle_control(control);
-                TurnOutcome::Continue
-            }
-            ActorEvent::Admission(Ok(admission)) => {
-                self.handle_admission(admission, driver, runtime, selected_at)
-                    .await;
-                TurnOutcome::Continue
-            }
-            ActorEvent::Admission(Err(_)) => {
-                self.terminate_at(driver, runtime, ShutdownReason::Explicit, selected_at)
-                    .await;
-                TurnOutcome::Stop
-            }
-            ActorEvent::Wake => {
-                let now = selected_at;
-                // A due raw-correlation release is the last point at which
-                // input retained by a byte-stream framer can still belong to
-                // the old request. Receive-first selection above gives a
-                // simultaneously ready completing tail precedence. If the
-                // tail is not ready, remove the orphaned prefix before the due
-                // pass can dispatch a successor; otherwise that successor
-                // could consume the old frame after its tail arrives.
-                let releases = self
-                    .coordinator
-                    .release_mut()
-                    .observe(self.state.raw_correlation_releases_due(now))
-                    .unwrap_or_default();
-                if !releases.is_empty() {
-                    // The selected receive proof belongs only to the exact
-                    // set that was latched before this Wake. A second hold
-                    // can become due while the selector is parked; do not let
-                    // this Wake classify or advance that grown scope. The
-                    // shared turn coordinator drops the old fence/grace and
-                    // sends the replacement through its own receive-first
-                    // turn, matching the blocking shell.
-                    if self
-                        .coordinator
-                        .release_mut()
-                        .replace_if_changed(self.state.raw_correlation_releases_due(now))
-                    {
-                        return TurnOutcome::Continue;
-                    }
-                    match self.state.resolve_retained_raw_input(driver, now) {
-                        Ok(RawReleaseResolution::Advance) => {}
-                        Ok(RawReleaseResolution::AwaitInputUntil(deadline)) => {
-                            self.coordinator
-                                .release_mut()
-                                .wait_for_input_until(deadline);
-                            return TurnOutcome::ContinueBuffered;
-                        }
-                        Err(error) => {
-                            self.terminate_at(
-                                driver,
-                                runtime,
-                                ShutdownReason::FramingFailure {
-                                    reason: error.to_string().into_boxed_str(),
-                                },
-                                now,
-                            )
-                            .await;
-                            return TurnOutcome::Stop;
-                        }
-                    }
-                }
-                self.coordinator.release_mut().complete();
-                let effects = self.state.advance(now);
-                self.drive(driver, effects, runtime).await;
-                TurnOutcome::Continue
-            }
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::Closed),
-                received_at,
-            } => {
-                self.terminate_at(
-                    driver,
-                    runtime,
-                    ShutdownReason::TransportClosed { reason: None },
-                    received_at,
-                )
-                .await;
-                TurnOutcome::Stop
-            }
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::NoData),
-                received_at,
-            } => {
-                // An expired idle read timeout is not a fault: nothing was
-                // consumed, nothing failed, and no request's retry budget is
-                // touched. It made no protocol progress, so let a queued boundary
-                // run before another idle read (#625). A driver that returns
-                // NoData immediately would otherwise spin the actor, so pace the
-                // idle-read rate (#675).
-                match driver.has_buffered_stream_input() {
-                    Ok(buffered) => self.absorb_idle_receive(runtime, buffered).await,
-                    Err(error) => {
-                        self.discard_undecodable_receive(driver, runtime, &error, received_at)
-                            .await
-                    }
-                }
-            }
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::Frames(frames)),
-                received_at,
-            } => {
-                self.faults.reset();
-                // Real bytes decoded: the transport is not idle, so restart the
-                // no-data escalation (#675).
-                self.idle_receives.reset();
-                // #672: a stream tolerates a delimited frame that did not
-                // classify by discarding it and staying Running, exactly as a
-                // datagram already does and as 1.x did (log-and-continue). Record
-                // one Ignored per discarded frame so the discard stays
-                // observable; the session is never poisoned for it.
-                for _ in 0..self.state.buffers().take_discarded_malformed() {
-                    let _ = self
-                        .state
-                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                }
-                if let Err(error) = self.state.validate_frame_batch(&frames) {
-                    return self
-                        .discard_undecodable_receive(driver, runtime, &error, received_at)
+        let mut step =
+            self.core
+                .handle(event, driver, selected_at, suppress_due_for_raw_probe_fault);
+        loop {
+            match step {
+                TurnStep::Drive { effects, then } => {
+                    self.drive(driver, effects, then.input_turn(), runtime)
                         .await;
+                    step = self.core.resume(then, driver);
                 }
-                if frames.is_empty() {
-                    // The read carried bytes that did not finish a frame, or only
-                    // frames that were discarded above. The framer holds any
-                    // partial frame; keep pumping so the rest of it can arrive in
-                    // a later read.
-                    return match driver.has_buffered_stream_input() {
-                        Ok(true) => TurnOutcome::ContinueBuffered,
-                        Ok(false) => TurnOutcome::YieldBoundaries,
-                        Err(error) => {
-                            self.discard_undecodable_receive(driver, runtime, &error, received_at)
-                                .await
-                        }
-                    };
-                }
-                let turn = self.state.begin_input_turn(received_at);
-                for frame in frames {
-                    let effects = self.state.input_in_turn(&turn, Input::Frame(frame));
-                    self.drive_in_turn(driver, &turn, effects, runtime).await;
-                }
-                let buffered = match driver.has_buffered_stream_input() {
-                    Ok(buffered) => buffered,
-                    Err(error) => {
-                        let inert = self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
-                        self.drive(driver, inert, runtime).await;
-                        return self
-                            .discard_undecodable_receive(driver, runtime, &error, received_at)
-                            .await;
+                TurnStep::Pause { pause, outcome } => {
+                    let pause = self.core.receive_pause(pause, Executor::now(runtime));
+                    if !pause.is_zero() {
+                        Executor::sleep(runtime, pause).await;
                     }
-                };
-                // A frame-limit batch can leave a complete frame followed by
-                // an incomplete stale prefix in the production framer. Do not
-                // run due work until each complete retained frame has taken
-                // its ordered input turn and any final orphan is classified at
-                // the raw release boundary.
-                let due = if buffered {
-                    self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY)
-                } else {
-                    self.state.finish_input_turn(turn, EngineTurn::COMPLETE)
-                };
-                self.drive(driver, due, runtime).await;
-                if buffered {
-                    TurnOutcome::ContinueBuffered
-                } else {
-                    // A completed input turn drained the retained fragment
-                    // before due work ran. If that input settled the old raw
-                    // correlation at an exact boundary, `finish_input_turn`
-                    // released it without another Wake turn, so its next
-                    // independent hold must start with a fresh grace budget.
-                    // Do not reset for an empty/partial receive: its unresolved
-                    // prefix still owns the current deadline.
-                    self.coordinator.release_mut().complete();
-                    TurnOutcome::Continue
+                    return outcome;
                 }
-            }
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::Fault(error)),
-                received_at,
-            } => {
-                if super::receive_reported_no_data(&error) {
-                    // A driver that reports an idle timeout as a fault still
-                    // means "no bytes arrived". Normalizing here as well as at
-                    // the adapter keeps every driver on one contract (#637), and
-                    // paces the idle-read rate so it cannot hot-spin (#675).
-                    return match driver.has_buffered_stream_input() {
-                        Ok(buffered) => self.absorb_idle_receive(runtime, buffered).await,
-                        Err(error) => {
-                            self.discard_undecodable_receive(driver, runtime, &error, received_at)
-                                .await
-                        }
-                    };
-                }
-                if !super::receive_fault_is_transient(&error) {
-                    self.terminate_at(
-                        driver,
-                        runtime,
-                        ShutdownReason::TransportClosed {
-                            reason: super::transport_close_reason(&error),
-                        },
-                        received_at,
-                    )
-                    .await;
-                    return TurnOutcome::Stop;
-                }
-                let (length, span) = self.faults.record(received_at);
-                if TransientFaultRun::is_permanent(length, span) {
-                    // A read that has failed this many times in a row, over
-                    // this long, is a broken transport rather than a transient
-                    // fault. End the session with the cause rather than
-                    // retrying against it forever (#625).
-                    self.terminate_at(
-                        driver,
-                        runtime,
-                        ShutdownReason::TransportClosed {
-                            reason: Some(
-                                format!("{length} consecutive receive faults: {error}")
-                                    .into_boxed_str(),
-                            ),
-                        },
-                        received_at,
-                    )
-                    .await;
-                    return TurnOutcome::Stop;
-                }
-                // The engine safely retries sequenced Sony work with its same
-                // sequence; a raw command awaiting ACK is left to its own ACK
-                // deadline (issue #671; the strict opt-in poisons instead)
-                // rather than being replayed. The pause mirrors 1.x's guard
-                // against hot-looping on an immediately failing transport; it
-                // grows with the run and is clamped to the next scheduler
-                // deadline exactly as the blocking owner clamps to its caller's.
-                let buffered = match driver.has_buffered_stream_input() {
-                    Ok(buffered) => buffered,
-                    Err(framing_error) => {
-                        return self
-                            .discard_undecodable_receive(
-                                driver,
-                                runtime,
-                                &framing_error,
-                                received_at,
-                            )
-                            .await;
-                    }
-                };
-                let effects = if buffered || suppress_due_for_raw_probe_fault {
-                    let turn = self.state.begin_input_turn(received_at);
-                    let mut effects = self
-                        .state
-                        .input_in_turn(&turn, Input::ReceiveFault { error });
-                    effects.extend(self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY));
-                    effects
-                } else {
-                    self.state.input(Input::ReceiveFault { error }, received_at)
-                };
-                self.drive(driver, effects, runtime).await;
-                let pause = clamp_receive_pause(
-                    transient_receive_pause(length),
-                    self.state.next_wake(),
-                    Executor::now(runtime),
-                );
-                if !pause.is_zero() {
-                    Executor::sleep(runtime, pause).await;
-                }
-                if buffered {
-                    TurnOutcome::ContinueBuffered
-                } else {
-                    TurnOutcome::YieldBoundaries
-                }
-            }
-            ActorEvent::Receive {
-                result: Err(error),
-                received_at,
-            } => {
-                self.discard_undecodable_receive(driver, runtime, &error, received_at)
-                    .await
-            }
-        }
-    }
-
-    /// Handle bytes that were consumed but did not decode.
-    ///
-    /// On a byte stream the position is now unknowable, so the session is
-    /// poisoned. On a datagram transport it is one bad datagram: nothing else
-    /// was consumed, the next datagram frames independently, and the blocking
-    /// owner has always failed this per request and kept pumping (#637).
-    async fn discard_undecodable_receive<D>(
-        &mut self,
-        driver: &mut D,
-        runtime: &R,
-        error: &Error,
-        received_at: Instant,
-    ) -> TurnOutcome
-    where
-        D: AsyncOwnerDriver,
-    {
-        if self.state.policy().protocol.transport != TransportKind::Stream {
-            // The adapter reached this path only after consuming one complete
-            // datagram (including an oversized datagram whose copied prefix was
-            // rejected). That successful read proves the transport is live even
-            // though its payload is unusable, so it clears both consecutive
-            // receive-fault accounting and the idle no-data pacing run before
-            // the discard becomes observable. A stream takes the terminal path
-            // below and deliberately retains its existing framing semantics.
-            self.faults.reset();
-            self.idle_receives.reset();
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-            return TurnOutcome::YieldBoundaries;
-        }
-        self.terminate_at(
-            driver,
-            runtime,
-            ShutdownReason::FramingFailure {
-                reason: error.to_string().into_boxed_str(),
-            },
-            received_at,
-        )
-        .await;
-        TurnOutcome::Stop
-    }
-
-    /// A receive that carried no data made no protocol progress, so yield the
-    /// next selection to the boundary sources. Before doing so, pace the
-    /// idle-read rate: a transport that returns "no data" immediately (rather
-    /// than after its read timeout) would otherwise spin the actor at hundreds
-    /// of thousands of reads a second (#675). The pause escalates with the run
-    /// and is clamped to the next scheduler deadline, exactly like the transient
-    /// receive-fault pause. A retained-prefix grace supersedes an already-expired
-    /// raw hold here: using that stale hold as a zero-duration clamp would make
-    /// an immediately-idle custom transport spin before the real grace timer is
-    /// selectable. The pause records no fault, does not clear an existing fault
-    /// run, and spends no retry budget. Only a successful read or the five-second
-    /// fault gap proves transient failures stopped accumulating.
-    async fn absorb_idle_receive(
-        &mut self,
-        runtime: &R,
-        buffered_stream_input: bool,
-    ) -> TurnOutcome {
-        let now = Executor::now(runtime);
-        let deadline = self
-            .coordinator
-            .release_mut()
-            .await_until()
-            .filter(|deadline| *deadline > now)
-            .or_else(|| self.state.next_wake());
-        let pause = clamp_receive_pause(self.idle_receives.record(), deadline, now);
-        if !pause.is_zero() {
-            Executor::sleep(runtime, pause).await;
-        }
-        if buffered_stream_input {
-            TurnOutcome::ContinueBuffered
-        } else {
-            TurnOutcome::YieldBoundaries
-        }
-    }
-
-    /// Retain a boundary the coordinator classified as [`Disposition::Retain`],
-    /// or answer it now. Returns `None` once the boundary is retained or
-    /// answered. An admission whose claim expired is answered by the claim; a
-    /// cancellation whose terminal result is already buffered is answered with
-    /// it. Returns the event back only if the slot was unexpectedly occupied.
-    fn retain_selected_boundary(
-        &mut self,
-        event: ActorEvent,
-        selected_at: Instant,
-    ) -> Option<ActorEvent> {
-        let boundary = match event {
-            ActorEvent::Admission(Ok(mut admission)) => {
-                if !self.claim_admission_boundary(&mut admission, selected_at) {
-                    return None;
-                }
-                RetainedBoundary::Admission(admission)
-            }
-            ActorEvent::Cancellation(cancellation) => {
-                // An operation that already concluded has delivered its
-                // terminal outcome, which answers the cancellation.
-                if !self.state.is_active(cancellation.request.id) {
-                    let _ = cancellation.reply.try_send(Ok(()));
-                    return None;
-                }
-                RetainedBoundary::Cancellation(cancellation)
-            }
-            event => return Some(event),
-        };
-        match self.coordinator.retain(boundary) {
-            Ok(()) => None,
-            Err(RetainedBoundary::Admission(admission)) => {
-                Some(ActorEvent::Admission(Ok(admission)))
-            }
-            Err(RetainedBoundary::Cancellation(cancellation)) => {
-                Some(ActorEvent::Cancellation(cancellation))
-            }
-        }
-    }
-
-    /// Claims the one-way pre-admission deadline race before this boundary is
-    /// either staged immediately or held behind an exact raw-release gate.
-    /// Returning `false` means this method already answered the caller.
-    fn claim_admission_boundary(
-        &mut self,
-        admission: &mut AdmissionBoundary,
-        now: Instant,
-    ) -> bool {
-        if admission.validity_claimed {
-            return true;
-        }
-        let target = admission.request.context().target;
-        let lane = RequestLane::of(&admission.request);
-        let Some(validity) = admission.validity.as_ref() else {
-            return true;
-        };
-        match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed => {
-                admission.validity_claimed = true;
-                true
-            }
-            AdmissionClaim::ExpiredHere => {
-                let error = Error::admission_timeout();
-                self.state.record_admission_rejection(target, lane, &error);
-                let _ = admission.reply.try_send(Err(error));
-                false
-            }
-            AdmissionClaim::ExpiredElsewhere => {
-                let _ = admission.reply.try_send(Err(Error::admission_timeout()));
-                false
-            }
-        }
-    }
-
-    async fn handle_admission<D>(
-        &mut self,
-        mut admission: AdmissionBoundary,
-        driver: &mut D,
-        runtime: &R,
-        accepted_at: Instant,
-    ) where
-        D: AsyncOwnerDriver,
-    {
-        // A deadline that wins before this exact boundary is admitted is not
-        // observer detachment: no engine entry exists yet. Drop the boundary
-        // (and therefore its permit and observer) before staging any engine
-        // input, so a stale admission can never become a later write. The
-        // winner records the rejection exactly once: caller-expiry already
-        // entered the handle-side ingress, while actor-expiry records directly
-        // into the serialized owner state.
-        if !self.claim_admission_boundary(&mut admission, accepted_at) {
-            return;
-        }
-        let input = self.state.stage_admission_with(
-            admission.request,
-            admission.permit,
-            admission.observer,
-            admission.reply,
-        );
-        let effects = self.state.input(input, accepted_at);
-        self.drive(driver, effects, runtime).await;
-    }
-
-    async fn handle_cancellation<D>(
-        &mut self,
-        cancellation: CancellationBoundary,
-        driver: &mut D,
-        runtime: &R,
-        accepted_at: Instant,
-    ) where
-        D: AsyncOwnerDriver,
-    {
-        let id = cancellation.request.id;
-        if let Some(input) = self.state.begin_cancellation(cancellation.request) {
-            let effects = self.state.input(input, accepted_at);
-            self.drive(driver, effects, runtime).await;
-        }
-        // A refusal leaves the original request scheduled; the caller keeps
-        // its handle and the operation's terminal slot (#612, #777).
-        let _ = cancellation
-            .reply
-            .try_send(self.state.conclude_cancellation(id));
-    }
-
-    /// Merges handle-side, pre-boundary rejection telemetry into actor-owned
-    /// metrics and diagnostic delivery.
-    ///
-    /// A control request flushes opportunistically as well as an explicit
-    /// ingress wake. That makes a `metrics()` or diagnostics subscription
-    /// issued immediately after a fail-fast rejection observe that rejection
-    /// without relying on scheduler timing.
-    fn flush_pre_admission_rejections(&mut self, consumed_wake: bool) {
-        let dropped_diagnostics = self
-            .admission_rejections
-            .drain_into(&mut self.admission_rejection_scratch, consumed_wake);
-        // Load after the ingress lock is released. A reporter that raced this
-        // drain either contributed an event to this batch or observed the
-        // cleared wake marker and reserved the next actor wake, so its scalar
-        // count cannot be stranded behind an already-consumed notification.
-        let total = self.admission_rejections.total();
-        let control_reserve = self.admission_rejections.control_reserve_total();
-        let new_rejections = total.saturating_sub(self.observed_pre_admission_rejections);
-        let new_control_reserve =
-            control_reserve.saturating_sub(self.observed_control_reserve_rejections);
-        if new_rejections != 0 || new_control_reserve != 0 {
-            self.state
-                .record_pre_admission_rejections(new_rejections, new_control_reserve);
-            self.observed_pre_admission_rejections = total;
-            self.observed_control_reserve_rejections = control_reserve;
-        }
-        if dropped_diagnostics != 0 {
-            self.state.record_dropped_diagnostics(dropped_diagnostics);
-        }
-        while let Some(rejection) = self.admission_rejection_scratch.pop_front() {
-            self.state.record_admission_rejection_diagnostic(
-                rejection.target,
-                rejection.lane,
-                rejection.error,
-            );
-        }
-    }
-
-    fn handle_control(&mut self, control: ControlBoundary) {
-        self.flush_pre_admission_rejections(true);
-        match control {
-            ControlBoundary::FlushAdmissionRejections => {}
-            #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-            ControlBoundary::Snapshot(reply) => {
-                let _ = reply.try_send(self.snapshot_now());
-            }
-            ControlBoundary::Metrics(reply) => {
-                let _ = reply.try_send(Ok(self.state.metrics_snapshot()));
-            }
-            ControlBoundary::SubscribeDiagnostics { capacity, reply } => {
-                let result = self.state.subscribe_diagnostics(capacity);
-                let _ = reply.try_send(result);
-            }
-            ControlBoundary::Reconfigure {
-                validated_tuning,
-                reply,
-            } => {
-                let result = match self.state.boundary_error() {
-                    Some(error) => Err(error),
-                    None => (*validated_tuning).and_then(|tuning| self.state.retune(tuning)),
-                };
-                let _ = reply.try_send(result);
+                TurnStep::Done(outcome) => return outcome,
             }
         }
     }
@@ -1939,13 +1214,13 @@ where
         frame_limit: usize,
         runtime: &R,
         read_timeout: Duration,
-    ) -> Result<AsyncReceive, Error>
+    ) -> Result<OwnerReceive, Error>
     where
         D: AsyncOwnerDriver,
     {
         let idle_after_timeout = async {
             Executor::sleep(runtime, read_timeout).await;
-            Ok(AsyncReceive::NoData)
+            Ok(OwnerReceive::NoData)
         };
         future::or(driver.receive(buffers, frame_limit), idle_after_timeout).await
     }
@@ -1982,233 +1257,37 @@ where
         future::or(driver.write(write), timed_out).await
     }
 
-    async fn drive<D>(&mut self, driver: &mut D, mut effects: VecDeque<Effect>, runtime: &R)
-    where
-        D: AsyncOwnerDriver,
-    {
-        let write_timeout = self.state.policy().write_timeout;
-        while let Some(effect) = effects.pop_front() {
-            let terminal_transition = matches!(
-                &effect,
-                Effect::SessionChanged { to, .. } if *to != SessionState::Running
-            );
-            let applied = self.state.apply_effect(effect);
-            if terminal_transition {
-                let error = self
-                    .state
-                    .boundary_error()
-                    .unwrap_or_else(missing_terminal_error);
-                self.lifecycle.publish_terminal(error);
-            }
-            if let AppliedEffect::Transmit(staged) = applied {
-                let write_result = match self.state.prepare_write(&staged) {
-                    Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
-                    Err(error) => Err(error),
-                };
-                let finished_at = Executor::now(runtime);
-                // A write can complete while the actor is awaiting the
-                // transport and cross a raw correlation deadline.  Its
-                // transmission-result input is real ordered protocol input,
-                // but it must not run the due/dispatch tail before the loop's
-                // raw-release coordinator has taken its mandatory receive
-                // probe.  `drive_in_turn` already has this property by using
-                // the active input turn; this is the equivalent seam for a
-                // standalone effect chain.
-                let produced = if self
-                    .state
-                    .raw_correlation_releases_due(finished_at)
-                    .is_empty()
-                {
-                    self.state.finish_write(&staged, write_result, finished_at)
-                } else {
-                    self.state.finish_write_turn(
-                        &staged,
-                        write_result,
-                        finished_at,
-                        EngineTurn::INPUT_ONLY,
-                    )
-                };
-                // The exact completion is recursively processed before the
-                // next source effect or any channel input.
-                prepend_effects(&mut effects, produced);
-            }
-        }
-    }
-
-    async fn drive_in_turn<D>(
+    /// Apply `effects` in order, writing each staged transmit under the
+    /// session's write timeout. Inside an input `turn`, a transmit finishes in
+    /// that turn; otherwise it finishes at the instant the write returned.
+    async fn drive<D>(
         &mut self,
         driver: &mut D,
-        turn: &OwnerInputTurn,
         mut effects: VecDeque<Effect>,
+        turn: Option<&OwnerInputTurn>,
         runtime: &R,
     ) where
         D: AsyncOwnerDriver,
     {
-        let write_timeout = self.state.policy().write_timeout;
-        while let Some(effect) = effects.pop_front() {
-            let terminal_transition = matches!(
-                &effect,
-                Effect::SessionChanged { to, .. } if *to != SessionState::Running
-            );
-            let applied = self.state.apply_effect(effect);
-            if terminal_transition {
-                let error = self
-                    .state
-                    .boundary_error()
-                    .unwrap_or_else(missing_terminal_error);
-                self.lifecycle.publish_terminal(error);
-            }
-            if let AppliedEffect::Transmit(staged) = applied {
-                let write_result = match self.state.prepare_write(&staged) {
-                    Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
-                    Err(error) => Err(error),
-                };
-                let produced = self.state.finish_write_in_turn(turn, &staged, write_result);
-                prepend_effects(&mut effects, produced);
-            }
-        }
-    }
-
-    async fn terminate_at<D>(
-        &mut self,
-        driver: &mut D,
-        runtime: &R,
-        reason: ShutdownReason,
-        observed_at: Instant,
-    ) where
-        D: AsyncOwnerDriver,
-    {
-        if self.state.state() == SessionState::Running {
-            let effects = self.state.input(Input::Shutdown(reason), observed_at);
-            self.drive(driver, effects, runtime).await;
-        }
-    }
-
-    /// Answer a boundary which the raw-release coordinator had already removed
-    /// from its channel when the session became terminal.  The ordinary queue
-    /// drain cannot see this payload, so retaining its exact cancellation
-    /// observation semantics here closes the same lifecycle edge.
-    fn answer_retained_boundary(&mut self, retained: RetainedBoundary, error: Error) {
-        match retained {
-            RetainedBoundary::Admission(admission) => {
-                let _ = admission.reply.try_send(Err(error));
-            }
-            // The caller still holds its handle; a terminal outcome already
-            // delivered to it takes precedence over this error (#777).
-            RetainedBoundary::Cancellation(cancellation) => {
-                let _ = cancellation.reply.try_send(Err(error));
-            }
-        }
-        self.state.fail_unstaged_boundary(1);
-    }
-
-    /// Answer every queued boundary message with the session's terminal error.
-    ///
-    /// The lanes are drained repeatedly until one whole pass finds all three
-    /// empty, because a caller can enqueue on a lane that was already visited
-    /// while a later one is still being drained (#626). The residual window
-    /// between the last pass and the actor dropping its receivers is closed by
-    /// the liveness lane, not here.
-    fn drain_boundaries(&mut self, error: Error) {
-        // A reporter may have coalesced behind the actor while it was handling
-        // its terminal transition. Merge all compact facts the owner can still
-        // deliver before answering/dropping ordinary boundary work.
-        self.flush_pre_admission_rejections(true);
-        let mut dropped = 0usize;
-        loop {
-            let before = dropped;
-            while let Ok(admission) = self.receivers.admissions.try_recv() {
-                let _ = admission.reply.try_send(Err(error.clone()));
-                drop(admission);
-                dropped = dropped.saturating_add(1);
-            }
-            while let Ok(cancel) = self.receivers.cancellations.try_recv() {
-                // The caller keeps its handle, and a terminal outcome already
-                // delivered to it takes precedence over this error (#777).
-                let _ = cancel.reply.try_send(Err(error.clone()));
-                dropped = dropped.saturating_add(1);
-            }
-            while let Ok(control) = self.receivers.control.try_recv() {
-                match control {
-                    ControlBoundary::FlushAdmissionRejections => {
-                        self.flush_pre_admission_rejections(true);
-                        continue;
-                    }
-                    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-                    ControlBoundary::Snapshot(reply) => {
-                        let _ = reply.try_send(self.snapshot_now());
-                    }
-                    ControlBoundary::Metrics(reply) => {
-                        let _ = reply.try_send(Err(error.clone()));
-                    }
-                    ControlBoundary::SubscribeDiagnostics { reply, .. } => {
-                        let _ = reply.try_send(Err(error.clone()));
-                    }
-                    ControlBoundary::Reconfigure { reply, .. } => {
-                        let _ = reply.try_send(Err(error.clone()));
-                    }
+        let write_timeout = self.core.state.policy().write_timeout;
+        while let Some(staged) = self.core.next_transmit(&mut effects) {
+            let result = match self.core.state.prepare_write(&staged) {
+                Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
+                Err(error) => Err(error),
+            };
+            match turn {
+                Some(turn) => {
+                    self.core
+                        .finish_transmit_in_turn(turn, &staged, result, &mut effects);
                 }
-                dropped = dropped.saturating_add(1);
+                None => {
+                    let finished_at = Executor::now(runtime);
+                    self.core
+                        .finish_transmit(&staged, result, finished_at, &mut effects);
+                }
             }
-            self.flush_pre_admission_rejections(true);
-            if dropped == before {
-                break;
-            }
-        }
-        self.state.fail_unstaged_boundary(dropped);
-    }
-
-    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    fn snapshot_now(&self) -> OwnerSnapshot {
-        OwnerSnapshot {
-            #[cfg(feature = "runtime-tokio")]
-            metrics: self.state.metrics(),
-            #[cfg(feature = "runtime-tokio")]
-            diagnostics: self.state.diagnostics().copied().collect(),
-            state: self.state.state(),
-            active: self.state.active_len(),
         }
     }
-}
-
-impl<R> Drop for AsyncOwnerActor<R>
-where
-    R: Executor,
-{
-    fn drop(&mut self) {
-        // `run` can unwind before it reaches its normal terminal publication
-        // and drain, so fail closed before draining.
-        let error = self.lifecycle.fail_closed();
-
-        // The explicit normal-path drain may race with a sender that was
-        // already admitted. A final drain closes that residual window before
-        // the sender fields are released. Keep the liveness sender borrowed
-        // through this drain so its disconnect remains the final teardown
-        // barrier for waiters.
-        let _alive_during_drain = &self.alive;
-        // A boundary retained behind a raw release when `run` unwound is no
-        // longer in any channel; answer it before the queues.
-        if let Some(retained) = self.coordinator.take_retained() {
-            self.answer_retained_boundary(retained, error.clone());
-        }
-        self.drain_boundaries(error);
-    }
-}
-
-/// Admission events retain the inline request owned by the actor channel; boxing
-/// it here would add a heap allocation to every accepted admission.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-enum ActorEvent {
-    Admission(Result<AdmissionBoundary, flume::RecvError>),
-    Cancellation(CancellationBoundary),
-    Control(ControlBoundary),
-    Shutdown,
-    Receive {
-        result: Result<AsyncReceive, Error>,
-        received_at: Instant,
-    },
-    Wake,
 }
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]

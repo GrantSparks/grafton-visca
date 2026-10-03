@@ -20,7 +20,7 @@ use super::{
         response_target_for_raw_prefix, validate_profile_transport, OwnerEnvelope, RoutingState,
         TargetRegistry,
     },
-    AsyncOwnerDriver, AsyncReceive, OwnerBuffers, OwnerPolicy, RetainedStreamInput, WireWrite,
+    AsyncOwnerDriver, OwnerBuffers, OwnerPolicy, OwnerReceive, RetainedStreamInput, WireWrite,
 };
 
 #[derive(Debug)]
@@ -224,7 +224,7 @@ where
         &mut self,
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async move {
             // #674 / #542 protocol-input-first: attribute any complete frames a
             // prior receive that hit the per-receive frame limit left buffered
@@ -243,7 +243,7 @@ where
                 self.policy.protocol.transport,
             )?;
             if !buffered.is_empty() || buffers.discarded_malformed() > 0 {
-                return Ok(AsyncReceive::Frames(buffered));
+                return Ok(OwnerReceive::Frames(buffered));
             }
             // An ordinary failed read consumed nothing, so the framer is
             // untouched and the owner still gets to decide whether the session
@@ -283,15 +283,15 @@ where
                 // read timeout — the shape the trait documents — from burning
                 // every in-flight retry budget (#625, #637).
                 Err(error) if super::receive_reported_no_data(&error) => {
-                    return Ok(AsyncReceive::NoData);
+                    return Ok(OwnerReceive::NoData);
                 }
-                Err(error) => return Ok(AsyncReceive::Fault(error)),
+                Err(error) => return Ok(OwnerReceive::Fault(error)),
             };
             // Only a zero-length read means the peer closed. A short read that
             // carried bytes decodes to an empty batch when it did not finish a
             // frame, which is routine on byte-stream transports.
             if received == 0 {
-                return Ok(AsyncReceive::Closed);
+                return Ok(OwnerReceive::Closed);
             }
             decode_frames_with_routing(
                 &self.state.envelope,
@@ -302,7 +302,7 @@ where
                 frame_limit,
                 self.policy.protocol.transport,
             )
-            .map(AsyncReceive::Frames)
+            .map(OwnerReceive::Frames)
         }
     }
 }
@@ -454,7 +454,7 @@ mod tests {
 
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
         let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        let AsyncReceive::Frames(frames) = received else {
+        let OwnerReceive::Frames(frames) = received else {
             panic!("a nonzero read must not report the transport as closed");
         };
         assert_eq!(frames.len(), 1);
@@ -581,13 +581,13 @@ mod tests {
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
 
         let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        let AsyncReceive::Frames(frames) = first else {
+        let OwnerReceive::Frames(frames) = first else {
             panic!("a partial frame must not be reported as a transport close");
         };
         assert!(frames.is_empty());
 
         let second = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-        let AsyncReceive::Frames(frames) = second else {
+        let OwnerReceive::Frames(frames) = second else {
             panic!("the completing read must decode the buffered frame");
         };
         assert_eq!(frames.len(), 1);
@@ -598,7 +598,7 @@ mod tests {
 
         let third = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
         assert!(
-            matches!(third, AsyncReceive::Closed),
+            matches!(third, OwnerReceive::Closed),
             "only a zero-length read closes the transport"
         );
     }
@@ -656,7 +656,7 @@ mod tests {
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4))
                 .expect("a partial prefix is ordinary stream input");
-            assert!(matches!(received, AsyncReceive::Frames(ref frames) if frames.is_empty()));
+            assert!(matches!(received, OwnerReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
                 adapter.buffered_raw_prefix_evidence().unwrap(),
                 Some(RawPrefixEvidence::Incomplete {
@@ -716,7 +716,7 @@ mod tests {
             let received =
                 futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
             assert!(
-                matches!(received, AsyncReceive::NoData),
+                matches!(received, OwnerReceive::NoData),
                 "an idle read timeout is not a receive fault: {received:?}"
             );
         }
@@ -743,7 +743,7 @@ mod tests {
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let received =
                 futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-            assert!(matches!(received, AsyncReceive::Fault(_)));
+            assert!(matches!(received, OwnerReceive::Fault(_)));
         }
     }
 

@@ -11,11 +11,14 @@ mod async_actor;
 mod async_transport;
 #[cfg(feature = "blocking")]
 mod blocking;
-// The blocking owner adopts the shared boundary with its worker thread (D24).
 #[cfg(feature = "blocking")]
 mod blocking_transport;
+// The blocking owner adopts the shared boundary and shell core with its
+// worker thread (D24).
 #[cfg(feature = "async")]
 mod boundary;
+#[cfg(feature = "async")]
+mod shell;
 mod turn;
 
 #[cfg(feature = "async")]
@@ -777,6 +780,36 @@ impl Drop for AdmissionPermit {
             }
         }
     }
+}
+
+/// Outcome of one owner driver receive.
+///
+/// The distinction is load bearing on byte-stream transports: only a zero-length
+/// transport read means the peer closed. A read that carried bytes but did not
+/// finish a frame decodes to an empty batch, and the owner must keep pumping so
+/// the remainder of the frame can arrive in a later read.
+// Only the async driver produces it until the blocking worker lands (D24).
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub(crate) enum OwnerReceive {
+    /// The transport reported end of stream, i.e. a zero-length read.
+    Closed,
+    /// The read carried bytes and decoded to zero or more complete frames, in
+    /// source order. An empty batch means the chunk only advanced a partially
+    /// received frame; the transport is still open.
+    Frames(Vec<DecodedFrame>),
+    /// The read reported that no bytes arrived — an expired idle read timeout,
+    /// which is how a custom transport implements a non-blocking read. Nothing
+    /// was consumed and nothing failed: the owner keeps the session, keeps the
+    /// framing state, and does not touch any request's retry budget (#625).
+    NoData,
+    /// The transport read itself failed and consumed nothing, so framing state
+    /// is intact. The owner classifies the error: a transient fault retries
+    /// in-flight work and keeps the session, a fatal one ends it.
+    ///
+    /// This is deliberately distinct from `Err`, which the driver reserves for
+    /// a framing or decode failure over bytes that were already consumed.
+    Fault(Error),
 }
 
 /// The owner-side half of one bounded, one-shot observation slot.

@@ -1,5 +1,7 @@
 use super::*;
 #[cfg(feature = "runtime-tokio")]
+use crate::runtime::owner::boundary::PreAdmissionRejection;
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_typed_receipts_are_completion_first_and_timeout_only_detaches() {
     typed_async_receipt_matrix(TokioRuntime::from_current().unwrap()).await;
@@ -234,15 +236,15 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
         .unwrap_err();
     assert!(matches!(error, Error::Timeout { .. }));
 
-    actor.flush_pre_admission_rejections(true);
-    let metrics = actor.state.metrics_snapshot();
+    actor.core.flush_pre_admission_rejections(true);
+    let metrics = actor.core.state.metrics_snapshot();
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
     assert_eq!(metrics.pending, 0);
     assert_eq!(metrics.writes, 0);
     assert_eq!(
-        actor.state.diagnostics().copied().collect::<Vec<_>>(),
+        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: super::super::RequestLane::Inquiry,
@@ -268,6 +270,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     tokio::time::advance(Duration::from_millis(1)).await;
 
     let boundary = actor
+        .core
         .receivers
         .admissions
         .try_recv()
@@ -276,14 +279,20 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     let writes = Arc::clone(&harness.writes);
     let mut driver = harness.driver;
     actor
-        .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
 
     assert!(matches!(
         reply.recv_async().await,
         Ok(Err(Error::Timeout { .. }))
     ));
-    let metrics = actor.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot();
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -291,7 +300,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     assert_eq!(metrics.writes, 0);
     assert!(writes.lock().unwrap().is_empty());
     assert_eq!(
-        actor.state.diagnostics().copied().collect::<Vec<_>>(),
+        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: super::super::RequestLane::Inquiry,
@@ -558,15 +567,15 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     };
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
 
-    actor.flush_pre_admission_rejections(true);
-    let metrics = actor.state.metrics_snapshot();
+    actor.core.flush_pre_admission_rejections(true);
+    let metrics = actor.core.state.metrics_snapshot();
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
     assert_eq!(metrics.pending, 0);
     assert_eq!(metrics.writes, 0);
     assert_eq!(
-        actor.state.diagnostics().copied().collect::<Vec<_>>(),
+        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: super::super::RequestLane::Inquiry,
@@ -597,18 +606,18 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
         error: crate::ErrorKind::IoClosed,
     };
 
-    assert!(actor.admission_rejections.record(first, false));
+    assert!(actor.core.admission_rejections.record(first, false));
     assert!(
-        !actor.admission_rejections.record(second, false),
+        !actor.core.admission_rejections.record(second, false),
         "one bounded actor wake coalesces the burst"
     );
-    actor.flush_pre_admission_rejections(true);
+    actor.core.flush_pre_admission_rejections(true);
 
-    let metrics = actor.state.metrics();
+    let metrics = actor.core.state.metrics();
     assert_eq!(metrics.admission_rejected, 2);
     assert_eq!(metrics.dropped_diagnostics, 1);
     assert_eq!(
-        actor.state.diagnostics().copied().collect::<Vec<_>>(),
+        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: super::super::RequestLane::Inquiry,
@@ -629,7 +638,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
     let (replacement_sender, replacement_receiver) = flume::bounded(1);
     drop(replacement_sender);
     let original_receiver =
-        std::mem::replace(&mut actor.receivers.admissions, replacement_receiver);
+        std::mem::replace(&mut actor.core.receivers.admissions, replacement_receiver);
     drop(original_receiver);
 
     let error = match handle.try_submit(command()) {
@@ -642,10 +651,10 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
             if message.contains("without publishing a terminal result")
     ));
 
-    actor.flush_pre_admission_rejections(true);
-    assert_eq!(actor.state.metrics().admission_rejected, 1);
+    actor.core.flush_pre_admission_rejections(true);
+    assert_eq!(actor.core.state.metrics().admission_rejected, 1);
     assert_eq!(
-        actor.state.diagnostics().copied().collect::<Vec<_>>(),
+        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: super::super::RequestLane::Command,

@@ -19,8 +19,9 @@ use crate::{
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{ControlClass, EnvelopeSequence, SequenceWidth};
+use crate::runtime::engine::{ControlClass, EnvelopeSequence, IgnoreReason, SequenceWidth};
 
+use crate::runtime::engine::{DecodedFrame, SessionState};
 use crate::runtime::owner::DiagnosticEvent;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONICAL_OWNER_TRACE};
@@ -459,8 +460,8 @@ fn inquiry_for(target: CameraId) -> RuntimeRequest {
 }
 
 /// Wrap decoded frames as one nonzero-length read for the fake driver.
-fn batch(frames: Vec<DecodedFrame>) -> Result<AsyncReceive, Error> {
-    Ok(AsyncReceive::Frames(frames))
+fn batch(frames: Vec<DecodedFrame>) -> Result<OwnerReceive, Error> {
+    Ok(OwnerReceive::Frames(frames))
 }
 
 fn ack(socket: ViscaSocket) -> DecodedFrame {
@@ -500,7 +501,7 @@ struct FakeAsyncDriver {
     writes: RecordedWrites,
     started: flume::Sender<RequestId>,
     gates: flume::Receiver<Result<TransmissionMeta, Error>>,
-    frames: flume::Receiver<Result<AsyncReceive, Error>>,
+    frames: flume::Receiver<Result<OwnerReceive, Error>>,
 }
 
 impl AsyncOwnerDriver for FakeAsyncDriver {
@@ -528,7 +529,7 @@ impl AsyncOwnerDriver for FakeAsyncDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let frames = self.frames.clone();
         async move {
             frames
@@ -567,11 +568,11 @@ impl AsyncOwnerDriver for RuntimeAffinityDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let observed = self.observed.clone();
         async move {
             let _ = observed.try_send(tokio::runtime::Handle::current().id());
-            Ok(AsyncReceive::Closed)
+            Ok(OwnerReceive::Closed)
         }
     }
 }
@@ -594,7 +595,7 @@ impl AsyncOwnerDriver for PanickingReceiveDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
             panic!("test driver panic before terminal publication");
         }
@@ -625,7 +626,7 @@ impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let panic_signal = self.panic_signal.clone();
         async move {
             panic_signal
@@ -644,7 +645,7 @@ struct Harness {
     driver: FakeAsyncDriver,
     started: flume::Receiver<RequestId>,
     gates: flume::Sender<Result<TransmissionMeta, Error>>,
-    frames: flume::Sender<Result<AsyncReceive, Error>>,
+    frames: flume::Sender<Result<OwnerReceive, Error>>,
     writes: RecordedWrites,
 }
 
@@ -1009,7 +1010,7 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = self.reads.clone();
         let reads_observed = self.reads_observed.clone();
         let receive_polled = self.receive_polled.clone();
@@ -1020,11 +1021,11 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
             let _ = receive_polled.try_send(());
             if let Some(frame) = after_no_data.lock().unwrap().take() {
                 let _ = reads_observed.try_send(());
-                return Ok(AsyncReceive::Frames(vec![frame]));
+                return Ok(OwnerReceive::Frames(vec![frame]));
             }
             if let Some(error) = repeating_fault.lock().unwrap().as_ref().cloned() {
                 let _ = reads_observed.try_send(());
-                return Ok(AsyncReceive::Fault(error));
+                return Ok(OwnerReceive::Fault(error));
             }
             let read = reads
                 .recv_async()
@@ -1034,29 +1035,29 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
             Ok(match read {
                 ScriptedRawRead::Prefix => {
                     buffered.store(true, Ordering::Release);
-                    AsyncReceive::Frames(Vec::new())
+                    OwnerReceive::Frames(Vec::new())
                 }
                 ScriptedRawRead::Tail(frame) => {
                     if buffered.swap(false, Ordering::AcqRel) {
-                        AsyncReceive::Frames(vec![frame])
+                        OwnerReceive::Frames(vec![frame])
                     } else {
-                        AsyncReceive::Frames(Vec::new())
+                        OwnerReceive::Frames(Vec::new())
                     }
                 }
                 ScriptedRawRead::Complete(frame) => {
                     buffered.store(false, Ordering::Release);
-                    AsyncReceive::Frames(vec![frame])
+                    OwnerReceive::Frames(vec![frame])
                 }
-                ScriptedRawRead::NoData => AsyncReceive::NoData,
+                ScriptedRawRead::NoData => OwnerReceive::NoData,
                 ScriptedRawRead::NoDataThenComplete(frame) => {
                     *after_no_data.lock().unwrap() = Some(frame);
-                    AsyncReceive::NoData
+                    OwnerReceive::NoData
                 }
-                ScriptedRawRead::Empty => AsyncReceive::Frames(Vec::new()),
-                ScriptedRawRead::Fault(error) => AsyncReceive::Fault(error),
+                ScriptedRawRead::Empty => OwnerReceive::Frames(Vec::new()),
+                ScriptedRawRead::Fault(error) => OwnerReceive::Fault(error),
                 ScriptedRawRead::RepeatingFault(error) => {
                     *repeating_fault.lock().unwrap() = Some(error.clone());
-                    AsyncReceive::Fault(error)
+                    OwnerReceive::Fault(error)
                 }
             })
         }
@@ -1770,10 +1771,10 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         self.reads.fetch_add(1, Ordering::Relaxed);
         async {
-            Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+            Ok(OwnerReceive::Fault(Error::Io(Arc::new(
                 std::io::Error::other("simulated adapter unplugged"),
             ))))
         }
@@ -1807,17 +1808,17 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         let faults = Arc::clone(&self.faults);
         async move {
             if reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
                 faults.fetch_add(1, Ordering::Relaxed);
-                Ok(AsyncReceive::Fault(Error::TransportError(
+                Ok(OwnerReceive::Fault(Error::TransportError(
                     "simulated intermittent adapter fault".into(),
                 )))
             } else {
-                Ok(AsyncReceive::NoData)
+                Ok(OwnerReceive::NoData)
             }
         }
     }
@@ -1836,7 +1837,7 @@ impl RetainedStreamInput for AlternatingFaultNoData {}
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct UngatedDriver {
-    receives: flume::Receiver<Result<AsyncReceive, Error>>,
+    receives: flume::Receiver<Result<OwnerReceive, Error>>,
 }
 
 #[cfg(feature = "runtime-tokio")]
@@ -1854,7 +1855,7 @@ impl AsyncOwnerDriver for UngatedDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let receives = self.receives.clone();
         async move {
             // An exhausted script parks instead of reporting a close, so
@@ -2031,9 +2032,9 @@ impl AsyncOwnerDriver for BabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
-            Ok(AsyncReceive::Frames(vec![DecodedFrame {
+            Ok(OwnerReceive::Frames(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
@@ -2065,9 +2066,9 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
-            Ok(AsyncReceive::Frames(vec![DecodedFrame {
+            Ok(OwnerReceive::Frames(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
@@ -2108,18 +2109,18 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         let stop = Arc::clone(&self.stop);
         let empty_batches = self.empty_batches;
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
             if stop.load(Ordering::Acquire) {
-                Ok(AsyncReceive::Closed)
+                Ok(OwnerReceive::Closed)
             } else if empty_batches {
-                Ok(AsyncReceive::Frames(Vec::new()))
+                Ok(OwnerReceive::Frames(Vec::new()))
             } else {
-                Ok(AsyncReceive::Frames(vec![DecodedFrame {
+                Ok(OwnerReceive::Frames(vec![DecodedFrame {
                     target: CameraId::CAMERA_1,
                     sequence: None,
                     response: DecodedResponse::Unknown,
@@ -2151,7 +2152,7 @@ impl AsyncOwnerDriver for StallingWriteDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async { future::pending().await }
     }
 }
@@ -2179,11 +2180,11 @@ impl AsyncOwnerDriver for NoDataDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            Ok(AsyncReceive::NoData)
+            Ok(OwnerReceive::NoData)
         }
     }
 }
@@ -2252,11 +2253,11 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            Ok(AsyncReceive::Frames(Vec::new()))
+            Ok(OwnerReceive::Frames(Vec::new()))
         }
     }
 }
@@ -2311,7 +2312,7 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let idle = self.idle;
         let reads = Arc::clone(&self.reads);
         let armed = Arc::clone(&self.armed);
@@ -2321,8 +2322,8 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             }
             reads.fetch_add(1, Ordering::Relaxed);
             match idle {
-                ImmediateRawIdle::NoData => Ok(AsyncReceive::NoData),
-                ImmediateRawIdle::Timeout => Ok(AsyncReceive::Fault(Error::io_timeout())),
+                ImmediateRawIdle::NoData => Ok(OwnerReceive::NoData),
+                ImmediateRawIdle::Timeout => Ok(OwnerReceive::Fault(Error::io_timeout())),
             }
         }
     }

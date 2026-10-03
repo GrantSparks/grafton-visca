@@ -1,4 +1,7 @@
 use super::*;
+use crate::runtime::owner::turn::{
+    clamp_receive_pause, transient_receive_pause, TransientFaultRun,
+};
 /// A zero-length stream read is still the only close signal.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -58,7 +61,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
 
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
         )))))
         .await
@@ -116,7 +119,7 @@ async fn fatal_receive_fault_closes_the_session() {
         .await
         .unwrap();
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::BrokenPipe),
         )))))
         .await
@@ -302,7 +305,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // Two consecutive faults, each retransmitting the very same request.
     for _ in 0..2 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -341,7 +344,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // transient and the session is still answering.
     for _ in 0..3 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -388,11 +391,11 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         ))),
     ] {
         frames
-            .send_async(Ok(AsyncReceive::Fault(timeout)))
+            .send_async(Ok(OwnerReceive::Fault(timeout)))
             .await
             .unwrap();
     }
-    frames.send_async(Ok(AsyncReceive::NoData)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
 
     // Control still answers, and nothing was retransmitted.
     assert_eq!(
