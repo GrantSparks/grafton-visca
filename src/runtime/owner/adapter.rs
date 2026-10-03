@@ -32,6 +32,14 @@ use crate::{
 };
 
 use super::{OwnerBuffers, OwnerPolicy};
+#[cfg(any(feature = "async", feature = "blocking"))]
+use super::{RetainedStreamInput, WireWrite};
+#[cfg(any(feature = "async", feature = "blocking"))]
+use crate::{
+    protocol::framer::RawBufferedInput,
+    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
+    transport::HasTransportConfig,
+};
 
 /// Concrete envelope selected by a validated profile.
 ///
@@ -390,6 +398,199 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     policy.tuning = tuning;
     policy.baseline = baseline;
     Ok(policy)
+}
+
+/// The owner-side framing of one physical transport: its envelope, its
+/// protocol framer and its response routing.
+///
+/// Both transport adapters wrap exactly one of these around their transport,
+/// so validation, write framing, decoding and the retained stream-input seam
+/// are written once; an adapter adds only its native send and receive.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+pub(crate) struct AdapterFraming {
+    envelope: OwnerEnvelope,
+    framer: ProtocolFramer,
+    routing: RoutingState,
+    transport: TransportKind,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl AdapterFraming {
+    /// Validate a target/profile registry against `transport` and build its
+    /// framing and owner policy. Profiles must describe one compatible wire
+    /// envelope; target-local socket/cancellation facts are retained in the
+    /// resulting owner policy. No transport I/O happens here.
+    ///
+    /// `addressing_hint` and `semantics` are the transport's own answers,
+    /// which the async and blocking transport traits each declare.
+    pub(crate) fn for_targets<T>(
+        transport: &T,
+        addressing_hint: Option<AddressingMode>,
+        semantics: SendSemantics,
+        profiles: &[(CameraId, &ProfileSpec)],
+        tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
+    ) -> Result<(Self, OwnerPolicy), Error>
+    where
+        T: HasTransportConfig,
+    {
+        // This check is deliberately before reading any startup-side transport
+        // state or constructing the owner policy. Known standard transports
+        // must be compatible; custom transports (which report `None`) remain
+        // an explicit profile-compatibility escape hatch.
+        let standard_kind = transport.standard_transport_kind();
+        for (_, profile) in profiles {
+            validate_profile_transport(profile, standard_kind)?;
+        }
+        // Multi-target routing must be explicitly proven by a side-effect-free
+        // transport hint. This runs before the first config read, owner start,
+        // or transport operation; custom transports default to `None` and are
+        // therefore rejected unless they opt into serial addressing.
+        validate_profile_registry_topology(profiles, standard_kind, addressing_hint)?;
+        let config = *transport.transport_config();
+        validate_profile_registry_topology(profiles, standard_kind, Some(config.addressing))?;
+        let policy = owner_policy_for_targets_with_tuning(
+            profiles,
+            &config,
+            semantics,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )?;
+        let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
+        let registry = TargetRegistry::from_targets(&targets)?;
+        let envelope = OwnerEnvelope::from_profile(profiles[0].1, config.addressing)?;
+        let framer =
+            ProtocolFramer::new_with_config_and_mode(config.buffer_config, envelope.framing_mode());
+        let framing = Self {
+            envelope,
+            framer,
+            routing: RoutingState::new(config.addressing, registry),
+            transport: policy.protocol.transport,
+        };
+        Ok((framing, policy))
+    }
+
+    /// The envelope, for tests that seed Sony's sequence counter.
+    #[cfg(all(test, feature = "blocking"))]
+    pub(crate) const fn envelope(&self) -> &OwnerEnvelope {
+        &self.envelope
+    }
+
+    const fn is_stream(&self) -> bool {
+        matches!(self.transport, TransportKind::Stream)
+    }
+
+    /// Frame Sony's sequence-number RESET, sent before the owner starts.
+    pub(crate) fn frame_sony_sequence_reset(&self, out: &mut bytes::BytesMut) -> Result<(), Error> {
+        self.envelope.frame_sony_sequence_reset(out)
+    }
+
+    /// Frame one owner write into its session-owned frame buffer, returning
+    /// the metadata the engine records once it is sent.
+    pub(crate) fn frame_write(&self, write: &mut WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+        if write.envelope != self.envelope.kind() {
+            return Err(Error::InvalidState(
+                "owner write envelope does not match transport adapter".into(),
+            ));
+        }
+        let frame = self.envelope.frame_into_with_sequence(
+            write.bytes,
+            write.command_kind(),
+            write.requested_sequence,
+            write.frame_buffer,
+        )?;
+        // Outgoing framing always returns Full32 metadata. Convert only at this
+        // transport/engine boundary; receive-side provenance remains typed on
+        // FrameMeta until decoding constructs EnvelopeSequence.
+        Ok(TransmissionMeta {
+            sequence: frame.sequence.map(FrameSequence::value),
+        })
+    }
+
+    /// The error a failed send reports. A datagram send failure leaves the
+    /// session running, so it must not claim the session is over.
+    pub(crate) fn send_error(&self, error: Error) -> Error {
+        if self.is_stream() {
+            error
+        } else {
+            super::normalize_datagram_send_error(error)
+        }
+    }
+
+    /// Decode `received` newly read bytes, at most `frame_limit` frames.
+    pub(crate) fn decode(
+        &mut self,
+        buffers: &mut OwnerBuffers,
+        received: usize,
+        frame_limit: usize,
+    ) -> Result<Vec<DecodedFrame>, Error> {
+        decode_frames_with_routing(
+            &self.envelope,
+            &mut self.framer,
+            self.routing,
+            buffers,
+            received,
+            frame_limit,
+            self.transport,
+        )
+    }
+
+    /// Attribute complete frames a prior receive left buffered at the
+    /// per-receive frame limit, without reading (#674, #542
+    /// protocol-input-first). Returns `None` when nothing was buffered, so the
+    /// shell reads; a datagram framer is always cleared and drains nothing.
+    /// A genuine framing failure on the buffered bytes still surfaces as `Err`
+    /// and poisons.
+    // The blocking adapter adopts it with its worker (D24).
+    #[cfg(feature = "async")]
+    pub(crate) fn drain_buffered(
+        &mut self,
+        buffers: &mut OwnerBuffers,
+        frame_limit: usize,
+    ) -> Result<Option<Vec<DecodedFrame>>, Error> {
+        let buffered = self.decode(buffers, 0, frame_limit)?;
+        Ok((!buffered.is_empty() || buffers.discarded_malformed() > 0).then_some(buffered))
+    }
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl RetainedStreamInput for AdapterFraming {
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(self.is_stream() && self.framer.has_buffered_data())
+    }
+
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.is_stream().then(|| self.framer.buffered_len()))
+    }
+
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        if !self.is_stream() {
+            return Ok(None);
+        }
+        let routing = self.routing;
+        Ok(self
+            .framer
+            .buffered_raw_incomplete_prefix(|source| {
+                response_target_for_raw_prefix(routing, source)
+            })
+            .map(|input| match input {
+                RawBufferedInput::Complete => RawPrefixEvidence::Complete,
+                RawBufferedInput::Malformed => RawPrefixEvidence::Malformed,
+                RawBufferedInput::Incomplete { target, kind } => {
+                    RawPrefixEvidence::Incomplete { target, kind }
+                }
+            }))
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        if self.is_stream() {
+            self.framer.discard_first_raw_input()?;
+        }
+        Ok(())
+    }
 }
 
 /// Decode one received chunk using immutable multi-target routing state.

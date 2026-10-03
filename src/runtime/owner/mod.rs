@@ -1412,6 +1412,18 @@ pub(crate) struct WireWrite<'a> {
     pub(crate) envelope: EnvelopeKind,
 }
 
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl WireWrite<'_> {
+    /// The command kind this write is framed and sent as.
+    pub(crate) const fn command_kind(&self) -> crate::command::CommandKind {
+        if self.inquiry {
+            crate::command::CommandKind::Inquiry
+        } else {
+            crate::command::CommandKind::Command
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct StagedWrite {
     pub(crate) transmission: TransmissionId,

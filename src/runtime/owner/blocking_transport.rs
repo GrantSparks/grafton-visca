@@ -12,12 +12,9 @@ use std::{
 };
 
 use crate::{
-    profile::OperationalTuning,
-    profile::ProfileSpec,
-    protocol::framer::{ProtocolFramer, RawBufferedInput},
+    profile::{OperationalTuning, ProfileSpec},
     runtime::engine::{RawPrefixEvidence, TransmissionMeta},
-    transport::envelope::FrameSequence,
-    transport::{builder::TransportConfig, BlockingTransport, HasTransportConfig},
+    transport::{BlockingTransport, HasTransportConfig},
     CameraId, Error,
 };
 
@@ -25,22 +22,14 @@ use crate::{
 use crate::protocol::framer::RawIncompletePrefix;
 
 use super::{
-    adapter::{
-        decode_frames_with_routing, owner_policy_for_targets_with_tuning,
-        response_target_for_raw_prefix, validate_profile_transport, OwnerEnvelope, RoutingState,
-        TargetRegistry,
-    },
-    BlockingFrameDecoder, BlockingReadDriver, BlockingReceive, BlockingWireDriver, OwnerBuffers,
-    OwnerPolicy, RetainedStreamInput, WireWrite,
+    adapter::AdapterFraming, BlockingFrameDecoder, BlockingReadDriver, BlockingReceive,
+    BlockingWireDriver, OwnerBuffers, OwnerPolicy, RetainedStreamInput, WireWrite,
 };
 
 #[derive(Debug)]
 struct BlockingAdapterState<T> {
     transport: T,
-    config: TransportConfig,
-    envelope: OwnerEnvelope,
-    framer: ProtocolFramer,
-    routing: RoutingState,
+    framing: AdapterFraming,
 }
 
 /// One production blocking transport plus its owner-side envelope/framer.
@@ -102,7 +91,7 @@ where
     }
 
     /// Build an adapter for several immutable target/profile pairs on one
-    /// physical transport.
+    /// physical transport; see [`AdapterFraming::for_targets`].
     pub(crate) fn new_with_targets(
         transport: T,
         profiles: &[(CameraId, &ProfileSpec)],
@@ -110,52 +99,17 @@ where
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
-        // Keep the blocking startup boundary identical to async: reject a
-        // known standard transport before reading startup configuration or
-        // constructing the owner policy. Custom transports (which report
-        // `None`) remain an explicit profile-compatibility escape hatch.
-        for (_, profile) in profiles {
-            validate_profile_transport(profile, transport.standard_transport_kind())?;
-        }
-        let standard_kind = transport.standard_transport_kind();
-        // Multi-target routing must be explicitly proven by a side-effect-free
-        // transport hint. This runs before the first config read, actor spawn,
-        // or transport operation; custom transports default to `None` and are
-        // therefore rejected unless they opt into serial addressing.
-        super::adapter::validate_profile_registry_topology(
-            profiles,
-            standard_kind,
+        let (framing, policy) = AdapterFraming::for_targets(
+            &transport,
             transport.addressing_mode_hint(),
-        )?;
-        let config = *transport.transport_config();
-        super::adapter::validate_profile_registry_topology(
-            profiles,
-            standard_kind,
-            Some(config.addressing),
-        )?;
-        let policy = owner_policy_for_targets_with_tuning(
-            profiles,
-            &config,
             transport.send_semantics(),
+            profiles,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
         )?;
-        let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
-        let registry = TargetRegistry::from_targets(&targets)?;
-        let profile = profiles[0].1;
-        let envelope = OwnerEnvelope::from_profile(profile, config.addressing)?;
-        let framer =
-            ProtocolFramer::new_with_config_and_mode(config.buffer_config, envelope.framing_mode());
-        let routing = RoutingState::new(config.addressing, registry);
         Ok(Self {
-            state: Arc::new(Mutex::new(BlockingAdapterState {
-                transport,
-                config,
-                envelope,
-                framer,
-                routing,
-            })),
+            state: Arc::new(Mutex::new(BlockingAdapterState { transport, framing })),
             policy,
         })
     }
@@ -185,26 +139,14 @@ where
     pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
         let mut state = lock_state(&self.state)?;
         let mut frame = bytes::BytesMut::new();
-        state.envelope.frame_sony_sequence_reset(&mut frame)?;
-        let write_timeout = state.config.write_timeout;
-        let datagram = matches!(
-            state.transport.send_semantics(),
-            crate::transport::SendSemantics::Datagram
+        state.framing.frame_sony_sequence_reset(&mut frame)?;
+        let write_timeout = state.transport.transport_config().write_timeout;
+        let sent = state.transport.send_with_timeout(
+            frame.as_ref(),
+            crate::command::CommandKind::Command,
+            write_timeout,
         );
-        state
-            .transport
-            .send_with_timeout(
-                frame.as_ref(),
-                crate::command::CommandKind::Command,
-                write_timeout,
-            )
-            .map_err(|error| {
-                if datagram {
-                    super::normalize_datagram_send_error(error)
-                } else {
-                    error
-                }
-            })
+        sent.map_err(|error| state.framing.send_error(error))
     }
 
     /// Return write/read/decode views backed by this adapter's one transport.
@@ -367,49 +309,21 @@ fn lock_state<'a, T>(
 
 fn write_state<T>(
     state: &Arc<Mutex<BlockingAdapterState<T>>>,
-    write: WireWrite<'_>,
+    mut write: WireWrite<'_>,
 ) -> Result<TransmissionMeta, Error>
 where
     T: BlockingTransport + HasTransportConfig,
 {
     let mut state = lock_state(state)?;
-    if write.envelope != state.envelope.kind() {
-        return Err(Error::InvalidState(
-            "owner write envelope does not match transport adapter".into(),
-        ));
-    }
-    let kind = if write.inquiry {
-        crate::command::CommandKind::Inquiry
-    } else {
-        crate::command::CommandKind::Command
-    };
-    let datagram = matches!(
-        state.transport.send_semantics(),
-        crate::transport::SendSemantics::Datagram
+    let meta = state.framing.frame_write(&mut write)?;
+    let write_timeout = state.transport.transport_config().write_timeout;
+    let sent = state.transport.send_with_timeout(
+        write.frame_buffer.as_ref(),
+        write.command_kind(),
+        write_timeout,
     );
-    let frame_meta = state.envelope.frame_into_with_sequence(
-        write.bytes,
-        kind,
-        write.requested_sequence,
-        write.frame_buffer,
-    )?;
-    let write_timeout = state.config.write_timeout;
-    state
-        .transport
-        .send_with_timeout(write.frame_buffer.as_ref(), kind, write_timeout)
-        .map_err(|error| {
-            if datagram {
-                super::normalize_datagram_send_error(error)
-            } else {
-                error
-            }
-        })?;
-    Ok(TransmissionMeta {
-        // Outgoing framing always returns Full32 metadata. Convert only at
-        // this transport/engine boundary; receive-side provenance remains
-        // typed on FrameMeta until adapter decoding constructs EnvelopeSequence.
-        sequence: frame_meta.sequence.map(FrameSequence::value),
-    })
+    sent.map_err(|error| state.framing.send_error(error))?;
+    Ok(meta)
 }
 
 fn receive_state<T>(
@@ -421,15 +335,16 @@ where
     T: BlockingTransport + HasTransportConfig,
 {
     let mut state = lock_state(state)?;
+    let read_timeout = state.transport.transport_config().read_timeout;
     let timeout = match owner_deadline {
         Some(deadline) => {
             let now = Instant::now();
             if deadline <= now {
                 return Ok(BlockingReceive::TimedOut);
             }
-            state.config.read_timeout.min(deadline - now)
+            read_timeout.min(deadline - now)
         }
-        None => state.config.read_timeout,
+        None => read_timeout,
     };
     match state
         .transport
@@ -454,28 +369,9 @@ fn decode_state<T>(
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    let mut state = lock_state(state)?;
-    let transport = match state.transport.send_semantics() {
-        crate::transport::SendSemantics::Datagram => {
-            crate::runtime::engine::TransportKind::Datagram
-        }
-        crate::transport::SendSemantics::Stream => crate::runtime::engine::TransportKind::Stream,
-    };
-    let BlockingAdapterState {
-        envelope,
-        framer,
-        routing,
-        ..
-    } = &mut *state;
-    decode_frames_with_routing(
-        envelope,
-        framer,
-        *routing,
-        buffers,
-        received,
-        frame_limit,
-        transport,
-    )
+    lock_state(state)?
+        .framing
+        .decode(buffers, received, frame_limit)
 }
 
 fn has_buffered_stream_input_state<T>(
@@ -484,11 +380,7 @@ fn has_buffered_stream_input_state<T>(
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    let state = lock_state(state)?;
-    Ok(matches!(
-        state.transport.send_semantics(),
-        crate::transport::SendSemantics::Stream
-    ) && state.framer.has_buffered_data())
+    lock_state(state)?.framing.has_buffered_stream_input()
 }
 
 fn buffered_stream_input_len_state<T>(
@@ -497,12 +389,7 @@ fn buffered_stream_input_len_state<T>(
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    let state = lock_state(state)?;
-    Ok(matches!(
-        state.transport.send_semantics(),
-        crate::transport::SendSemantics::Stream
-    )
-    .then(|| state.framer.buffered_len()))
+    lock_state(state)?.framing.buffered_stream_input_len()
 }
 
 fn buffered_raw_prefix_evidence_state<T>(
@@ -511,25 +398,7 @@ fn buffered_raw_prefix_evidence_state<T>(
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    let state = lock_state(state)?;
-    if !matches!(
-        state.transport.send_semantics(),
-        crate::transport::SendSemantics::Stream
-    ) {
-        return Ok(None);
-    }
-    Ok(state
-        .framer
-        .buffered_raw_incomplete_prefix(|source| {
-            response_target_for_raw_prefix(state.routing, source)
-        })
-        .map(|input| match input {
-            RawBufferedInput::Complete => RawPrefixEvidence::Complete,
-            RawBufferedInput::Malformed => RawPrefixEvidence::Malformed,
-            RawBufferedInput::Incomplete { target, kind } => {
-                RawPrefixEvidence::Incomplete { target, kind }
-            }
-        }))
+    lock_state(state)?.framing.buffered_raw_prefix_evidence()
 }
 
 fn discard_buffered_stream_input_state<T>(
@@ -538,14 +407,7 @@ fn discard_buffered_stream_input_state<T>(
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    let mut state = lock_state(state)?;
-    if matches!(
-        state.transport.send_semantics(),
-        crate::transport::SendSemantics::Stream
-    ) {
-        state.framer.discard_first_raw_input()?;
-    }
-    Ok(())
+    lock_state(state)?.framing.discard_buffered_stream_input()
 }
 
 #[cfg(test)]
@@ -849,7 +711,7 @@ mod tests {
         sequence: u32,
     ) -> Result<(), &'static str> {
         let state = adapter.state.lock().unwrap();
-        let OwnerEnvelope::Sony(envelope) = &state.envelope else {
+        let super::super::adapter::OwnerEnvelope::Sony(envelope) = state.framing.envelope() else {
             return Err("Sony sequence seed requires a Sony owner envelope");
         };
         envelope.set_sequence_for_test(sequence);
