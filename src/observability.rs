@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Error;
 use crate::{state_cache::StateKey, CameraId, ErrorKind};
 
@@ -412,7 +412,7 @@ pub struct DiagnosticSubscription {
 }
 
 impl DiagnosticSubscription {
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
         Self { inner }
     }
@@ -430,6 +430,21 @@ impl DiagnosticSubscription {
             .recv_async()
             .await
             .map(DiagnosticEvent::from_owner)
+    }
+
+    /// Waits up to `timeout` for one event on the calling thread.
+    ///
+    /// Returns `Ok(None)` when no event arrived in time, and
+    /// [`Error::RuntimeShutdown`] once the owner has ended and every queued
+    /// event has been received.
+    #[cfg(feature = "blocking")]
+    pub fn recv_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<Option<DiagnosticEvent>, Error> {
+        self.inner
+            .recv_timeout(timeout)
+            .map(|event| event.map(DiagnosticEvent::from_owner))
     }
 }
 

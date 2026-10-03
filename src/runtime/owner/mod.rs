@@ -13,13 +13,11 @@ mod async_transport;
 mod blocking;
 #[cfg(feature = "blocking")]
 mod blocking_transport;
-// The blocking owner adopts the shared boundary, receipt observation and
-// shell core with its worker thread (D24).
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod boundary;
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod receipt;
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod shell;
 mod turn;
 
@@ -42,18 +40,13 @@ pub(crate) use adapter::{
     validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
 };
 
-#[cfg(feature = "blocking")]
-use turn::RawReleaseTurn;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
 
-#[cfg(any(
-    all(test, feature = "blocking", not(feature = "async")),
-    all(
-        test,
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
-    )
+#[cfg(all(
+    test,
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 use turn::{
     MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
@@ -87,19 +80,15 @@ use super::engine::{
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
 
-#[cfg(any(feature = "blocking", test))]
-use super::engine::FirstDispatch;
-
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// Compared by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Compared by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(any(
-    all(feature = "blocking", not(feature = "async")),
+    feature = "blocking",
     all(feature = "async", feature = "runtime-tokio")
 ))]
 pub(crate) enum CanonicalOwnerStep {
@@ -113,13 +102,12 @@ pub(crate) enum CanonicalOwnerStep {
     Applied,
 }
 
-// Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Consumed by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(all(
     test,
     any(
-        all(feature = "blocking", not(feature = "async")),
+        feature = "blocking",
         all(feature = "async", feature = "runtime-tokio")
     )
 ))]
@@ -134,13 +122,12 @@ pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
     CanonicalOwnerStep::Applied,
 ];
 
-// Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Consumed by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(all(
     test,
     any(
-        all(feature = "blocking", not(feature = "async")),
+        feature = "blocking",
         all(feature = "async", feature = "runtime-tokio")
     )
 ))]
@@ -240,11 +227,12 @@ pub(crate) struct OwnerPolicy {
     pub(crate) limits: OwnerLimits,
     pub(crate) tuning: crate::OperationalTuning,
     pub(crate) baseline: TuningBaseline,
-    /// Maximum time one async transport read may take before the owner treats
-    /// the read as "no data arrived" (#675). The blocking owner applies the
-    /// same value at the socket; the async owner enforces it around
+    /// Maximum time one transport read may take before the owner treats the
+    /// read as "no data arrived" (#675). The async owner enforces it around
     /// [`AsyncOwnerDriver::receive`](super::AsyncOwnerDriver) because the
-    /// runtime-agnostic async transports have no timer of their own. Lowered
+    /// runtime-agnostic async transports have no timer of their own; the
+    /// blocking worker reports no data once its sliced reads have been idle
+    /// this long (#780). Lowered
     /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
     /// by the production policy builder; the test constructors default it.
     pub(crate) read_timeout: Duration,
@@ -669,7 +657,7 @@ impl AdmissionPermitPool {
 
     /// The most requests that can be pending or active at once: the ordinary
     /// capacity plus every target's control reserve.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn total_capacity(&self) -> usize {
         self.0
             .reserves
@@ -790,8 +778,7 @@ impl Drop for AdmissionPermit {
 /// transport read means the peer closed. A read that carried bytes but did not
 /// finish a frame decodes to an empty batch, and the owner must keep pumping so
 /// the remainder of the frame can arrive in a later read.
-// Only the async driver produces it until the blocking worker lands (D24).
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug)]
 pub(crate) enum OwnerReceive {
     /// The transport reported end of stream, i.e. a zero-length read.
@@ -919,6 +906,13 @@ impl<T> Observer<T> {
     async fn recv_async(&self) -> Option<T> {
         self.receiver.recv_async().await.ok()
     }
+
+    /// The slot's receiver, for a blocking wait that selects over several
+    /// slots. A receive error means the owner dropped its cell unresolved.
+    #[cfg(feature = "blocking")]
+    const fn receiver(&self) -> &flume::Receiver<T> {
+        &self.receiver
+    }
 }
 
 impl<T> Drop for Observer<T> {
@@ -957,7 +951,6 @@ pub(crate) struct ReceiptCore {
     pub(crate) target: CameraId,
     pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
-    pub(crate) origin: Arc<()>,
 }
 
 impl ReceiptCore {
@@ -966,14 +959,12 @@ impl ReceiptCore {
         target: CameraId,
         completion: TerminalObserver,
         configured_timeout: Duration,
-        origin: Arc<()>,
     ) -> Self {
         Self {
             id,
             target,
             completion,
             configured_timeout,
-            origin,
         }
     }
 
@@ -991,11 +982,6 @@ impl ReceiptCore {
 
     fn try_outcome(&self) -> Option<RuntimeOutcome> {
         self.completion.try_recv()
-    }
-
-    #[cfg(all(test, feature = "blocking", not(feature = "async")))]
-    pub(crate) fn terminal(&self) -> Option<RuntimeOutcome> {
-        self.try_outcome()
     }
 
     // Consumed only by `async_actor::tests`, which additionally requires
@@ -1117,10 +1103,6 @@ impl OperationObservation {
         self.core.target()
     }
 
-    pub(crate) const fn origin(&self) -> &Arc<()> {
-        &self.core.origin
-    }
-
     /// The configured observer deadline for application.
     pub(crate) const fn applied_timeout(&self) -> Duration {
         self.core.configured_timeout()
@@ -1183,22 +1165,18 @@ impl OperationObservation {
         }
     }
 
-    #[cfg(feature = "async")]
     pub(crate) fn record_terminal(&mut self, outcome: RuntimeOutcome) {
         self.terminal.get_or_insert(outcome);
     }
 
-    #[cfg(feature = "async")]
     pub(crate) fn record_cancellation_failure(&mut self, error: Error) {
         self.cancellation_failure.get_or_insert(error);
     }
 
-    #[cfg(feature = "async")]
     pub(crate) const fn terminal_observer(&self) -> &TerminalObserver {
         &self.core.completion
     }
 
-    #[cfg(feature = "async")]
     pub(crate) fn cancellation_observer(&self) -> Option<&CancellationObserver> {
         self.cancellation.as_ref()
     }
@@ -1251,6 +1229,15 @@ impl DiagnosticSubscription {
             .recv_async()
             .await
             .map_err(|_| Error::RuntimeShutdown)
+    }
+
+    #[cfg(feature = "blocking")]
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
+        match self.receiver.recv_timeout(timeout) {
+            Ok(event) => Ok(Some(event)),
+            Err(flume::RecvTimeoutError::Timeout) => Ok(None),
+            Err(flume::RecvTimeoutError::Disconnected) => Err(Error::RuntimeShutdown),
+        }
     }
 }
 
@@ -1310,7 +1297,7 @@ impl OwnerBuffers {
 
     /// Peeks the malformed-frame discard count without clearing it, so a drain
     /// pass can decide it made progress and hand the count on to the owner.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn discarded_malformed(&self) -> usize {
         self.discarded_malformed
     }
@@ -1378,15 +1365,11 @@ impl OwnerBuffers {
 /// Borrowed exact write handed to a mode-native transport adapter.
 #[derive(Debug)]
 pub(crate) struct WireWrite<'a> {
-    // Read only by the test wire drivers in `tests::blocking` and
-    // `async_actor::tests` (#636).
-    #[cfg(any(
-        all(test, feature = "blocking", not(feature = "async")),
-        all(
-            test,
-            feature = "async",
-            any(feature = "runtime-tokio", feature = "runtime-smol")
-        )
+    // Read only by the test wire drivers in `async_actor::tests` (#636).
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) request: RequestId,
     pub(crate) bytes: &'a [u8],
@@ -1397,15 +1380,11 @@ pub(crate) struct WireWrite<'a> {
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
-    // Read only by the test wire drivers in `tests::blocking` and
-    // `async_actor::tests` (#636).
-    #[cfg(any(
-        all(test, feature = "blocking", not(feature = "async")),
-        all(
-            test,
-            feature = "async",
-            any(feature = "runtime-tokio", feature = "runtime-smol")
-        )
+    // Read only by the test wire drivers in `async_actor::tests` (#636).
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) cancellation: bool,
     pub(crate) inquiry: bool,
@@ -1461,9 +1440,8 @@ pub(crate) enum AppliedEffect {
 /// The owner's live operational tuning, shared with every handle that prepares
 /// requests against it.
 ///
-/// The owner is the sole writer: an update reaches it through the async control
-/// boundary or, in the blocking mode, through the owner turn the caller thread
-/// takes. Readers therefore see one whole [`crate::OperationalTuning`] value —
+/// The owner is the sole writer: an update reaches it through the control
+/// boundary of either owner shell (#631, #780). Readers therefore see one whole [`crate::OperationalTuning`] value —
 /// never a half-applied mixture of two updates — and two concurrent updates
 /// resolve last-writer-wins in the order the owner accepted them.
 #[derive(Debug, Clone)]
@@ -1550,14 +1528,13 @@ pub(crate) struct OwnerState {
     next_subscription: u64,
     // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
     // (#636).
-    #[cfg(any(feature = "async", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
     diagnostics: VecDeque<DiagnosticEvent>,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
     session_error: Option<Error>,
-    origin: Arc<()>,
 }
 
 impl OwnerState {
@@ -1612,23 +1589,18 @@ impl OwnerState {
             diagnostic_subscribers: BTreeMap::new(),
             #[cfg(test)]
             next_subscription: 1,
-            #[cfg(any(feature = "async", test))]
+            #[cfg(any(feature = "async", feature = "blocking", test))]
             next_diagnostic_subscription: 1,
             next_ticket: 1,
             diagnostics: VecDeque::new(),
             metrics: OwnerMetrics::default(),
             buffers,
             session_error: None,
-            origin: Arc::new(()),
         })
     }
 
     pub(crate) fn permits(&self) -> AdmissionPermitPool {
         self.permits.clone()
-    }
-
-    pub(crate) fn origin(&self) -> Arc<()> {
-        Arc::clone(&self.origin)
     }
 
     pub(crate) const fn policy(&self) -> &OwnerPolicy {
@@ -1701,7 +1673,7 @@ impl OwnerState {
 
     /// Whether `id` is still an active request: admitted, and its terminal
     /// outcome not yet delivered.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn is_active(&self, id: RequestId) -> bool {
         self.active.contains_key(&id)
     }
@@ -1777,7 +1749,7 @@ impl OwnerState {
 
     /// Accounts for a bounded diagnostic ingress evicting an older event before
     /// the owner can place it in its public diagnostic ring.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn record_dropped_diagnostics(&mut self, count: u64) {
         self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
     }
@@ -1790,12 +1762,6 @@ impl OwnerState {
     #[cfg(test)]
     pub(crate) fn diagnostics(&self) -> impl Iterator<Item = &DiagnosticEvent> {
         self.diagnostics.iter()
-    }
-
-    // Consumed by the public blocking diagnostics facade and its owner tests.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn drain_diagnostics(&mut self) -> Vec<DiagnosticEvent> {
-        self.diagnostics.drain(..).collect()
     }
 
     pub(crate) fn next_wake(&self) -> Option<Instant> {
@@ -1872,49 +1838,9 @@ impl OwnerState {
         }
     }
 
-    /// The next engine wake relevant to the selected turn boundary.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
-        self.engine.next_wake_for(turn)
-    }
-
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
         self.observe_input(&input);
         self.engine.handle(input, now).into()
-    }
-
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn input_with_turn(
-        &mut self,
-        input: Input,
-        now: Instant,
-        turn: EngineTurn,
-    ) -> VecDeque<Effect> {
-        self.observe_input(&input);
-        self.engine.handle_turn(input, now, turn).into()
-    }
-
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
-        self.engine.first_dispatch(id, now)
-    }
-
-    /// Terminalizes an admitted, still-unwritten request through the engine's
-    /// normal lifecycle transition. Blocking operation submission uses this
-    /// when socket capacity is unavailable, so the temporary observer receives
-    /// the rejection and its shared admission permit is released immediately.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> VecDeque<Effect> {
-        self.engine.reject_unwritten(id, error).into()
-    }
-
-    /// Whether the raw single-candidate pre-ACK gate alone blocks a new command
-    /// on `target`, so pumping the pending ACK would free a socket for it
-    /// (issue #673). See
-    /// [`super::engine::ProtocolEngine::raw_ack_input_may_enable_dispatch`].
-    #[cfg(feature = "blocking")]
-    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
-        self.engine.raw_ack_input_may_enable_dispatch(target)
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1967,11 +1893,6 @@ impl OwnerState {
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
         self.engine.advance(now).into()
-    }
-
-    #[cfg(feature = "blocking")]
-    pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> VecDeque<Effect> {
-        self.engine.advance_turn(now, turn).into()
     }
 
     pub(crate) fn finish_write(
@@ -2051,22 +1972,6 @@ impl OwnerState {
             sequence,
             success,
         });
-    }
-
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn stage_admission(
-        &mut self,
-        request: RuntimeRequest,
-        permit: AdmissionPermit,
-    ) -> (
-        Input,
-        TerminalObserver,
-        flume::Receiver<Result<RequestId, Error>>,
-    ) {
-        let (observer, cell) = TerminalObserver::pair();
-        let (reply, admission) = flume::bounded(1);
-        let input = self.stage_admission_with(request, permit, cell, reply);
-        (input, observer, admission)
     }
 
     fn stage_admission_with(
@@ -2203,9 +2108,7 @@ impl OwnerState {
         Ok(AppliedStateSubscription { receiver })
     }
 
-    // Consumed by the async actor's diagnostics control arm and the owner
-    // tests.
-    #[cfg(any(feature = "async", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
@@ -2274,13 +2177,10 @@ impl OwnerState {
         &'a mut self,
         staged: &StagedWrite,
     ) -> Result<WireWrite<'a>, Error> {
-        #[cfg(any(
-            all(test, feature = "blocking", not(feature = "async")),
-            all(
-                test,
-                feature = "async",
-                any(feature = "runtime-tokio", feature = "runtime-smol")
-            )
+        #[cfg(all(
+            test,
+            feature = "async",
+            any(feature = "runtime-tokio", feature = "runtime-smol")
         ))]
         let cancellation = matches!(staged.kind, Transmission::Cancel { .. });
         let inquiry = self
@@ -2289,25 +2189,19 @@ impl OwnerState {
             .is_some_and(|active| active.summary.lane == RequestLane::Inquiry);
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
-            #[cfg(any(
-                all(test, feature = "blocking", not(feature = "async")),
-                all(
-                    test,
-                    feature = "async",
-                    any(feature = "runtime-tokio", feature = "runtime-smol")
-                )
+            #[cfg(all(
+                test,
+                feature = "async",
+                any(feature = "runtime-tokio", feature = "runtime-smol")
             ))]
             request: staged.request,
             bytes,
             requested_sequence: staged.requested_sequence,
             frame_buffer,
-            #[cfg(any(
-                all(test, feature = "blocking", not(feature = "async")),
-                all(
-                    test,
-                    feature = "async",
-                    any(feature = "runtime-tokio", feature = "runtime-smol")
-                )
+            #[cfg(all(
+                test,
+                feature = "async",
+                any(feature = "runtime-tokio", feature = "runtime-smol")
             ))]
             cancellation,
             inquiry,
@@ -2594,7 +2488,7 @@ impl OwnerState {
     }
 
     // Consumed only by the async actor's boundary drain (#636).
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn fail_unstaged_boundary(&mut self, count: usize) {
         self.metrics.dropped_boundary_work = self
             .metrics
@@ -2633,7 +2527,7 @@ impl OwnerState {
 }
 
 // Private helper for the owner subscription paths.
-#[cfg(any(feature = "async", test))]
+#[cfg(any(feature = "async", feature = "blocking", test))]
 fn allocate_subscription_id<T>(next: &mut u64, values: &BTreeMap<u64, T>) -> u64 {
     loop {
         let id = *next;

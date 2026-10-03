@@ -151,20 +151,22 @@ fn close_after_engine_poison_surfaces_the_terminal_cause() {
 }
 
 #[test]
-fn engine_poison_marks_metrics_poisoned_and_names_the_diagnostic_reason() {
+fn engine_poison_reports_poisoned_status_and_names_the_diagnostic_reason() {
     let session = strict_session();
+    let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     poison_via_strict_opt_in(&session);
 
-    assert_eq!(
-        session.metrics().expect("metrics").session,
-        SessionStatus::Poisoned,
-        "the owner records the engine-initiated poison in its session status"
+    // The owner has ended, so a metrics request is answered with its terminal
+    // cause, exactly as on the async surface.
+    assert!(
+        matches!(session.metrics(), Err(Error::StreamPoisoned { .. })),
+        "a poisoned owner answers control requests with its terminal cause"
     );
 
     // The SessionChanged diagnostic reason is the real ErrorKind (IoClosed for a
     // stream poison), not the Other it collapsed to while session_error stayed
     // unset.
-    let diagnostics = session.drain_diagnostics().expect("diagnostics");
+    let diagnostics: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     let reason = diagnostics
         .iter()
         .find_map(|event| match event {

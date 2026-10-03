@@ -42,10 +42,11 @@ use grafton_visca::{
     Error,
 };
 
-/// A caller-driven stream camera. Each queued entry is delivered as one `recv`
+/// A scripted stream camera. Each queued entry is delivered as one `recv`
 /// read (truncated to the caller's receive buffer, which the tests size large
-/// enough that nothing is dropped); an exhausted script reports an idle timeout
-/// so a pump that is waiting on a reply that will never come does not spin.
+/// enough that nothing is dropped) once the command has been written, as a
+/// real camera answers only what it was sent; before that, and once the
+/// script is exhausted, a read reports an idle timeout.
 #[derive(Debug)]
 struct StreamCamera {
     config: TransportConfig,
@@ -97,6 +98,9 @@ impl BlockingTransport for StreamCamera {
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
+        if self.sent.lock().expect("sent lock").is_empty() {
+            return Err(Error::io_timeout());
+        }
         let Some(chunk) = self.reads.pop_front() else {
             return Err(Error::io_timeout());
         };
@@ -244,7 +248,7 @@ fn burst_read(count: usize) -> Vec<u8> {
 
 /// Issue #674: a single stream read that decodes more than the per-receive frame
 /// limit (default 64) must not poison the session. Sixty-five frames in one read
-/// are all decoded across the pump and the command settles.
+/// are all decoded across successive receives and the command settles.
 #[test]
 fn stream_over_limit_burst_keeps_the_session_and_settles() {
     command_settles_over_stream(AddressingMode::Ip, vec![burst_read(65)]);

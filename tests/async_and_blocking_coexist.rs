@@ -21,13 +21,13 @@ fn assert_blocking_surface() {
         Error, ProfileSpec,
     };
 
-    let _: Option<Camera<'static, PtzOpticsG2>> = None;
+    let _: Option<Camera<PtzOpticsG2>> = None;
     let _: Option<Session> = None;
     let _: Option<SessionConfig> = None;
-    let _: Option<Operation<'static, Targeted>> = None;
-    let _: Option<Operation<'static, AppliedOnly>> = None;
-    let _: fn(&mut Operation<'static, Targeted>) -> Result<(), Error> = Operation::applied;
-    let _: fn(&mut Operation<'static, AppliedOnly>) -> Result<(), Error> = Operation::applied;
+    let _: Option<Operation<Targeted>> = None;
+    let _: Option<Operation<AppliedOnly>> = None;
+    let _: fn(&mut Operation<Targeted>) -> Result<(), Error> = Operation::applied;
+    let _: fn(&mut Operation<AppliedOnly>) -> Result<(), Error> = Operation::applied;
     let _: fn(ProfileSpec) -> SessionConfig = SessionConfig::new;
 }
 

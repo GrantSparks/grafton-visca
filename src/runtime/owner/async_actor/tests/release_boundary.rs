@@ -306,13 +306,23 @@ async fn raw_stream_immediate_timeout_grace_is_elapsed_bounded() {
     assert_immediate_idle_raw_grace_is_bounded(ImmediateRawIdle::Timeout).await;
 }
 
-/// Build the async half of #747's facade differential from the same caller
-/// observer contract as the blocking path. A's raw tombstone is already due
-/// when B's observer expires; the actor must reject B before staging it, so
-/// the deadline cannot poison the session or become a later successor write.
-#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
-async fn async_raw_tombstone_timeout_verdict(
-) -> super::super::super::RawReleaseObserverDeadlineVerdict {
+/// The caller-observed verdict of a raw release whose successor's observer
+/// deadline expires first (#747).
+#[cfg(feature = "runtime-tokio")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawReleaseObserverDeadlineVerdict {
+    timed_out: bool,
+    session: SessionState,
+    elapsed: Duration,
+    limit: Duration,
+    successor_written: bool,
+}
+
+/// A's raw tombstone is already due when B's observer expires; the actor must
+/// reject B before staging it, so the deadline cannot poison the session or
+/// become a later successor write.
+#[cfg(feature = "runtime-tokio")]
+async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
     const HOLD: Duration = Duration::from_millis(15);
     const OBSERVER: Duration = Duration::from_millis(20);
 
@@ -396,7 +406,7 @@ async fn async_raw_tombstone_timeout_verdict(
     );
     assert_eq!(actor.core.state.state(), SessionState::Running);
 
-    super::super::super::RawReleaseObserverDeadlineVerdict {
+    RawReleaseObserverDeadlineVerdict {
         timed_out: true,
         session: actor.core.state.state(),
         elapsed: now.saturating_duration_since(initial),
@@ -405,27 +415,24 @@ async fn async_raw_tombstone_timeout_verdict(
     }
 }
 
-/// Blocking pumps its due raw tombstone through repeated receive faults; async
-/// expires the same pre-admission observer before staging its queued boundary.
-/// The mechanisms differ by facade, but the contractual verdict is identical:
-/// a bounded Timeout, a live session, and no successor write (#747).
-#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
+/// An observer deadline that expires while a raw tombstone holds its target
+/// is a bounded Timeout with a live session and no successor write (#747).
+/// Both facades run this one owner core, so the verdict holds for each.
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
-async fn raw_release_observer_deadline_verdict_matches_blocking() {
-    let blocking = super::super::super::raw_tombstone_fault_timeout_verdict();
-    let asynchronous = async_raw_tombstone_timeout_verdict().await;
+async fn raw_release_observer_deadline_expires_before_staging() {
+    let verdict = raw_tombstone_timeout_verdict().await;
 
-    assert_eq!(blocking, asynchronous);
-    assert!(blocking.timed_out, "both facades return Timeout");
-    assert_eq!(blocking.session, SessionState::Running);
+    assert!(verdict.timed_out, "the caller observes Timeout");
+    assert_eq!(verdict.session, SessionState::Running);
     assert!(
-        blocking.elapsed <= blocking.limit,
+        verdict.elapsed <= verdict.limit,
         "raw release wait exceeded the observer deadline: {:?} > {:?}",
-        blocking.elapsed,
-        blocking.limit
+        verdict.elapsed,
+        verdict.limit
     );
     assert!(
-        !blocking.successor_written,
+        !verdict.successor_written,
         "an observer-expired successor is never written"
     );
 }

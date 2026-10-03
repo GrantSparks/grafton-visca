@@ -130,11 +130,17 @@ impl AdmissionValidity {
     }
 }
 
-/// How a caller's deadline-constrained admission wait ended.
+/// The owner's answer to one enqueued admission: the admitted request's
+/// identity, or why it was not admitted.
+pub(super) type AdmissionReply = flume::Receiver<Result<RequestId, Error>>;
+
+/// A deadline-constrained admission a caller has enqueued, with what it
+/// must record if its deadline wins the race.
 #[derive(Debug)]
-pub(super) enum AdmissionWait {
-    Reply(Result<Result<RequestId, Error>, Error>),
-    Deadline { expired_before_admission: bool },
+pub(super) struct AdmissionExpiry {
+    validity: AdmissionValidity,
+    target: crate::CameraId,
+    lane: RequestLane,
 }
 
 #[derive(Debug)]
@@ -500,7 +506,6 @@ pub(super) struct OwnerHandleCore {
     /// Nothing is ever sent on it.
     pub(super) actor_alive: flume::Receiver<()>,
     lifecycle: Arc<OwnerLifecycle>,
-    pub(super) origin: Arc<()>,
     state_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     /// The owner's live operational tuning (#631). Reading it is a lock and a
     /// copy, so preparation never has to round-trip through the owner.
@@ -536,7 +541,6 @@ impl OwnerHandleCore {
                 shutdown: shutdown_tx,
                 actor_alive,
                 lifecycle: Arc::clone(&lifecycle),
-                origin: state.origin(),
                 state_cache: state.state_cache_registry(),
                 tuning: state.live_tuning(),
             },
@@ -568,17 +572,6 @@ impl OwnerHandleCore {
             Some(Error::RuntimeShutdown) => Ok(()),
             Some(error) => Err(error),
             None => Err(missing_terminal_error()),
-        }
-    }
-
-    /// Refuse a receipt whose observation slots belong to another owner.
-    pub(super) fn ensure_origin(&self, origin: &Arc<()>) -> Result<(), Error> {
-        if Arc::ptr_eq(origin, &self.origin) {
-            Ok(())
-        } else {
-            Err(Error::InvalidState(
-                "receipt belongs to a different owner".into(),
-            ))
         }
     }
 
@@ -647,7 +640,7 @@ impl OwnerHandleCore {
         &self,
         request: RuntimeRequest,
         validity: Option<AdmissionValidity>,
-    ) -> Result<(TerminalObserver, flume::Receiver<Result<RequestId, Error>>), Error> {
+    ) -> Result<(TerminalObserver, AdmissionReply), Error> {
         let target = request.context().target;
         let lane = RequestLane::of(&request);
         if let Some(error) = self.admission_rejection() {
@@ -699,6 +692,54 @@ impl OwnerHandleCore {
                 Err(error)
             }
         }
+    }
+
+    /// [`enqueue_admission`](Self::enqueue_admission) under a caller
+    /// deadline that applies before admission. A deadline already reached at
+    /// `now` is rejected without enqueuing anything.
+    pub(super) fn enqueue_admission_until(
+        &self,
+        request: RuntimeRequest,
+        deadline: Instant,
+        now: Instant,
+    ) -> Result<(TerminalObserver, AdmissionReply, AdmissionExpiry), Error> {
+        let target = request.context().target;
+        let lane = RequestLane::of(&request);
+        if now >= deadline {
+            let error = Error::admission_timeout();
+            self.record_pre_admission_rejection(target, lane, &error);
+            return Err(error);
+        }
+        let validity = AdmissionValidity::until(deadline);
+        let (completion, admission) = self.enqueue_admission(request, Some(validity.clone()))?;
+        Ok((
+            completion,
+            admission,
+            AdmissionExpiry {
+                validity,
+                target,
+                lane,
+            },
+        ))
+    }
+
+    /// Settle a caller deadline that expired while its admission was queued.
+    ///
+    /// Returns the admission timeout when the caller won the race. `Ok(())`
+    /// means the owner claimed the boundary first: its reply is authoritative,
+    /// and waiting for it preserves normal post-admission observer-detach
+    /// semantics instead of leaving an admitted request behind a returned
+    /// timeout.
+    pub(super) fn expire_admission(&self, expiry: &AdmissionExpiry) -> Result<(), Error> {
+        if !expiry.validity.expire_before_admission() {
+            return Ok(());
+        }
+        let error = Error::admission_timeout();
+        // Winning `expire_before_admission` is the sole caller-side
+        // linearization point for this rejection. The owner observes
+        // `ExpiredElsewhere` and deliberately does not record it again.
+        self.record_pre_admission_rejection(expiry.target, expiry.lane, &error);
+        Err(error)
     }
 
     /// Reports a compact rejection without creating any admission-owned state.

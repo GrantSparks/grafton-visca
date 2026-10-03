@@ -12,24 +12,21 @@ use std::{
 
 use futures_lite::future;
 
-use crate::{
-    completion, executor::Executor, AffectedAxes, CancellationOutcome, Error, ResponseDecoder,
-};
+use crate::{completion, executor::Executor, CancellationOutcome, Error};
 
 use super::boundary::{
-    AdmissionValidity, AdmissionWait, BoundaryReceivers, CancellationBoundary, ControlBoundary,
-    OwnerHandleCore, OwnerSnapshot,
+    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerHandleCore, OwnerSnapshot,
 };
 use super::receipt::{
-    observer_deadline, position_poll, settlement_budget, ObservationWake, OperationWait,
-    PositionPoll,
+    observer_deadline, position_poll, settlement_budget, CommandReceipt, InquiryReceipt,
+    ObservationWake, OperationReceipt, OperationWait, PositionPoll,
 };
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
     normalize_command_outcome, normalize_inquiry_outcome, CancellationObserver,
     CancellationRequest, DiagnosticSubscription, OperationObservation, OwnerInputTurn, OwnerPolicy,
-    OwnerReceive, OwnerState, ReceiptCore, RequestLane, RetainedStreamInput, RuntimeOutcome,
-    RuntimeRequest, TerminalObserver, TransmissionMeta, WireWrite,
+    OwnerReceive, OwnerState, ReceiptCore, RetainedStreamInput, RuntimeOutcome, RuntimeRequest,
+    TerminalObserver, TransmissionMeta, WireWrite,
 };
 
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
@@ -222,91 +219,43 @@ pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send;
 }
 
-/// Async-mode linear command observation right.
-#[derive(Debug)]
-pub(crate) struct AsyncCommandReceipt {
-    core: ReceiptCore,
-}
+/// An async operation receipt, as the public [`crate::Operation`] holds it.
+pub(crate) type AsyncOperationReceipt<K> = OperationReceipt<K, AsyncOwnerHandle>;
 
-/// Async-mode linear inquiry observation right and its exact decoder.
-#[derive(Debug)]
-pub(crate) struct AsyncInquiryReceipt<R> {
-    core: ReceiptCore,
-    decoder: ResponseDecoder<R>,
-}
-
-/// Async-mode observation of one admitted operation: its cached observation
-/// state, settlement plan, and originating owner. Every wait borrows it, so
-/// an abandoned or timed-out wait releases only that wait (#777). Only this
-/// receipt class exposes cancellation.
-#[derive(Debug)]
-pub(crate) struct AsyncOperationReceipt<K>
-where
-    K: completion::Kind,
-{
-    observation: OperationObservation,
-    affected_axes: AffectedAxes,
-    settlement: completion::Settlement<K>,
-    owner: AsyncOwnerHandle,
-}
-
-/// Selected owner and executor clock used only by receipt observation.
-#[derive(Debug, Clone)]
-pub(crate) struct AsyncReceiptControl {
-    owner: AsyncOwnerHandle,
-}
-
-impl AsyncCommandReceipt {
-    pub(crate) async fn wait(self, control: AsyncReceiptControl) -> Result<(), Error> {
-        let deadline = control
-            .owner
-            .deadline_after(self.core.configured_timeout())?;
-        wait_core_until(&self.core, &control.owner, deadline)
+impl CommandReceipt<AsyncOwnerHandle> {
+    pub(crate) async fn wait(self) -> Result<(), Error> {
+        let deadline = self.owner.deadline_after(self.core.configured_timeout())?;
+        wait_core_until(&self.core, &self.owner, deadline)
             .await
             .and_then(normalize_command_outcome)
     }
 
     // Used only by owner unit tests; the public session calls `wait`.
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) async fn wait_with_timeout(
-        self,
-        control: AsyncReceiptControl,
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        let deadline = control.owner.deadline_after(timeout)?;
-        wait_core_until(&self.core, &control.owner, deadline)
+    pub(crate) async fn wait_with_timeout(self, timeout: Duration) -> Result<(), Error> {
+        let deadline = self.owner.deadline_after(timeout)?;
+        wait_core_until(&self.core, &self.owner, deadline)
             .await
             .and_then(normalize_command_outcome)
     }
-
-    // Used only by the owner-origin test below to release an otherwise
-    // unobserved receipt while both actors are shut down.
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    pub(crate) fn detach(self) {}
 }
 
-impl<T> AsyncInquiryReceipt<T> {
-    pub(crate) async fn wait(self, control: AsyncReceiptControl) -> Result<T, Error> {
-        let deadline = control
-            .owner
-            .deadline_after(self.core.configured_timeout())?;
-        self.wait_until(&control.owner, deadline).await
+impl<T> InquiryReceipt<T, AsyncOwnerHandle> {
+    pub(crate) async fn wait(self) -> Result<T, Error> {
+        let deadline = self.owner.deadline_after(self.core.configured_timeout())?;
+        self.wait_until(deadline).await
     }
 
-    async fn wait_until(self, owner: &AsyncOwnerHandle, deadline: Instant) -> Result<T, Error> {
-        let outcome = wait_core_until(&self.core, owner, deadline).await?;
+    async fn wait_until(self, deadline: Instant) -> Result<T, Error> {
+        let outcome = wait_core_until(&self.core, &self.owner, deadline).await?;
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 }
 
-impl<K> AsyncOperationReceipt<K>
+impl<K> OperationReceipt<K, AsyncOwnerHandle>
 where
     K: completion::Kind,
 {
-    pub(crate) fn id(&self) -> u64 {
-        self.observation.id().get()
-    }
-
     /// Waits for application, within `timeout` or the configured observer
     /// deadline.
     pub(crate) async fn applied(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
@@ -341,7 +290,6 @@ where
         if let Some(verdict) = self.observation.cancellation() {
             return verdict;
         }
-        self.owner.core.ensure_origin(self.observation.origin())?;
         let request = self.observation.cancellation_request();
         if let Err(error) = self.owner.request_cancellation(request, deadline).await {
             // A terminal outcome that raced the refusal still decides.
@@ -357,7 +305,7 @@ where
     }
 }
 
-impl AsyncOperationReceipt<completion::Targeted> {
+impl OperationReceipt<completion::Targeted, AsyncOwnerHandle> {
     /// Waits for application and then the profile-selected settlement
     /// condition, within `timeout` or the configured settlement budget.
     ///
@@ -390,9 +338,8 @@ async fn poll_settlement_async(
     poll: PositionPoll<'_>,
     deadline: Instant,
 ) -> Result<(), Error> {
-    let control = owner.receipt_control();
     let mut detector = crate::prepared::MotionDetector::new(poll.axes, poll.tolerance);
-    let baseline = sample_positions_async(owner, &control, poll.queries, deadline).await?;
+    let baseline = sample_positions_async(owner, poll.queries, deadline).await?;
     if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
         return Err(Error::InvalidState(
             "new movement detector rejected its baseline snapshot".into(),
@@ -405,7 +352,7 @@ async fn poll_settlement_async(
         }
         owner.clock.sleep(poll.interval.min(remaining)).await;
         ensure_async_before_deadline(owner, deadline)?;
-        let snapshot = sample_positions_async(owner, &control, poll.queries, deadline).await?;
+        let snapshot = sample_positions_async(owner, poll.queries, deadline).await?;
         match detector.observe(snapshot)? {
             crate::prepared::MotionState::Settled => return Ok(()),
             crate::prepared::MotionState::Moving => {}
@@ -423,11 +370,9 @@ async fn poll_settlement_async(
 /// standalone owner-backed motion facade.
 pub(crate) async fn sample_positions_async(
     owner: &AsyncOwnerHandle,
-    control: &AsyncReceiptControl,
     queries: &crate::prepared::PositionQueryPlan,
     deadline: Instant,
 ) -> Result<crate::prepared::PositionSnapshot, Error> {
-    debug_assert!(Arc::ptr_eq(&owner.core.origin, &control.owner.core.origin));
     let mut snapshot = crate::prepared::PositionSnapshot::default();
     if let Some(query) = &queries.pan_tilt {
         snapshot.pan_tilt = Some(sample_async(owner, query, deadline).await?);
@@ -458,7 +403,7 @@ async fn sample_async<R>(
         let receipt = owner
             .submit_inquiry_until(query.instantiate(), deadline)
             .await?;
-        let value = receipt.wait_until(owner, deadline).await?;
+        let value = receipt.wait_until(deadline).await?;
         ensure_async_before_deadline(owner, deadline)?;
         Ok(value)
     };
@@ -529,7 +474,6 @@ async fn observe_until<T>(
     deadline: Instant,
     verdict: impl Fn(&mut OperationObservation) -> Option<T>,
 ) -> Result<T, Error> {
-    owner.core.ensure_origin(observation.origin())?;
     let mut wait = OperationWait::new(observation, verdict);
     loop {
         if let Some(value) = wait.verdict() {
@@ -549,7 +493,6 @@ async fn wait_core_until(
     owner: &AsyncOwnerHandle,
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
-    owner.core.ensure_origin(&core.origin)?;
     if let Some(outcome) = core.try_outcome() {
         return Ok(outcome);
     }
@@ -629,22 +572,19 @@ impl AsyncOwnerHandle {
         observer_deadline(self.clock.now(), timeout)
     }
 
-    pub(crate) fn receipt_control(&self) -> AsyncReceiptControl {
-        AsyncReceiptControl {
-            owner: self.clone(),
-        }
-    }
-
     /// Class-specific typed admission seam for ordinary commands.
     pub(crate) async fn submit_command(
         &self,
         prepared: crate::prepared::PreparedCommand,
-    ) -> Result<AsyncCommandReceipt, Error> {
+    ) -> Result<CommandReceipt<Self>, Error> {
         prepared
             .admit_with(|request, timeout| async move {
                 self.submit_with_timeout(request, timeout)
                     .await
-                    .map(|core| AsyncCommandReceipt { core })
+                    .map(|core| CommandReceipt {
+                        core,
+                        owner: self.clone(),
+                    })
             })
             .await
     }
@@ -653,12 +593,16 @@ impl AsyncOwnerHandle {
     pub(crate) async fn submit_inquiry<R>(
         &self,
         prepared: crate::prepared::PreparedInquiry<R>,
-    ) -> Result<AsyncInquiryReceipt<R>, Error> {
+    ) -> Result<InquiryReceipt<R, Self>, Error> {
         prepared
             .admit_with(|request, decoder, timeout| async move {
                 self.submit_with_timeout(request, timeout)
                     .await
-                    .map(|core| AsyncInquiryReceipt { core, decoder })
+                    .map(|core| InquiryReceipt {
+                        core,
+                        decoder,
+                        owner: self.clone(),
+                    })
             })
             .await
     }
@@ -667,12 +611,16 @@ impl AsyncOwnerHandle {
         &self,
         prepared: crate::prepared::PreparedInquiry<R>,
         deadline: Instant,
-    ) -> Result<AsyncInquiryReceipt<R>, Error> {
+    ) -> Result<InquiryReceipt<R, Self>, Error> {
         prepared
             .admit_with(|request, decoder, timeout| async move {
                 self.submit_with_timeout_until(request, timeout, deadline)
                     .await
-                    .map(|core| AsyncInquiryReceipt { core, decoder })
+                    .map(|core| InquiryReceipt {
+                        core,
+                        decoder,
+                        owner: self.clone(),
+                    })
             })
             .await
     }
@@ -689,7 +637,7 @@ impl AsyncOwnerHandle {
             .admit_with(|request, affected_axes, settlement, timeouts| async move {
                 self.submit_with_timeout(request, timeouts.applied)
                     .await
-                    .map(|core| AsyncOperationReceipt {
+                    .map(|core| OperationReceipt {
                         observation: OperationObservation::new(core, timeouts.cancellation),
                         affected_axes,
                         settlement,
@@ -720,13 +668,7 @@ impl AsyncOwnerHandle {
         let target = request.context().target;
         let (completion, admission) = self.core.enqueue_admission(request, None)?;
         match self.await_boundary_reply(&admission).await {
-            Ok(Ok(id)) => Ok(ReceiptCore::new(
-                id,
-                target,
-                completion,
-                configured_timeout,
-                Arc::clone(&self.core.origin),
-            )),
+            Ok(Ok(id)) => Ok(ReceiptCore::new(id, target, completion, configured_timeout)),
             Ok(Err(error)) | Err(error) => Err(error),
         }
     }
@@ -738,57 +680,24 @@ impl AsyncOwnerHandle {
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
-        let lane = RequestLane::of(&request);
-        if self.now() >= deadline {
-            let error = Error::admission_timeout();
+        let (completion, admission, expiry) =
             self.core
-                .record_pre_admission_rejection(target, lane, &error);
-            return Err(error);
-        }
-        let validity = AdmissionValidity::until(deadline);
-        let (completion, admission) = self
-            .core
-            .enqueue_admission(request, Some(validity.clone()))?;
+                .enqueue_admission_until(request, deadline, self.now())?;
         let remaining = deadline.saturating_duration_since(self.clock.now());
-        let admitted = async { AdmissionWait::Reply(self.await_boundary_reply(&admission).await) };
+        let admitted = async { Some(self.await_boundary_reply(&admission).await) };
         let timed_out = async {
             self.clock.sleep(remaining).await;
-            AdmissionWait::Deadline {
-                expired_before_admission: validity.expire_before_admission(),
+            None
+        };
+        let reply = match future::or(admitted, timed_out).await {
+            Some(reply) => reply,
+            None => {
+                self.core.expire_admission(&expiry)?;
+                self.await_boundary_reply(&admission).await
             }
         };
-        let id = match future::or(admitted, timed_out).await {
-            AdmissionWait::Reply(Ok(Ok(id))) => id,
-            AdmissionWait::Reply(Ok(Err(error)) | Err(error)) => return Err(error),
-            AdmissionWait::Deadline {
-                expired_before_admission: true,
-            } => {
-                let error = Error::admission_timeout();
-                // Winning `expire_before_admission` is the sole caller-side
-                // linearization point for this rejection. The actor observes
-                // `ExpiredElsewhere` and deliberately does not record it again.
-                self.core
-                    .record_pre_admission_rejection(target, lane, &error);
-                return Err(error);
-            }
-            // The actor claimed this boundary before the caller could expire
-            // it. Its reply is now authoritative; waiting for it preserves
-            // normal post-admission observer-detach semantics instead of
-            // leaving an admitted request behind a returned timeout.
-            AdmissionWait::Deadline {
-                expired_before_admission: false,
-            } => match self.await_boundary_reply(&admission).await {
-                Ok(Ok(id)) => id,
-                Ok(Err(error)) | Err(error) => return Err(error),
-            },
-        };
-        Ok(ReceiptCore::new(
-            id,
-            target,
-            completion,
-            configured_timeout,
-            Arc::clone(&self.core.origin),
-        ))
+        let id = reply??;
+        Ok(ReceiptCore::new(id, target, completion, configured_timeout))
     }
 
     /// Non-waiting admission used by capacity-sensitive facades. Failure occurs
@@ -808,13 +717,7 @@ impl AsyncOwnerHandle {
         let (completion, admission) = self.core.enqueue_admission(request, None)?;
         Ok(async move {
             match self.await_boundary_reply(&admission).await {
-                Ok(Ok(id)) => Ok(ReceiptCore::new(
-                    id,
-                    target,
-                    completion,
-                    configured_timeout,
-                    Arc::clone(&self.core.origin),
-                )),
+                Ok(Ok(id)) => Ok(ReceiptCore::new(id, target, completion, configured_timeout)),
                 Ok(Err(error)) | Err(error) => Err(error),
             }
         })
@@ -873,10 +776,21 @@ impl AsyncOwnerHandle {
     // Used only by owner unit tests.
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) async fn snapshot(&self) -> Result<OwnerSnapshot, Error> {
+        self.control_request(ControlBoundary::Snapshot).await
+    }
+
+    /// Send one control request and wait for its answer.
+    async fn control_request<T>(
+        &self,
+        request: impl FnOnce(flume::Sender<T>) -> ControlBoundary,
+    ) -> Result<T, Error>
+    where
+        T: Send,
+    {
         let (reply, receiver) = flume::bounded(1);
         self.core
             .control
-            .send_async(ControlBoundary::Snapshot(reply))
+            .send_async(request(reply))
             .await
             .map_err(|_| self.core.disconnected_error())?;
         self.await_boundary_reply(&receiver).await
@@ -885,13 +799,7 @@ impl AsyncOwnerHandle {
     /// Reads scalar owner metrics through a dedicated bounded control request.
     /// This path never clones the diagnostic ring.
     pub(crate) async fn metrics(&self) -> Result<crate::observability::MetricsSnapshot, Error> {
-        let (reply, receiver) = flume::bounded(1);
-        self.core
-            .control
-            .send_async(ControlBoundary::Metrics(reply))
-            .await
-            .map_err(|_| self.core.disconnected_error())?;
-        self.await_boundary_reply(&receiver).await?
+        self.control_request(ControlBoundary::Metrics).await?
     }
 
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
@@ -914,29 +822,19 @@ impl AsyncOwnerHandle {
         &self,
         validated_tuning: Result<crate::OperationalTuning, Error>,
     ) -> Result<(), Error> {
-        let (reply, receiver) = flume::bounded(1);
-        self.core
-            .control
-            .send_async(ControlBoundary::Reconfigure {
-                validated_tuning: Box::new(validated_tuning),
-                reply,
-            })
-            .await
-            .map_err(|_| self.core.disconnected_error())?;
-        self.await_boundary_reply(&receiver).await?
+        self.control_request(|reply| ControlBoundary::Reconfigure {
+            validated_tuning: Box::new(validated_tuning),
+            reply,
+        })
+        .await?
     }
 
     pub(crate) async fn subscribe_diagnostics(
         &self,
         capacity: usize,
     ) -> Result<DiagnosticSubscription, Error> {
-        let (reply, receiver) = flume::bounded(1);
-        self.core
-            .control
-            .send_async(ControlBoundary::SubscribeDiagnostics { capacity, reply })
-            .await
-            .map_err(|_| self.core.disconnected_error())?;
-        self.await_boundary_reply(&receiver).await?
+        self.control_request(|reply| ControlBoundary::SubscribeDiagnostics { capacity, reply })
+            .await?
     }
 
     /// Coalesced idempotent shutdown; see [`OwnerHandleCore::shutdown`].

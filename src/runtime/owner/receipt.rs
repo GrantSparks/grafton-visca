@@ -21,6 +21,51 @@ use super::boundary::OwnerHandleCore;
 use super::{
     CancellationObserver, OperationObservation, ReceiptCore, RuntimeOutcome, TerminalObserver,
 };
+use crate::ResponseDecoder;
+
+/// A command's linear observation right, bound to the owner handle `H` that
+/// admitted it.
+#[derive(Debug)]
+pub(crate) struct CommandReceipt<H> {
+    pub(super) core: ReceiptCore,
+    pub(super) owner: H,
+}
+
+/// An inquiry's linear observation right and its exact decoder, bound to the
+/// owner handle `H` that admitted it.
+#[derive(Debug)]
+pub(crate) struct InquiryReceipt<R, H> {
+    pub(super) core: ReceiptCore,
+    pub(super) decoder: ResponseDecoder<R>,
+    pub(super) owner: H,
+}
+
+/// The observation of one admitted operation: its cached observation state,
+/// settlement plan, and the owner handle `H` that admitted it. Every wait
+/// borrows it, so an abandoned or timed-out wait releases only that wait
+/// (#777). Only this receipt class exposes cancellation.
+///
+/// Each owner shell implements the waits in its own blocking style; the
+/// decisions they make live in this module.
+#[derive(Debug)]
+pub(crate) struct OperationReceipt<K, H>
+where
+    K: completion::Kind,
+{
+    pub(super) observation: OperationObservation,
+    pub(super) affected_axes: AffectedAxes,
+    pub(super) settlement: completion::Settlement<K>,
+    pub(super) owner: H,
+}
+
+impl<K, H> OperationReceipt<K, H>
+where
+    K: completion::Kind,
+{
+    pub(crate) fn id(&self) -> u64 {
+        self.observation.id().get()
+    }
+}
 
 /// What ended one wait for an observation slot.
 #[derive(Debug)]

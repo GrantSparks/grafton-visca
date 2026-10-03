@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 
 use crate::runtime::engine::RawCorrelationReleaseSet;
 
-// The blocking owner adopts the coordinator with its worker thread (D24).
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod coordinator;
 // The async actor tests build only with an executor adapter.
 #[cfg(all(
@@ -20,7 +19,7 @@ mod coordinator;
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 pub(super) use coordinator::SourcePhase;
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 pub(super) use coordinator::{
     Disposition, OwnerCoordinator, ReceiveArm, ReceiveClass, Selected, Selection, Source, TimerArm,
     TurnOutcome, TurnPlan,
@@ -123,13 +122,11 @@ impl RawReleaseTurn {
     }
 
     /// Record that a no-data receive was sampled for this exact release set.
-    #[cfg(feature = "async")]
     pub(super) fn fence_no_input(&mut self, releases: RawCorrelationReleaseSet) {
         debug_assert!(!releases.is_empty());
         self.no_input_fence = Some(releases);
     }
 
-    #[cfg(feature = "async")]
     pub(super) fn is_fenced(&self, releases: RawCorrelationReleaseSet) -> bool {
         self.no_input_fence.is_some_and(|fenced| fenced == releases)
     }

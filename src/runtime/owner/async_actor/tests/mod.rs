@@ -726,10 +726,7 @@ where
         // intent; the receipt's terminal slot still decides (#777).
         let cancellation = handle.cancel_test(&success.core).await.unwrap();
         assert!(cancellation.try_recv().is_none());
-        success
-            .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
-            .await
-            .unwrap();
+        success.wait_with_timeout(Duration::ZERO).await.unwrap();
 
         let failed = handle
             .submit_command(prepared_focus(&profile))
@@ -756,10 +753,7 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
-        assert!(matches!(
-            failed.wait(handle.receipt_control()).await,
-            Err(Error::SyntaxError)
-        ));
+        assert!(matches!(failed.wait().await, Err(Error::SyntaxError)));
 
         let mut operation = handle
             .submit_operation(prepared_zoom(&profile))
@@ -794,9 +788,7 @@ where
             .await
             .unwrap();
         assert!(matches!(
-            detached
-                .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
-                .await,
+            detached.wait_with_timeout(Duration::ZERO).await,
             Err(Error::ObservationTimeout { .. })
         ));
         assert_eq!(

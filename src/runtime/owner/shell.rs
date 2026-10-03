@@ -475,7 +475,8 @@ impl OwnerShellCore {
 
     /// Apply `effects` up to the next staged transmit, publishing a terminal
     /// session verdict as it is applied. Returns `None` once `effects` is
-    /// exhausted.
+    /// exhausted. A staged transmit ends any receive pause: its reply must
+    /// be read as soon as it arrives.
     pub(super) fn next_transmit(&mut self, effects: &mut VecDeque<Effect>) -> Option<StagedWrite> {
         while let Some(effect) = effects.pop_front() {
             let terminal_transition = matches!(
@@ -491,6 +492,7 @@ impl OwnerShellCore {
                 self.lifecycle.publish_terminal(error);
             }
             if let AppliedEffect::Transmit(staged) = applied {
+                self.coordinator.end_receive_pause();
                 return Some(staged);
             }
         }
@@ -809,8 +811,8 @@ impl OwnerShellCore {
     ///
     /// On a byte stream the position is now unknowable, so the session is
     /// poisoned. On a datagram transport it is one bad datagram: nothing else
-    /// was consumed, the next datagram frames independently, and the blocking
-    /// owner has always failed this per request and kept pumping (#637).
+    /// was consumed, the next datagram frames independently, and the session
+    /// keeps running (#637).
     fn discard_undecodable_receive(&mut self, error: &Error, received_at: Instant) -> TurnStep {
         if self.state.policy().protocol.transport != TransportKind::Stream {
             // The adapter reached this path only after consuming one complete

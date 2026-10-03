@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let session = Connect::open_tcp::<PtzOpticsG2>(&address)?;
     let camera = session.camera();
-    let result = movement(&camera);
+    let result = movement(camera);
     finish_session(result, session.close())?;
     Ok(())
 }
@@ -48,11 +48,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// `Drop` cannot report a failure and may run while unwinding, so the stop is
 /// best effort here — exactly as in any scope guard.
-struct StopPanTiltOnExit<'a, 'session> {
-    camera: &'a Camera<'session, PtzOpticsG2>,
+struct StopPanTiltOnExit<'a> {
+    camera: &'a Camera<PtzOpticsG2>,
 }
 
-impl Drop for StopPanTiltOnExit<'_, '_> {
+impl Drop for StopPanTiltOnExit<'_> {
     fn drop(&mut self) {
         if let Ok(mut stop) = self.camera.pan_tilt().stop() {
             let _ = stop.applied();
@@ -60,7 +60,7 @@ impl Drop for StopPanTiltOnExit<'_, '_> {
     }
 }
 
-fn movement(camera: &Camera<'_, PtzOpticsG2>) -> Result<(), Error> {
+fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     // Targeted movement exposes profile-selected protocol settlement;
     // applied-only movement has no settled state and is observed only at protocol application. Both
     // waits consume the handle, so neither adds a stop of its own.

@@ -475,9 +475,9 @@ fn a_fault_run_only_counts_consecutive_failures() {
         TRANSIENT_RECEIVE_FAULT_SPAN
     ));
 }
-/// Issue #625. The blocking owner clamps its transient pause to the
-/// caller's deadline; the async owner clamps to the next scheduler wake, so
-/// a fault can never delay a due deadline by the length of the pause.
+/// Issue #625. The shell clamps a transient fault pause to the next
+/// scheduler wake, so a fault can never delay a due deadline by the length of
+/// the pause.
 #[test]
 fn the_transient_pause_never_outlives_the_next_wake() {
     let now = Instant::now();
@@ -867,7 +867,9 @@ fn smol_stalled_write_never_parks_close() {
 }
 /// Issue #780: an idle read paces the *receive* source only. While that pause
 /// is pending, admission, control and shutdown are still selected, so a
-/// boundary is applied before the pause ends rather than behind it.
+/// boundary is applied before the pause ends rather than behind it. The
+/// admission's write ends the pause, because its reply may follow at once;
+/// the next read is idle again and re-arms it.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn a_boundary_is_applied_during_an_idle_receive_pause() {
@@ -883,14 +885,29 @@ async fn a_boundary_is_applied_during_an_idle_receive_pause() {
     assert!(!pause.is_zero());
     let paused_at = Executor::now(&runtime);
 
-    // Virtual time is frozen, so the pause cannot end. The admission is still
-    // applied, its write performed, and no further read taken.
+    // Virtual time is frozen, so the pause cannot elapse. The admission is
+    // still applied and written, and only the write lifts the pause: exactly
+    // one more read follows it.
     let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(command()))
         .await
         .expect("an admission must not wait behind an idle receive pause")
         .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while reads.load(Ordering::Relaxed) < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the write ends the receive pause");
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
     assert_eq!(Executor::now(&runtime), paused_at);
-    assert_eq!(reads.load(Ordering::Relaxed), 1, "receive stayed paced");
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        2,
+        "the idle read re-paced receive"
+    );
 
     handle.shutdown().await.unwrap();
     let snapshot = tokio::time::timeout(Duration::from_secs(1), actor_task)
@@ -898,6 +915,6 @@ async fn a_boundary_is_applied_during_an_idle_receive_pause() {
         .expect("shutdown must not wait behind an idle receive pause")
         .unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
-    assert_eq!(reads.load(Ordering::Relaxed), 1);
+    assert_eq!(reads.load(Ordering::Relaxed), 2);
     drop(receipt);
 }

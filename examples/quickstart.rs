@@ -18,11 +18,11 @@ use grafton_visca::{
 /// The library never stops hardware on drop, so the `?` inside the movement
 /// block would otherwise leave the zoom driving. This is the same caller-owned
 /// pattern `examples/operation_handles.rs` documents in full.
-struct StopZoomOnExit<'a, 'session> {
-    camera: &'a Camera<'session, PtzOpticsG2>,
+struct StopZoomOnExit<'a> {
+    camera: &'a Camera<PtzOpticsG2>,
 }
 
-impl Drop for StopZoomOnExit<'_, '_> {
+impl Drop for StopZoomOnExit<'_> {
     fn drop(&mut self) {
         // `Drop` cannot report a failure and may run while unwinding, so the
         // stop is best effort.
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if move_camera {
             // The guard bounds the zoom to this block: an early `?` below
             // still stops the camera before the session closes.
-            let _stop_on_exit = StopZoomOnExit { camera: &camera };
+            let _stop_on_exit = StopZoomOnExit { camera };
             let mut drive = camera.zoom().tele()?;
             sleep(Duration::from_millis(250));
             drive.applied()?;

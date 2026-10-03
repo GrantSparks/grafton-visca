@@ -164,6 +164,15 @@ fn a_paced_receive_keeps_every_other_source_selectable_until_it_elapses() {
         ReceiveArm::Poll,
         "an elapsed pause is cleared, not re-armed by an earlier sample"
     );
+
+    // A write ends a pause early: its reply must not wait behind it.
+    coordinator.pace_receive(until);
+    coordinator.end_receive_pause();
+    coordinator.begin_turn();
+    assert_eq!(
+        select(coordinator.plan(now, None, empty(), || false)).receive,
+        ReceiveArm::Poll
+    );
 }
 
 #[test]

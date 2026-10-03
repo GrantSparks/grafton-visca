@@ -30,11 +30,11 @@ use grafton_visca::{
 
 fn plain(_: Result<()>) {}
 
-fn applied<'session>(_: Result<Operation<'session, AppliedOnly>>) {}
+fn applied(_: Result<Operation<AppliedOnly>>) {}
 
-fn targeted<'session>(_: Result<Operation<'session, Targeted>>) {}
+fn targeted(_: Result<Operation<Targeted>>) {}
 
-fn baseline<'session, P>(camera: &Camera<'session, P>)
+fn baseline<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
         + HasPower
@@ -60,9 +60,7 @@ where
     let _ = camera.motion();
 }
 
-fn exposure_mode_surface<'session, P: CompileTimeProfile + HasExposureMode>(
-    camera: &Camera<'session, P>,
-) {
+fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camera<P>) {
     plain(
         camera
             .exposure()
@@ -75,13 +73,11 @@ fn exposure_mode_surface<'session, P: CompileTimeProfile + HasExposureMode>(
 /// `HasImageProcessing` was blanket-implemented from image metadata. Generic
 /// VISCA's all-empty metadata deliberately does not imply the typed image
 /// noun, so the explicit base marker now owns this surface.
-fn base_image_surface<'session, P: CompileTimeProfile + HasImageProcessing>(
-    camera: &Camera<'session, P>,
-) {
+fn base_image_surface<P: CompileTimeProfile + HasImageProcessing>(camera: &Camera<P>) {
     let _ = camera.image();
 }
 
-fn backlight_surface<'session, P>(camera: &Camera<'session, P>)
+fn backlight_surface<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasImageProcessing + HasBacklightCompensation,
 {
@@ -89,7 +85,7 @@ where
     plain(camera.image().set_backlight(true));
 }
 
-fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session, P>) {
+fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
     let _ = camera.power().state();
     let _ = camera.zoom().position();
     let _ = camera.system().version();
@@ -113,14 +109,14 @@ fn all_base_inquiries<'session, P: CompileTimeProfile>(camera: &Camera<'session,
 }
 
 #[allow(dead_code)]
-fn noise_2d_gate<'session, P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2D>(
-    camera: &Camera<'session, P>,
+fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2D>(
+    camera: &Camera<P>,
 ) {
     let _ = camera.image().noise_reduction_2d_mode();
 }
 
 #[allow(dead_code)]
-fn all_optional_inquiries<'session, P>(camera: &Camera<'session, P>)
+fn all_optional_inquiries<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
         + HasAutoFocusSensitivity
@@ -189,7 +185,7 @@ where
     let _ = camera.motion_sync().preset();
 }
 
-fn sony_optional<'session>(camera: &Camera<'session, SonyFR7>) {
+fn sony_optional(camera: &Camera<SonyFR7>) {
     plain(camera.tally().red_on());
     plain(camera.tally().green_off());
     targeted(camera.nd_filter().set_value(1));
@@ -198,22 +194,18 @@ fn sony_optional<'session>(camera: &Camera<'session, SonyFR7>) {
 }
 
 #[allow(dead_code)]
-fn awb_gate<'session, P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(
-    camera: &Camera<'session, P>,
-) {
+fn awb_gate<P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(camera: &Camera<P>) {
     plain(camera.white_balance().sensitivity().map(|_| ()));
 }
 
 #[allow(dead_code)]
-fn motion_gate<'session, P: CompileTimeProfile + HasMotionSync>(camera: &Camera<'session, P>) {
+fn motion_gate<P: CompileTimeProfile + HasMotionSync>(camera: &Camera<P>) {
     plain(camera.motion_sync().set_mode(MotionSyncMode::On));
     plain(camera.motion_sync().set_preset(1));
 }
 
 #[allow(dead_code)]
-fn focus_zone_command_gate<'session, P: CompileTimeProfile + HasFocusZone>(
-    camera: &Camera<'session, P>,
-) {
+fn focus_zone_command_gate<P: CompileTimeProfile + HasFocusZone>(camera: &Camera<P>) {
     plain(
         camera
             .focus()
@@ -222,21 +214,19 @@ fn focus_zone_command_gate<'session, P: CompileTimeProfile + HasFocusZone>(
 }
 
 #[allow(dead_code)]
-fn focus_zone_inquiry_gate<'session, P: CompileTimeProfile + HasFocusZoneInquiry>(
-    camera: &Camera<'session, P>,
-) {
+fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: &Camera<P>) {
     let _ = camera.focus().zone();
 }
 
 #[allow(dead_code)]
-fn usb_audio_gate<'session, P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<'session, P>) {
+fn usb_audio_gate<P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<P>) {
     let _ = camera.advanced().usb_audio_enabled();
     plain(camera.advanced().usb_audio_on());
     plain(camera.advanced().usb_audio_off());
 }
 
 #[allow(dead_code)]
-fn ptzoptics_vendor_command_gates<'session, P>(camera: &Camera<'session, P>)
+fn ptzoptics_vendor_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
         + HasPtzOpticsAntiFlicker
@@ -265,7 +255,7 @@ where
 }
 
 #[allow(dead_code)]
-fn sony_spotlight_command_gates<'session, P>(camera: &Camera<'session, P>)
+fn sony_spotlight_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonySpotlight,
 {
@@ -274,7 +264,7 @@ where
 }
 
 #[allow(dead_code)]
-fn sony_auto_slow_shutter_command_gates<'session, P>(camera: &Camera<'session, P>)
+fn sony_auto_slow_shutter_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonyAutoSlowShutter,
 {
@@ -282,49 +272,29 @@ where
     plain(camera.exposure().auto_slow_shutter_off());
 }
 
-fn non_default<'session>(
-    camera: &Camera<'session, profile_fixtures::NonDefaultCompileTimeProfile>,
-) {
+fn non_default(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) {
     baseline(camera);
 }
 
 #[test]
 fn static_camera_surface_is_profile_typed_and_non_default() {
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) = baseline::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        exposure_mode_surface::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        base_image_surface::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, SonyBRC300>) =
-        backlight_surface::<SonyBRC300>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        all_base_inquiries::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        usb_audio_gate::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
-        usb_audio_gate::<PtzOptics30X>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        ptzoptics_vendor_command_gates::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG3>) =
-        ptzoptics_vendor_command_gates::<PtzOpticsG3>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
-        ptzoptics_vendor_command_gates::<PtzOptics30X>;
-    let _: for<'session> fn(&'session Camera<'session, SonyFR7>) =
-        sony_spotlight_command_gates::<SonyFR7>;
-    let _: for<'session> fn(&'session Camera<'session, SonyBRCH900>) =
-        sony_spotlight_command_gates::<SonyBRCH900>;
-    let _: for<'session> fn(&'session Camera<'session, SonyEVIH100>) =
-        sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
-    let _: for<'session> fn(&'session Camera<'session, SonyBRC300>) =
-        sony_auto_slow_shutter_command_gates::<SonyBRC300>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG2>) =
-        focus_zone_inquiry_gate::<PtzOpticsG2>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOptics30X>) =
-        focus_zone_inquiry_gate::<PtzOptics30X>;
-    let _: for<'session> fn(&'session Camera<'session, PtzOpticsG3>) =
-        focus_zone_command_gate::<PtzOpticsG3>;
-    let _: for<'session> fn(&'session Camera<'session, SonyFR7>) = sony_optional;
-    let _: for<'session> fn(
-        &'session Camera<'session, profile_fixtures::NonDefaultCompileTimeProfile>,
-    ) = non_default;
+    let _: fn(&Camera<PtzOpticsG2>) = baseline::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
+    let _: fn(&Camera<SonyBRC300>) = backlight_surface::<SonyBRC300>;
+    let _: fn(&Camera<PtzOpticsG2>) = all_base_inquiries::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = usb_audio_gate::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOptics30X>) = usb_audio_gate::<PtzOptics30X>;
+    let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_vendor_command_gates::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_vendor_command_gates::<PtzOpticsG3>;
+    let _: fn(&Camera<PtzOptics30X>) = ptzoptics_vendor_command_gates::<PtzOptics30X>;
+    let _: fn(&Camera<SonyFR7>) = sony_spotlight_command_gates::<SonyFR7>;
+    let _: fn(&Camera<SonyBRCH900>) = sony_spotlight_command_gates::<SonyBRCH900>;
+    let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
+    let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
+    let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOptics30X>) = focus_zone_inquiry_gate::<PtzOptics30X>;
+    let _: fn(&Camera<PtzOpticsG3>) = focus_zone_command_gate::<PtzOpticsG3>;
+    let _: fn(&Camera<SonyFR7>) = sony_optional;
+    let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) = non_default;
 }

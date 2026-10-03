@@ -776,7 +776,7 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn position_units(
-//!     camera: &grafton_visca::blocking::Camera<'_, grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{units::Degrees, SpeedLevel};
 //!

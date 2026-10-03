@@ -13,8 +13,8 @@
 //!   selected while a raw release was due (#775), and the eligibility rule
 //!   that follows from it.
 //!
-//! The async actor uses it today; the blocking owner adopts it with its worker
-//! thread (D24). A shell supplies only I/O: it samples the clock, asks
+//! Both owners drive it: the async actor and the blocking worker thread
+//! (D24, #780). A shell supplies only I/O: it samples the clock, asks
 //! [`plan`] for a [`TurnPlan`], polls its sources in the order
 //! [`Selection::order`] gives, reports what was selected through [`classify`],
 //! and reports the turn's result through [`finish`]. Nothing here touches a
@@ -82,7 +82,8 @@ pub(in crate::runtime::owner) enum ReceiveArm {
     /// idle or a transient fault, and its paced pause has not elapsed. Every
     /// other source stays selectable meanwhile, so a pause never delays a
     /// boundary (#675). A pause is clamped to the next engine or grace
-    /// deadline, so it never defers a receive past a timer it must precede.
+    /// deadline, so it never defers a receive past a timer it must precede,
+    /// and a write ends it, so it never delays the reply the write invites.
     Paced { until: Instant },
     /// An exact no-input probe already completed for the latched release set:
     /// the receive source is immediately ready with a timer event instead of
@@ -387,6 +388,14 @@ impl<B> OwnerCoordinator<B> {
     /// receive. Selection keeps every other source live during the pause.
     pub(in crate::runtime::owner) fn pace_receive(&mut self, until: Instant) {
         self.receive_not_before = Some(until);
+    }
+
+    /// End a pending receive pause because the owner just wrote. Pacing only
+    /// keeps an idle transport from spinning the owner; a write invites a
+    /// reply, which must be read as soon as it arrives rather than after a
+    /// pause chosen before the write, possibly past the reply's own deadline.
+    pub(in crate::runtime::owner) fn end_receive_pause(&mut self) {
+        self.receive_not_before = None;
     }
 
     /// Hand a boundary returned by [`TurnPlan::Redeliver`] back because an

@@ -193,7 +193,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
         snapshot.diagnostics,
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Inquiry,
+            lane: crate::runtime::owner::RequestLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }],
         "the caller-expiry winner records exactly one pre-admission rejection"
@@ -247,7 +247,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Inquiry,
+            lane: crate::runtime::owner::RequestLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -261,7 +261,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
     let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
-    let validity = AdmissionValidity::until(deadline);
+    let validity = crate::runtime::owner::boundary::AdmissionValidity::until(deadline);
     let (completion, reply) = handle
         .core
         .enqueue_admission(inquiry(), Some(validity))
@@ -303,7 +303,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Inquiry,
+            lane: crate::runtime::owner::RequestLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -539,7 +539,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
         rejected,
         DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Command,
+            lane: crate::runtime::owner::RequestLane::Command,
             error: crate::ErrorKind::BufferFull,
         }
     );
@@ -578,7 +578,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Inquiry,
+            lane: crate::runtime::owner::RequestLane::Inquiry,
             error: crate::ErrorKind::BufferFull,
         }]
     );
@@ -597,12 +597,12 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
     let first = PreAdmissionRejection {
         target: CameraId::CAMERA_1,
-        lane: super::super::RequestLane::Command,
+        lane: crate::runtime::owner::RequestLane::Command,
         error: crate::ErrorKind::BufferFull,
     };
     let second = PreAdmissionRejection {
         target: CameraId::CAMERA_1,
-        lane: super::super::RequestLane::Inquiry,
+        lane: crate::runtime::owner::RequestLane::Inquiry,
         error: crate::ErrorKind::IoClosed,
     };
 
@@ -620,7 +620,7 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Inquiry,
+            lane: crate::runtime::owner::RequestLane::Inquiry,
             error: crate::ErrorKind::IoClosed,
         }],
         "the bounded queue retains the newest rejection fact"
@@ -657,7 +657,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: super::super::RequestLane::Command,
+            lane: crate::runtime::owner::RequestLane::Command,
             error: crate::ErrorKind::NotExecutable,
         }]
     );
@@ -714,54 +714,6 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
     assert!(cancellation.try_recv().is_none());
     handle.shutdown().await.unwrap();
     assert_eq!(actor_task.await.unwrap().active, 0);
-}
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn receipt_control_is_bound_to_its_originating_owner_and_clock() {
-    let now = Instant::now();
-    let first_runtime = ManualRuntime::new(now);
-    let second_runtime = ManualRuntime::new(now.checked_add(Duration::from_secs(60)).unwrap());
-    let (first, first_actor) = AsyncOwnerActor::new(policy(1), first_runtime).unwrap();
-    let (second, second_actor) = AsyncOwnerActor::new(policy(1), second_runtime).unwrap();
-    let first_harness = harness();
-    let second_harness = harness();
-    let first_started = first_harness.started.clone();
-    let second_started = second_harness.started.clone();
-    let first_gates = first_harness.gates.clone();
-    let second_gates = second_harness.gates.clone();
-    let first_task = tokio::spawn(first_actor.run(first_harness.driver));
-    let second_task = tokio::spawn(second_actor.run(second_harness.driver));
-    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-
-    let first_receipt = first
-        .submit_command(prepared_focus(&profile))
-        .await
-        .unwrap();
-    let second_receipt = second
-        .submit_command(prepared_focus(&profile))
-        .await
-        .unwrap();
-    let _ = first_started.recv_async().await.unwrap();
-    let _ = second_started.recv_async().await.unwrap();
-    assert!(matches!(
-        first_receipt
-            .wait_with_timeout(second.receipt_control(), Duration::ZERO)
-            .await,
-        Err(Error::InvalidState(_))
-    ));
-    second_receipt.detach();
-    first_gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
-    second_gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
-    first.shutdown().await.unwrap();
-    second.shutdown().await.unwrap();
-    assert_eq!(first_task.await.unwrap().state, SessionState::Shutdown);
-    assert_eq!(second_task.await.unwrap().state, SessionState::Shutdown);
 }
 #[cfg(feature = "runtime-smol")]
 #[test]

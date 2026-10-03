@@ -81,13 +81,7 @@ impl RetainedRelease {
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a);
-        let predecessor = ReceiptCore::new(
-            a,
-            CameraId::CAMERA_1,
-            a_completion,
-            a_timeout,
-            Arc::clone(&handle.core.origin),
-        );
+        let predecessor = ReceiptCore::new(a, CameraId::CAMERA_1, a_completion, a_timeout);
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
@@ -129,7 +123,6 @@ impl RetainedRelease {
                 CameraId::CAMERA_1,
                 completion,
                 timeout,
-                Arc::clone(&handle.core.origin),
             ));
         }
 
@@ -500,7 +493,12 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
     let (_b_completion, b_admitted) = owner
         .handle
         .core
-        .enqueue_admission(inquiry(), Some(AdmissionValidity::until(deadline)))
+        .enqueue_admission(
+            inquiry(),
+            Some(crate::runtime::owner::boundary::AdmissionValidity::until(
+                deadline,
+            )),
+        )
         .unwrap();
     let actor_task = owner.start();
     owner.parked_in_grace().await;
@@ -508,7 +506,12 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
     let (_c_completion, c_admitted) = owner
         .handle
         .core
-        .enqueue_admission(inquiry(), Some(AdmissionValidity::until(deadline)))
+        .enqueue_admission(
+            inquiry(),
+            Some(crate::runtime::owner::boundary::AdmissionValidity::until(
+                deadline,
+            )),
+        )
         .unwrap();
     tokio::task::yield_now().await;
     assert_eq!(owner.handle.core.admissions.len(), 1);

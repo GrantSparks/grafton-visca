@@ -390,9 +390,10 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     policy.limits.framing_bytes = config.buffer_config.max_buffer_size;
     // Lower the caller's advertised read/write timeouts onto the owner policy so
-    // the async owner can enforce them (the runtime-agnostic async transports
-    // hold no timer of their own). The blocking owner keeps applying them at the
-    // socket; this makes the same builder knobs live on the async surface (#675).
+    // both owners enforce them (#675): the async owner around each read,
+    // because the runtime-agnostic async transports hold no timer of their own,
+    // and the blocking worker as the idle span its sliced reads accumulate
+    // before reporting no data (#780).
     policy.read_timeout = config.read_timeout;
     policy.write_timeout = config.write_timeout;
     policy.tuning = tuning;
@@ -473,12 +474,6 @@ impl AdapterFraming {
         Ok((framing, policy))
     }
 
-    /// The envelope, for tests that seed Sony's sequence counter.
-    #[cfg(all(test, feature = "blocking"))]
-    pub(crate) const fn envelope(&self) -> &OwnerEnvelope {
-        &self.envelope
-    }
-
     const fn is_stream(&self) -> bool {
         matches!(self.transport, TransportKind::Stream)
     }
@@ -544,8 +539,6 @@ impl AdapterFraming {
     /// shell reads; a datagram framer is always cleared and drains nothing.
     /// A genuine framing failure on the buffered bytes still surfaces as `Err`
     /// and poisons.
-    // The blocking adapter adopts it with its worker (D24).
-    #[cfg(feature = "async")]
     pub(crate) fn drain_buffered(
         &mut self,
         buffers: &mut OwnerBuffers,

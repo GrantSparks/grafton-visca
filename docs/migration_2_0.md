@@ -606,11 +606,11 @@ use grafton_visca::command::PanTiltDirection;
 use grafton_visca::types::{PanSpeed, TiltSpeed};
 use grafton_visca::Error;
 
-struct StopPanTiltOnExit<'a, 'session> {
-    camera: &'a Camera<'session, PtzOpticsG2>,
+struct StopPanTiltOnExit<'a> {
+    camera: &'a Camera<PtzOpticsG2>,
 }
 
-impl Drop for StopPanTiltOnExit<'_, '_> {
+impl Drop for StopPanTiltOnExit<'_> {
     fn drop(&mut self) {
         // `Drop` cannot report a failure and may run while unwinding, so the
         // stop is best effort — as in any scope guard.
@@ -621,7 +621,7 @@ impl Drop for StopPanTiltOnExit<'_, '_> {
 }
 
 fn bounded_drive(
-    camera: &Camera<'_, PtzOpticsG2>,
+    camera: &Camera<PtzOpticsG2>,
     direction: PanTiltDirection,
     pan: PanSpeed,
     tilt: TiltSpeed,
@@ -693,7 +693,7 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
-| `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, async `subscribe_diagnostics`, and blocking `drain_diagnostics`. |
+| `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, and `subscribe_diagnostics` on either facade. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
 | 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
 
@@ -705,7 +705,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | 1.x API | 2.0 destination |
 | --- | --- |
 | `mode::{Mode, Blocking, Async}` and the public `mode` module | Select the `blocking` and/or `async` Cargo feature and use `blocking::Camera<P>` or async `Camera<P>`. The two facades can coexist; mode is no longer a camera type parameter. |
-| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<'session, Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
+| `GenericViscaCam<T>`, `NearusBRC300Cam<T>`, `PtzOptics30XCam<T>`, `PtzOpticsG2Cam<T>`, `PtzOpticsG3Cam<T>`, `SonyBRC300Cam<T>`, `SonyBRCH900Cam<T>`, `SonyEVIH100Cam<T>`, and `SonyFR7Cam<T>` | Spell the profile directly: async `Camera<Profile>` or blocking `blocking::Camera<Profile>`. Construction returns a session; select the view with `session.camera::<Profile>()` or `camera_for::<Profile>(target)`. |
 | Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
 | `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
 | `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
@@ -852,12 +852,12 @@ use grafton_visca::{
     Error, OperationCommand, OperationalTuning,
 };
 
-fn resubmit_after_widening<'session, O>(
+fn resubmit_after_widening<O>(
     session: &Session,
-    camera: &Camera<'session, PtzOpticsG2>,
-    mut operation: Operation<'session, AppliedOnly>,
+    camera: &Camera<PtzOpticsG2>,
+    mut operation: Operation<AppliedOnly>,
     command: O,
-) -> Result<Operation<'session, AppliedOnly>, Error>
+) -> Result<Operation<AppliedOnly>, Error>
 where
     O: OperationCommand<AppliedOnly>,
 {
@@ -1007,7 +1007,7 @@ use grafton_visca::transport::{BlockingTransport, HasTransportConfig};
 use grafton_visca::{Error, PlainCommand, SessionConfig};
 
 fn execute_or_reopen<C, T>(
-    camera: &Camera<'_, PtzOpticsG2>,
+    camera: &Camera<PtzOpticsG2>,
     command: &C,
     config: &SessionConfig,
     new_transport: impl FnOnce() -> Result<T, Error>,

@@ -168,10 +168,7 @@ fn open() -> (Session, Probe) {
 }
 
 /// Admits a continuous zoom and queues its acknowledgement on socket one.
-fn running_zoom<'session>(
-    session: &'session Session,
-    probe: &Probe,
-) -> Operation<'session, AppliedOnly> {
+fn running_zoom(session: &Session, probe: &Probe) -> Operation<AppliedOnly> {
     let camera = session.camera::<Raw>().expect("raw camera");
     let operation = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)

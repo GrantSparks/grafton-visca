@@ -10,8 +10,8 @@
 //! The methods themselves are not written here: they are generated from the
 //! shared row table in [`crate::noun_table`], which the async and erased
 //! facades consume from the same rows.  This module owns only what is specific
-//! to the blocking surface — the accessor types, the synchronous `fn` shape,
-//! and the session-lifetime plumbing that `Operation<'session, _>` needs.
+//! to the blocking surface — the accessor types and the synchronous `fn`
+//! shape.
 
 use std::fmt;
 
@@ -48,13 +48,13 @@ use super::{Camera, Operation};
 macro_rules! accessor_method {
     ($(#[$meta:meta])* $name:ident, $method:ident) => {
         $(#[$meta])*
-        pub fn $method(&self) -> $name<'_, 'session, P> {
+        pub fn $method(&self) -> $name<'_, P> {
             $name::new(self)
         }
     };
     ($(#[$meta:meta])* $name:ident, $method:ident, $bound:path) => {
         $(#[$meta])*
-        pub fn $method(&self) -> $name<'_, 'session, P>
+        pub fn $method(&self) -> $name<'_, P>
         where
             P: $bound,
         {
@@ -67,23 +67,23 @@ macro_rules! accessor {
     ($(#[$meta:meta])* $name:ident, $method:ident $(, $bound:path)? ) => {
         $(#[$meta])*
         #[must_use]
-        pub struct $name<'view, 'session, P: CompileTimeProfile> {
-            camera: &'view Camera<'session, P>,
+        pub struct $name<'view, P: CompileTimeProfile> {
+            camera: &'view Camera<P>,
         }
 
-        impl<P: CompileTimeProfile> fmt::Debug for $name<'_, '_, P> {
+        impl<P: CompileTimeProfile> fmt::Debug for $name<'_, P> {
             fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.debug_struct(stringify!($name)).finish_non_exhaustive()
             }
         }
 
-        impl<'view, 'session, P: CompileTimeProfile> $name<'view, 'session, P> {
-            fn new(camera: &'view Camera<'session, P>) -> Self {
+        impl<'view, P: CompileTimeProfile> $name<'view, P> {
+            fn new(camera: &'view Camera<P>) -> Self {
                 Self { camera }
             }
         }
 
-        impl<'session, P: CompileTimeProfile> Camera<'session, P> {
+        impl<P: CompileTimeProfile> Camera<P> {
             accessor_method!($(#[$meta])* $name, $method $(, $bound)?);
         }
     };
@@ -93,7 +93,7 @@ macro_rules! accessor {
 ///
 /// The row grammar is documented on [`crate::noun_table`].  This consumer
 /// carries everything the blocking surface adds to a row: a synchronous
-/// `pub fn`, `Operation<'session, Kind>` handles, and the free `execute` /
+/// `pub fn`, `Operation<Kind>` handles, and the free `execute` /
 /// `inquire` / `submit` hops onto the owner core.
 macro_rules! blocking_noun_methods {
     () => {};
@@ -181,7 +181,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
             self.$target($($delegated),*)
@@ -196,7 +196,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request: $request_ty = $request?;
@@ -213,7 +213,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request = {
@@ -233,7 +233,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, AppliedOnly>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request: $request_ty = $request;
@@ -249,7 +249,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request: $request_ty = $request?;
@@ -266,7 +266,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request = {
@@ -286,7 +286,7 @@ macro_rules! blocking_noun_methods {
         $($rest:tt)*
     ) => {
         $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<'session, Targeted>>
+        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
             let request: $request_ty = $request;
@@ -363,11 +363,11 @@ accessor!(
 
 /// Tally controls for a profile which declares tally support.
 #[must_use]
-pub struct TallyAccessor<'view, 'session, P: CompileTimeProfile + HasTally> {
-    camera: &'view Camera<'session, P>,
+pub struct TallyAccessor<'view, P: CompileTimeProfile + HasTally> {
+    camera: &'view Camera<P>,
 }
 
-impl<P: CompileTimeProfile + HasTally> fmt::Debug for TallyAccessor<'_, '_, P> {
+impl<P: CompileTimeProfile + HasTally> fmt::Debug for TallyAccessor<'_, P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("TallyAccessor")
@@ -377,11 +377,11 @@ impl<P: CompileTimeProfile + HasTally> fmt::Debug for TallyAccessor<'_, '_, P> {
 
 /// ND-filter controls for a profile which declares ND support.
 #[must_use]
-pub struct NdFilterAccessor<'view, 'session, P: CompileTimeProfile + HasNdFilter> {
-    camera: &'view Camera<'session, P>,
+pub struct NdFilterAccessor<'view, P: CompileTimeProfile + HasNdFilter> {
+    camera: &'view Camera<P>,
 }
 
-impl<P: CompileTimeProfile + HasNdFilter> fmt::Debug for NdFilterAccessor<'_, '_, P> {
+impl<P: CompileTimeProfile + HasNdFilter> fmt::Debug for NdFilterAccessor<'_, P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("NdFilterAccessor")
@@ -391,11 +391,11 @@ impl<P: CompileTimeProfile + HasNdFilter> fmt::Debug for NdFilterAccessor<'_, '_
 
 /// Motion-sync controls for a profile which declares motion-sync support.
 #[must_use]
-pub struct MotionSyncAccessor<'view, 'session, P: CompileTimeProfile + HasMotionSync> {
-    camera: &'view Camera<'session, P>,
+pub struct MotionSyncAccessor<'view, P: CompileTimeProfile + HasMotionSync> {
+    camera: &'view Camera<P>,
 }
 
-impl<P: CompileTimeProfile + HasMotionSync> fmt::Debug for MotionSyncAccessor<'_, '_, P> {
+impl<P: CompileTimeProfile + HasMotionSync> fmt::Debug for MotionSyncAccessor<'_, P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MotionSyncAccessor")
@@ -405,11 +405,11 @@ impl<P: CompileTimeProfile + HasMotionSync> fmt::Debug for MotionSyncAccessor<'_
 
 /// Motion safety and observation methods kept separate from the pan/tilt noun.
 #[must_use]
-pub struct MotionAccessor<'view, 'session, P: CompileTimeProfile> {
-    camera: &'view Camera<'session, P>,
+pub struct MotionAccessor<'view, P: CompileTimeProfile> {
+    camera: &'view Camera<P>,
 }
 
-impl<P: CompileTimeProfile> fmt::Debug for MotionAccessor<'_, '_, P> {
+impl<P: CompileTimeProfile> fmt::Debug for MotionAccessor<'_, P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MotionAccessor")
@@ -417,14 +417,14 @@ impl<P: CompileTimeProfile> fmt::Debug for MotionAccessor<'_, '_, P> {
     }
 }
 
-impl<'session, P: CompileTimeProfile> Camera<'session, P> {
+impl<P: CompileTimeProfile> Camera<P> {
     /// Returns the separate motion safety and observation view.
-    pub fn motion(&self) -> MotionAccessor<'_, 'session, P> {
+    pub fn motion(&self) -> MotionAccessor<'_, P> {
         MotionAccessor { camera: self }
     }
 }
 
-impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> MotionAccessor<'view, P> {
     /// Stops every profile-supported pan/tilt, zoom, and focus axis through
     /// the camera's single owner.
     pub fn stop_all_motion(&self) -> Result<()> {
@@ -454,7 +454,7 @@ impl<'view, 'session, P: CompileTimeProfile> MotionAccessor<'view, 'session, P> 
     }
 }
 
-fn execute<'session, P, C>(camera: &Camera<'session, P>, command: &C) -> Result<()>
+fn execute<P, C>(camera: &Camera<P>, command: &C) -> Result<()>
 where
     P: CompileTimeProfile,
     C: PlainCommand + ?Sized,
@@ -462,7 +462,7 @@ where
     camera.core().execute(command)
 }
 
-fn inquire<'session, P, Q>(camera: &Camera<'session, P>, inquiry: &Q) -> Result<Q::Response>
+fn inquire<P, Q>(camera: &Camera<P>, inquiry: &Q) -> Result<Q::Response>
 where
     P: CompileTimeProfile,
     Q: Inquiry + ?Sized,
@@ -470,10 +470,7 @@ where
     camera.core().inquire(inquiry)
 }
 
-fn submit<'session, P, K, O>(
-    camera: &Camera<'session, P>,
-    operation: &O,
-) -> Result<Operation<'session, K>>
+fn submit<P, K, O>(camera: &Camera<P>, operation: &O) -> Result<Operation<K>>
 where
     P: CompileTimeProfile,
     K: completion::Kind,
@@ -482,61 +479,61 @@ where
     camera.core().submit(operation)
 }
 
-impl<'view, 'session, P: CompileTimeProfile> PowerAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> PowerAccessor<'view, P> {
     noun_table!(Power => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> ZoomAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> ZoomAccessor<'view, P> {
     noun_table!(Zoom => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> SystemAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> SystemAccessor<'view, P> {
     noun_table!(System => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> PanTiltAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> PanTiltAccessor<'view, P> {
     noun_table!(PanTilt => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> FocusAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> FocusAccessor<'view, P> {
     noun_table!(Focus => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> PresetsAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> PresetsAccessor<'view, P> {
     noun_table!(Presets => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> ExposureAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> ExposureAccessor<'view, P> {
     noun_table!(Exposure => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> WhiteBalanceAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> WhiteBalanceAccessor<'view, P> {
     noun_table!(WhiteBalance => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> ImageAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> ImageAccessor<'view, P> {
     noun_table!(Image => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> MenuAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> MenuAccessor<'view, P> {
     noun_table!(Menu => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile> AdvancedAccessor<'view, 'session, P> {
+impl<'view, P: CompileTimeProfile> AdvancedAccessor<'view, P> {
     noun_table!(Advanced => blocking_noun_methods);
 }
 
-impl<'view, 'session, P: CompileTimeProfile + HasTally> TallyAccessor<'view, 'session, P> {
-    fn new(camera: &'view Camera<'session, P>) -> Self {
+impl<'view, P: CompileTimeProfile + HasTally> TallyAccessor<'view, P> {
+    fn new(camera: &'view Camera<P>) -> Self {
         Self { camera }
     }
 
     noun_table!(Tally => blocking_noun_methods);
 }
 
-impl<'session, P: CompileTimeProfile> Camera<'session, P> {
+impl<P: CompileTimeProfile> Camera<P> {
     /// Returns tally controls for a profile that declares tally support.
-    pub fn tally(&self) -> TallyAccessor<'_, 'session, P>
+    pub fn tally(&self) -> TallyAccessor<'_, P>
     where
         P: HasTally,
     {
@@ -544,17 +541,17 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
     }
 }
 
-impl<'view, 'session, P: CompileTimeProfile + HasNdFilter> NdFilterAccessor<'view, 'session, P> {
-    fn new(camera: &'view Camera<'session, P>) -> Self {
+impl<'view, P: CompileTimeProfile + HasNdFilter> NdFilterAccessor<'view, P> {
+    fn new(camera: &'view Camera<P>) -> Self {
         Self { camera }
     }
 
     noun_table!(NdFilter => blocking_noun_methods);
 }
 
-impl<'session, P: CompileTimeProfile> Camera<'session, P> {
+impl<P: CompileTimeProfile> Camera<P> {
     /// Returns ND-filter controls for a profile that declares ND support.
-    pub fn nd_filter(&self) -> NdFilterAccessor<'_, 'session, P>
+    pub fn nd_filter(&self) -> NdFilterAccessor<'_, P>
     where
         P: HasNdFilter,
     {
@@ -562,19 +559,17 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
     }
 }
 
-impl<'view, 'session, P: CompileTimeProfile + HasMotionSync>
-    MotionSyncAccessor<'view, 'session, P>
-{
-    fn new(camera: &'view Camera<'session, P>) -> Self {
+impl<'view, P: CompileTimeProfile + HasMotionSync> MotionSyncAccessor<'view, P> {
+    fn new(camera: &'view Camera<P>) -> Self {
         Self { camera }
     }
 
     noun_table!(MotionSync => blocking_noun_methods);
 }
 
-impl<'session, P: CompileTimeProfile> Camera<'session, P> {
+impl<P: CompileTimeProfile> Camera<P> {
     /// Returns motion-sync controls for a profile that declares support.
-    pub fn motion_sync(&self) -> MotionSyncAccessor<'_, 'session, P>
+    pub fn motion_sync(&self) -> MotionSyncAccessor<'_, P>
     where
         P: HasMotionSync,
     {
