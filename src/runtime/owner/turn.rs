@@ -13,7 +13,12 @@ use crate::runtime::engine::RawCorrelationReleaseSet;
 // The blocking owner adopts the coordinator with its worker thread (D24).
 #[cfg(feature = "async")]
 mod coordinator;
-#[cfg(all(test, feature = "async"))]
+// The async actor tests build only with an executor adapter.
+#[cfg(all(
+    test,
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
 pub(super) use coordinator::SourcePhase;
 #[cfg(feature = "async")]
 pub(super) use coordinator::{
