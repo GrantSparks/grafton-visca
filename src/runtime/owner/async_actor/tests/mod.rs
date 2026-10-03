@@ -12,8 +12,8 @@ use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
         CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        InquiryRoute, ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, RuntimeRequest,
-        TargetPolicy, TimeoutPolicy, TransportKind,
+        InquiryRoute, ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy,
+        RuntimeRequest, TargetPolicy, TimeoutPolicy, TransportKind,
     },
     CameraId, ViscaSocket,
 };
@@ -21,6 +21,7 @@ use crate::{
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{ControlClass, EnvelopeSequence, SequenceWidth};
 
+use crate::runtime::owner::DiagnosticEvent;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONICAL_OWNER_TRACE};
 #[cfg(feature = "runtime-smol")]

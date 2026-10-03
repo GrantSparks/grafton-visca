@@ -1,13 +1,10 @@
-//! Runtime-neutral async actor and its bounded control boundary.
+//! Runtime-neutral async owner actor and its handle over the shared boundary.
 
 use std::{
     collections::VecDeque,
     future::Future,
     pin::{pin, Pin},
-    sync::{
-        atomic::{AtomicU64, AtomicU8, Ordering},
-        Arc, Mutex,
-    },
+    sync::Arc,
     task::Poll,
     time::{Duration, Instant},
 };
@@ -18,18 +15,18 @@ use crate::{
     completion, executor::Executor, AffectedAxes, CancellationOutcome, Error, ResponseDecoder,
 };
 
-#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-use super::DiagnosticEvent;
-#[cfg(all(test, feature = "runtime-tokio"))]
-use super::OwnerMetrics;
+use super::boundary::{
+    missing_terminal_error, AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress,
+    AdmissionValidity, AdmissionWait, BoundaryReceivers, CancellationBoundary, ControlBoundary,
+    OwnerHandleCore, OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+};
 use super::{
     clamp_receive_pause, normalize_command_outcome, normalize_inquiry_outcome, prepend_effects,
-    transient_receive_pause, AdmissionPermit, AppliedEffect, CancellationObserver,
-    CancellationRequest, DecodedFrame, DiagnosticSubscription, IdleReceiveRun, Input,
-    OperationObservation, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseResolution,
-    ReceiptCore, RequestId, RequestLane, RetainedStreamInput, RuntimeOutcome, RuntimeRequest,
-    SessionState, ShutdownReason, TargetStateCache, TerminalObserver, TransientFaultRun,
-    TransmissionMeta, WireWrite,
+    transient_receive_pause, AppliedEffect, CancellationObserver, CancellationRequest,
+    DecodedFrame, DiagnosticSubscription, IdleReceiveRun, Input, OperationObservation,
+    OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseResolution, ReceiptCore, RequestLane,
+    RetainedStreamInput, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason,
+    TerminalObserver, TransientFaultRun, TransmissionMeta, WireWrite,
 };
 
 use super::turn::{
@@ -91,15 +88,6 @@ where
     .await
 }
 
-/// The actor's boundary channels.
-#[derive(Clone, Copy)]
-struct ActorBoundaryReceivers<'a> {
-    shutdown: &'a flume::Receiver<()>,
-    cancellations: &'a flume::Receiver<CancellationBoundary>,
-    admissions: &'a flume::Receiver<AdmissionBoundary>,
-    control: &'a flume::Receiver<ControlBoundary>,
-}
-
 /// Select one actor event as planned by the [`OwnerCoordinator`]. The caller
 /// has already mapped the selection's receive and timer arms onto `receive`
 /// and `timer`. A disconnected shutdown, cancellation or control lane never
@@ -107,7 +95,7 @@ struct ActorBoundaryReceivers<'a> {
 async fn select_actor_event<Receive, Timer>(
     selection: Selection,
     receive: Receive,
-    boundaries: ActorBoundaryReceivers<'_>,
+    boundaries: &BoundaryReceivers,
     timer: Timer,
 ) -> ActorEvent
 where
@@ -260,324 +248,6 @@ pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
         buffers: &mut super::OwnerBuffers,
         frame_limit: usize,
     ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send;
-}
-
-/// The one-way decision for an admission constrained by an outer deadline.
-///
-/// The caller and actor race only to decide whether this boundary crosses the
-/// admission boundary. Once the actor claims it, a caller at its deadline must
-/// wait for that already-admitted reply and may later detach its observer by
-/// the ordinary receipt path. Once the caller expires it, the actor must drop
-/// the queued boundary without touching engine state.
-#[derive(Debug, Clone)]
-struct AdmissionValidity {
-    deadline: Instant,
-    state: Arc<AtomicU8>,
-}
-
-#[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AdmissionValidityState {
-    Pending,
-    Claimed,
-    Expired,
-}
-
-/// The actor's linearized answer when it reaches a deadline-constrained
-/// boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AdmissionClaim {
-    Claimed,
-    /// This actor observed the deadline first and rejected the boundary.
-    ExpiredHere,
-    /// The caller had already rejected the boundary before this actor turn.
-    ExpiredElsewhere,
-}
-
-impl AdmissionValidity {
-    const PENDING: u8 = AdmissionValidityState::Pending as u8;
-    const CLAIMED: u8 = AdmissionValidityState::Claimed as u8;
-    const EXPIRED: u8 = AdmissionValidityState::Expired as u8;
-
-    fn until(deadline: Instant) -> Self {
-        Self {
-            deadline,
-            state: Arc::new(AtomicU8::new(Self::PENDING)),
-        }
-    }
-
-    /// Claim the boundary immediately before engine admission.
-    ///
-    /// A caller that has already won expiry returns
-    /// [`AdmissionClaim::ExpiredElsewhere`]. Conversely, claiming before
-    /// expiry means the admission is authoritative, so the caller must observe
-    /// its reply rather than turn that admitted work into a pre-admission
-    /// timeout.
-    fn claim_for_admission(&self, now: Instant) -> AdmissionClaim {
-        if now >= self.deadline {
-            return if self
-                .state
-                .compare_exchange(
-                    Self::PENDING,
-                    Self::EXPIRED,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                )
-                .is_ok()
-            {
-                AdmissionClaim::ExpiredHere
-            } else {
-                AdmissionClaim::ExpiredElsewhere
-            };
-        }
-
-        if self
-            .state
-            .compare_exchange(
-                Self::PENDING,
-                Self::CLAIMED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-        {
-            AdmissionClaim::Claimed
-        } else {
-            AdmissionClaim::ExpiredElsewhere
-        }
-    }
-
-    /// Mark the boundary expired if no actor has already claimed admission.
-    ///
-    /// The boolean is the linearized answer to the caller's timeout race:
-    /// `true` means it may return an admission timeout; `false` means an admitted
-    /// reply is authoritative and still has to be observed.
-    fn expire_before_admission(&self) -> bool {
-        self.state
-            .compare_exchange(
-                Self::PENDING,
-                Self::EXPIRED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-}
-
-#[derive(Debug)]
-struct AdmissionBoundary {
-    request: RuntimeRequest,
-    permit: AdmissionPermit,
-    observer: Arc<super::ObserverCell<RuntimeOutcome>>,
-    reply: flume::Sender<Result<RequestId, Error>>,
-    /// Present only for a caller deadline that applies before admission.
-    validity: Option<AdmissionValidity>,
-    /// The actor has already won the caller's pre-admission deadline race,
-    /// but a raw-correlation release gate has retained this boundary until it
-    /// can safely enter the engine.  Keeping that one-way answer on the
-    /// boundary preserves the caller's established admission promise without
-    /// letting the retained admission run a due/dispatch turn early.
-    validity_claimed: bool,
-}
-
-/// A rejection that happened before the async handle could allocate any
-/// owner-owned admission state.
-#[derive(Debug, Clone, Copy)]
-struct PreAdmissionRejection {
-    target: crate::CameraId,
-    lane: RequestLane,
-    error: crate::ErrorKind,
-}
-
-#[derive(Debug)]
-struct PendingAdmissionRejections {
-    events: VecDeque<PreAdmissionRejection>,
-    /// Events evicted before the actor could enter them into its public ring.
-    /// The actor folds this into the existing `dropped_diagnostics` metric.
-    dropped: u64,
-    /// A one-slot wake-up is already queued or being handled by the actor.
-    /// This is protected by the same mutex as `events`, so a concurrent
-    /// reporter can never lose the wake-up between an actor drain and its next
-    /// empty receive.
-    wake_pending: bool,
-}
-
-/// Bounded, coalescing ingress for failures that occur on cloneable async
-/// handles before an `AdmissionBoundary` exists.
-///
-/// The actor remains the only diagnostic delivery and owner-metric writer.
-/// Handles merely record a compact event and wake it. The scalar total is
-/// atomic so a diagnostic ingress burst cannot undercount rejections when its
-/// bounded event queue coalesces before the actor gets a turn.
-#[derive(Debug)]
-struct AdmissionRejectionIngress {
-    total: AtomicU64,
-    /// The urgent stops among `total` that found their target's control
-    /// reserve full (D26, #778).
-    control_reserve_total: AtomicU64,
-    pending: Mutex<PendingAdmissionRejections>,
-    capacity: usize,
-}
-
-/// Adds one to a saturating atomic counter.
-fn saturating_increment(counter: &AtomicU64) {
-    let mut current = counter.load(Ordering::Acquire);
-    loop {
-        match counter.compare_exchange_weak(
-            current,
-            current.saturating_add(1),
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        ) {
-            Ok(_) => break,
-            Err(observed) => current = observed,
-        }
-    }
-}
-
-impl AdmissionRejectionIngress {
-    fn new(capacity: usize) -> Self {
-        Self {
-            total: AtomicU64::new(0),
-            control_reserve_total: AtomicU64::new(0),
-            pending: Mutex::new(PendingAdmissionRejections {
-                events: VecDeque::with_capacity(capacity),
-                dropped: 0,
-                wake_pending: false,
-            }),
-            capacity,
-        }
-    }
-
-    /// Records one rejection and reports whether this caller must enqueue the
-    /// one coalesced actor wake-up.
-    fn record(&self, event: PreAdmissionRejection, control_reserve: bool) -> bool {
-        saturating_increment(&self.total);
-        if control_reserve {
-            saturating_increment(&self.control_reserve_total);
-        }
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if pending.events.len() == self.capacity {
-            // The owner diagnostic ring is bounded too. Preserve the newest
-            // rejection facts, which are the useful ones during saturation,
-            // while the atomic total remains exact. The actor reports the
-            // bounded loss through its existing diagnostics-drop metric.
-            pending.events.pop_front();
-            pending.dropped = pending.dropped.saturating_add(1);
-        }
-        pending.events.push_back(event);
-        if pending.wake_pending {
-            false
-        } else {
-            pending.wake_pending = true;
-            true
-        }
-    }
-
-    fn total(&self) -> u64 {
-        self.total.load(Ordering::Acquire)
-    }
-
-    fn control_reserve_total(&self) -> u64 {
-        self.control_reserve_total.load(Ordering::Acquire)
-    }
-
-    /// Moves pending bounded diagnostics into the actor's preallocated scratch
-    /// queue. When `consumed_wake` is true, clearing the wake marker occurs
-    /// under this same lock, closing the report/drain race.
-    fn drain_into(
-        &self,
-        scratch: &mut VecDeque<PreAdmissionRejection>,
-        consumed_wake: bool,
-    ) -> u64 {
-        let mut pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        debug_assert!(scratch.is_empty());
-        scratch.extend(pending.events.drain(..));
-        if consumed_wake {
-            pending.wake_pending = false;
-        }
-        let dropped = pending.dropped;
-        pending.dropped = 0;
-        dropped
-    }
-}
-
-#[derive(Debug)]
-enum AdmissionWait {
-    Reply(Result<Result<RequestId, Error>, Error>),
-    Deadline { expired_before_admission: bool },
-}
-
-#[derive(Debug)]
-struct CancellationBoundary {
-    request: CancellationRequest,
-    /// `Ok` once the intent is installed (or the operation already
-    /// concluded); the refusal otherwise. The caller keeps its handle either
-    /// way (#777).
-    reply: flume::Sender<Result<(), Error>>,
-}
-
-/// An admission or cancellation selected while a raw-correlation release was
-/// due. Its ordinary input turn would run due work before the release proof,
-/// so the [`OwnerCoordinator`] retains it in a single slot until the release
-/// resolves. Selection makes cancellation and admission ineligible while the
-/// slot is occupied, so a second boundary stays in its bounded channel
-/// instead of replacing this one (#775).
-///
-/// `AdmissionBoundary` keeps its request inline so accepting an admission does
-/// not add a heap allocation at the actor-channel boundary.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-enum RetainedBoundary {
-    Admission(AdmissionBoundary),
-    Cancellation(CancellationBoundary),
-}
-
-#[derive(Debug)]
-enum ControlBoundary {
-    /// Internal coalesced wake-up for a handle-side rejection that happened
-    /// before an admission boundary existed. It uses the existing bounded
-    /// control lane so source arbitration remains unchanged.
-    FlushAdmissionRejections,
-    // Built only by `AsyncOwnerHandle::snapshot`, called only from this module's tests (#636).
-    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    Snapshot(flume::Sender<OwnerSnapshot>),
-    Metrics(flume::Sender<Result<crate::observability::MetricsSnapshot, Error>>),
-    SubscribeDiagnostics {
-        capacity: usize,
-        reply: flume::Sender<Result<DiagnosticSubscription, Error>>,
-    },
-    /// Installs new session tuning on the live owner (#631).
-    ///
-    /// This lane is what makes the update serialized: the actor is the only
-    /// writer of the shared tuning cell, so two handles reconfiguring at the
-    /// same time resolve last-writer-wins in the order the actor accepted them
-    /// and no reader ever observes a mixture of the two. Facade validation is
-    /// carried in the same message so a terminal actor selects its retained
-    /// cause before returning a proposed update's validation error (#690).
-    Reconfigure {
-        validated_tuning: Box<Result<crate::OperationalTuning, Error>>,
-        reply: flume::Sender<Result<(), Error>>,
-    },
-}
-
-/// Bounded diagnostic/metric copy returned by the actor task.
-#[derive(Debug, Clone)]
-pub(crate) struct OwnerSnapshot {
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    pub(crate) metrics: OwnerMetrics,
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    pub(crate) diagnostics: Vec<DiagnosticEvent>,
-    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) state: SessionState,
-    #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) active: usize,
 }
 
 /// Async-mode linear command observation right.
@@ -808,7 +478,7 @@ pub(crate) async fn sample_positions_async(
     queries: &crate::prepared::PositionQueryPlan,
     deadline: Instant,
 ) -> Result<crate::prepared::PositionSnapshot, Error> {
-    debug_assert!(Arc::ptr_eq(&owner.origin, &control.owner.origin));
+    debug_assert!(Arc::ptr_eq(&owner.core.origin, &control.owner.core.origin));
     let mut snapshot = crate::prepared::PositionSnapshot::default();
     if let Some(query) = &queries.pan_tilt {
         snapshot.pan_tilt = Some(sample_async(owner, query, deadline).await?);
@@ -861,7 +531,7 @@ pub(crate) fn ensure_async_before_deadline(
 }
 
 fn ensure_same_owner(owner: &AsyncOwnerHandle, origin: &Arc<()>) -> Result<(), Error> {
-    if Arc::ptr_eq(origin, &owner.origin) {
+    if Arc::ptr_eq(origin, &owner.core.origin) {
         Ok(())
     } else {
         Err(Error::InvalidState(
@@ -906,7 +576,7 @@ async fn next_observation(
         // Nothing is ever sent on this lane. It resolves when the actor has
         // dropped its sender, including an unwind before `run` can latch a
         // terminal owner error.
-        while owner.actor_alive.recv_async().await.is_ok() {}
+        while owner.core.actor_alive.recv_async().await.is_ok() {}
         ObservationWake::ActorGone
     };
     let timer = async {
@@ -956,7 +626,7 @@ async fn observe_until<T>(
             }
             ObservationWake::Cancellation(None) => cancellation_open = false,
             ObservationWake::Terminal(None) | ObservationWake::ActorGone => {
-                return verdict(observation).ok_or_else(|| owner.disconnected_error());
+                return verdict(observation).ok_or_else(|| owner.core.disconnected_error());
             }
             ObservationWake::Deadline => {
                 return verdict(observation)
@@ -978,9 +648,9 @@ async fn wait_core_until(
     }
     match next_observation(owner, &core.completion, None, deadline).await {
         ObservationWake::Terminal(Some(outcome)) => Ok(outcome),
-        ObservationWake::Terminal(None) | ObservationWake::ActorGone => {
-            core.try_outcome().ok_or_else(|| owner.disconnected_error())
-        }
+        ObservationWake::Terminal(None) | ObservationWake::ActorGone => core
+            .try_outcome()
+            .ok_or_else(|| owner.core.disconnected_error()),
         ObservationWake::Deadline => core
             .try_outcome()
             .ok_or_else(|| super::observation_timeout(core.id)),
@@ -1001,27 +671,12 @@ fn async_observer_deadline(clock: &BoundClock, timeout: Duration) -> Result<Inst
         })
 }
 
-/// Cloneable boundary handle. Admission, cancellation, ordinary control and
-/// shutdown each have separate bounded queues.
+/// Cloneable async owner handle: the shared boundary core plus the
+/// executor clock its waits are measured against.
 #[derive(Debug, Clone)]
 pub(crate) struct AsyncOwnerHandle {
-    permits: super::AdmissionPermitPool,
-    admissions: flume::Sender<AdmissionBoundary>,
-    admission_rejections: Arc<AdmissionRejectionIngress>,
-    cancellations: flume::Sender<CancellationBoundary>,
-    control: flume::Sender<ControlBoundary>,
-    shutdown: flume::Sender<()>,
-    /// Disconnects after actor teardown, including driver/transport drop.
-    /// Nothing is ever sent on it; see [`AsyncOwnerHandle::await_boundary_reply`].
-    actor_alive: flume::Receiver<()>,
-    shutdown_signal: Arc<Mutex<ShutdownSignalState>>,
-    terminal_error: Arc<Mutex<Option<Error>>>,
-    origin: Arc<()>,
+    core: OwnerHandleCore,
     clock: BoundClock,
-    state_cache: Arc<[Mutex<TargetStateCache>; 9]>,
-    /// The owner's live operational tuning (#631). Reading it is a lock and a
-    /// copy, so preparation never has to round-trip through the actor.
-    tuning: super::LiveTuning,
 }
 
 impl AsyncOwnerHandle {
@@ -1035,24 +690,8 @@ impl AsyncOwnerHandle {
     pub(crate) async fn wait_closed(&self) -> Result<(), Error> {
         // Nothing is ever sent on this lane.  It resolves when the actor drops
         // its sender, after the driver/transport has been dropped.
-        let _ = self.actor_alive.recv_async().await;
-
-        // `run` publishes this before dropping the driver and liveness sender,
-        // so this read is ordered after transport teardown.  An explicit
-        // shutdown is the only terminal result that consuming `close` turns
-        // into success; transport close/poison (and any other terminal owner
-        // error) must remain observable at that boundary (#542 §Terminology,
-        // §3 ordering and transport failure).
-        match self
-            .terminal_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-        {
-            Some(Error::RuntimeShutdown) => Ok(()),
-            Some(error) => Err(error),
-            None => Err(Self::missing_terminal_error()),
-        }
+        let _ = self.core.actor_alive.recv_async().await;
+        self.core.closed_result()
     }
 
     /// Await one boundary reply, or the actor's disappearance, whichever
@@ -1077,13 +716,13 @@ impl AsyncOwnerHandle {
             reply
                 .recv_async()
                 .await
-                .map_err(|_| self.disconnected_error())
+                .map_err(|_| self.core.disconnected_error())
         };
         let actor_gone = async {
             // Nobody ever sends on this lane, so this resolves exactly once,
             // when actor teardown drops its end after the driver.
-            while self.actor_alive.recv_async().await.is_ok() {}
-            reply.try_recv().map_err(|_| self.disconnected_error())
+            while self.core.actor_alive.recv_async().await.is_ok() {}
+            reply.try_recv().map_err(|_| self.core.disconnected_error())
         };
         future::or(answered, actor_gone).await
     }
@@ -1192,14 +831,14 @@ impl AsyncOwnerHandle {
         configured_timeout: Duration,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
-        let (completion, admission) = self.enqueue_admission(request, None)?;
+        let (completion, admission) = self.core.enqueue_admission(request, None)?;
         match self.await_boundary_reply(&admission).await {
             Ok(Ok(id)) => Ok(ReceiptCore::new(
                 id,
                 target,
                 completion,
                 configured_timeout,
-                Arc::clone(&self.origin),
+                Arc::clone(&self.core.origin),
             )),
             Ok(Err(error)) | Err(error) => Err(error),
         }
@@ -1212,18 +851,17 @@ impl AsyncOwnerHandle {
         deadline: Instant,
     ) -> Result<ReceiptCore, Error> {
         let target = request.context().target;
-        let lane = if request.is_inquiry() {
-            RequestLane::Inquiry
-        } else {
-            RequestLane::Command
-        };
+        let lane = RequestLane::of(&request);
         if self.now() >= deadline {
             let error = Error::admission_timeout();
-            self.record_pre_admission_rejection(target, lane, &error);
+            self.core
+                .record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
         let validity = AdmissionValidity::until(deadline);
-        let (completion, admission) = self.enqueue_admission(request, Some(validity.clone()))?;
+        let (completion, admission) = self
+            .core
+            .enqueue_admission(request, Some(validity.clone()))?;
         let remaining = deadline.saturating_duration_since(self.clock.now());
         let admitted = async { AdmissionWait::Reply(self.await_boundary_reply(&admission).await) };
         let timed_out = async {
@@ -1242,7 +880,8 @@ impl AsyncOwnerHandle {
                 // Winning `expire_before_admission` is the sole caller-side
                 // linearization point for this rejection. The actor observes
                 // `ExpiredElsewhere` and deliberately does not record it again.
-                self.record_pre_admission_rejection(target, lane, &error);
+                self.core
+                    .record_pre_admission_rejection(target, lane, &error);
                 return Err(error);
             }
             // The actor claimed this boundary before the caller could expire
@@ -1261,7 +900,7 @@ impl AsyncOwnerHandle {
             target,
             completion,
             configured_timeout,
-            Arc::clone(&self.origin),
+            Arc::clone(&self.core.origin),
         ))
     }
 
@@ -1279,7 +918,7 @@ impl AsyncOwnerHandle {
         } else {
             request.context().timeout.completion
         };
-        let (completion, admission) = self.enqueue_admission(request, None)?;
+        let (completion, admission) = self.core.enqueue_admission(request, None)?;
         Ok(async move {
             match self.await_boundary_reply(&admission).await {
                 Ok(Ok(id)) => Ok(ReceiptCore::new(
@@ -1287,7 +926,7 @@ impl AsyncOwnerHandle {
                     target,
                     completion,
                     configured_timeout,
-                    Arc::clone(&self.origin),
+                    Arc::clone(&self.core.origin),
                 )),
                 Ok(Err(error)) | Err(error) => Err(error),
             }
@@ -1307,10 +946,11 @@ impl AsyncOwnerHandle {
         let id = request.id;
         let (reply, receiver) = flume::bounded(1);
         let delivered = async {
-            self.cancellations
+            self.core
+                .cancellations
                 .send_async(CancellationBoundary { request, reply })
                 .await
-                .map_err(|_| self.disconnected_error())?;
+                .map_err(|_| self.core.disconnected_error())?;
             self.await_boundary_reply(&receiver).await?
         };
         let expired = async {
@@ -1347,10 +987,11 @@ impl AsyncOwnerHandle {
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) async fn snapshot(&self) -> Result<OwnerSnapshot, Error> {
         let (reply, receiver) = flume::bounded(1);
-        self.control
+        self.core
+            .control
             .send_async(ControlBoundary::Snapshot(reply))
             .await
-            .map_err(|_| self.disconnected_error())?;
+            .map_err(|_| self.core.disconnected_error())?;
         self.await_boundary_reply(&receiver).await
     }
 
@@ -1358,20 +999,21 @@ impl AsyncOwnerHandle {
     /// This path never clones the diagnostic ring.
     pub(crate) async fn metrics(&self) -> Result<crate::observability::MetricsSnapshot, Error> {
         let (reply, receiver) = flume::bounded(1);
-        self.control
+        self.core
+            .control
             .send_async(ControlBoundary::Metrics(reply))
             .await
-            .map_err(|_| self.disconnected_error())?;
+            .map_err(|_| self.core.disconnected_error())?;
         self.await_boundary_reply(&receiver).await?
     }
 
     pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
-        crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
+        self.core.state_cache(target)
     }
 
     /// Reads the tuning the owner is currently preparing requests under.
     pub(crate) fn tuning(&self) -> crate::OperationalTuning {
-        self.tuning.get()
+        self.core.tuning()
     }
 
     /// Installs new session tuning through the owner's control boundary (#631).
@@ -1386,13 +1028,14 @@ impl AsyncOwnerHandle {
         validated_tuning: Result<crate::OperationalTuning, Error>,
     ) -> Result<(), Error> {
         let (reply, receiver) = flume::bounded(1);
-        self.control
+        self.core
+            .control
             .send_async(ControlBoundary::Reconfigure {
                 validated_tuning: Box::new(validated_tuning),
                 reply,
             })
             .await
-            .map_err(|_| self.disconnected_error())?;
+            .map_err(|_| self.core.disconnected_error())?;
         self.await_boundary_reply(&receiver).await?
     }
 
@@ -1401,208 +1044,18 @@ impl AsyncOwnerHandle {
         capacity: usize,
     ) -> Result<DiagnosticSubscription, Error> {
         let (reply, receiver) = flume::bounded(1);
-        self.control
+        self.core
+            .control
             .send_async(ControlBoundary::SubscribeDiagnostics { capacity, reply })
             .await
-            .map_err(|_| self.disconnected_error())?;
+            .map_err(|_| self.core.disconnected_error())?;
         self.await_boundary_reply(&receiver).await?
     }
 
-    /// Coalesced idempotent shutdown. Only the winning caller occupies the
-    /// single shutdown slot. The state lock covers the non-awaiting `try_send`,
-    /// so concurrent callers observe the exact same accepted or failed result;
-    /// the consuming `close` call waits separately on the liveness barrier.
+    /// Coalesced idempotent shutdown; see [`OwnerHandleCore::shutdown`].
     pub(crate) async fn shutdown(&self) -> Result<(), Error> {
-        let mut signal = self
-            .shutdown_signal
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        // Terminal publication and shutdown acceptance share this lifecycle
-        // lock. Check the published engine verdict before occupying the
-        // shutdown lane: a session that already terminalized itself must hand
-        // that cause back to a cleanup caller rather than acknowledge a signal
-        // no actor turn can consume.
-        if let Some(error) = self
-            .terminal_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-        {
-            if matches!(&error, Error::RuntimeShutdown)
-                && matches!(&*signal, ShutdownSignalState::Accepted)
-            {
-                return Ok(());
-            }
-            *signal = ShutdownSignalState::Failed(error.clone());
-            return Err(error);
-        }
-        match &*signal {
-            ShutdownSignalState::Accepted => Ok(()),
-            ShutdownSignalState::Failed(error) => Err(error.clone()),
-            ShutdownSignalState::Open => match self.shutdown.try_send(()) {
-                Ok(()) => {
-                    *signal = ShutdownSignalState::Accepted;
-                    Ok(())
-                }
-                Err(flume::TrySendError::Disconnected(_)) => {
-                    let error = self.disconnected_error();
-                    *signal = ShutdownSignalState::Failed(error.clone());
-                    Err(error)
-                }
-                Err(flume::TrySendError::Full(_)) => {
-                    // Only this method sends on the one-slot shutdown lane,
-                    // so a full queue while the state is Open is an internal
-                    // invariant failure. Remember it just like a disconnect,
-                    // keeping every concurrent/repeated caller consistent.
-                    let error = Error::InvalidState(
-                        "shutdown signal lane was full before acceptance".into(),
-                    );
-                    *signal = ShutdownSignalState::Failed(error.clone());
-                    Err(error)
-                }
-            },
-        }
+        self.core.shutdown()
     }
-
-    fn enqueue_admission(
-        &self,
-        request: RuntimeRequest,
-        validity: Option<AdmissionValidity>,
-    ) -> Result<(TerminalObserver, flume::Receiver<Result<RequestId, Error>>), Error> {
-        let target = request.context().target;
-        let lane = if request.is_inquiry() {
-            RequestLane::Inquiry
-        } else {
-            RequestLane::Command
-        };
-        if let Some(error) = self.admission_rejection() {
-            self.record_pre_admission_rejection(target, lane, &error);
-            return Err(error);
-        }
-        let permit = match self.permits.try_acquire(request.context()) {
-            Ok(permit) => permit,
-            Err(error) => {
-                self.record_pre_admission_rejection(target, lane, &error);
-                return Err(error);
-            }
-        };
-        if let Some(error) = self.admission_rejection() {
-            self.record_pre_admission_rejection(target, lane, &error);
-            return Err(error);
-        }
-        // Keep the terminal check and enqueue in one lifecycle critical
-        // section. Otherwise a caller can pass the second check, the actor can
-        // publish/drop and drain all boundaries, and this send can strand the
-        // permit in a queue whose receiver will never poll it (#542 §4). Keep
-        // the observer/reply/boundary construction after that check too: a
-        // terminal pre-admission rejection must not allocate transient request
-        // state before it returns.
-        let signal = self
-            .shutdown_signal
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(error) = match &*signal {
-            ShutdownSignalState::Accepted => Some(Error::RuntimeShutdown),
-            ShutdownSignalState::Failed(error) => Some(error.clone()),
-            ShutdownSignalState::Open => self
-                .terminal_error
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone(),
-        } {
-            self.record_pre_admission_rejection(target, lane, &error);
-            return Err(error);
-        }
-        let (completion, observer) = TerminalObserver::pair();
-        let (reply, admission) = flume::bounded(1);
-        let boundary = AdmissionBoundary {
-            request,
-            permit,
-            observer,
-            reply,
-            validity,
-            validity_claimed: false,
-        };
-        match self.admissions.try_send(boundary) {
-            Ok(()) => Ok((completion, admission)),
-            Err(flume::TrySendError::Disconnected(_)) => {
-                let error = self.disconnected_error();
-                self.record_pre_admission_rejection(target, lane, &error);
-                Err(error)
-            }
-            Err(flume::TrySendError::Full(_)) => {
-                let error =
-                    Error::InvalidState("admission channel full after permit reservation".into());
-                self.record_pre_admission_rejection(target, lane, &error);
-                Err(error)
-            }
-        }
-    }
-
-    /// Reports a compact rejection without creating any admission-owned state.
-    ///
-    /// A full bounded control lane already has an actor turn reserved; a
-    /// closed lane means teardown won and no live owner remains to deliver a
-    /// diagnostic. The bounded ingress still retains the exact scalar total
-    /// until that actor drops.
-    fn record_pre_admission_rejection(
-        &self,
-        target: crate::CameraId,
-        lane: RequestLane,
-        error: &Error,
-    ) {
-        let wake = self.admission_rejections.record(
-            PreAdmissionRejection {
-                target,
-                lane,
-                error: error.kind(),
-            },
-            matches!(error, Error::ControlReserveExhausted { .. }),
-        );
-        if wake {
-            let _ = self
-                .control
-                .try_send(ControlBoundary::FlushAdmissionRejections);
-        }
-    }
-
-    fn admission_rejection(&self) -> Option<Error> {
-        let signal = self
-            .shutdown_signal
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match &*signal {
-            ShutdownSignalState::Accepted => Some(Error::RuntimeShutdown),
-            ShutdownSignalState::Failed(error) => Some(error.clone()),
-            ShutdownSignalState::Open => self
-                .terminal_error
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone(),
-        }
-    }
-
-    fn missing_terminal_error() -> Error {
-        Error::InvalidState("owner actor disconnected without publishing a terminal result".into())
-    }
-
-    fn disconnected_error(&self) -> Error {
-        self.terminal_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .clone()
-            .unwrap_or_else(Self::missing_terminal_error)
-    }
-}
-
-/// The result of the one coalesced shutdown signal attempt. This is separate
-/// from the actor's eventual terminal result: `shutdown` acknowledges only
-/// acceptance into the bounded lane, while `close` waits for that result.
-#[derive(Debug, Clone)]
-enum ShutdownSignalState {
-    Open,
-    Accepted,
-    Failed(Error),
 }
 
 #[derive(Debug)]
@@ -1611,7 +1064,7 @@ where
     R: Executor,
 {
     state: OwnerState,
-    admissions: flume::Receiver<AdmissionBoundary>,
+    receivers: BoundaryReceivers,
     admission_rejections: Arc<AdmissionRejectionIngress>,
     /// Preallocated actor-owned scratch keeps ingress draining bounded without
     /// allocating on a rejected submission path.
@@ -1619,20 +1072,13 @@ where
     /// Monotonic total already merged into `OwnerState` metrics.
     observed_pre_admission_rejections: u64,
     observed_control_reserve_rejections: u64,
-    cancellations: flume::Receiver<CancellationBoundary>,
-    control: flume::Receiver<ControlBoundary>,
-    shutdown: flume::Receiver<()>,
     /// Dropped as `run` returns, after the driver/transport is explicitly
     /// dropped, disconnecting every handle's `actor_alive` receiver. Nothing
     /// is ever sent on it (#626).
     alive: flume::Sender<()>,
-    /// Shared with the handle so terminal publication and a concurrent
-    /// shutdown acceptance have one lifecycle linearization point. Without
-    /// taking this lock while publishing the terminal error, a shutdown caller
-    /// could observe `Open`, enqueue after the actor had already terminated,
-    /// and return `Ok(())` even though no actor turn could ever consume it.
-    shutdown_signal: Arc<Mutex<ShutdownSignalState>>,
-    terminal_error: Arc<Mutex<Option<Error>>>,
+    /// Shared with the handles so terminal publication and a concurrent
+    /// shutdown acceptance have one lifecycle linearization point.
+    lifecycle: Arc<OwnerLifecycle>,
     faults: TransientFaultRun,
     /// Consecutive receives that carried no data (an idle read timeout, or a
     /// driver that reports "no data" immediately). Escalates a cooperative
@@ -1654,87 +1100,28 @@ where
     pub(crate) fn new(policy: OwnerPolicy, runtime: R) -> Result<(AsyncOwnerHandle, Self), Error> {
         let state = OwnerState::new(policy)?;
         let runtime = Arc::new(runtime);
-        let clock = BoundClock::from_shared(Arc::clone(&runtime));
-        let origin = state.origin();
-        let permits = state.permits();
-        let state_cache = state.state_cache_registry();
-        let tuning = state.live_tuning();
-        let boundary_capacity = permits.total_capacity();
-        // Cancellation is deliberately a small independent lane. Saturation
-        // applies backpressure through `send_async`; it never falls back to a
-        // lossy `try_send` path.
-        let cancellation_capacity = 1;
-        let control_capacity = state.policy().limits.applied_subscribers.max(1);
+        let (core, ends) = OwnerHandleCore::new(&state);
         let rejection_capacity = state.policy().limits.diagnostics;
-        let (admission_tx, admissions) = flume::bounded(boundary_capacity);
-        let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
-        let (control_tx, control) = flume::bounded(control_capacity);
-        let (shutdown_tx, shutdown) = flume::bounded(1);
-        let (alive, actor_alive) = flume::bounded(1);
-        let shutdown_signal = Arc::new(Mutex::new(ShutdownSignalState::Open));
-        let terminal_error = Arc::new(Mutex::new(None));
-        let admission_rejections = Arc::new(AdmissionRejectionIngress::new(rejection_capacity));
         Ok((
             AsyncOwnerHandle {
-                permits,
-                admissions: admission_tx,
-                admission_rejections: Arc::clone(&admission_rejections),
-                cancellations: cancellation_tx,
-                control: control_tx,
-                shutdown: shutdown_tx,
-                actor_alive,
-                shutdown_signal: Arc::clone(&shutdown_signal),
-                terminal_error: Arc::clone(&terminal_error),
-                origin,
-                clock: clock.clone(),
-                state_cache,
-                tuning,
+                core,
+                clock: BoundClock::from_shared(Arc::clone(&runtime)),
             },
             Self {
                 state,
-                admissions,
-                admission_rejections,
+                receivers: ends.receivers,
+                admission_rejections: ends.admission_rejections,
                 admission_rejection_scratch: VecDeque::with_capacity(rejection_capacity),
                 observed_pre_admission_rejections: 0,
                 observed_control_reserve_rejections: 0,
-                cancellations,
-                control,
-                shutdown,
-                alive,
-                shutdown_signal: Arc::clone(&shutdown_signal),
-                terminal_error,
+                alive: ends.alive,
+                lifecycle: ends.lifecycle,
                 faults: TransientFaultRun::default(),
                 idle_receives: IdleReceiveRun::default(),
                 coordinator: OwnerCoordinator::default(),
                 runtime,
             },
         ))
-    }
-
-    /// Publish a terminal engine verdict at the lifecycle linearization point.
-    ///
-    /// This is intentionally called while the terminal `SessionChanged` effect
-    /// is being driven, rather than only from `run`'s epilogue. A shutdown
-    /// caller can otherwise enter the still-live one-slot lane after
-    /// `handle_event` has made the engine terminal but before the epilogue has
-    /// run, and incorrectly receive `Ok(())`.
-    fn publish_terminal_error(&self, error: Error) {
-        let mut signal = self
-            .shutdown_signal
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *self
-            .terminal_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(error.clone());
-        // Only the caller whose signal produced an explicit shutdown retains
-        // success. An engine close or poison supersedes even a signal accepted
-        // earlier in the same ready-source race.
-        if !matches!(&error, Error::RuntimeShutdown)
-            || !matches!(&*signal, ShutdownSignalState::Accepted)
-        {
-            *signal = ShutdownSignalState::Failed(error);
-        }
     }
 
     pub(crate) async fn run<D>(mut self, mut driver: D) -> OwnerSnapshot
@@ -1803,7 +1190,7 @@ where
                     // after this nonblocking check races exactly as it did
                     // with an ordinary already-selected boundary; the final
                     // drain answers the retained payload if shutdown wins.
-                    match self.shutdown.try_recv() {
+                    match self.receivers.shutdown.try_recv() {
                         Ok(()) => {
                             self.coordinator.restore(retained);
                             ActorEvent::Shutdown
@@ -1822,12 +1209,6 @@ where
                 }
                 TurnPlan::Select(selection) => {
                     let frame_limit = self.state.policy().limits.frames_per_receive;
-                    let boundaries = ActorBoundaryReceivers {
-                        shutdown: &self.shutdown,
-                        cancellations: &self.cancellations,
-                        admissions: &self.admissions,
-                        control: &self.control,
-                    };
                     let receive = async {
                         if selection.receive == ReceiveArm::ProofComplete {
                             // The exact no-input probe for this release set is
@@ -1869,7 +1250,7 @@ where
                             }
                         }
                     };
-                    select_actor_event(selection, receive, boundaries, wake).await
+                    select_actor_event(selection, receive, &self.receivers, wake).await
                 }
             };
 
@@ -1955,7 +1336,7 @@ where
             .state
             .boundary_error()
             .unwrap_or(Error::RuntimeShutdown);
-        self.publish_terminal_error(boundary_error.clone());
+        self.lifecycle.publish_terminal(boundary_error.clone());
         self.flush_pre_admission_rejections(true);
         if let Some(retained) = self.coordinator.take_retained() {
             self.answer_retained_boundary(retained, boundary_error.clone());
@@ -2406,11 +1787,7 @@ where
             return true;
         }
         let target = admission.request.context().target;
-        let lane = if admission.request.is_inquiry() {
-            RequestLane::Inquiry
-        } else {
-            RequestLane::Command
-        };
+        let lane = RequestLane::of(&admission.request);
         let Some(validity) = admission.validity.as_ref() else {
             return true;
         };
@@ -2620,8 +1997,8 @@ where
                 let error = self
                     .state
                     .boundary_error()
-                    .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
-                self.publish_terminal_error(error);
+                    .unwrap_or_else(missing_terminal_error);
+                self.lifecycle.publish_terminal(error);
             }
             if let AppliedEffect::Transmit(staged) = applied {
                 let write_result = match self.state.prepare_write(&staged) {
@@ -2678,8 +2055,8 @@ where
                 let error = self
                     .state
                     .boundary_error()
-                    .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
-                self.publish_terminal_error(error);
+                    .unwrap_or_else(missing_terminal_error);
+                self.lifecycle.publish_terminal(error);
             }
             if let AppliedEffect::Transmit(staged) = applied {
                 let write_result = match self.state.prepare_write(&staged) {
@@ -2740,18 +2117,18 @@ where
         let mut dropped = 0usize;
         loop {
             let before = dropped;
-            while let Ok(admission) = self.admissions.try_recv() {
+            while let Ok(admission) = self.receivers.admissions.try_recv() {
                 let _ = admission.reply.try_send(Err(error.clone()));
                 drop(admission);
                 dropped = dropped.saturating_add(1);
             }
-            while let Ok(cancel) = self.cancellations.try_recv() {
+            while let Ok(cancel) = self.receivers.cancellations.try_recv() {
                 // The caller keeps its handle, and a terminal outcome already
                 // delivered to it takes precedence over this error (#777).
                 let _ = cancel.reply.try_send(Err(error.clone()));
                 dropped = dropped.saturating_add(1);
             }
-            while let Ok(control) = self.control.try_recv() {
+            while let Ok(control) = self.receivers.control.try_recv() {
                 match control {
                     ControlBoundary::FlushAdmissionRejections => {
                         self.flush_pre_admission_rejections(true);
@@ -2800,32 +2177,8 @@ where
 {
     fn drop(&mut self) {
         // `run` can unwind before it reaches its normal terminal publication
-        // and drain. Publish a fail-closed terminal result before draining so
-        // boundary callers cannot retain an admission permit after an actor
-        // panic, and so a concurrent shutdown observes rejection rather than
-        // accepting a signal that no receiver can poll.
-        let error = {
-            let mut signal = self
-                .shutdown_signal
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let mut terminal = self
-                .terminal_error
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let error = terminal
-                .clone()
-                .unwrap_or_else(AsyncOwnerHandle::missing_terminal_error);
-            if terminal.is_none() {
-                *terminal = Some(error.clone());
-            }
-            if !matches!(&error, Error::RuntimeShutdown)
-                || !matches!(*signal, ShutdownSignalState::Accepted)
-            {
-                *signal = ShutdownSignalState::Failed(error.clone());
-            }
-            error
-        };
+        // and drain, so fail closed before draining.
+        let error = self.lifecycle.fail_closed();
 
         // The explicit normal-path drain may race with a sender that was
         // already admitted. A final drain closes that residual window before

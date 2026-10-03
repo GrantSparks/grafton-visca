@@ -68,8 +68,8 @@ impl RetainedRelease {
         // cancellation of A observes.
         let a_request = timed_out_inquiry();
         let a_timeout = a_request.context().timeout.inquiry;
-        let (a_completion, a_admitted) = handle.enqueue_admission(a_request, None).unwrap();
-        let a_boundary = actor.admissions.try_recv().unwrap();
+        let (a_completion, a_admitted) = handle.core.enqueue_admission(a_request, None).unwrap();
+        let a_boundary = actor.receivers.admissions.try_recv().unwrap();
         actor
             .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
             .await;
@@ -80,14 +80,15 @@ impl RetainedRelease {
             CameraId::CAMERA_1,
             a_completion,
             a_timeout,
-            Arc::clone(&handle.origin),
+            Arc::clone(&handle.core.origin),
         );
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
+                .core
                 .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, second_hold), None)
                 .unwrap();
-            let boundary = actor.admissions.try_recv().unwrap();
+            let boundary = actor.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
                 .await;
@@ -99,8 +100,8 @@ impl RetainedRelease {
         for _ in 0..live_commands {
             let request = command();
             let timeout = request.context().timeout.completion;
-            let (completion, admitted) = handle.enqueue_admission(request, None).unwrap();
-            let boundary = actor.admissions.try_recv().unwrap();
+            let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
+            let boundary = actor.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
                 .await;
@@ -110,7 +111,7 @@ impl RetainedRelease {
                 CameraId::CAMERA_1,
                 completion,
                 timeout,
-                Arc::clone(&handle.origin),
+                Arc::clone(&handle.core.origin),
             ));
         }
 
@@ -187,7 +188,7 @@ impl RetainedRelease {
     }
 
     fn enqueue_inquiry(&self) -> (TerminalObserver, flume::Receiver<Result<RequestId, Error>>) {
-        self.handle.enqueue_admission(inquiry(), None).unwrap()
+        self.handle.core.enqueue_admission(inquiry(), None).unwrap()
     }
 
     /// Requests cancellation on a spawned task, which hands the receipt back
@@ -203,7 +204,7 @@ impl RetainedRelease {
     /// Wait for the cancellation lane to hold the sent boundary.
     async fn cancellation_queued(&self) {
         tokio::time::timeout(Duration::from_secs(1), async {
-            while self.handle.cancellations.is_empty() {
+            while self.handle.core.cancellations.is_empty() {
                 tokio::task::yield_now().await;
             }
         })
@@ -217,8 +218,8 @@ impl RetainedRelease {
         assert_eq!(snapshot.state, SessionState::Shutdown);
         assert_eq!(snapshot.active, 0);
         assert_eq!(
-            self.handle.permits.available(),
-            self.handle.permits.capacity(),
+            self.handle.core.permits.available(),
+            self.handle.core.permits.capacity(),
             "every admission permit is returned"
         );
         snapshot
@@ -262,7 +263,7 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
         "neither admission may be applied before the release resolves"
     );
     assert_eq!(
-        owner.handle.admissions.len(),
+        owner.handle.core.admissions.len(),
         1,
         "C stays queued while B occupies the slot"
     );
@@ -311,7 +312,7 @@ async fn admission_then_live_cancellation_are_both_answered() {
     owner.cancellation_queued().await;
     tokio::task::yield_now().await;
     assert_eq!(
-        owner.handle.cancellations.len(),
+        owner.handle.core.cancellations.len(),
         1,
         "the cancellation stays queued while B occupies the slot"
     );
@@ -341,14 +342,14 @@ async fn live_cancellation_then_admission_are_both_answered() {
     let actor_task = owner.start();
     owner.parked_in_grace().await;
     assert!(
-        owner.handle.cancellations.is_empty(),
+        owner.handle.core.cancellations.is_empty(),
         "the cancellation was taken into the slot"
     );
 
     let (_b_completion, b_admitted) = owner.enqueue_inquiry();
     tokio::task::yield_now().await;
     assert_eq!(
-        owner.handle.admissions.len(),
+        owner.handle.core.admissions.len(),
         1,
         "B stays queued while the cancellation occupies the slot"
     );
@@ -378,13 +379,13 @@ async fn successive_live_cancellations_are_both_answered() {
     owner.cancellation_queued().await;
     let actor_task = owner.start();
     owner.parked_in_grace().await;
-    assert!(owner.handle.cancellations.is_empty());
+    assert!(owner.handle.core.cancellations.is_empty());
 
     let cancel_y = owner.spawn_cancel(y);
     owner.cancellation_queued().await;
     tokio::task::yield_now().await;
     assert_eq!(
-        owner.handle.cancellations.len(),
+        owner.handle.core.cancellations.len(),
         1,
         "Y's cancellation stays queued while X's occupies the slot"
     );
@@ -427,6 +428,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
     let (reply, cancelled) = flume::bounded(1);
     owner
         .handle
+        .core
         .cancellations
         .send_async(CancellationBoundary {
             request: CancellationRequest {
@@ -439,7 +441,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .unwrap();
     tokio::task::yield_now().await;
     assert_eq!(
-        owner.handle.cancellations.len(),
+        owner.handle.core.cancellations.len(),
         1,
         "the cancellation stays queued while B occupies the slot"
     );
@@ -479,6 +481,7 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
     let deadline = at_h.checked_add(GRACE / 2).unwrap();
     let (_b_completion, b_admitted) = owner
         .handle
+        .core
         .enqueue_admission(inquiry(), Some(AdmissionValidity::until(deadline)))
         .unwrap();
     let actor_task = owner.start();
@@ -486,10 +489,11 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
 
     let (_c_completion, c_admitted) = owner
         .handle
+        .core
         .enqueue_admission(inquiry(), Some(AdmissionValidity::until(deadline)))
         .unwrap();
     tokio::task::yield_now().await;
-    assert_eq!(owner.handle.admissions.len(), 1);
+    assert_eq!(owner.handle.core.admissions.len(), 1);
 
     owner.release();
     let b = admitted_within(&b_admitted, "retained B keeps its claimed admission")
@@ -521,7 +525,7 @@ async fn shutdown_answers_retained_and_queued_boundaries() {
     owner.parked_in_grace().await;
     let (_c_completion, c_admitted) = owner.enqueue_inquiry();
     tokio::task::yield_now().await;
-    assert_eq!(owner.handle.admissions.len(), 1);
+    assert_eq!(owner.handle.core.admissions.len(), 1);
 
     let snapshot = owner.shutdown(actor_task).await;
     assert!(matches!(
@@ -562,7 +566,7 @@ async fn release_set_growth_keeps_the_retained_boundary_and_its_queue() {
     owner.parked_in_grace().await;
     assert!(b_admitted.is_empty(), "B is still retained");
     assert_eq!(
-        owner.handle.admissions.len(),
+        owner.handle.core.admissions.len(),
         1,
         "C is still queued behind the retained boundary"
     );

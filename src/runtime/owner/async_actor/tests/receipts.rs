@@ -1,19 +1,4 @@
 use super::*;
-#[test]
-fn admission_rejection_ingress_total_saturates() {
-    let ingress = AdmissionRejectionIngress::new(2);
-    let rejection = PreAdmissionRejection {
-        target: CameraId::CAMERA_1,
-        lane: RequestLane::Command,
-        error: crate::ErrorKind::BufferFull,
-    };
-    ingress.total.store(u64::MAX - 1, Ordering::Release);
-
-    assert!(ingress.record(rejection, false));
-    assert_eq!(ingress.total(), u64::MAX);
-    assert!(!ingress.record(rejection, false));
-    assert_eq!(ingress.total(), u64::MAX);
-}
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn tokio_typed_receipts_are_completion_first_and_timeout_only_detaches() {
@@ -179,7 +164,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
 
     tokio::task::yield_now().await;
     assert_eq!(
-        handle.permits.available(),
+        handle.core.permits.available(),
         0,
         "the queued boundary owns capacity until the actor observes its expiry"
     );
@@ -216,8 +201,8 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
         "expired work was not written"
     );
     assert_eq!(
-        handle.permits.available(),
-        handle.permits.capacity(),
+        handle.core.permits.available(),
+        handle.core.permits.capacity(),
         "dropping the stale boundary returns its capacity permit"
     );
 
@@ -276,12 +261,14 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
     let validity = AdmissionValidity::until(deadline);
     let (completion, reply) = handle
+        .core
         .enqueue_admission(inquiry(), Some(validity))
         .expect("a future deadline can enter the bounded admission lane");
     drop(completion);
     tokio::time::advance(Duration::from_millis(1)).await;
 
     let boundary = actor
+        .receivers
         .admissions
         .try_recv()
         .expect("the actor owns the queued boundary");
@@ -560,11 +547,12 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
 fn smol_fail_fast_capacity_rejection_records_telemetry() {
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new()).unwrap();
     let held = handle
+        .core
         .permits
         .try_acquire_ordinary()
         .expect("the test reserves the only admission slot");
 
-    let error = match handle.enqueue_admission(inquiry(), None) {
+    let error = match handle.core.enqueue_admission(inquiry(), None) {
         Ok(_) => panic!("a full admission pool must fail fast"),
         Err(error) => error,
     };
@@ -640,7 +628,8 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
     let (replacement_sender, replacement_receiver) = flume::bounded(1);
     drop(replacement_sender);
-    let original_receiver = std::mem::replace(&mut actor.admissions, replacement_receiver);
+    let original_receiver =
+        std::mem::replace(&mut actor.receivers.admissions, replacement_receiver);
     drop(original_receiver);
 
     let error = match handle.try_submit(command()) {

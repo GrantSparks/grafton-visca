@@ -179,9 +179,11 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // Stage A before starting the eager receiver. That keeps the fixture's
     // first observed sleep attributable to A's raw hold rather than to a
     // pre-admission read timeout race.
-    let (predecessor_completion, predecessor_admitted) =
-        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let predecessor_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(
             predecessor_boundary,
@@ -203,7 +205,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // before the raw release Wake dispatches it.
     let successor_handle = handle.clone();
     let successor_task = tokio::spawn(async move { successor_handle.submit(inquiry()).await });
-    while handle.admissions.is_empty() {
+    while handle.core.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
     let reads_before_h = reads.load(Ordering::Relaxed);
@@ -314,9 +316,10 @@ async fn async_raw_tombstone_timeout_verdict(
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     let (_predecessor_completion, predecessor_admitted) = handle
+        .core
         .enqueue_admission(no_reply_command_for(CameraId::CAMERA_1, HOLD), None)
         .unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    let predecessor_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(
             predecessor_boundary,
@@ -335,7 +338,7 @@ async fn async_raw_tombstone_timeout_verdict(
             .submit_with_timeout_until(command(), Duration::from_secs(1), deadline)
             .await
     });
-    while handle.admissions.is_empty() {
+    while handle.core.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
     // `enqueue_admission` runs before the caller installs its clock sleep;
@@ -354,7 +357,7 @@ async fn async_raw_tombstone_timeout_verdict(
         !actor.state.raw_correlation_releases_due(now).is_empty(),
         "B expires while A's raw tombstone release is due"
     );
-    let expired_successor = actor.admissions.try_recv().unwrap();
+    let expired_successor = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(expired_successor, &mut driver, &runtime, now)
         .await;
@@ -419,8 +422,11 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     // A creates S1's inquiry hold. C independently creates S2's broad raw
     // hold at a later deadline; B remains queued behind S1.
-    let (a_completion, a_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let a_boundary = actor.admissions.try_recv().unwrap();
+    let (a_completion, a_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let a_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
@@ -432,17 +438,18 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     ));
 
     let (_c_completion, c_admitted) = handle
+        .core
         .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, SECOND_HOLD), None)
         .unwrap();
-    let c_boundary = actor.admissions.try_recv().unwrap();
+    let c_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
     let c = c_admitted.recv_async().await.unwrap().unwrap();
     assert_eq!(harness.writes.recv_async().await.unwrap(), c);
 
-    let (_b_completion, b_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
-    let b_boundary = actor.admissions.try_recv().unwrap();
+    let (_b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let b_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
@@ -860,8 +867,11 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
 
     // A times out after its successful write, which installs the genuine
     // late-reply hold retained by #712. B remains queued behind it.
-    let (a_completion, a_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let a_boundary = actor.admissions.try_recv().unwrap();
+    let (a_completion, a_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let a_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
@@ -872,8 +882,11 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
-    let (b_completion, b_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let b_boundary = actor.admissions.try_recv().unwrap();
+    let (b_completion, b_admitted) = handle
+        .core
+        .enqueue_admission(timed_out_inquiry(), None)
+        .unwrap();
+    let b_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
@@ -926,8 +939,8 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
-    let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
-    let c_boundary = actor.admissions.try_recv().unwrap();
+    let (_c_completion, c_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let c_boundary = actor.receivers.admissions.try_recv().unwrap();
     actor
         .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;

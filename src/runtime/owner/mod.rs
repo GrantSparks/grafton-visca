@@ -11,8 +11,11 @@ mod async_actor;
 mod async_transport;
 #[cfg(feature = "blocking")]
 mod blocking;
+// The blocking owner adopts the shared boundary with its worker thread (D24).
 #[cfg(feature = "blocking")]
 mod blocking_transport;
+#[cfg(feature = "async")]
+mod boundary;
 mod turn;
 
 #[cfg(feature = "async")]
@@ -365,6 +368,17 @@ pub(crate) enum RequestLane {
     Inquiry,
 }
 
+impl RequestLane {
+    /// The lane `request` is admitted and reported on.
+    pub(crate) fn of(request: &RuntimeRequest) -> Self {
+        if request.is_inquiry() {
+            Self::Inquiry
+        } else {
+            Self::Command
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseDiagnostic {
     Ack(Option<ViscaSocket>),
@@ -415,11 +429,7 @@ impl RequestSummary {
         let context = request.context();
         Self {
             target: context.target,
-            lane: if request.is_inquiry() {
-                RequestLane::Inquiry
-            } else {
-                RequestLane::Command
-            },
+            lane: RequestLane::of(request),
             timeout: context.timeout,
             retry: context.retry,
             control: context.control.class,
