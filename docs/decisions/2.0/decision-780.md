@@ -35,6 +35,15 @@ Revises the documented invariant "no per-camera background workers"
 (`docs/architecture_2_0.md`) and the caller-thread model. Record both as a
 `### Changed` entry naming this decision; do not edit the old text in place.
 
+Implemented in #793. The worker reads the transport in slices of at most
+10 ms (1 ms when another source is already ready), so control, STOP and close
+latency is bounded by one slice rather than by the transport's read timeout;
+this tightens item 3 without changing the trait. `drain_diagnostics` is
+replaced by `subscribe_diagnostics`, and `TransportBusy` is removed. The
+measurements (one thread per session, about 0.1% idle CPU and 94 KiB per
+session, STOP p50 5.6 ms / p99 10.7 ms) are recorded in
+`docs/architecture_2_0.md`.
+
 ## Context
 
 The blocking session keeps the owner, wire driver, reader and decoder behind
