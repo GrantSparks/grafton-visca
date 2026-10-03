@@ -645,7 +645,8 @@ impl fmt::Display for FailureStage {
 
 /// What is known about whether a request took effect.
 ///
-/// Only [`Self::NotAccepted`] makes submitting the same request again safe.
+/// Submitting the same request again is safe only after [`Self::NotAccepted`]
+/// or [`Self::FailedConclusively`]: in both, the request had no effect.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Certainty {
@@ -923,7 +924,8 @@ impl Error {
     /// This classifies the *condition*, not replay safety. Whether submitting
     /// the same request again could duplicate a physical effect is a separate
     /// question that [`Self::failure_context`] answers: only
-    /// [`Certainty::NotAccepted`] is replay-safe. An
+    /// [`Certainty::NotAccepted`] and [`Certainty::FailedConclusively`] are
+    /// replay-safe. An
     /// [`Self::ObservationTimeout`] is never retryable, because its request is
     /// still running.
     ///

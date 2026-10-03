@@ -247,8 +247,9 @@ A timeout says *which* deadline expired and *what is known* about the request
 it concerns. Read both with `Error::failure_context()`, which returns a
 `FailureContext { stage, certainty }` for every timeout and for the two
 unconfirmed outcomes (D20, #783). `is_retryable()` classifies the condition as
-temporary; it is not a replay-safety answer. Only `Certainty::NotAccepted`
-makes submitting the same request again safe.
+temporary; it is not a replay-safety answer. Submitting the same request again
+is safe only after `Certainty::NotAccepted` or `Certainty::FailedConclusively`:
+in both, the request had no effect.
 
 | Stage | Error | Certainty | What it means | Recovery |
 | --- | --- | --- | --- | --- |

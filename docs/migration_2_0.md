@@ -722,8 +722,8 @@ For a central application error adapter, prefer `error.kind()` when several
 wire-level variants have the same application meaning. Map `ErrorKind::Timeout`
 to a request timeout, but decide replay with `error.failure_context()`, not
 `is_retryable()`: an `ObservationTimeout` (your wait expired, the request is
-still running) is never retryable, and only `Certainty::NotAccepted` makes a
-resubmission safe. 1.x had one unit `Timeout` for every deadline; 2.0's
+still running) is never retryable, and a resubmission is safe only after
+`Certainty::NotAccepted` or `Certainty::FailedConclusively`. 1.x had one unit `Timeout` for every deadline; 2.0's
 `Timeout` carries a `FailureContext`, so match it as `Error::Timeout { .. }`,
 and a custom transport reports an expired read or write with
 `Error::io_timeout()`. Map `BufferFull` to a retryable busy/capacity state, and
