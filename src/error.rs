@@ -29,7 +29,8 @@
 //! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
 //! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
 //! | Blocking owner re-entry, or an operation-handle submission that cannot win its immediate first-dispatch boundary | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
-//! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. |
+//! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. An urgent typed STOP can still use its target's control reserve. |
+//! | An urgent typed STOP finds its target's control reserve and ordinary admission both full | Any | Any | [`Error::ControlReserveExhausted`] | `false` | Back off briefly: earlier stops for that camera are still pending. |
 //! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
 //! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
 
@@ -137,6 +138,7 @@ pub enum ErrorKind {
 /// - `CommandBufferFull` - Camera's command buffer is full (always retry)
 /// - `NoSocket` - The addressed command socket is no longer available
 /// - `RuntimeQueueFull` - The local admission queue is full
+/// - `ControlReserveExhausted` - A camera's stop reserve and the ordinary queue are both full
 /// - `TransportBusy` - The blocking facade is already borrowing the transport
 /// - `TransportError` - One transport operation failed while the session remains live
 /// - `Timeout` - A deadline expired; [`Error::failure_context`] says which
@@ -463,6 +465,22 @@ pub enum Error {
         capacity: usize,
     },
 
+    /// An urgent typed STOP found its target's control reserve full while
+    /// ordinary admission was full too (D26, #778).
+    ///
+    /// Each registered camera has a small admission reserve, one slot per
+    /// typed STOP its profile supports, that ordinary work cannot use. This is
+    /// returned only when that reserve is already held by earlier stops and
+    /// no ordinary slot is free either. Back off briefly; an earlier stop for
+    /// the same camera is still pending.
+    #[error("Control reserve for camera {target} is full ({reserve} slots)")]
+    ControlReserveExhausted {
+        /// The camera whose reserve is full.
+        target: crate::CameraId,
+        /// The size of that camera's reserve.
+        reserve: usize,
+    },
+
     /// A stream transport's framing or write position became unknowable.
     ///
     /// This error indicates that a stream-based transport (TCP, Serial) lost
@@ -685,9 +703,10 @@ impl Error {
             Self::CommandCanceled => ErrorKind::Cancelled,
 
             // BufferFull: transient capacity exhaustion
-            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
-                ErrorKind::BufferFull
-            }
+            Self::CommandBufferFull
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
+            | Self::NoSocket => ErrorKind::BufferFull,
 
             // NotExecutable: command invalid in current state
             Self::CommandNotExecutable | Self::InvalidState(..) => ErrorKind::NotExecutable,
@@ -874,6 +893,7 @@ impl Error {
             | Self::UnsequencedCommandUnconfirmed
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
             | Self::DecoderNotFound { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
@@ -916,7 +936,7 @@ impl Error {
     /// Returns `true` for errors that represent temporary conditions
     /// that may succeed if the operation is retried. This includes:
     /// - Camera capacity states (`CommandBufferFull`, `NoSocket`)
-    /// - Queue capacity (`RuntimeQueueFull`)
+    /// - Queue capacity (`RuntimeQueueFull`, `ControlReserveExhausted`)
     /// - Pending operations (`CommandPending`, `TransportBusy`)
     /// - Isolated live-session transport failures (`TransportError`)
     /// - Deadline expiry (`Timeout` and timed-out I/O)
@@ -989,9 +1009,10 @@ impl Error {
             Self::CommandPending => Some(Duration::from_millis(50)),
             Self::TransportBusy => Some(Duration::from_millis(50)),
             Self::TransportError(..) => Some(Duration::from_millis(50)),
-            Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
-                Some(Duration::from_millis(200))
-            }
+            Self::CommandBufferFull
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
+            | Self::NoSocket => Some(Duration::from_millis(200)),
             Self::Timeout { .. } => Some(Duration::from_secs(2)),
             Self::ObservationTimeout { .. } | Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),

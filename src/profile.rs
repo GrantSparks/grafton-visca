@@ -1040,6 +1040,19 @@ impl ProfileSpec {
             && (!axes.contains(AffectedAxes::ND_FILTER) || self.capabilities.has_nd_filter)
     }
 
+    /// The number of typed STOP paths (pan/tilt, zoom, focus) this profile
+    /// supports. Each one gets a control-reserve admission slot (D26, #778).
+    pub(crate) fn typed_stop_paths(&self) -> u8 {
+        [
+            AffectedAxes::PAN_TILT,
+            AffectedAxes::ZOOM,
+            AffectedAxes::FOCUS,
+        ]
+        .into_iter()
+        .filter(|axes| self.supports_axes(*axes))
+        .fold(0, |paths, _| paths + 1)
+    }
+
     /// Validates operational overrides without changing profile safety facts.
     pub fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
         let now = Instant::now();

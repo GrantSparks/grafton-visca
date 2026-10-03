@@ -27,6 +27,7 @@ fn target_policy_for_validation() -> TargetPolicy {
     TargetPolicy {
         command_sockets: 1,
         cancellation: CancellationPolicy::Supported,
+        control_reserve: 0,
     }
 }
 
@@ -74,6 +75,7 @@ fn reconfigurable_owner_state() -> OwnerState {
         TargetPolicy {
             command_sockets: 2,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         },
     )
     .expect("single-target owner policy");
@@ -214,6 +216,92 @@ fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
     );
 }
 
+/// D26 (#778): the permit pool's two budgets.
+mod control_reserve {
+    use super::*;
+    use crate::runtime::engine::{ControlPolicy, ReplyShape, RetryPolicy, TimeoutPolicy};
+
+    fn context(target: u8, class: ControlClass) -> RequestContext {
+        RequestContext {
+            target: CameraId::new(target).unwrap(),
+            timeout: TimeoutPolicy {
+                ack: Duration::from_millis(10),
+                completion: Duration::from_millis(20),
+                inquiry: Duration::from_millis(20),
+                cancellation: Duration::from_millis(10),
+                ambiguity: Duration::from_millis(10),
+            },
+            retry: RetryPolicy::NEVER,
+            control: ControlPolicy {
+                class,
+                ..ControlPolicy::default()
+            },
+            cancellation: CancellationPolicy::Supported,
+            reply_shape: ReplyShape::AckThenCompletion,
+        }
+    }
+
+    /// One ordinary slot; cameras 1 and 2 reserve two and one control slots.
+    fn pool() -> AdmissionPermitPool {
+        let mut reserves = [0; 9];
+        reserves[1] = 2;
+        reserves[2] = 1;
+        AdmissionPermitPool::new(1, reserves)
+    }
+
+    #[test]
+    fn urgent_requests_take_their_reserve_first_then_ordinary_slots() {
+        let pool = pool();
+        let urgent = context(1, ControlClass::Urgent);
+        let first = pool.try_acquire(&urgent).unwrap();
+        let second = pool.try_acquire(&urgent).unwrap();
+        assert_eq!(first.slot(), AdmissionSlot::ControlReserve);
+        assert_eq!(second.slot(), AdmissionSlot::ControlReserve);
+        let third = pool.try_acquire(&urgent).unwrap();
+        assert_eq!(third.slot(), AdmissionSlot::Ordinary, "the reserve is held");
+        assert!(matches!(
+            pool.try_acquire(&urgent),
+            Err(Error::ControlReserveExhausted { target, reserve: 2 })
+                if target == CameraId::CAMERA_1
+        ));
+        assert!(matches!(
+            pool.try_acquire(&context(1, ControlClass::User)),
+            Err(Error::RuntimeQueueFull { capacity: 1 })
+        ));
+        // Camera 1 cannot use camera 2's reserve.
+        let other = pool.try_acquire(&context(2, ControlClass::Urgent)).unwrap();
+        assert_eq!(other.slot(), AdmissionSlot::ControlReserve);
+    }
+
+    #[test]
+    fn ordinary_requests_never_take_a_reserve_and_slots_return_to_their_budget() {
+        let pool = pool();
+        let ordinary = context(1, ControlClass::Normal);
+        let held = pool.try_acquire(&ordinary).unwrap();
+        assert_eq!(held.slot(), AdmissionSlot::Ordinary);
+        assert!(matches!(
+            pool.try_acquire(&ordinary),
+            Err(Error::RuntimeQueueFull { capacity: 1 })
+        ));
+
+        let urgent = context(1, ControlClass::Urgent);
+        let reserved = pool.try_acquire(&urgent).unwrap();
+        drop(reserved);
+        assert_eq!(
+            pool.available(),
+            0,
+            "a reserved slot never frees an ordinary one"
+        );
+        assert_eq!(
+            pool.try_acquire(&urgent).unwrap().slot(),
+            AdmissionSlot::ControlReserve,
+            "the released reserved slot returned to camera 1's reserve"
+        );
+        drop(held);
+        assert_eq!(pool.available(), 1);
+    }
+}
+
 #[cfg(all(feature = "blocking", not(feature = "async")))]
 mod blocking {
     use std::{
@@ -258,12 +346,14 @@ mod blocking {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap();
         owner.targets[usize::from(CameraId::CAMERA_2.id())] = Some(TargetPolicy {
             command_sockets: 2,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         });
         owner
     }
@@ -3957,7 +4047,7 @@ mod blocking {
     #[test]
     fn ready_effects_preserve_source_order_and_write_completion_is_recursive() {
         let mut state = OwnerState::new(policy(2, TransportKind::Datagram)).unwrap();
-        let permit = state.permits().try_acquire().unwrap();
+        let permit = state.permits().try_acquire_ordinary().unwrap();
         let (input, _observer, _admission) = state.stage_admission(
             command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
             permit,
@@ -4040,6 +4130,7 @@ mod blocking {
         owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
             command_sockets: 1,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         });
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let mut driver = FakeDriver::default();
@@ -4128,6 +4219,7 @@ mod blocking {
         owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
             command_sockets: 1,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         });
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let profile =
@@ -4179,6 +4271,7 @@ mod blocking {
         owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
             command_sockets: 1,
             cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
         });
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let mut driver = FakeDriver::default();
@@ -5046,6 +5139,7 @@ mod blocking {
         owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
             command_sockets: 2,
             cancellation: CancellationPolicy::Unsupported,
+            control_reserve: 0,
         });
         let mut owner = BlockingOwner::new(owner_policy).unwrap();
         let mut driver = FakeDriver::default();
@@ -6137,6 +6231,7 @@ mod metrics {
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
+                control_reserve: 0,
             },
         )
         .unwrap()
@@ -6214,7 +6309,10 @@ mod metrics {
         sequence: Option<u32>,
         now: Instant,
     ) -> TerminalObserver {
-        let permit = state.permits().try_acquire().expect("admission permit");
+        let permit = state
+            .permits()
+            .try_acquire_ordinary()
+            .expect("admission permit");
         let (input, observer, _admission) = state.stage_admission(request, permit);
         let effects = state.input(input, now);
         drain(state, effects, sequence, now);
@@ -6442,7 +6540,7 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 21 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
     }
 }
 
@@ -6772,6 +6870,7 @@ mod lifecycle_trace {
             *slot = Some(TargetPolicy {
                 command_sockets: 2,
                 cancellation,
+                control_reserve: 0,
             });
         }
         OwnerPolicy::with_targets(protocol, targets).unwrap()
@@ -6977,7 +7076,7 @@ mod lifecycle_trace {
 
             let permits_before = self.state().permits().available();
             let active_before = self.state().active_len();
-            let Some(permit) = self.state().permits().try_acquire() else {
+            let Ok(permit) = self.state().permits().try_acquire_ordinary() else {
                 out.push(format!(
                     "{} outcome admission ticket={label} error=Capacity capacity={} engine-entry=none observer=none transmission=none",
                     self.at,
@@ -6998,7 +7097,12 @@ mod lifecycle_trace {
             };
             let now = self.now;
             let (staged, observer, admission) = self.state_mut().stage_admission(request, permit);
-            let Input::Admit { ticket, request } = staged else {
+            let Input::Admit {
+                ticket,
+                request,
+                slot,
+            } = staged
+            else {
                 panic!("staged admission did not produce an admit input")
             };
             self.pending = Some(Pending {
@@ -7010,7 +7114,11 @@ mod lifecycle_trace {
                 active_before,
             });
             let effects = self.state_mut().input_with_turn(
-                Input::Admit { ticket, request },
+                Input::Admit {
+                    ticket,
+                    request,
+                    slot,
+                },
                 now,
                 EngineTurn::INPUT_ONLY,
             );

@@ -68,12 +68,12 @@ use crate::command::{encode::WireEncode, semantics::WriteOnlyState, system::Comm
 use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
+    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
     DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
-    TransmissionId, TransmissionMeta,
+    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
+    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
+    Transmission, TransmissionId, TransmissionMeta,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -315,6 +315,8 @@ impl OwnerPolicy {
 pub(crate) struct OwnerMetrics {
     pub(crate) admitted: u64,
     pub(crate) admission_rejected: u64,
+    pub(crate) control_reserve_admitted: u64,
+    pub(crate) control_reserve_rejected: u64,
     pub(crate) writes: u64,
     pub(crate) write_failures: u64,
     pub(crate) terminal: u64,
@@ -608,50 +610,137 @@ impl TargetStateCache {
 
 #[derive(Debug)]
 struct PermitPoolInner {
-    available: Mutex<usize>,
+    available: Mutex<PermitCounts>,
     capacity: usize,
+    reserves: [u8; 9],
 }
 
-/// One shared admission limit covering boundary work and authoritative engine
+/// Free admission slots: the ordinary budget, and each target's control
+/// reserve (D26, #778).
+#[derive(Debug)]
+struct PermitCounts {
+    ordinary: usize,
+    reserve: [u8; 9],
+}
+
+/// The admission limit covering boundary work and authoritative engine
 /// entries. A permit moves from pending admission to the active record and is
 /// released only when admission is rejected or a request reaches terminal.
+///
+/// Ordinary requests share `capacity` slots. Each registered target also has
+/// a control reserve, one slot per typed STOP its profile supports, that only
+/// an urgent request may take; such a request takes its target's reserve
+/// first and an ordinary slot only when that reserve is held (D26, #778).
 #[derive(Debug, Clone)]
 pub(crate) struct AdmissionPermitPool(Arc<PermitPoolInner>);
 
 impl AdmissionPermitPool {
-    fn new(capacity: usize) -> Self {
+    fn new(capacity: usize, reserves: [u8; 9]) -> Self {
         Self(Arc::new(PermitPoolInner {
-            available: Mutex::new(capacity),
+            available: Mutex::new(PermitCounts {
+                ordinary: capacity,
+                reserve: reserves,
+            }),
             capacity,
+            reserves,
         }))
     }
 
+    /// The ordinary admission capacity.
+    #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.0.capacity
     }
 
-    pub(crate) fn try_acquire(&self) -> Option<AdmissionPermit> {
+    /// The most requests that can be pending or active at once: the ordinary
+    /// capacity plus every target's control reserve.
+    #[cfg(feature = "async")]
+    pub(crate) fn total_capacity(&self) -> usize {
+        self.0
+            .reserves
+            .iter()
+            .fold(self.0.capacity, |total, reserve| {
+                total.saturating_add(usize::from(*reserve))
+            })
+    }
+
+    /// Takes one admission slot for a request with `context`.
+    ///
+    /// An ordinary request that finds the ordinary budget full gets
+    /// [`Error::RuntimeQueueFull`]. An urgent request that finds both its
+    /// target's reserve and the ordinary budget full gets
+    /// [`Error::ControlReserveExhausted`].
+    pub(crate) fn try_acquire(&self, context: &RequestContext) -> Result<AdmissionPermit, Error> {
+        let target = context.target;
+        let index = usize::from(target.id());
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
-        if *available == 0 {
-            return None;
-        }
-        *available -= 1;
-        Some(AdmissionPermit {
+        let slot = if context.control.class == ControlClass::Urgent && available.reserve[index] > 0
+        {
+            available.reserve[index] -= 1;
+            AdmissionSlot::ControlReserve
+        } else if available.ordinary > 0 {
+            available.ordinary -= 1;
+            AdmissionSlot::Ordinary
+        } else if context.control.class == ControlClass::Urgent {
+            return Err(Error::ControlReserveExhausted {
+                target,
+                reserve: usize::from(self.0.reserves[index]),
+            });
+        } else {
+            return Err(Error::RuntimeQueueFull {
+                capacity: self.0.capacity,
+            });
+        };
+        Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
+            slot,
+            target: index,
             released: false,
         })
     }
 
+    /// Takes an ordinary slot, as any non-urgent request on camera 1 would.
+    #[cfg(test)]
+    pub(crate) fn try_acquire_ordinary(&self) -> Result<AdmissionPermit, Error> {
+        let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
+        if available.ordinary == 0 {
+            return Err(Error::RuntimeQueueFull {
+                capacity: self.0.capacity,
+            });
+        }
+        available.ordinary -= 1;
+        Ok(AdmissionPermit {
+            pool: Arc::clone(&self.0),
+            slot: AdmissionSlot::Ordinary,
+            target: 1,
+            released: false,
+        })
+    }
+
+    /// Free ordinary slots.
     #[cfg(test)]
     fn available(&self) -> usize {
-        *self.0.available.lock().unwrap_or_else(|p| p.into_inner())
+        self.0
+            .available
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .ordinary
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
+    slot: AdmissionSlot,
+    target: usize,
     released: bool,
+}
+
+impl AdmissionPermit {
+    /// The admission budget this permit holds a slot in.
+    pub(crate) const fn slot(&self) -> AdmissionSlot {
+        self.slot
+    }
 }
 
 impl Drop for AdmissionPermit {
@@ -665,8 +754,18 @@ impl Drop for AdmissionPermit {
             .available
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        debug_assert!(*available < self.pool.capacity);
-        *available = available.saturating_add(1).min(self.pool.capacity);
+        match self.slot {
+            AdmissionSlot::Ordinary => {
+                debug_assert!(available.ordinary < self.pool.capacity);
+                available.ordinary = available.ordinary.saturating_add(1).min(self.pool.capacity);
+            }
+            AdmissionSlot::ControlReserve => {
+                let reserve = self.pool.reserves[self.target];
+                let free = &mut available.reserve[self.target];
+                debug_assert!(*free < reserve);
+                *free = free.saturating_add(1).min(reserve);
+            }
+        }
     }
 }
 
@@ -1435,7 +1534,12 @@ impl OwnerState {
                 engine.register_target(target, target_policy)?;
             }
         }
-        let permits = AdmissionPermitPool::new(policy.protocol.capacity);
+        let permits = AdmissionPermitPool::new(
+            policy.protocol.capacity,
+            policy
+                .targets
+                .map(|target| target.map_or(0, |target| target.control_reserve)),
+        );
         let buffers = OwnerBuffers::new(policy.limits)?;
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
@@ -1573,7 +1677,10 @@ impl OwnerState {
         lane: RequestLane,
         error: &Error,
     ) {
-        self.record_pre_admission_rejections(1);
+        self.record_pre_admission_rejections(
+            1,
+            u64::from(matches!(error, Error::ControlReserveExhausted { .. })),
+        );
         self.record_admission_rejection_diagnostic(target, lane, error.kind());
     }
 
@@ -1582,9 +1689,15 @@ impl OwnerState {
     /// Async handles can reject a submission while acquiring the shared
     /// admission permit, before an observer, ticket, or boundary item exists.
     /// Their bounded ingress is drained by the actor, which uses this method to
-    /// merge the exact counter total into owner-owned metrics.
-    pub(crate) fn record_pre_admission_rejections(&mut self, count: u64) {
+    /// merge the exact counter totals into owner-owned metrics. `control_reserve`
+    /// counts the urgent stops among them that found their target's control
+    /// reserve full (D26, #778).
+    pub(crate) fn record_pre_admission_rejections(&mut self, count: u64, control_reserve: u64) {
         self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(count);
+        self.metrics.control_reserve_rejected = self
+            .metrics
+            .control_reserve_rejected
+            .saturating_add(control_reserve);
     }
 
     /// Delivers the bounded diagnostic half of a pre-admission rejection.
@@ -1908,6 +2021,7 @@ impl OwnerState {
     ) -> Input {
         let ticket = self.allocate_ticket();
         let summary = RequestSummary::new(&request);
+        let slot = permit.slot();
         let previous = self.pending.insert(
             ticket,
             PendingAdmission {
@@ -1918,7 +2032,11 @@ impl OwnerState {
             },
         );
         debug_assert!(previous.is_none());
-        Input::Admit { ticket, request }
+        Input::Admit {
+            ticket,
+            request,
+            slot,
+        }
     }
 
     fn mark_cancellation_recorded(&mut self, id: RequestId) {
@@ -2161,6 +2279,7 @@ impl OwnerState {
                     reply,
                     summary,
                 } = pending;
+                let permit_slot = permit.slot();
                 self.active.insert(
                     id,
                     ActiveRequest {
@@ -2171,6 +2290,10 @@ impl OwnerState {
                     },
                 );
                 self.metrics.admitted = self.metrics.admitted.saturating_add(1);
+                if permit_slot == AdmissionSlot::ControlReserve {
+                    self.metrics.control_reserve_admitted =
+                        self.metrics.control_reserve_admitted.saturating_add(1);
+                }
                 self.record(DiagnosticEvent::Admitted {
                     id,
                     target: summary.target,

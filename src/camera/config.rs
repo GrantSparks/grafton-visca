@@ -337,9 +337,10 @@ where
     /// Sets the immutable request-admission capacity for sessions opened from
     /// this configuration.
     ///
-    /// Admission is fail-fast once this many requests are pending or active;
-    /// it is independent of transport buffers and per-camera VISCA socket
-    /// capacity.
+    /// Admission is fail-fast once this many ordinary requests are pending or
+    /// active; each camera's typed STOPs also have a small control reserve on
+    /// top of it (see [`crate::SessionConfig::admission_capacity`]). It is
+    /// independent of transport buffers and per-camera VISCA socket capacity.
     #[must_use]
     pub const fn with_admission_capacity(mut self, capacity: NonZeroUsize) -> Self {
         self.admission_capacity = capacity;

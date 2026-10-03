@@ -412,14 +412,34 @@ struct PendingAdmissionRejections {
 #[derive(Debug)]
 struct AdmissionRejectionIngress {
     total: AtomicU64,
+    /// The urgent stops among `total` that found their target's control
+    /// reserve full (D26, #778).
+    control_reserve_total: AtomicU64,
     pending: Mutex<PendingAdmissionRejections>,
     capacity: usize,
+}
+
+/// Adds one to a saturating atomic counter.
+fn saturating_increment(counter: &AtomicU64) {
+    let mut current = counter.load(Ordering::Acquire);
+    loop {
+        match counter.compare_exchange_weak(
+            current,
+            current.saturating_add(1),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(observed) => current = observed,
+        }
+    }
 }
 
 impl AdmissionRejectionIngress {
     fn new(capacity: usize) -> Self {
         Self {
             total: AtomicU64::new(0),
+            control_reserve_total: AtomicU64::new(0),
             pending: Mutex::new(PendingAdmissionRejections {
                 events: VecDeque::with_capacity(capacity),
                 dropped: 0,
@@ -431,18 +451,10 @@ impl AdmissionRejectionIngress {
 
     /// Records one rejection and reports whether this caller must enqueue the
     /// one coalesced actor wake-up.
-    fn record(&self, event: PreAdmissionRejection) -> bool {
-        let mut total = self.total.load(Ordering::Acquire);
-        loop {
-            match self.total.compare_exchange_weak(
-                total,
-                total.saturating_add(1),
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => break,
-                Err(observed) => total = observed,
-            }
+    fn record(&self, event: PreAdmissionRejection, control_reserve: bool) -> bool {
+        saturating_increment(&self.total);
+        if control_reserve {
+            saturating_increment(&self.control_reserve_total);
         }
         let mut pending = self
             .pending
@@ -467,6 +479,10 @@ impl AdmissionRejectionIngress {
 
     fn total(&self) -> u64 {
         self.total.load(Ordering::Acquire)
+    }
+
+    fn control_reserve_total(&self) -> u64 {
+        self.control_reserve_total.load(Ordering::Acquire)
     }
 
     /// Moves pending bounded diagnostics into the actor's preallocated scratch
@@ -1463,12 +1479,12 @@ impl AsyncOwnerHandle {
             self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
-        let Some(permit) = self.permits.try_acquire() else {
-            let error = Error::RuntimeQueueFull {
-                capacity: self.permits.capacity(),
-            };
-            self.record_pre_admission_rejection(target, lane, &error);
-            return Err(error);
+        let permit = match self.permits.try_acquire(request.context()) {
+            Ok(permit) => permit,
+            Err(error) => {
+                self.record_pre_admission_rejection(target, lane, &error);
+                return Err(error);
+            }
         };
         if let Some(error) = self.admission_rejection() {
             self.record_pre_admission_rejection(target, lane, &error);
@@ -1535,11 +1551,14 @@ impl AsyncOwnerHandle {
         lane: RequestLane,
         error: &Error,
     ) {
-        let wake = self.admission_rejections.record(PreAdmissionRejection {
-            target,
-            lane,
-            error: error.kind(),
-        });
+        let wake = self.admission_rejections.record(
+            PreAdmissionRejection {
+                target,
+                lane,
+                error: error.kind(),
+            },
+            matches!(error, Error::ControlReserveExhausted { .. }),
+        );
         if wake {
             let _ = self
                 .control
@@ -1599,6 +1618,7 @@ where
     admission_rejection_scratch: VecDeque<PreAdmissionRejection>,
     /// Monotonic total already merged into `OwnerState` metrics.
     observed_pre_admission_rejections: u64,
+    observed_control_reserve_rejections: u64,
     cancellations: flume::Receiver<CancellationBoundary>,
     control: flume::Receiver<ControlBoundary>,
     shutdown: flume::Receiver<()>,
@@ -1639,7 +1659,7 @@ where
         let permits = state.permits();
         let state_cache = state.state_cache_registry();
         let tuning = state.live_tuning();
-        let boundary_capacity = permits.capacity();
+        let boundary_capacity = permits.total_capacity();
         // Cancellation is deliberately a small independent lane. Saturation
         // applies backpressure through `send_async`; it never falls back to a
         // lossy `try_send` path.
@@ -1676,6 +1696,7 @@ where
                 admission_rejections,
                 admission_rejection_scratch: VecDeque::with_capacity(rejection_capacity),
                 observed_pre_admission_rejections: 0,
+                observed_control_reserve_rejections: 0,
                 cancellations,
                 control,
                 shutdown,
@@ -2477,10 +2498,15 @@ where
         // cleared wake marker and reserved the next actor wake, so its scalar
         // count cannot be stranded behind an already-consumed notification.
         let total = self.admission_rejections.total();
+        let control_reserve = self.admission_rejections.control_reserve_total();
         let new_rejections = total.saturating_sub(self.observed_pre_admission_rejections);
-        if new_rejections != 0 {
-            self.state.record_pre_admission_rejections(new_rejections);
+        let new_control_reserve =
+            control_reserve.saturating_sub(self.observed_control_reserve_rejections);
+        if new_rejections != 0 || new_control_reserve != 0 {
+            self.state
+                .record_pre_admission_rejections(new_rejections, new_control_reserve);
             self.observed_pre_admission_rejections = total;
+            self.observed_control_reserve_rejections = control_reserve;
         }
         if dropped_diagnostics != 0 {
             self.state.record_dropped_diagnostics(dropped_diagnostics);

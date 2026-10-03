@@ -450,6 +450,20 @@ pub(crate) enum TransportKind {
 pub(crate) struct TargetPolicy {
     pub(crate) command_sockets: u8,
     pub(crate) cancellation: CancellationPolicy,
+    /// Admission slots reserved for this target's urgent typed STOPs, one
+    /// per STOP path its profile supports (D26, #778).
+    pub(crate) control_reserve: u8,
+}
+
+/// Which admission budget an entry holds (D26, #778).
+///
+/// Ordinary requests hold one of the session's `capacity` slots. An urgent
+/// typed STOP may instead hold one of its target's reserved slots, which
+/// ordinary work can never use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AdmissionSlot {
+    Ordinary,
+    ControlReserve,
 }
 
 /// Session-wide scheduling policy.
@@ -798,6 +812,7 @@ pub(crate) enum Input {
     Admit {
         ticket: AdmissionTicket,
         request: RuntimeRequest,
+        slot: AdmissionSlot,
     },
     TransmissionFinished {
         transmission: TransmissionId,
