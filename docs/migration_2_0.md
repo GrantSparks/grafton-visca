@@ -716,11 +716,17 @@ camera operation. They have no name-preserving alias in 2.0:
 | Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
 | `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
 | `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure is normalized to `RuntimeShutdown`; actual session death is `ConnectionClosed` or `StreamPoisoned`. Prefer `requires_new_session()` for the recovery decision. |
-| `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout`; VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
+| `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout { context }`, or `ObservationTimeout { operation }` when only your wait expired (see below); VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
 
 For a central application error adapter, prefer `error.kind()` when several
 wire-level variants have the same application meaning. Map `ErrorKind::Timeout`
-to a request timeout, `BufferFull` to a retryable busy/capacity state, and
+to a request timeout, but decide replay with `error.failure_context()`, not
+`is_retryable()`: an `ObservationTimeout` (your wait expired, the request is
+still running) is never retryable, and only `Certainty::NotAccepted` makes a
+resubmission safe. 1.x had one unit `Timeout` for every deadline; 2.0's
+`Timeout` carries a `FailureContext`, so match it as `Error::Timeout { .. }`,
+and a custom transport reports an expired read or write with
+`Error::io_timeout()`. Map `BufferFull` to a retryable busy/capacity state, and
 `NotExecutable` to a current-state or precondition rejection: it can be the
 camera's `0x41` response or a local `InvalidState` validation failure. Re-query
 or establish the prerequisite before retrying, and retry only when the command's
@@ -889,7 +895,8 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | --- | --- | --- | --- |
 | The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
-| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (`is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
+| Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
+| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
 | The blocking owner is re-entered or a new operation-handle request cannot win its immediate first-dispatch boundary (socket capacity or an earlier normative scheduler winner) | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |

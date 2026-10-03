@@ -241,6 +241,57 @@ engine's seed, the request identity and the attempt number: it never reads the
 clock or process entropy, so the same engine input sequence produces identical
 scheduling.
 
+## Timeouts: stage and certainty
+
+A timeout says *which* deadline expired and *what is known* about the request
+it concerns. Read both with `Error::failure_context()`, which returns a
+`FailureContext { stage, certainty }` for every timeout and for the two
+unconfirmed outcomes (D20, #783). `is_retryable()` classifies the condition as
+temporary; it is not a replay-safety answer. Only `Certainty::NotAccepted`
+makes submitting the same request again safe.
+
+| Stage | Error | Certainty | What it means | Recovery |
+| --- | --- | --- | --- | --- |
+| `PreAdmission` | `Timeout` | `NotAccepted` | The admission deadline passed before the owner accepted the request. | It never existed: submit it again if it is still wanted. |
+| `Observation` | `ObservationTimeout { operation }` | `StillLive` | Your wait expired; the owner still holds the request, which may yet take effect. Never retryable. | Wait again on the operation handle, or reconcile. Never resubmit. |
+| `Observation` | `Timeout` | `NotAccepted` | A read-only state query (`wait_until_idle`, `is_moving`) ran out of time. | Repeat the query if you still need the answer. |
+| `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. | Retry the inquiry. |
+| `Terminal` | `Timeout` | `Unconfirmed` | A command was sent but never acknowledged or completed in its lifecycle. It may have reached the camera. | Reconcile the camera's state before resubmitting. |
+| `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
+| `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
+| `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. | Wait on the operation's own outcome, or stop the axis. |
+| `CancellationAttempt` | `CancellationUnconfirmed` | `Unconfirmed` | A cancellation's outcome is unknowable, and so is the operation's. | Reconcile the original command. |
+| `Session` | `Timeout` | `NotAccepted` | Connecting or handshaking timed out. | Open the session again. |
+| `Session` | `Timeout` | `Unconfirmed` | One transport read or write timed out (`Error::io_timeout()`). Owners read an idle read as "no data". | Usually invisible; a write that timed out may or may not have left. |
+
+```rust
+use grafton_visca::{Certainty, Error, FailureStage};
+
+/// What to do after a failed submission or wait.
+enum Next {
+    Resubmit,
+    WaitAgain,
+    Reconcile,
+    GiveUp(Error),
+}
+
+fn next_step(error: Error) -> Next {
+    match error.failure_context() {
+        Some(context) => match context.certainty {
+            Certainty::NotAccepted | Certainty::FailedConclusively => Next::Resubmit,
+            Certainty::StillLive if context.stage == FailureStage::Observation => {
+                Next::WaitAgain
+            }
+            Certainty::StillLive | Certainty::Unconfirmed => Next::Reconcile,
+            _ => Next::GiveUp(error),
+        },
+        None => Next::GiveUp(error),
+    }
+}
+```
+
+The same function is a compiled example on `FailureContext`.
+
 ## Transient transport faults and session death
 
 Not every transport failure ends a session. A receive that fails without
@@ -264,13 +315,13 @@ verdict or call it stream poison. A failed read consumes nothing and so cannot
 desynchronize framing.
 
 A read that reports *no data* is a third case and not a fault at all.
-`Error::Timeout`, and the raw `Io` spellings `WouldBlock` and `Interrupted`,
+Any `Error::Timeout`, and the raw `Io` spellings `WouldBlock` and `Interrupted`,
 mean an idle read timeout expired with nothing to show for it.
 Both owners treat that as "this read produced no frames": the session lives,
 framing state is untouched, and no request's retry budget is spent. A transport
 with an internal read timeout — the shape `BlockingTransport::recv_into_with_timeout`
 documents, and the natural way to write a custom async transport — must return
-`Error::Timeout` rather than forwarding `io::ErrorKind::TimedOut`. UDP adapters
+`Error::io_timeout()` rather than forwarding `io::ErrorKind::TimedOut`. UDP adapters
 additionally discard valid zero-length datagrams
 inside the adapter and keep receiving; they never translate a datagram with no
 payload into the `Ok(0)` value reserved for stream EOF. A timed blocking
@@ -338,9 +389,10 @@ reporting the same peer-closure cause rather than a generic channel error. This
 is the failure a long-running supervisor must expect during quiet periods.
 
 Silence does **not** produce that verdict. A default built-in inquiry retries
-within its bounded policy and ordinarily reports `Error::Timeout` at the
-ten-second total retry-budget floor (roughly 10.05 seconds when the first
-backoff is included). That error is retryable and
+within its bounded policy and ordinarily reports `Error::Timeout` (stage
+`Terminal`, certainty `FailedConclusively`) at the ten-second total
+retry-budget floor (roughly 10.05 seconds when the first backoff is included).
+That error is retryable and
 `requires_new_session() == false`: it proves only that this request received no
 answer. A response-bearing command on a raw-VISCA envelope can instead end as
 `UnsequencedCommandUnconfirmed` once its ACK/completion and ambiguity windows
@@ -403,7 +455,7 @@ enforces an application idle timeout there are two application-side levers:
            /* positive liveness; keep waiting for real work */
        }
        Err(error) if error.requires_new_session() => rebuild(&config)?,
-       Err(Error::Timeout) if session.metrics()?.received_frames == before => {
+       Err(Error::Timeout { .. }) if session.metrics()?.received_frames == before => {
            record_unanswered_heartbeat(); // rebuild when your threshold is met
        }
        Err(error) => return Err(error),
