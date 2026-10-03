@@ -34,10 +34,10 @@ pub(crate) use adapter::{
     validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
 };
 
+#[cfg(feature = "blocking")]
+use turn::RawReleaseTurn;
 #[cfg(any(feature = "async", feature = "blocking"))]
-use turn::{
-    clamp_receive_pause, transient_receive_pause, IdleReceiveRun, RawReleaseTurn, TransientFaultRun,
-};
+use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
 
 #[cfg(any(
     all(test, feature = "blocking", not(feature = "async")),
@@ -1256,6 +1256,51 @@ impl LiveTuning {
     }
 }
 
+/// Retained byte-stream input as both owner shells see it at a raw
+/// correlation release (#776). Datagram and stateless drivers retain nothing,
+/// which the defaults describe.
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) trait RetainedStreamInput {
+    /// Whether the stream framer retains input not yet delivered to the
+    /// engine.
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    /// A monotonic measure of the first retained input. Production adapters
+    /// return the framer's exact byte count; the default suits a
+    /// single-fragment test seam. A successful discard must reduce it (or
+    /// remove it), which lets the owner prove progress without a turn cap.
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.has_buffered_stream_input()?.then_some(1))
+    }
+
+    /// Evidence visible in the first retained raw input. A complete frame
+    /// defers to the ordinary decode path; an incomplete prefix is classified
+    /// only from its first two bytes, just far enough for the engine to decide
+    /// whether it belongs to an expiring correlation scope. `None` means no
+    /// input is retained.
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        Ok(None)
+    }
+
+    /// Discard exactly the first retained raw frame or incomplete fragment,
+    /// preserving all later input.
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// How a due raw release may proceed once retained input is resolved.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawReleaseResolution {
+    /// Release correlation and run due work now.
+    Advance,
+    /// Wait for a retained prefix's tail until this engine-owned deadline.
+    AwaitInputUntil(Instant),
+}
+
 /// Common serialized owner state shared by blocking and async modes.
 #[derive(Debug)]
 pub(crate) struct OwnerState {
@@ -1511,13 +1556,69 @@ impl OwnerState {
         self.engine.raw_correlation_releases_due(now)
     }
 
+    /// Resolve retained raw stream input at a due correlation release.
+    ///
+    /// Each retained fragment the engine assigns to the expiring scope is
+    /// discarded, one at a time and with proven progress, so a stale fragment
+    /// never crosses into a successor's correlation interval while later input
+    /// is preserved. The result says whether due work may advance now or must
+    /// wait for a tail until the engine's grace deadline. Both owner shells use
+    /// this one loop (#776).
+    ///
+    /// Every error means the owner can no longer prove a safe release; the
+    /// caller ends the session with a framing failure.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn resolve_raw_release_gate(
+    pub(crate) fn resolve_retained_raw_input<I>(
         &mut self,
+        input: &mut I,
         now: Instant,
-        evidence: Option<RawPrefixEvidence>,
-    ) -> RawReleaseGateAction {
-        self.engine.resolve_raw_release_gate(now, evidence)
+    ) -> Result<RawReleaseResolution, Error>
+    where
+        I: RetainedStreamInput + ?Sized,
+    {
+        loop {
+            let buffered = input.has_buffered_stream_input()?;
+            let evidence = input.buffered_raw_prefix_evidence()?;
+            if buffered != evidence.is_some() {
+                return Err(Error::InvalidState(
+                    if buffered {
+                        "retained raw stream input could not be classified before correlation release"
+                    } else {
+                        "stream decoder described absent buffered input"
+                    }
+                    .into(),
+                ));
+            }
+            match self.engine.resolve_raw_release_gate(now, evidence) {
+                RawReleaseGateAction::Advance => return Ok(RawReleaseResolution::Advance),
+                RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                    return Ok(RawReleaseResolution::AwaitInputUntil(deadline));
+                }
+                RawReleaseGateAction::DiscardFirst if !buffered => {
+                    return Err(Error::InvalidState(
+                        "raw release gate requested a discard without retained input".into(),
+                    ));
+                }
+                RawReleaseGateAction::DiscardFirst => {
+                    let before = input.buffered_stream_input_len()?.ok_or_else(|| {
+                        Error::InvalidState(
+                            "stream decoder reported buffered input without a progress measure"
+                                .into(),
+                        )
+                    })?;
+                    input.discard_buffered_stream_input()?;
+                    if input
+                        .buffered_stream_input_len()?
+                        .is_some_and(|after| after >= before)
+                    {
+                        return Err(Error::InvalidState(
+                            "raw stream decoder did not consume the discarded prefix".into(),
+                        ));
+                    }
+                    let _ = self.apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                }
+            }
+        }
     }
 
     /// The next engine wake relevant to the selected turn boundary.

@@ -31,7 +31,7 @@ use super::{
         TargetRegistry,
     },
     BlockingFrameDecoder, BlockingReadDriver, BlockingReceive, BlockingWireDriver, OwnerBuffers,
-    OwnerPolicy, WireWrite,
+    OwnerPolicy, RetainedStreamInput, WireWrite,
 };
 
 #[derive(Debug)]
@@ -277,7 +277,12 @@ where
     ) -> Result<Vec<crate::runtime::engine::DecodedFrame>, Error> {
         decode_state(&self.state, buffers, received, frame_limit)
     }
+}
 
+impl<T> RetainedStreamInput for BlockingTransportAdapter<T>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         has_buffered_stream_input_state(&self.state)
     }
@@ -329,7 +334,12 @@ where
     ) -> Result<Vec<crate::runtime::engine::DecodedFrame>, Error> {
         decode_state(&self.state, buffers, received, frame_limit)
     }
+}
 
+impl<T> RetainedStreamInput for BlockingTransportDecoder<T>
+where
+    T: BlockingTransport + HasTransportConfig,
+{
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         has_buffered_stream_input_state(&self.state)
     }

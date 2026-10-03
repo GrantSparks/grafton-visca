@@ -569,57 +569,101 @@ Owner-issued socket cancellation is selected before ordinary ready work when
 eligible, but is transmitted only after the preceding command/cancellation's
 command-spacing deadline and itself advances that deadline.
 
-The async actor expresses simultaneous readiness as deterministic,
-progress-sensitive phases rather than a randomized race or a history
-threshold:
+Every arbitration decision of an async owner turn belongs to one
+executor-free coordinator (`OwnerCoordinator` in `runtime/owner/turn`, #776);
+the blocking owner adopts the same coordinator with its worker thread (D24).
+It owns the
+source phase, the fairness ceiling, the timer's control allowance, the
+raw-release input proof, and the retained-boundary slot. It has no channel,
+transport, executor, or clock access. A shell samples the clock, asks for a
+plan, polls its sources in the planned order, reports what it selected, and
+runs that event's engine turn. The plan's `Selection::order` is the single
+definition of priority: the async actor polls its six sources by walking it,
+so simultaneous readiness is never left to an executor's wake order or a
+randomized race.
+
+The order is deterministic and progress-sensitive rather than history-based:
 
 1. Receive is first while it produces a valid non-empty frame batch. Buffered
    ACKs, completions, and replies therefore update protocol state before a
    simultaneously ready control observer sees that state.
-2. A receive that makes no protocol progress — idle/no-data, a partial frame,
+2. A receive that makes no protocol progress (idle/no-data, a partial frame,
    a transient fault, an empty UDP datagram discarded under the current overall
-   deadline, or a receive whose only frames were discarded as malformed (a whole
-   bad datagram, or delimited-but-unclassifiable frames on a stream) — makes the
-   next selection poll boundary sources first in the fixed order shutdown,
+   deadline, or a receive whose only frames were discarded as malformed) makes
+   the next selection poll boundary sources first in the fixed order shutdown,
    cancellation, admission, control, then timer. Discarding an empty datagram
-   never starts a fresh deadline; the async UDP adapter also yields cooperatively
-   before polling again.
+   never starts a fresh deadline; the async UDP adapter also yields
+   cooperatively before polling again.
 3. A boundary win, or a later valid frame batch when no boundary was ready,
    returns the actor to receive-first.
-4. A **fairness ceiling** bounds the *succeeding* arm as well. After a run of
-   consecutive receive-first wins (tied to the receive batch limit,
-   `frames_per_receive`), one boundary-first turn is forced regardless of
-   progress, then the run restarts. This is the case #625's acceptance criterion
-   names directly — the boundary channels are always eventually polled — and it
-   is what keeps a *babbling* peer (one that returns a valid frame on every
-   poll) from winning the left-biased selection forever and starving shutdown,
-   cancellation, admission, control, and the timer. When no boundary is queued
-   the receive still wins the forced turn, so a genuinely busy transport is
-   never stalled; only guaranteed to yield the front periodically. A burst large
-   enough to reach the ceiling is adversarial rather than a real camera's reply
-   stream, so the settle-first ordering of (1) still holds for real traffic.
+4. A **fairness ceiling** bounds the succeeding arm as well. After a run of
+   consecutive receive-first wins (`frames_per_receive`), one boundary-first
+   turn is forced regardless of progress, then the run restarts. This keeps a
+   babbling peer, one that returns a valid frame on every poll, from starving
+   shutdown, cancellation, admission, control, and the timer (#625, #675).
+   When no boundary is queued the receive still wins the forced turn, so a busy
+   transport is never stalled. Every forced or yielded boundary-first turn
+   begins with one cooperative executor handoff.
+5. An already-due timer grants control one observation, then precedes control
+   until it fires. The allowance is keyed to that exact deadline, so a replaced
+   or newly due timer starts afresh.
 
-This retains the protocol's strict source order for meaningful input while
-preventing both an always-idle/always-failing transport **and** an
-always-succeeding (babbling) one from starving shutdown and control. Phase
-choice depends on the result of the current receive; the only count involved is
-the bounded fairness ceiling of (4), never an open-ended receive history.
-Transmission effects produced by either phase are driven immediately before the
-next selection.
+Phase choice depends on the result of the current receive; the only count is
+the bounded fairness ceiling, never an open-ended receive history. Transmission
+effects produced by either phase are driven immediately before the next
+selection.
 
-Raw-correlation release does not create an exception to that boundary order.
-At a newly due raw hold the owner first obtains the mandatory ordered input
-proof (so input which became ready after a pre-expiry idle read still wins); a
-forced fairness turn still puts shutdown, cancellation, admission, control, and
-the release timer first. During a retained-prefix grace, that same complete
-boundary lane races the receive against the engine-owned grace deadline. An
-exact no-input fence is scoped to the latched release set and remains reachable;
-an immediately-idle custom transport is paced against the real grace deadline,
-not the already-expired raw hold. If the due set grows before its Wake, the
-shared release-turn coordinator replaces the latch and requires another
-receive-first proof for the replacement. Thus an Urgent stop remains admissible
-under raw input pressure, while no scope is released using evidence collected
-before its own deadline (#746).
+### Raw-correlation release and retained boundaries
+
+A raw release does not create an exception to that order; it adds two rules.
+
+- **A newly due release first gets an ordered receive.** The timer is what
+  completes a release, so until the latched release set has had one receive
+  at or after its deadline, the plan polls receive first, even when an idle
+  read before the deadline would otherwise have yielded to the boundaries:
+  input that became ready while that read was parked must win. Only the read's
+  completion instant, not a later executor resume, certifies the proof. The
+  fairness ceiling stays authoritative: a forced turn puts shutdown,
+  cancellation, admission, control, and the release timer ahead of a receive
+  flood, unless the framer already holds a complete frame, which is decoded
+  first. That forced timer turn is what resolves retained input and starts a
+  grace budget, so a flood cannot stall the release. An exact no-input result
+  fences the latched set; with no grace pending, the next plan then delivers
+  the timer through the receive source without another read. A transient fault
+  does not fence, and its input turn suppresses due work, so a transport that
+  keeps failing holds the release, and with it the queued boundaries, until the
+  fault run becomes permanent and ends the session. During a retained-prefix
+  grace the timer arm is the engine-owned grace deadline (#713); once the grace
+  has elapsed it leads, so an eager receive cannot delay it further. If the due
+  set grows before the timer turn, the latch is replaced and the new set needs
+  its own proof (#746).
+- **A boundary selected while a release is due is retained, not run.** Its
+  ordinary input turn would run due work behind unread or retained evidence.
+  The coordinator holds it in a single slot until the release resolves, and
+  while the slot is occupied cancellation and admission are not eligible, so a
+  second boundary stays in its bounded channel rather than being dequeued with
+  nowhere to keep it (#775).
+
+Thus an Urgent stop is selected within the fairness bound under raw input
+pressure, while no scope is released using evidence collected before its own
+deadline.
+
+The retained-boundary slot. Here *due* means the raw release projection at the
+instant the selection completed is non-empty, and *latched* means a release was
+pending when the turn was planned.
+
+| Slot | Event | Condition | Result | Next slot |
+| --- | --- | --- | --- | --- |
+| empty | admission or cancellation selected | not due | ordinary engine input turn | empty |
+| empty | admission selected | due, claim won | retained; the claim is not taken again | admission |
+| empty | admission selected | due, claim expired | answered `Timeout` | empty |
+| empty | cancellation selected | due, terminal result buffered | answered with that result | empty |
+| empty | cancellation selected | due, live | retained | cancellation |
+| held | any plan | latched | cancellation and admission ineligible; shutdown, receive, control and timer keep their order | held |
+| held | plan | not latched | shutdown wins if already signalled; otherwise the retained boundary is delivered before any source is polled | see below |
+| held | redelivered | not due | ordinary engine input turn | empty |
+| held | redelivered | due again (a new hold matured) | retained again | held |
+| held | session ends (shutdown, close, fault, or unwind) | | answered with the terminal error (a cancellation with a buffered terminal result gets that result), before the queued boundaries | none |
 
 ### Transport I/O deadlines and idle pacing
 

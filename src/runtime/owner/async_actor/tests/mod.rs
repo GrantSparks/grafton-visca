@@ -32,8 +32,6 @@ use crate::runtime::TokioRuntime;
 
 use super::*;
 
-#[cfg(feature = "runtime-tokio")]
-mod deferred_boundary;
 mod fairness;
 mod faults;
 #[cfg(feature = "runtime-tokio")]
@@ -41,6 +39,8 @@ mod lifecycle;
 mod receipts;
 #[cfg(feature = "runtime-tokio")]
 mod release_boundary;
+#[cfg(feature = "runtime-tokio")]
+mod retained_boundary;
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Clone)]
@@ -252,8 +252,8 @@ fn sony_policy(capacity: usize) -> OwnerPolicy {
     owner
 }
 
-// Used only by the runtime-tokio stream tests below; dead on the runtime-smol leg (#636).
-#[allow(dead_code)]
+// Used only by the runtime-tokio stream tests below (#636).
+#[cfg(feature = "runtime-tokio")]
 fn stream_policy(capacity: usize) -> OwnerPolicy {
     let mut owner = policy(capacity);
     owner.protocol.transport = TransportKind::Stream;
@@ -538,6 +538,8 @@ impl AsyncOwnerDriver for FakeAsyncDriver {
     }
 }
 
+impl RetainedStreamInput for FakeAsyncDriver {}
+
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct PanickingReceiveDriver;
@@ -574,6 +576,9 @@ impl AsyncOwnerDriver for RuntimeAffinityDriver {
 }
 
 #[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for RuntimeAffinityDriver {}
+
+#[cfg(feature = "runtime-tokio")]
 impl AsyncOwnerDriver for PanickingReceiveDriver {
     #[allow(clippy::manual_async_fn)]
     fn write(
@@ -594,6 +599,9 @@ impl AsyncOwnerDriver for PanickingReceiveDriver {
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for PanickingReceiveDriver {}
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
@@ -627,6 +635,9 @@ impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for PanickingAfterAdmissionDriver {}
 
 struct Harness {
     driver: FakeAsyncDriver,
@@ -1052,23 +1063,27 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
             })
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for ScriptedRawDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
                 target: CameraId::CAMERA_1,
                 // The fixture defaults to an exact named terminal, keeping
                 // its original stale-prefix tests about discard mechanics.
                 // A focused actor test may override this with ambiguous
                 // evidence to exercise the local deferral budget.
                 kind: self.prefix_kind,
-            }))
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -1767,6 +1782,8 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
     }
 }
 
+impl RetainedStreamInput for AlwaysFailingReceive {}
+
 /// Alternates a transient transport fault with a clean no-data receive.
 /// A no-data read paces the actor but is not a successful read, so it must
 /// not break the fault run that this driver deliberately keeps within the
@@ -1808,6 +1825,9 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
     }
 }
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for AlternatingFaultNoData {}
+
 // ---------------------------------------------------------------------
 // #626: a boundary request racing teardown must never hang.
 // ---------------------------------------------------------------------
@@ -1848,6 +1868,9 @@ impl AsyncOwnerDriver for UngatedDriver {
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for UngatedDriver {}
 
 // ---------------------------------------------------------------------
 // #637: the owners agree on a malformed datagram.
@@ -2021,6 +2044,8 @@ impl AsyncOwnerDriver for BabblingDriver {
     }
 }
 
+impl RetainedStreamInput for BabblingDriver {}
+
 /// A frame flood whose adapter reports retained stream input after every
 /// bounded batch. Production stream adapters do this whenever a read contains
 /// more complete frames than `frames_per_receive`; resetting fairness on this
@@ -2051,7 +2076,9 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
             }]))
         }
     }
+}
 
+impl RetainedStreamInput for BufferedBabblingDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(true)
     }
@@ -2104,6 +2131,8 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
     }
 }
 
+impl RetainedStreamInput for CountingBabblingDriver {}
+
 /// A peer that accepts the write but never completes it, and never delivers a
 /// read. Without a write timeout the actor parks in the write and `close()`
 /// never returns.
@@ -2128,6 +2157,8 @@ impl AsyncOwnerDriver for StallingWriteDriver {
         async { future::pending().await }
     }
 }
+
+impl RetainedStreamInput for StallingWriteDriver {}
 
 /// A peer that reports "no data" on every poll, immediately. Without the
 /// idle-read pace this spins the actor at hundreds of thousands of reads a
@@ -2158,6 +2189,8 @@ impl AsyncOwnerDriver for NoDataDriver {
         }
     }
 }
+
+impl RetainedStreamInput for NoDataDriver {}
 
 // ---------------------------------------------------------------------
 // #746: raw-release selection must tolerate non-parking custom transports.
@@ -2228,23 +2261,27 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
             Ok(AsyncReceive::Frames(Vec::new()))
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for RawBufferedFloodDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
-                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
-            }))
-    }
-
     fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -2291,23 +2328,27 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             }
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for ImmediateRawGraceDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
-                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
-            }))
-    }
-
     fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {

@@ -451,7 +451,8 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     runtime.advance(FIRST_HOLD);
     let first_set = actor
-        .raw_release
+        .coordinator
+        .release_mut()
         .observe(
             actor
                 .state
@@ -477,7 +478,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         TurnOutcome::Continue,
         "a grown release set restarts at receive-first rather than advancing"
     );
-    assert_eq!(actor.raw_release.latched(), Some(combined_set));
+    assert_eq!(actor.coordinator.release().latched(), Some(combined_set));
     assert!(
         harness.writes.try_recv().is_err(),
         "S1's old proof cannot release B after S2 became due"
@@ -501,7 +502,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .await,
         TurnOutcome::YieldBoundaries
     );
-    assert!(actor.raw_release.is_pending());
+    assert!(actor.coordinator.release().is_pending());
     assert_eq!(
         actor
             .handle_event(
@@ -893,7 +894,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.raw_release.await_until().is_some());
+    assert!(actor.coordinator.release().await_until().is_some());
 
     // The completing tail is real decoded input. Because no fragment is
     // retained, this turn runs the due release and dispatches B directly.
@@ -914,7 +915,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::Continue
     );
-    assert!(actor.raw_release.await_until().is_none());
+    assert!(actor.coordinator.release().await_until().is_none());
     assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
 
     // B's zero-length response deadline creates its own timeout hold as
@@ -966,7 +967,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::Continue
     );
-    assert!(actor.raw_release.await_until().is_none());
+    assert!(actor.coordinator.release().await_until().is_none());
     assert_eq!(harness.writes.recv_async().await.unwrap(), c);
 }
 /// Production adapter/framer coverage for the original literal-byte hole:

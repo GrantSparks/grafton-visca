@@ -620,6 +620,16 @@ impl RawCorrelationReleaseSet {
     }
 }
 
+#[cfg(all(test, feature = "async"))]
+impl RawCorrelationReleaseSet {
+    /// Add `target`'s broad terminal release, for owner arbitration tests that
+    /// need distinct non-empty sets without a running engine.
+    pub(crate) fn with_terminal_for_test(mut self, target: CameraId) -> Self {
+        self.for_target_mut(target).release_terminal_all();
+        self
+    }
+}
+
 /// What a byte-stream framer can prove about bytes it retained at a raw
 /// correlation-release boundary.
 ///

@@ -1,37 +1,61 @@
 use super::*;
+/// The actor polls its sources by walking the coordinator's planned order:
+/// for every selection shape and every combination of ready sources, the
+/// winner is the first ready source in `Selection::order`, and an omitted
+/// (ineligible) source never wins.
 #[test]
-fn simultaneous_source_readiness_follows_the_explicit_phase() {
-    let receive = || std::future::ready("receive");
-    let boundary = || std::future::ready("boundary");
+fn simultaneous_source_readiness_follows_the_planned_order() {
+    use crate::runtime::owner::turn::SourcePhase;
 
-    assert_eq!(
-        future::block_on(select_source(
-            SourcePhase::ReceiveFirst,
-            receive(),
-            boundary(),
-        )),
-        "receive",
-    );
-    assert_eq!(
-        future::block_on(select_source(
-            SourcePhase::BoundariesFirst,
-            receive(),
-            boundary(),
-        )),
-        "boundary",
-    );
-    assert_eq!(
-        TurnOutcome::Continue.next_source_phase(),
-        Some(SourcePhase::ReceiveFirst),
-    );
-    assert_eq!(
-        TurnOutcome::ContinueBuffered.next_source_phase(),
-        Some(SourcePhase::ReceiveFirst),
-    );
-    assert_eq!(
-        TurnOutcome::YieldBoundaries.next_source_phase(),
-        Some(SourcePhase::BoundariesFirst),
-    );
+    const SOURCES: [Source; 6] = [
+        Source::Receive,
+        Source::Shutdown,
+        Source::Cancellation,
+        Source::Admission,
+        Source::Control,
+        Source::Timer,
+    ];
+    let bit = |source: Source| 1_u8 << SOURCES.iter().position(|s| *s == source).unwrap();
+    for phase in [SourcePhase::ReceiveFirst, SourcePhase::BoundariesFirst] {
+        for flags in 0_u8..4 {
+            let selection = Selection {
+                phase,
+                receive: ReceiveArm::Poll,
+                timer: TimerArm::Engine {
+                    at: None,
+                    due: false,
+                },
+                boundaries_eligible: flags & 1 != 0,
+                timer_precedes_control: flags & 2 != 0,
+            };
+            for ready in 1_u8..64 {
+                let Some(expected) = selection.order().find(|source| ready & bit(*source) != 0)
+                else {
+                    continue;
+                };
+                let source = |source: Source| async move {
+                    if ready & bit(source) != 0 {
+                        source
+                    } else {
+                        future::pending().await
+                    }
+                };
+                let winner = future::block_on(select_in_order(
+                    selection,
+                    source(Source::Receive),
+                    source(Source::Shutdown),
+                    source(Source::Cancellation),
+                    source(Source::Admission),
+                    source(Source::Control),
+                    source(Source::Timer),
+                ));
+                assert_eq!(
+                    winner, expected,
+                    "{selection:?} with ready mask {ready:#08b}"
+                );
+            }
+        }
+    }
 }
 
 /// A due raw release used to bypass the ordinary boundary future entirely.
@@ -104,7 +128,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.raw_release.await_until().is_some());
+    assert!(actor.coordinator.release().await_until().is_some());
 
     let (urgent_completion, urgent_admitted) =
         handle.enqueue_admission(urgent_command(), None).unwrap();
@@ -112,7 +136,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     let actor_task = tokio::spawn(actor.run(driver));
     // The admission is deliberately queued before the flood starts. It cannot
     // be consumed until the raw selector spends a forced fairness turn; once
-    // removed it remains deferred behind the release proof.
+    // removed it remains retained behind the release proof.
     while !handle.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
@@ -202,7 +226,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .await,
             TurnOutcome::ContinueBuffered
         );
-        assert!(actor.raw_release.await_until().is_some());
+        assert!(actor.coordinator.release().await_until().is_some());
     }
 
     let (_completion, _admitted) = handle.enqueue_admission(urgent_command(), None).unwrap();
@@ -596,4 +620,77 @@ fn smol_nodata_receive_never_hot_spins() {
         reads,
     ));
     join.join().unwrap();
+}
+
+/// The same raw byte flood, but without first driving the release timer by
+/// hand: the hold matures while the actor is running, so no grace budget
+/// exists yet. The forced fairness turn must deliver the release timer ahead
+/// of the always-ready receive; that timer turn starts the retained prefix's
+/// grace, and once it elapses the release resolves and the queued urgent
+/// command is written. Without that timer turn the flood would stall the
+/// release indefinitely (#776 review).
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
+    const HOLD: Duration = Duration::from_secs(1);
+    const GRACE: Duration = Duration::from_millis(100);
+    const FAIRNESS_CEILING: usize = 4;
+
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let mut owner_policy = stream_policy(1);
+    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    owner_policy.protocol.raw_release_grace = GRACE;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(8);
+    let mut driver = RawBufferedFloodDriver {
+        reads: Arc::clone(&reads),
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+
+    let (predecessor_completion, predecessor_admitted) =
+        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
+    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    actor
+        .handle_admission(
+            predecessor_boundary,
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+        )
+        .await;
+    let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert!(matches!(
+        predecessor_completion.recv_async().await.unwrap(),
+        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+    ));
+
+    let (_urgent_completion, urgent_admitted) =
+        handle.enqueue_admission(urgent_command(), None).unwrap();
+    let actor_task = tokio::spawn(actor.run(driver));
+    // The hold matures while the flood is already running.
+    runtime.advance(HOLD);
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
+    runtime.advance(GRACE);
+    let urgent = tokio::time::timeout(Duration::from_secs(1), urgent_admitted.recv_async())
+        .await
+        .expect("the flood must not stall the release behind it")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), writes.recv_async())
+            .await
+            .expect("the urgent command is written once the release resolves")
+            .unwrap(),
+        urgent
+    );
+
+    handle.shutdown().await.unwrap();
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }

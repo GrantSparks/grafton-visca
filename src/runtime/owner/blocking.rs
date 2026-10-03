@@ -11,18 +11,16 @@ use std::{
 #[cfg(all(test, not(feature = "async")))]
 use std::cell::RefCell;
 
-use crate::{
-    completion, protocol::framer::RawIncompletePrefix, AffectedAxes, CancellationOutcome, Error,
-    ResponseDecoder,
-};
+use crate::{completion, AffectedAxes, CancellationOutcome, Error, ResponseDecoder};
 
 use super::{
     cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
     normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
     AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
-    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseTurn, ReceiptCore,
-    ReceiptObservation, RejectedCancellation, RequestId, RequestLane, RuntimeOutcome,
-    RuntimeRequest, ShutdownReason, TransientFaultRun, TransmissionMeta, WaitSelection, WireWrite,
+    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseResolution, RawReleaseTurn,
+    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RequestLane,
+    RetainedStreamInput, RuntimeOutcome, RuntimeRequest, ShutdownReason, TransientFaultRun,
+    TransmissionMeta, WaitSelection, WireWrite,
 };
 
 #[cfg(all(test, not(feature = "async")))]
@@ -32,7 +30,7 @@ use super::{
 };
 use crate::runtime::engine::{
     DecodedFrame, Effect, EngineTurn, FirstDispatch, FirstDispatchWait, IgnoreReason, Input,
-    RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction, TransportKind,
+    RawCorrelationReleaseSet, TransportKind,
 };
 
 /// Exact blocking write seam. Envelope encoding and sequence allocation belong
@@ -60,59 +58,13 @@ pub(crate) enum BlockingReceive {
     TimedOut,
 }
 
-pub(crate) trait BlockingFrameDecoder {
+pub(crate) trait BlockingFrameDecoder: RetainedStreamInput {
     fn decode(
         &mut self,
         buffers: &mut super::OwnerBuffers,
         received: usize,
         frame_limit: usize,
     ) -> Result<Vec<DecodedFrame>, Error>;
-
-    /// Whether the stream decoder retains any unconsumed input. Datagram
-    /// decoders and stateless test decoders retain nothing by default.
-    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-        Ok(false)
-    }
-
-    /// A monotonic measure of the first retained stream input. The default
-    /// supports the single-fragment test seam; production adapters return the
-    /// framer's exact buffered byte count. A successful discard must make this
-    /// measure smaller (or remove it), which lets the owner prove progress
-    /// without an arbitrary turn cap.
-    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
-        Ok(self.has_buffered_stream_input()?.then_some(1))
-    }
-
-    /// Evidence visible in the first retained raw stream input. Complete
-    /// frames stay on the normal decode path; incomplete prefixes are
-    /// classified just far enough for the shared correlation engine to decide
-    /// whether a due release may discard or preserve them.
-    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered_stream_input_target()?
-            .map(|target| RawPrefixEvidence::Incomplete {
-                target,
-                // Older test-only decoders model the historical stale-frame
-                // seam, whose only valid action is one-fragment discard.
-                // Production adapters override this method with evidence from
-                // the actual first two raw bytes, so they never inherit this
-                // compatibility classification.
-                kind: RawIncompletePrefix::NamedCompletionOrError(crate::ViscaSocket::S1),
-            }))
-    }
-
-    /// Target-only compatibility seam for stateless test decoders. Production
-    /// raw transports override [`Self::buffered_raw_prefix_evidence`] and must
-    /// never reduce their first two bytes to this coarse answer.
-    fn buffered_stream_input_target(&mut self) -> Result<Option<crate::CameraId>, Error> {
-        Ok(None)
-    }
-
-    /// Discard exactly the first retained raw stream frame or incomplete
-    /// fragment. Production decoders preserve all later target input.
-    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
-        Ok(())
-    }
 }
 
 /// Monotonic time and caller-thread sleeping used by the blocking owner.
@@ -761,6 +713,7 @@ impl<'a> BlockingReceiptControl<'a> {
                 host.submit_inquiry_until(request, timeout, deadline)
                     .map(|core| BlockingInquiryReceipt { core, decoder })
             }
+
             #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => {
                 self.with_parts(|owner, driver, reader, decoder| {
@@ -1543,8 +1496,7 @@ impl BlockingOwner {
     }
 
     /// Class-specific typed admission seam retaining the external decoder.
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn submit_inquiry<D, R>(
         &mut self,
         driver: &mut D,
@@ -1708,8 +1660,7 @@ impl BlockingOwner {
     }
 
     /// Class-specific typed admission seam retaining operation semantics.
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     pub(crate) fn submit_operation<D, K>(
         &mut self,
         driver: &mut D,
@@ -1923,8 +1874,7 @@ impl BlockingOwner {
         )
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     fn submit_with_timeout_until<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -1974,8 +1924,7 @@ impl BlockingOwner {
         )
     }
 
-    #[cfg(test)]
-    #[allow(dead_code)]
+    #[cfg(all(test, not(feature = "async")))]
     fn submit_with_timeout_until_policy<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
@@ -2184,99 +2133,6 @@ impl BlockingOwner {
             self.sleep_until(deadline);
         }
         self.service_due_without_dispatch(driver)
-    }
-
-    /// Resolve every already-buffered fragment that the current release set
-    /// can prove stale, without taking another wire read between fragments.
-    /// This keeps an arrival after the discarded fragment on the normal
-    /// successor path, while still handling several stale delimiter-framed
-    /// inputs retained in one production framer buffer.
-    fn resolve_due_raw_prefixes<D, F>(
-        &mut self,
-        driver: &mut D,
-        decoder: &mut F,
-        now: Instant,
-    ) -> Result<RawReleaseGateAction, Error>
-    where
-        D: BlockingWireDriver + ?Sized,
-        F: BlockingFrameDecoder + ?Sized,
-    {
-        loop {
-            let buffered = decoder
-                .has_buffered_stream_input()
-                .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
-            let evidence = decoder
-                .buffered_raw_prefix_evidence()
-                .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
-            if !buffered {
-                if evidence.is_some() {
-                    return Err(self.poison_tombstone_decoder(
-                        driver,
-                        Error::InvalidState(
-                            "blocking stream decoder described absent buffered input".into(),
-                        ),
-                    ));
-                }
-                // Every matching stale fragment has been removed. It is safe
-                // to release due work before consuming an as-yet-unread tail.
-                return Ok(self.state.resolve_raw_release_gate(now, None));
-            }
-            let evidence = evidence.ok_or_else(|| {
-                self.poison_tombstone_decoder(
-                    driver,
-                    Error::InvalidState(
-                        "blocking raw stream input could not be classified before correlation release"
-                            .into(),
-                    ),
-                )
-            })?;
-            match self.state.resolve_raw_release_gate(now, Some(evidence)) {
-                RawReleaseGateAction::DiscardFirst => {
-                    let before = decoder
-                        .buffered_stream_input_len()
-                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?
-                        .ok_or_else(|| {
-                            self.poison_tombstone_decoder(
-                                driver,
-                                Error::InvalidState(
-                                    "blocking stream decoder reported buffered input without a progress measure"
-                                        .into(),
-                                ),
-                            )
-                        })?;
-                    decoder
-                        .discard_buffered_stream_input()
-                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
-                    let after = decoder
-                        .buffered_stream_input_len()
-                        .map_err(|error| self.poison_tombstone_decoder(driver, error))?;
-                    if after.is_some_and(|after| after >= before) {
-                        return Err(self.poison_tombstone_decoder(
-                            driver,
-                            Error::InvalidState(
-                                "blocking raw stream decoder did not consume the discarded prefix"
-                                    .into(),
-                            ),
-                        ));
-                    }
-                    let _ = self
-                        .state
-                        .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-                }
-                action => return Ok(action),
-            }
-        }
-    }
-
-    /// Losing access to framing state makes safe raw-correlation release
-    /// impossible. End the stream through the owner rather than returning a
-    /// decoder error while leaving a runnable session behind.
-    fn poison_tombstone_decoder<D: BlockingWireDriver + ?Sized>(
-        &mut self,
-        driver: &mut D,
-        error: Error,
-    ) -> Error {
-        self.poison_raw_release_gate(driver, error)
     }
 
     /// Terminalizes a release whose receive-first proof can no longer be made
@@ -2918,32 +2774,16 @@ impl BlockingOwner {
                     ),
                 ));
             };
-            let gate_action = if is_stream
-                && decoder
-                    .has_buffered_stream_input()
-                    .map_err(|error| self.poison_tombstone_decoder(driver, error))?
-            {
-                self.resolve_due_raw_prefixes(driver, decoder, received_at)?
-            } else {
-                self.state.resolve_raw_release_gate(received_at, None)
-            };
-            match gate_action {
-                RawReleaseGateAction::DiscardFirst => {
-                    return Err(self.poison_raw_release_gate(
-                        driver,
-                        Error::InvalidState(
-                            "blocking raw prefix classifier returned an unresolved discard".into(),
-                        ),
-                    ));
-                }
-                RawReleaseGateAction::AwaitInputUntil(deadline) => {
-                    self.raw_release.wait_for_input_until(deadline);
-                    self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
-                    return Ok(PumpProgress {
-                        decoded_frames: driven,
-                    });
-                }
-                RawReleaseGateAction::Advance => {}
+            let resolution = self
+                .state
+                .resolve_retained_raw_input(decoder, received_at)
+                .map_err(|error| self.poison_raw_release_gate(driver, error))?;
+            if let RawReleaseResolution::AwaitInputUntil(deadline) = resolution {
+                self.raw_release.wait_for_input_until(deadline);
+                self.pause_after_idle_receive(idle_pause, mode, owner_deadline_limit);
+                return Ok(PumpProgress {
+                    decoded_frames: driven,
+                });
             }
 
             // The old scope has now had a real input turn. If a non-receive
@@ -3458,6 +3298,9 @@ impl BlockingFrameDecoder for DifferentialEmptyDecoder {
 }
 
 #[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
+impl RetainedStreamInput for DifferentialEmptyDecoder {}
+
+#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RawReleaseObserverDeadlineVerdict {
@@ -3828,6 +3671,8 @@ mod tests {
         }
     }
 
+    impl RetainedStreamInput for EmptyDecoder {}
+
     #[derive(Clone, Debug)]
     struct ManualBlockingClock {
         state: Arc<Mutex<ManualBlockingClockState>>,
@@ -3886,6 +3731,8 @@ mod tests {
             Err(Error::InvalidState("scripted malformed datagram".into()))
         }
     }
+
+    impl RetainedStreamInput for MalformedDatagramDecoder {}
 
     /// A caller-owned clock whose reader advances it only after producing a
     /// scripted frame batch. This makes the observer/engine race deterministic
@@ -3993,6 +3840,8 @@ mod tests {
                 .ok_or_else(|| Error::InvalidState("scripted frame batch exhausted".into()))
         }
     }
+
+    impl RetainedStreamInput for OneBatchDecoder {}
 
     /// A test-only shared host that uses [`ObserverClock`] for caller bounds
     /// while continuing to feed all frames through a real [`BlockingOwner`].
