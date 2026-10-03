@@ -164,10 +164,10 @@ mod blocking {
             .camera::<NonDefaultCompileTimeProfile>()
             .expect("camera");
 
-        let displaced = camera
+        let mut displaced = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("first command writes");
-        let successor = camera
+        let mut successor = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .expect("second command writes after A's ACK");
 
@@ -180,18 +180,17 @@ mod blocking {
             2,
             "the displaced wait must not emit another command"
         );
-        let cancellation = successor.cancel().expect("successor cancellation recorded");
-        {
-            let writes = writes.lock().expect("writes lock");
-            assert_eq!(writes.len(), 3, "cancellation must reach the wire");
-            assert_eq!(writes[2], CANCEL_SOCKET_ONE);
-        }
         assert_eq!(
-            cancellation
-                .outcome(Duration::from_secs(1))
+            successor
+                .cancel_with_timeout(Duration::from_secs(1))
                 .expect("S1 completion settles the successor"),
             CancellationOutcome::Completed
         );
+        {
+            let writes = writes.lock().expect("writes lock");
+            assert_eq!(writes.len(), 3, "cancellation must reach the wire once");
+            assert_eq!(writes[2], CANCEL_SOCKET_ONE);
+        }
 
         let writes = writes.lock().expect("writes lock");
         assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
@@ -215,7 +214,7 @@ mod blocking {
             .camera::<QuarantinedSocketCompileTimeProfile>()
             .expect("camera");
 
-        let displaced = camera
+        let mut displaced = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("first command writes");
         let displaced_result = displaced.applied();
@@ -224,7 +223,7 @@ mod blocking {
             "the protocol terminal installs the raw S1 quarantine before B is admitted: {displaced_result:?}"
         );
 
-        let successor = camera
+        let mut successor = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .expect("successor writes while the stale S1 hold remains");
         successor
@@ -376,11 +375,11 @@ mod asynchronous {
             .camera::<NonDefaultCompileTimeProfile>()
             .expect("camera");
 
-        let displaced = camera
+        let mut displaced = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .await
             .expect("first command writes");
-        let successor = camera
+        let mut successor = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .await
             .expect("second command writes");
@@ -389,13 +388,9 @@ mod asynchronous {
             displaced.applied().await,
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
-        let cancellation = successor
-            .cancel()
-            .await
-            .expect("successor cancellation recorded");
         assert_eq!(
-            cancellation
-                .outcome(Duration::from_secs(1))
+            successor
+                .cancel_with_timeout(Duration::from_secs(1))
                 .await
                 .expect("S1 completion settles the successor"),
             CancellationOutcome::Completed
@@ -426,7 +421,7 @@ mod asynchronous {
             .camera::<QuarantinedSocketCompileTimeProfile>()
             .expect("camera");
 
-        let displaced = camera
+        let mut displaced = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .await
             .expect("first command writes");
@@ -436,7 +431,7 @@ mod asynchronous {
             "the protocol terminal installs the raw S1 quarantine before B is admitted: {displaced_result:?}"
         );
 
-        let successor = camera
+        let mut successor = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .await
             .expect("successor writes while the stale S1 hold remains");

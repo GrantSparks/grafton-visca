@@ -69,7 +69,7 @@ If you're new to the library, start with these examples in order:
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
-- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates `NotSupported`/`CancelRejected` recovery
+- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates a refused `NotSupported` cancel leaving the handle observing
 - **[cancellation_blocking.rs](cancellation_blocking.rs)** - Hardware-free blocking confirmed cancellation on a cancel-capable Sony profile
 - **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)

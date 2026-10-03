@@ -203,10 +203,9 @@ async fn queued_cancel_is_local<E: Executor>(executor: E) {
     probe.push(ACK_SOCKET_TWO.to_vec());
     wait_for_reads(&executor, &probe, 2).await;
 
-    let queued = camera.pan_tilt().home().await.expect("queued operation");
-    let cancellation = queued.cancel().await.expect("queued cancellation");
+    let mut queued = camera.pan_tilt().home().await.expect("queued operation");
     assert!(matches!(
-        cancellation.outcome(Duration::from_secs(1)).await,
+        queued.cancel_with_timeout(Duration::from_secs(1)).await,
         Ok(CancellationOutcome::Cancelled)
     ));
     assert_eq!(
@@ -226,7 +225,7 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
         .expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let original = camera.zoom().stop().await.expect("transmitted operation");
+    let mut original = camera.zoom().stop().await.expect("transmitted operation");
     wait_for_writes(&executor, &probe, 1).await;
 
     if ack_before_cancel {
@@ -238,15 +237,12 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
         executor.sleep(Duration::from_millis(5)).await;
     }
 
-    let rejected = original
+    let refused = original
         .cancel()
         .await
         .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    // The rejection hands the operation handle back (#612).
-    let original = rejected
-        .into_operation()
-        .expect("a rejected cancellation returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
+    // A refusal leaves the handle observing the original operation (#777).
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
 
     if ack_before_cancel {
@@ -258,13 +254,13 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
     executor
         .timeout(Duration::from_secs(2), original.applied())
         .await
-        .expect("recovered handle observer deadline")
-        .expect("the recovered handle still observes the original operation");
+        .expect("handle observer deadline")
+        .expect("the handle still observes the original operation");
 
     // A one-socket tuning makes this next operation wait for the original
     // terminal frame.  Its successful applied wait therefore proves the
     // rejected cancellation did not remove or terminalize the original entry.
-    let next = camera
+    let mut next = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("next operation admission");
@@ -288,7 +284,7 @@ async fn terminal_race_reports_completed<E: Executor>(executor: E) {
         .expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let original = camera.zoom().stop().await.expect("transmitted operation");
+    let mut original = camera.zoom().stop().await.expect("transmitted operation");
     wait_for_writes(&executor, &probe, 1).await;
     // One receive turn carries both frames.  The owner drains both before it
     // can service the later cancellation boundary, making completion the race
@@ -299,12 +295,8 @@ async fn terminal_race_reports_completed<E: Executor>(executor: E) {
         executor.sleep(Duration::from_millis(1)).await;
     }
 
-    let cancellation = original
-        .cancel()
-        .await
-        .expect("terminal completion wins cancellation race");
     assert!(matches!(
-        cancellation.outcome(Duration::from_secs(1)).await,
+        original.cancel_with_timeout(Duration::from_secs(1)).await,
         Ok(CancellationOutcome::Completed)
     ));
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);

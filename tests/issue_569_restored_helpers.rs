@@ -197,13 +197,13 @@ fn directional_pan_tilt_helpers_encode_their_explicit_drive() {
         (PanTiltDirection::Right, 3),
     ] {
         let accessor = camera.pan_tilt();
-        let explicit = accessor
+        let mut explicit = accessor
             .move_direction(direction, pan, tilt)
             .expect("explicit drive");
         explicit.applied().expect("explicit applied");
         let explicit_frame = one_frame(&writes);
 
-        let operation = match helper {
+        let mut operation = match helper {
             0 => accessor.up(pan, tilt),
             1 => accessor.down(pan, tilt),
             2 => accessor.left(pan, tilt),
@@ -235,14 +235,14 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         .end();
     assert_ne!(optical_max, digital_max);
 
-    let explicit = camera
+    let mut explicit = camera
         .zoom()
         .set_position(ZoomPosition::new(optical_max).expect("telephoto end"))
         .expect("explicit zoom target");
     explicit.applied().expect("explicit applied");
     let optical_frame = one_frame(&writes);
 
-    let normalized = camera
+    let mut normalized = camera
         .zoom()
         .set_normalized(UnitInterval::ONE)
         .expect("normalized zoom target");
@@ -253,14 +253,14 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         "set_normalized always normalizes across the optical range",
     );
 
-    let in_optical = camera
+    let mut in_optical = camera
         .zoom()
         .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::Optical)
         .expect("optical-domain zoom target");
     in_optical.applied().expect("optical domain applied");
     assert_eq!(one_frame(&writes), optical_frame);
 
-    let explicit_digital = camera
+    let mut explicit_digital = camera
         .zoom()
         .set_position(ZoomPosition::new(digital_max).expect("digital telephoto end"))
         .expect("explicit digital target");
@@ -269,7 +269,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         .expect("explicit digital applied");
     let digital_frame = one_frame(&writes);
 
-    let in_digital = camera
+    let mut in_digital = camera
         .zoom()
         .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
         .expect("digital-domain zoom target");
@@ -277,13 +277,13 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     assert_eq!(one_frame(&writes), digital_frame);
     assert_ne!(digital_frame, optical_frame);
 
-    let wide = camera
+    let mut wide = camera
         .zoom()
         .set_normalized(UnitInterval::ZERO)
         .expect("wide zoom target");
     wide.applied().expect("wide applied");
     let wide_frame = one_frame(&writes);
-    let wide_explicit = camera
+    let mut wide_explicit = camera
         .zoom()
         .set_position(ZoomPosition::new(0).expect("wide end"))
         .expect("explicit wide target");
@@ -300,7 +300,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     let half_digital = ZoomPosition::new(digital_max.div_ceil(2)).expect("half the digital range");
     assert_ne!(half_optical, half_digital);
 
-    let explicit_half_optical = camera
+    let mut explicit_half_optical = camera
         .zoom()
         .set_position(half_optical)
         .expect("explicit optical midpoint");
@@ -309,7 +309,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         .expect("explicit optical midpoint applied");
     let half_optical_frame = one_frame(&writes);
 
-    let normalized_half = camera
+    let mut normalized_half = camera
         .zoom()
         .set_normalized(midpoint)
         .expect("normalized midpoint");
@@ -322,7 +322,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         "the default domain's midpoint is half the optical range",
     );
 
-    let explicit_half_digital = camera
+    let mut explicit_half_digital = camera
         .zoom()
         .set_position(half_digital)
         .expect("explicit digital midpoint");
@@ -332,7 +332,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     let half_digital_frame = one_frame(&writes);
     assert_ne!(half_digital_frame, half_optical_frame);
 
-    let normalized_half_digital = camera
+    let mut normalized_half_digital = camera
         .zoom()
         .set_normalized_in_domain(midpoint, ZoomDomain::OpticalPlusDigital)
         .expect("normalized digital midpoint");
@@ -375,11 +375,11 @@ fn nd_filter_stops_map_onto_the_raw_direct_value() {
 
     // 2.0 stops is the minimum density and each raw unit is a quarter stop,
     // so 4.5 stops is raw 10.
-    let explicit = camera.nd_filter().set_value(10).expect("explicit nd value");
+    let mut explicit = camera.nd_filter().set_value(10).expect("explicit nd value");
     explicit.applied().expect("explicit applied");
     let explicit_frame = one_frame(&writes);
 
-    let by_stops = camera.nd_filter().set_stops(4.5).expect("nd stops");
+    let mut by_stops = camera.nd_filter().set_stops(4.5).expect("nd stops");
     by_stops.applied().expect("stops applied");
     assert_eq!(one_frame(&writes), explicit_frame);
 
@@ -482,7 +482,7 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     );
 
     let stop_started = Instant::now();
-    let stop = camera.zoom().stop().expect("urgent stop reaches the wire");
+    let mut stop = camera.zoom().stop().expect("urgent stop reaches the wire");
     let stop_latency = stop_started.elapsed();
     assert!(
         stop_latency < Duration::from_millis(50),

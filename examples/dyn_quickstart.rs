@@ -49,11 +49,11 @@ async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> 
     );
 
     // A targeted dynamic operation exposes `settled` (profile-selected protocol settlement).
-    let home: DynTargetedOperation = camera.pan_tilt().home().await?;
+    let mut home: DynTargetedOperation = camera.pan_tilt().home().await?;
     home.settled_with_timeout(Duration::from_secs(20)).await?;
 
     // An applied-only dynamic operation has no `settled`, only `applied`.
-    let stop: DynAppliedOperation = camera.zoom().stop().await?;
+    let mut stop: DynAppliedOperation = camera.zoom().stop().await?;
     stop.applied_with_timeout(Duration::from_secs(2)).await?;
 
     Ok(())

@@ -186,21 +186,18 @@ impl RetainedRelease {
             .unwrap()
     }
 
-    fn enqueue_inquiry(
-        &self,
-    ) -> (
-        CompletionObserver,
-        flume::Receiver<Result<RequestId, Error>>,
-    ) {
+    fn enqueue_inquiry(&self) -> (TerminalObserver, flume::Receiver<Result<RequestId, Error>>) {
         self.handle.enqueue_admission(inquiry(), None).unwrap()
     }
 
-    fn spawn_cancel(
-        &self,
-        receipt: ReceiptCore,
-    ) -> tokio::task::JoinHandle<Result<AsyncCancellationReceipt, RejectedCancellation>> {
+    /// Requests cancellation on a spawned task, which hands the receipt back
+    /// with the answer so its terminal slot stays observable.
+    fn spawn_cancel(&self, receipt: ReceiptCore) -> CancelTask {
         let handle = self.handle.clone();
-        tokio::spawn(async move { handle.cancel_test(receipt).await })
+        tokio::spawn(async move {
+            let answer = handle.cancel_test(&receipt).await;
+            (answer, receipt)
+        })
     }
 
     /// Wait for the cancellation lane to hold the sent boundary.
@@ -238,10 +235,12 @@ async fn admitted_within(
         .expect("the admission reply must be answered, not dropped")
 }
 
+type CancelTask = tokio::task::JoinHandle<(Result<CancellationObserver, Error>, ReceiptCore)>;
+
 async fn cancelled_within(
-    task: tokio::task::JoinHandle<Result<AsyncCancellationReceipt, RejectedCancellation>>,
+    task: CancelTask,
     context: &'static str,
-) -> Result<AsyncCancellationReceipt, RejectedCancellation> {
+) -> (Result<CancellationObserver, Error>, ReceiptCore) {
     tokio::time::timeout(Duration::from_secs(1), task)
         .await
         .expect(context)
@@ -291,7 +290,7 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
     assert!(
         matches!(
             c_completion.recv_async().await.unwrap(),
-            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::RuntimeShutdown))
+            RuntimeOutcome::Failed(Error::RuntimeShutdown)
         ),
         "C, still queued behind B's inquiry, terminalizes at shutdown"
     );
@@ -323,11 +322,8 @@ async fn admission_then_live_cancellation_are_both_answered() {
         .await
         .unwrap();
     assert_eq!(owner.next_write("B dispatches at the release").await, b);
-    drop(
-        cancelled_within(cancel, "the cancellation is answered")
-            .await
-            .expect("the live command accepts cancellation intent"),
-    );
+    let (answer, _x) = cancelled_within(cancel, "the cancellation is answered").await;
+    drop(answer.expect("the live command accepts cancellation intent"));
 
     owner.shutdown(actor_task).await;
     assert_no_rewrite(&owner, x_id);
@@ -358,11 +354,8 @@ async fn live_cancellation_then_admission_are_both_answered() {
     );
 
     owner.release();
-    drop(
-        cancelled_within(cancel, "the cancellation is answered")
-            .await
-            .expect("the live command accepts cancellation intent"),
-    );
+    let (answer, _x) = cancelled_within(cancel, "the cancellation is answered").await;
+    drop(answer.expect("the live command accepts cancellation intent"));
     let b = admitted_within(&b_admitted, "B is admitted after the cancellation")
         .await
         .unwrap();
@@ -397,16 +390,10 @@ async fn successive_live_cancellations_are_both_answered() {
     );
 
     owner.release();
-    drop(
-        cancelled_within(cancel_x, "X's cancellation is answered")
-            .await
-            .expect("X accepts cancellation intent"),
-    );
-    drop(
-        cancelled_within(cancel_y, "Y's cancellation is answered")
-            .await
-            .expect("Y accepts cancellation intent"),
-    );
+    let (answer, _x) = cancelled_within(cancel_x, "X's cancellation is answered").await;
+    drop(answer.expect("X accepts cancellation intent"));
+    let (answer, _y) = cancelled_within(cancel_y, "Y's cancellation is answered").await;
+    drop(answer.expect("Y accepts cancellation intent"));
 
     owner.shutdown(actor_task).await;
     assert_no_rewrite(&owner, x_id);
@@ -425,22 +412,29 @@ fn assert_no_rewrite(owner: &RetainedRelease, id: RequestId) {
 
 /// A cancellation whose target already has a buffered terminal needs no
 /// engine turn, but it is still a cancellation boundary: it waits behind the
-/// retained admission and is then answered from that buffered observation.
+/// retained admission and is then answered `Ok` without installing an intent,
+/// leaving the buffered terminal outcome to decide the cancellation (#777).
 #[tokio::test]
 async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
     let mut owner = RetainedRelease::new(3, 0).await;
     let a = owner.predecessor.take().unwrap();
+    let a_id = a.id;
     let (_b_completion, b_admitted) = owner.enqueue_inquiry();
     let actor_task = owner.start();
     owner.parked_in_grace().await;
 
-    // `cancel_core` would answer a buffered terminal on the caller's side,
-    // so send the boundary directly to exercise the actor's own path.
+    let (observer, cell) = CancellationObserver::pair();
     let (reply, cancelled) = flume::bounded(1);
     owner
         .handle
         .cancellations
-        .send_async(CancellationBoundary { receipt: a, reply })
+        .send_async(CancellationBoundary {
+            request: CancellationRequest {
+                id: a_id,
+                observer: cell,
+            },
+            reply,
+        })
         .await
         .unwrap();
     tokio::task::yield_now().await;
@@ -456,17 +450,20 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .await
         .unwrap();
     assert_eq!(owner.next_write("B dispatches at the release").await, b);
-    let mut cancellation = tokio::time::timeout(Duration::from_secs(1), cancelled.recv_async())
+    tokio::time::timeout(Duration::from_secs(1), cancelled.recv_async())
         .await
         .expect("the buffered cancellation is answered")
         .unwrap()
-        .expect("a buffered terminal yields a cancellation receipt");
+        .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
-        cancellation.try_observation(),
-        Some(ReceiptObservation::Terminal(RuntimeOutcome::Failed(
-            Error::Timeout
-        )))
+        a.completion.try_recv(),
+        Some(RuntimeOutcome::Failed(Error::Timeout))
     ));
+    assert!(
+        observer.try_recv().is_none(),
+        "no cancellation intent was installed, so none can fail"
+    );
+    assert_no_rewrite(&owner, a_id);
 
     owner.shutdown(actor_task).await;
 }

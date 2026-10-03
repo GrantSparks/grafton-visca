@@ -182,7 +182,7 @@ fn a_background_operation_cannot_queue_behind_busy_sockets() {
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    let [first, second] = occupy_both_sockets(&camera, &writes);
+    let [mut first, mut second] = occupy_both_sockets(&camera, &writes);
 
     let background = camera
         .with_submission_class(SubmissionClass::Background)
@@ -214,7 +214,7 @@ fn a_handle_default_does_not_bypass_blocking_first_write() {
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    let [first, second] = occupy_both_sockets(&camera, &writes);
+    let [mut first, mut second] = occupy_both_sockets(&camera, &writes);
 
     let mut poller = session.camera::<SonyFR7>().expect("second camera view");
     assert_eq!(
@@ -252,7 +252,7 @@ fn a_derived_view_class_does_not_bypass_blocking_first_write() {
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    let [first, second] = occupy_both_sockets(&camera, &writes);
+    let [mut first, mut second] = occupy_both_sockets(&camera, &writes);
 
     let mut poller = session.camera::<SonyFR7>().expect("second camera view");
     poller.set_submission_class(Some(SubmissionClass::Background));
@@ -285,7 +285,7 @@ fn a_handle_default_never_changes_the_first_write_boundary_for_an_urgent_stop() 
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    let [first, second] = occupy_both_sockets(&camera, &writes);
+    let [mut first, mut second] = occupy_both_sockets(&camera, &writes);
 
     let mut poller = session.camera::<SonyFR7>().expect("second camera view");
     poller.set_submission_class(Some(SubmissionClass::Background));
@@ -309,7 +309,7 @@ fn a_derived_view_class_cannot_bypass_the_first_write_boundary() {
     let session =
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    let [first, second] = occupy_both_sockets(&camera, &writes);
+    let [mut first, mut second] = occupy_both_sockets(&camera, &writes);
 
     let stop = camera
         .with_submission_class(SubmissionClass::Background)

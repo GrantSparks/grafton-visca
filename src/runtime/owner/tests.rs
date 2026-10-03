@@ -168,24 +168,48 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
     assert_eq!(command_sockets(&state), 2);
 }
 
+/// The owner's cell is the slot's only strong owner (#777): dropping it
+/// unresolved disconnects the observer, and a handle can tell that the owner
+/// no longer holds the intent.
+#[test]
+fn dropping_an_unresolved_cell_disconnects_its_observer() {
+    let (observer, cell) = TerminalObserver::pair();
+    assert!(observer.cell().is_some());
+    drop(cell);
+    assert!(observer.cell().is_none());
+    assert!(observer.receiver.is_disconnected());
+    assert!(observer.try_recv().is_none());
+
+    let (observer, cell) = TerminalObserver::pair();
+    assert_eq!(
+        cell.resolve(RuntimeOutcome::Applied),
+        ObserverResolution::Delivered
+    );
+    drop(cell);
+    assert!(
+        matches!(observer.try_recv(), Some(RuntimeOutcome::Applied)),
+        "a delivered value outlives the cell"
+    );
+}
+
 #[test]
 fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
-    let (cell, observer) = completion_pair();
+    let (observer, cell) = TerminalObserver::pair();
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::Delivered
     );
     drop(observer);
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::AlreadyResolved,
         "dropping a receiver after delivery cannot turn a duplicate into loss"
     );
 
-    let (cell, observer) = completion_pair();
+    let (observer, cell) = TerminalObserver::pair();
     drop(observer);
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::ReceiverLost
     );
 }
@@ -1050,7 +1074,7 @@ mod blocking {
         )
         .unwrap();
         let mut driver = sony_driver([0, 0]);
-        let receipt = owner
+        let mut receipt = owner
             .submit_operation(
                 &mut driver,
                 crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
@@ -1068,7 +1092,7 @@ mod blocking {
         let error = {
             let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
             receipt
-                .applied(&mut control)
+                .applied(&mut control, None)
                 .expect_err("the configured default observer expires only after its retry budget")
         };
 
@@ -1205,7 +1229,7 @@ mod blocking {
         )
         .unwrap();
         let mut driver = sony_driver([0, 0]);
-        let receipt = owner
+        let mut receipt = owner
             .submit_operation(
                 &mut driver,
                 crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
@@ -1251,10 +1275,9 @@ mod blocking {
             ]),
         };
         let error = {
-            let control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
+            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
             receipt
-                .settled(control)
-                .wait()
+                .settled(&mut control, None)
                 .expect_err("the configured default observer expires only after its retry budget")
         };
 
@@ -2142,7 +2165,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -2170,18 +2193,22 @@ mod blocking {
                 now,
             )
             .unwrap();
-        let cancellation = operation.cancel_test(&mut owner, &mut driver).unwrap();
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
-        assert_eq!(
-            cancellation
-                .outcome(
-                    &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::ZERO,
-                )
-                .unwrap(),
-            CancellationOutcome::Completed
-        );
+        {
+            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
+            assert_eq!(
+                operation
+                    .cancel(&mut control, Some(Duration::ZERO))
+                    .unwrap(),
+                CancellationOutcome::Completed
+            );
+            // The handle keeps its cached terminal outcome: the cancellation
+            // consumed nothing (#777).
+            assert!(operation
+                .applied(&mut control, Some(Duration::ZERO))
+                .is_ok());
+        }
         assert_eq!(
             driver.writes.len(),
             1,
@@ -2192,7 +2219,7 @@ mod blocking {
         let mut second = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut first_driver = FakeDriver::default();
         let mut second_driver = FakeDriver::default();
-        let operation = first
+        let mut operation = first
             .submit_operation(
                 &mut first_driver,
                 prepared_zoom::<completion::Targeted>(&profile),
@@ -2201,13 +2228,13 @@ mod blocking {
         let mut wrong_reader = DeadlineReader::default();
         let mut wrong_decoder = EmptyDecoder;
         assert!(matches!(
-            operation.applied_with_timeout(
+            operation.applied(
                 &mut second.receipt_control(
                     &mut second_driver,
                     &mut wrong_reader,
                     &mut wrong_decoder,
                 ),
-                Duration::ZERO,
+                Some(Duration::ZERO),
             ),
             Err(Error::InvalidState(_))
         ));
@@ -2229,8 +2256,8 @@ mod blocking {
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
+        let mut first = crate::blocking::Operation::from_receipt(first_receipt, &core);
+        let mut second = crate::blocking::Operation::from_receipt(second_receipt, &core);
 
         assert!(matches!(
             first.applied_with_timeout(Duration::ZERO),
@@ -2317,8 +2344,8 @@ mod blocking {
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
+        let mut first = crate::blocking::Operation::from_receipt(first_receipt, &core);
+        let mut second = crate::blocking::Operation::from_receipt(second_receipt, &core);
 
         assert!(matches!(
             first.applied_with_timeout(Duration::ZERO),
@@ -2327,16 +2354,23 @@ mod blocking {
         assert!(second.applied_with_timeout(Duration::ZERO).is_ok());
     }
 
+    /// An explicit settlement timeout selects one absolute owner-clock
+    /// deadline at the call. Application (already buffered here) and every
+    /// polling admission and receive pump share that one deadline: no pump
+    /// is bounded later than it, and the wait ends exactly on it.
     #[test]
     fn targeted_settlement_selection_retains_one_absolute_deadline() {
         let profile =
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
+        let start = Instant::now();
+        let clock = ReplayClock::new(start);
+        let mut owner =
+            BlockingOwner::with_clock(policy(1, TransportKind::Datagram), Arc::new(clock.clone()))
+                .unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
-        let now = Instant::now();
         owner
             .inject_frame(
                 &mut driver,
@@ -2346,7 +2380,7 @@ mod blocking {
                         socket: Some(ViscaSocket::S1),
                     },
                 ),
-                now,
+                start,
             )
             .unwrap();
         owner
@@ -2358,32 +2392,33 @@ mod blocking {
                         socket: Some(ViscaSocket::S1),
                     },
                 ),
-                now,
+                start,
             )
             .unwrap();
-        let mut reader = DeadlineReader::default();
+        let deadline = start + Duration::from_millis(321);
+        let mut reader = ReplayReader::with_frames(clock.clone(), std::iter::empty());
         let mut decoder = EmptyDecoder;
-        let selection = operation.settled_with_timeout(
-            owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-            Duration::from_millis(321),
-        );
+        let error = operation
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_millis(321)),
+            )
+            .expect_err("an unanswered position query cannot prove settlement");
+
+        assert!(matches!(error, Error::Timeout), "got {error:?}");
         assert_eq!(
-            selection.selection(),
-            WaitSelection::Override(Duration::from_millis(321))
+            driver.writes.len(),
+            2,
+            "Sony BRC-300 targeted settlement delegates to one position query"
         );
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let BlockingAfterApplied::Poll(continuation) =
-            selection.wait_applied_until(deadline).unwrap()
-        else {
-            panic!("Sony BRC-300 targeted operation must delegate polling");
-        };
-        assert_eq!(continuation.target, CameraId::CAMERA_1);
-        assert_eq!(continuation.axes, crate::AffectedAxes::ZOOM);
-        assert_eq!(continuation.deadline, deadline);
-        assert!(matches!(
-            continuation.plan,
-            crate::prepared::SettlementPlan::Poll { .. }
-        ));
+        assert!(!reader.deadlines.is_empty(), "polling pumps the owner");
+        assert!(
+            reader.deadlines.iter().all(|pump| *pump <= deadline),
+            "every pump is bounded by the one settlement deadline: {:?}",
+            reader.deadlines
+        );
+        assert_eq!(reader.deadlines.last(), Some(&deadline));
+        assert_eq!(clock.now(), deadline);
     }
 
     #[test]
@@ -2392,7 +2427,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().unwrap();
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -2422,12 +2457,12 @@ mod blocking {
             .unwrap();
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
-        {
-            let _settled = operation
-                .settled(owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-                .wait()
-                .unwrap();
-        }
+        operation
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                None,
+            )
+            .unwrap();
         assert_eq!(driver.writes.len(), 1);
         assert!(reader.deadline.is_none());
     }
@@ -2438,7 +2473,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -2469,12 +2504,10 @@ mod blocking {
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_millis(1),
-                )
-                .wait(),
+            operation.settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_millis(1))
+            ),
             Err(Error::Timeout)
         ));
         assert_eq!(driver.writes.len(), 2);
@@ -2544,19 +2577,17 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
+        let mut operation = complete_operation(&mut owner, &mut driver, &profile);
         let _peer = owner
             .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
             .unwrap();
         let mut reader = DeadlineReader::default();
         let mut decoder = EmptyDecoder;
         assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
+            operation.settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1))
+            ),
             Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
         assert_eq!(driver.writes.len(), 2, "capacity failure writes no query");
@@ -2564,7 +2595,7 @@ mod blocking {
 
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
+        let mut operation = complete_operation(&mut owner, &mut driver, &profile);
         driver
             .results
             .push_back(Err(Error::TransportError("settlement query write".into())));
@@ -2572,17 +2603,13 @@ mod blocking {
         let mut decoder = EmptyDecoder;
         assert!(matches!(
             operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
+                .settled(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder), Some(Duration::from_secs(1))),
             Err(Error::TransportError(reason)) if reason == "settlement query write"
         ));
 
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
+        let mut operation = complete_operation(&mut owner, &mut driver, &profile);
         let mut reader = ScriptedReader;
         let mut decoder = ScriptedDecoder {
             batches: VecDeque::from([vec![frame(
@@ -2594,12 +2621,10 @@ mod blocking {
             )]]),
         };
         assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
+            operation.settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1))
+            ),
             Err(Error::InvalidResponseLength {
                 expected: 4,
                 actual: 1,
@@ -2643,7 +2668,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -2705,13 +2730,12 @@ mod blocking {
                 )],
             ]),
         };
-        let control = operation.settled_with_timeout(
-            owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-            Duration::from_secs(1),
-        );
-        {
-            let _settled = control.wait().unwrap();
-        }
+        operation
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1)),
+            )
+            .unwrap();
 
         assert!(reader.events.is_empty());
         assert!(decoder.batches.is_empty());
@@ -2777,7 +2801,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(3, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -2860,15 +2884,12 @@ mod blocking {
             ]),
         };
 
-        {
-            let _settled = operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait()
-                .unwrap();
-        }
+        operation
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1)),
+            )
+            .unwrap();
         assert_eq!(
             reader.frame_deadline,
             Some(peer_ack_deadline),
@@ -3178,7 +3199,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Stream)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -3227,11 +3248,10 @@ mod blocking {
             )]]),
         };
         let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1)),
             )
-            .wait()
             .expect_err("a fatal read during polling ends the settlement wait");
         assert!(
             matches!(error, Error::ConnectionClosed { .. }),
@@ -3283,7 +3303,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -3379,11 +3399,10 @@ mod blocking {
         };
 
         let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1)),
             )
-            .wait()
             .expect_err("a due stream retry write poisons settlement");
         let Error::StreamPoisoned { reason } = &error else {
             panic!("settlement must report stream poison, got {error:?}");
@@ -3406,7 +3425,7 @@ mod blocking {
             crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
+        let mut operation = owner
             .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
         let now = Instant::now();
@@ -3477,11 +3496,10 @@ mod blocking {
         };
 
         let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
+            .settled(
+                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
+                Some(Duration::from_secs(1)),
             )
-            .wait()
             .expect_err("a queued stream write after an unrelated frame poisons settlement");
         let Error::StreamPoisoned { reason } = &error else {
             panic!("settlement must report stream poison, got {error:?}");
@@ -3553,15 +3571,13 @@ mod blocking {
     /// error must be reported, never the raw read fault.
     #[test]
     fn fatal_read_while_observing_cancellation_reports_the_session_boundary_error() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
         let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
         let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
+        let mut operation = owner
+            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
             .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
         let mut reader = DeadlineReader {
             deadline: None,
             result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
@@ -3569,10 +3585,10 @@ mod blocking {
             ))))),
         };
         let mut decoder = EmptyDecoder;
-        let error = cancellation
-            .outcome(
+        let error = operation
+            .cancel(
                 &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
+                Some(Duration::from_secs(1)),
             )
             .expect_err("a fatal read ends the cancellation observation");
         assert!(
@@ -3632,7 +3648,7 @@ mod blocking {
 
         let b = owner.submit(&mut driver, b_request).unwrap();
         let b_id = b.id();
-        let _cancellation = owner.cancel_test(&mut driver, b).unwrap();
+        let _cancellation = owner.cancel_test(&mut driver, &b).unwrap();
         let _ = owner.drain_diagnostics();
 
         // This is the exact validated-batch replay seam used by pump_once: B's
@@ -3748,7 +3764,7 @@ mod blocking {
             )
             .unwrap();
         let b_id = b.id();
-        let _cancellation = owner.cancel_test(&mut driver, b).unwrap();
+        let _cancellation = owner.cancel_test(&mut driver, &b).unwrap();
         let _ = owner.drain_diagnostics();
 
         let mut reader = ScriptedReader;
@@ -5033,14 +5049,11 @@ mod blocking {
             .unwrap();
         let id = operation.id();
         let before = owner.state().request_state(id).unwrap();
-        let rejected = owner.cancel_test(&mut driver, operation).unwrap_err();
-        assert!(matches!(rejected.error, Error::NotSupported));
-        // A refused cancellation returns the receipt so the caller keeps the
-        // observer for the request the engine deliberately left running (#612).
-        let operation = rejected
-            .receipt
-            .expect("a refused cancellation returns the operation receipt");
-        assert_eq!(operation.id, id);
+        let rejected = owner.cancel_test(&mut driver, &operation).unwrap_err();
+        assert!(matches!(rejected, Error::NotSupported));
+        // A refused cancellation consumes nothing: the caller keeps the
+        // receipt's terminal slot for the request the engine deliberately left
+        // running (#612, #777).
         assert_eq!(owner.state().request_state(id), Some(before));
         assert_eq!(owner.state().active_len(), 1);
         assert_eq!(
@@ -5077,10 +5090,18 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(owner.state().active_len(), 0);
+        assert!(matches!(
+            operation.terminal(),
+            Some(RuntimeOutcome::Applied)
+        ));
     }
 
+    /// A recorded cancellation whose datagram write fails reaches the
+    /// cancellation observer without ending the operation; the operation's
+    /// own terminal outcome is still delivered on its terminal slot when the
+    /// late completion is routed (#777).
     #[test]
-    fn datagram_cancel_write_failure_resolves_token_and_retains_late_routing() {
+    fn datagram_cancel_write_failure_reaches_cancellation_observer_and_retains_late_routing() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
         let operation = owner
@@ -5105,15 +5126,19 @@ mod blocking {
             .results
             .push_back(Err(Error::TransportError("cancel write failed".into())));
 
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        match cancellation.recv_test().unwrap() {
-            CancellationObservation::Failed(Error::TransportError(reason)) => {
+        let cancellation = owner.cancel_test(&mut driver, &operation).unwrap();
+        match cancellation.try_recv() {
+            Some(Error::TransportError(reason)) => {
                 assert_eq!(reason, "cancel write failed");
             }
-            other => panic!("unexpected cancellation observation: {other:?}"),
+            other => panic!("unexpected cancellation failure: {other:?}"),
         }
         assert_eq!(owner.state().state(), SessionState::Running);
         assert_eq!(owner.state().active_len(), 1);
+        assert!(
+            operation.terminal().is_none(),
+            "a failed cancellation leaves the operation running"
+        );
 
         owner
             .inject_frame(
@@ -5128,10 +5153,18 @@ mod blocking {
             )
             .unwrap();
         assert_eq!(owner.state().active_len(), 0);
+        assert!(
+            matches!(operation.terminal(), Some(RuntimeOutcome::Applied)),
+            "the late completion still reaches the terminal slot"
+        );
+        assert!(cancellation.try_recv().is_none());
     }
 
+    /// A recorded cancellation whose stream write fails poisons the session.
+    /// The failure reaches the cancellation observer, and the poison is still
+    /// delivered as the operation's (and every peer's) terminal outcome (#777).
     #[test]
-    fn stream_cancel_write_failure_poisons_token_session_and_peers() {
+    fn stream_cancel_write_failure_reports_cancellation_and_poisons_session_and_peers() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Stream)).unwrap();
         let mut driver = FakeDriver::default();
         let operation = owner
@@ -5160,10 +5193,14 @@ mod blocking {
             .unwrap();
         driver.results.push_back(Err(Error::Timeout));
 
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
+        let cancellation = owner.cancel_test(&mut driver, &operation).unwrap();
         assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Failed(Error::StreamPoisoned { .. })
+            cancellation.try_recv(),
+            Some(Error::StreamPoisoned { .. })
+        ));
+        assert!(matches!(
+            operation.terminal(),
+            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
         ));
         assert!(matches!(
             peer.terminal(),
@@ -5173,8 +5210,11 @@ mod blocking {
         assert_eq!(owner.state().active_len(), 0);
     }
 
+    /// A recorded cancellation concludes on the operation's terminal slot:
+    /// the camera's cancellation reply is the operation's terminal outcome,
+    /// and the cancellation observer reports no failure (#777).
     #[test]
-    fn cancellation_receipt_retains_terminal_observation_after_recorded() {
+    fn recorded_cancellation_concludes_on_the_terminal_slot() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver::default();
         let operation = owner
@@ -5195,7 +5235,7 @@ mod blocking {
                 Instant::now(),
             )
             .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
+        let cancellation = owner.cancel_test(&mut driver, &operation).unwrap();
         assert_eq!(
             driver
                 .writes
@@ -5217,10 +5257,78 @@ mod blocking {
                 Instant::now(),
             )
             .unwrap();
+        let terminal = operation
+            .terminal()
+            .expect("cancellation reply is terminal");
+        assert!(matches!(terminal, RuntimeOutcome::Cancelled));
+        assert_eq!(
+            cancellation_outcome(&terminal).unwrap(),
+            CancellationOutcome::Cancelled
+        );
+        assert!(cancellation.try_recv().is_none());
+        assert_eq!(owner.state().active_len(), 0);
+    }
+
+    /// A second cancellation of a request whose intent is already installed
+    /// is answered `Ok` and observes that intent: it adds no engine input and
+    /// no second cancel write (#777).
+    #[test]
+    fn second_cancellation_of_one_request_is_idempotent() {
+        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
+        let mut driver = FakeDriver::default();
+        let operation = owner
+            .submit(
+                &mut driver,
+                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
+            )
+            .unwrap();
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Ack {
+                        socket: Some(ViscaSocket::S1),
+                    },
+                ),
+                Instant::now(),
+            )
+            .unwrap();
+        let cancel_writes = |driver: &FakeDriver| {
+            driver
+                .writes
+                .iter()
+                .filter(|(_, _, cancellation)| *cancellation)
+                .count()
+        };
+        let first = owner.cancel_test(&mut driver, &operation).unwrap();
+        assert_eq!(cancel_writes(&driver), 1);
+        let state = owner.state().request_state(operation.id());
+        let second = owner
+            .cancel_test(&mut driver, &operation)
+            .expect("a repeated cancellation observes the installed intent");
+        assert_eq!(cancel_writes(&driver), 1, "no second cancel write");
+        assert_eq!(owner.state().request_state(operation.id()), state);
+
+        owner
+            .inject_frame(
+                &mut driver,
+                frame(
+                    CameraId::CAMERA_1,
+                    DecodedResponse::Error {
+                        socket: Some(ViscaSocket::S1),
+                        code: 0x04,
+                    },
+                ),
+                Instant::now(),
+            )
+            .unwrap();
         assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Cancelled
+            operation.terminal(),
+            Some(RuntimeOutcome::Cancelled)
         ));
+        assert!(first.try_recv().is_none());
+        assert!(second.try_recv().is_none());
         assert_eq!(owner.state().active_len(), 0);
     }
 
@@ -5259,11 +5367,23 @@ mod blocking {
                 now,
             )
             .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Completed
-        ));
+        // The request already concluded, so the cancellation is answered
+        // without an intent or a cancel write; its terminal outcome decides.
+        let cancellation = owner.cancel_test(&mut driver, &operation).unwrap();
+        assert_eq!(
+            driver
+                .writes
+                .iter()
+                .filter(|(_, _, cancellation)| *cancellation)
+                .count(),
+            0
+        );
+        let terminal = operation.terminal().expect("buffered completion");
+        assert_eq!(
+            cancellation_outcome(&terminal).unwrap(),
+            CancellationOutcome::Completed
+        );
+        assert!(cancellation.try_recv().is_none());
     }
 
     #[test]
@@ -6085,7 +6205,7 @@ mod metrics {
         request: RuntimeRequest,
         sequence: Option<u32>,
         now: Instant,
-    ) -> CompletionObserver {
+    ) -> TerminalObserver {
         let permit = state.permits().try_acquire().expect("admission permit");
         let (input, observer, _admission) = state.stage_admission(request, permit);
         let effects = state.input(input, now);
@@ -6467,15 +6587,15 @@ mod lifecycle_trace {
     struct ObserverSlot {
         kind: ObserverKind,
         /// Dropping the observer *is* the detach operation.
-        observer: Option<CompletionObserver>,
-        cell: Arc<ObserverCell>,
+        observer: Option<TerminalObserver>,
+        cell: Arc<ObserverCell<RuntimeOutcome>>,
         terminal_source: Option<&'static str>,
     }
 
     struct Pending {
         label: String,
         kind: ObserverKind,
-        observer: CompletionObserver,
+        observer: TerminalObserver,
         admission: flume::Receiver<Result<RequestId, Error>>,
         permits_before: usize,
         active_before: usize,
@@ -7103,11 +7223,9 @@ mod lifecycle_trace {
                 .get_mut(&id)
                 .expect("fixture observer is registered");
             let observer = slot.observer.take().expect("a retained blocking observer");
-            let outcome = observation_outcome(
-                observer
-                    .try_recv()
-                    .expect("a blocking wait consumes its retained terminal outcome"),
-            );
+            let outcome = observer
+                .try_recv()
+                .expect("a blocking wait consumes its retained terminal outcome");
             out.push(format!(
                 "{} outcome blocking-wait id={} {} source={}",
                 self.at,
@@ -7341,7 +7459,10 @@ mod lifecycle_trace {
                 id,
                 ObserverSlot {
                     kind: pending.kind,
-                    cell: Arc::clone(&pending.observer.cell),
+                    cell: pending
+                        .observer
+                        .cell()
+                        .expect("the owner holds the admitted cell"),
                     observer: Some(pending.observer),
                     terminal_source: None,
                 },
@@ -7450,11 +7571,9 @@ mod lifecycle_trace {
             };
             match slot.kind {
                 ObserverKind::Async => {
-                    let outcome = observation_outcome(
-                        observer
-                            .try_recv()
-                            .expect("an attached observer receives its terminal outcome"),
-                    );
+                    let outcome = observer
+                        .try_recv()
+                        .expect("an attached observer receives its terminal outcome");
                     out.push(format!(
                         "{at} outcome operation id={} {} source={source}",
                         id.get(),

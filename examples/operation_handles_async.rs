@@ -90,14 +90,14 @@ async fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
 /// bound the movement at the camera instead of at the future.
 async fn bounded_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let result = drive_up(camera).await;
-    if let Ok(stop) = camera.pan_tilt().stop().await {
+    if let Ok(mut stop) = camera.pan_tilt().stop().await {
         let _ = stop.applied().await;
     }
     result
 }
 
 async fn drive_up(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
-    let drive = camera
+    let mut drive = camera
         .pan_tilt()
         .move_direction(PanTiltDirection::Up, PanSpeed::new(6)?, TiltSpeed::new(6)?)
         .await?;

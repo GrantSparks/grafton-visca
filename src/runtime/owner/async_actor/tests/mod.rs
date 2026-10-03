@@ -22,9 +22,7 @@ use crate::{
 use crate::runtime::engine::{ControlClass, EnvelopeSequence, SequenceWidth};
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::CancellationObservation;
-#[cfg(feature = "runtime-tokio")]
-use crate::runtime::owner::{canonical_owner_trace, CANONICAL_OWNER_TRACE};
+use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONICAL_OWNER_TRACE};
 #[cfg(feature = "runtime-smol")]
 use crate::runtime::SmolRuntime;
 #[cfg(feature = "runtime-tokio")]
@@ -720,6 +718,10 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
+        // Cancelling a concluded request is answered without installing an
+        // intent; the receipt's terminal slot still decides (#777).
+        let cancellation = handle.cancel_test(&success.core).await.unwrap();
+        assert!(cancellation.try_recv().is_none());
         success
             .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
             .await
@@ -755,7 +757,7 @@ where
             Err(Error::SyntaxError)
         ));
 
-        let operation = handle
+        let mut operation = handle
             .submit_operation(prepared_zoom(&profile))
             .await
             .unwrap();
@@ -773,12 +775,8 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
-        let cancellation = operation.cancel().await.unwrap();
         assert_eq!(
-            cancellation
-                .outcome(handle.receipt_control(), Duration::ZERO)
-                .await
-                .unwrap(),
+            operation.cancel(Some(Duration::ZERO)).await.unwrap(),
             CancellationOutcome::Completed
         );
 
@@ -835,7 +833,7 @@ where
     let frames = harness.frames.clone();
     let writes = Arc::clone(&harness.writes);
     let client = async {
-        let operation = handle
+        let mut operation = handle
             .submit_operation(prepared_zoom(&profile))
             .await
             .unwrap();
@@ -854,10 +852,7 @@ where
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
 
-        let settlement = operation
-            .settled_with_timeout(handle.receipt_control(), Duration::from_secs(1))
-            .erase()
-            .wait();
+        let settlement = operation.settled(Some(Duration::from_secs(1)));
         let replies = async {
             for _ in 0..2 {
                 let _ = started.recv_async().await.unwrap();
@@ -2566,10 +2561,11 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
 
             if include_cancellation {
                 let cancellation = handle
-                    .cancel_test(receipt)
+                    .cancel_test(&receipt)
                     .await
                     .map_err(|error| format!("{error:?}"))?;
                 drop(cancellation);
+                drop(receipt);
             } else {
                 drop(receipt);
             }

@@ -88,7 +88,7 @@ pub mod dyn_api {
 pub mod r#async {
     // Common enums for camera settings
     pub use crate::{
-        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, CancelRejected, Cancellation, Error,
+        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, CancellationOutcome, Error,
         ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
         MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
         PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PowerAccessor,
@@ -112,8 +112,8 @@ pub mod r#async {
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::{
         submit_applied, submit_targeted, DynAdvanced, DynAppliedOperation, DynAppliedRequest,
-        DynCancellation, DynCustomOperations, DynExposure, DynFocus, DynFuture, DynImage, DynMenu,
-        DynMotion, DynMotionSync, DynNdFilter, DynPanTilt, DynPower, DynPresets, DynSessionCamera,
+        DynCustomOperations, DynExposure, DynFocus, DynFuture, DynImage, DynMenu, DynMotion,
+        DynMotionSync, DynNdFilter, DynPanTilt, DynPower, DynPresets, DynSessionCamera,
         DynSessionCameraControl, DynSessionCameraNouns, DynSystem, DynTally, DynTargetedOperation,
         DynTargetedRequest, DynWhiteBalance, DynZoom, DYN_NOUN_CONVENIENCE_METHODS,
         DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT,
@@ -143,15 +143,15 @@ pub mod r#async {
 pub mod blocking {
     // Common enums for camera settings
     pub use crate::{
-        AutoWhiteBalanceSensitivity, CancelRejected, Error, ExposureMode, MetricsSnapshot,
+        AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode, MetricsSnapshot,
         MotionSyncMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate,
         PresetNumber, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
         WhiteBalanceMode,
     };
     // High-level owner-backed blocking session facade and camera view.
     pub use crate::blocking::{
-        AdvancedAccessor, Camera, Cancellation, ExposureAccessor, FocusAccessor, ImageAccessor,
-        MenuAccessor, MotionAccessor, MotionSyncAccessor, NdFilterAccessor, Operation, OperationId,
+        AdvancedAccessor, Camera, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor,
+        MotionAccessor, MotionSyncAccessor, NdFilterAccessor, Operation, OperationId,
         PanTiltAccessor, PowerAccessor, PresetsAccessor, Session, SessionConfig, SystemAccessor,
         TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
     };

@@ -96,9 +96,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = Session::open(CancelCamera::new(), config)?;
     let camera = session.camera::<SonyFR7>()?;
 
-    let drive = camera.zoom().tele()?;
-    let cancellation = drive.cancel().map_err(|rejected| rejected.into_error())?;
-    let outcome = cancellation.outcome(Duration::from_secs(1))?;
+    let mut drive = camera.zoom().tele()?;
+    let outcome = drive.cancel_with_timeout(Duration::from_secs(1))?;
     if outcome != CancellationOutcome::Cancelled {
         return Err(format!("cancellation lost to unexpected outcome {outcome:?}").into());
     }

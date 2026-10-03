@@ -3,7 +3,6 @@
 use std::{
     collections::VecDeque,
     fmt,
-    marker::PhantomData,
     sync::{Arc, Mutex, RwLock, TryLockError},
     time::{Duration, Instant},
 };
@@ -14,13 +13,12 @@ use std::cell::RefCell;
 use crate::{completion, AffectedAxes, CancellationOutcome, Error, ResponseDecoder};
 
 use super::{
-    cancellation_receipt_for, clamp_receive_pause, normalize_cancellation_observation,
-    normalize_command_outcome, normalize_inquiry_outcome, prepend_effects, transient_receive_pause,
-    AppliedEffect, BlockingTransportAdapter, CancellationCore, CompletionObserver, DiagnosticEvent,
-    IdleReceiveRun, OwnerInputTurn, OwnerPolicy, OwnerState, RawReleaseResolution, RawReleaseTurn,
-    ReceiptCore, ReceiptObservation, RejectedCancellation, RequestId, RequestLane,
-    RetainedStreamInput, RuntimeOutcome, RuntimeRequest, ShutdownReason, TransientFaultRun,
-    TransmissionMeta, WaitSelection, WireWrite,
+    clamp_receive_pause, normalize_command_outcome, normalize_inquiry_outcome, prepend_effects,
+    transient_receive_pause, AppliedEffect, BlockingTransportAdapter, CancellationRequest,
+    DiagnosticEvent, IdleReceiveRun, OperationObservation, OwnerInputTurn, OwnerPolicy, OwnerState,
+    RawReleaseResolution, RawReleaseTurn, ReceiptCore, RequestId, RequestLane, RetainedStreamInput,
+    RuntimeOutcome, RuntimeRequest, ShutdownReason, TerminalObserver, TransientFaultRun,
+    TransmissionMeta, WireWrite,
 };
 
 #[cfg(all(test, not(feature = "async")))]
@@ -111,23 +109,18 @@ pub(crate) struct BlockingInquiryReceipt<R> {
     decoder: ResponseDecoder<R>,
 }
 
-/// Blocking-mode linear operation observation right and its exact settlement
-/// metadata. Only this receipt class exposes cancellation.
+/// Blocking-mode observation of one admitted operation: its cached
+/// observation state and settlement plan. Every wait borrows it, so a wait
+/// that times out releases only that wait (#777). Only this receipt class
+/// exposes cancellation.
 #[derive(Debug)]
 pub(crate) struct BlockingOperationReceipt<K>
 where
     K: completion::Kind,
 {
-    core: ReceiptCore,
+    observation: OperationObservation,
     affected_axes: AffectedAxes,
     settlement: completion::Settlement<K>,
-    marker: PhantomData<fn() -> K>,
-}
-
-/// Blocking-mode observation of one exact cancellation request.
-#[derive(Debug)]
-pub(crate) struct BlockingCancellationReceipt {
-    core: CancellationCore,
 }
 
 /// The caller-thread owner and adapter parts shared by all blocking receipts
@@ -202,24 +195,6 @@ impl<'a> BlockingSessionCore<'a> {
         } = &mut *parts;
         operation(owner, *driver, *reader, *decoder)
     }
-
-    /// Runs one cancellation turn, returning the receipt with the reason when
-    /// the turn itself cannot be taken (#612).
-    fn with_parts_cancelling<T>(
-        &self,
-        receipt: ReceiptCore,
-        operation: impl FnOnce(
-            &mut BlockingOwner,
-            &mut dyn BlockingWireDriver,
-            ReceiptCore,
-        ) -> Result<T, RejectedCancellation>,
-    ) -> Result<T, RejectedCancellation> {
-        let Ok(mut parts) = self.parts.try_borrow_mut() else {
-            return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
-        };
-        let BlockingSessionParts { owner, driver, .. } = &mut *parts;
-        operation(owner, *driver, receipt)
-    }
 }
 
 #[cfg(all(test, not(feature = "async")))]
@@ -256,12 +231,10 @@ pub(crate) trait BlockingControlHost {
         deadline: Instant,
     ) -> Result<ReceiptCore, Error>;
 
-    /// Records cancellation intent, handing the receipt back when the owner
-    /// refuses so the caller keeps the original request's observer (#612).
-    fn cancel_operation(
-        &self,
-        receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation>;
+    /// Requests one operation's cancellation in a single owner turn: `Ok`
+    /// once the intent is installed or the operation already concluded, the
+    /// refusal otherwise (#777).
+    fn cancel_operation(&self, request: CancellationRequest) -> Result<(), Error>;
 }
 
 #[cfg(all(test, not(feature = "async")))]
@@ -306,13 +279,8 @@ impl BlockingControlHost for BlockingSessionCore<'_> {
         })
     }
 
-    fn cancel_operation(
-        &self,
-        receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
-        self.with_parts_cancelling(receipt, |owner, driver, receipt| {
-            owner.cancel_core(driver, receipt)
-        })
+    fn cancel_operation(&self, request: CancellationRequest) -> Result<(), Error> {
+        self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, request))
     }
 }
 
@@ -397,32 +365,6 @@ impl BlockingSessionHost {
             decoder,
         } = &mut *parts;
         let result = operation(owner, driver.as_mut(), reader.as_mut(), decoder.as_mut());
-        self.publish_metrics(owner.state().metrics_snapshot());
-        result
-    }
-
-    /// Runs one cancellation turn, returning the receipt with the reason when
-    /// the turn itself cannot be taken (#612).
-    fn with_parts_cancelling<T>(
-        &self,
-        receipt: ReceiptCore,
-        operation: impl FnOnce(
-            &mut BlockingOwner,
-            &mut dyn BlockingWireDriver,
-            ReceiptCore,
-        ) -> Result<T, RejectedCancellation>,
-    ) -> Result<T, RejectedCancellation> {
-        let mut parts = match self.parts.try_lock() {
-            Ok(parts) => parts,
-            Err(TryLockError::WouldBlock) => {
-                return Err(RejectedCancellation::kept(receipt, Error::TransportBusy));
-            }
-            Err(TryLockError::Poisoned(_)) => {
-                return Err(RejectedCancellation::kept(receipt, poisoned_owner_turn()));
-            }
-        };
-        let BlockingOwnedSessionParts { owner, driver, .. } = &mut *parts;
-        let result = operation(owner, driver.as_mut(), receipt);
         self.publish_metrics(owner.state().metrics_snapshot());
         result
     }
@@ -586,13 +528,8 @@ impl BlockingControlHost for BlockingSessionHost {
         })
     }
 
-    fn cancel_operation(
-        &self,
-        receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
-        self.with_parts_cancelling(receipt, |owner, driver, receipt| {
-            owner.cancel_core(driver, receipt)
-        })
+    fn cancel_operation(&self, request: CancellationRequest) -> Result<(), Error> {
+        self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, request))
     }
 }
 
@@ -731,80 +668,23 @@ impl<'a> BlockingReceiptControl<'a> {
         }
     }
 
-    /// Records cancellation intent, returning the operation receipt intact
-    /// when the owner refuses it (#612).
-    ///
-    /// The large `Err` variant is the point: it is the caller's observation
-    /// right travelling back rather than being destroyed. The public
-    /// `blocking::Operation::cancel` boxes it into `CancelRejected` before it
-    /// reaches a caller, so no public `Result` carries this size.
-    #[allow(clippy::result_large_err)]
-    pub(crate) fn cancel_operation<K>(
-        &mut self,
-        receipt: BlockingOperationReceipt<K>,
-    ) -> Result<BlockingCancellationReceipt, (Option<BlockingOperationReceipt<K>>, Error)>
-    where
-        K: completion::Kind,
-    {
-        let BlockingOperationReceipt {
-            core,
-            affected_axes,
-            settlement,
-            marker,
-        } = receipt;
-        let rebuild = |core| BlockingOperationReceipt {
-            core,
-            affected_axes,
-            settlement,
-            marker,
-        };
-        let outcome = match &self.kind {
-            BlockingControlKind::Shared(host) => host.cancel_operation(core),
+    /// Requests one operation's cancellation; see
+    /// [`BlockingControlHost::cancel_operation`].
+    fn cancel_operation(&mut self, request: CancellationRequest) -> Result<(), Error> {
+        match &self.kind {
+            BlockingControlKind::Shared(host) => host.cancel_operation(request),
             #[cfg(all(test, not(feature = "async")))]
             BlockingControlKind::Borrowed { .. } => {
-                match self.with_parts(|owner, driver, _, _| Ok(owner.cancel_core(driver, core))) {
-                    Ok(outcome) => outcome,
-                    Err(error) => Err(RejectedCancellation::lost(error)),
-                }
+                self.with_parts(|owner, driver, _, _| owner.cancel_core(driver, request))
             }
-        };
-        outcome.map_err(|RejectedCancellation { receipt, error }| (receipt.map(rebuild), error))
+        }
     }
-}
-
-/// A targeted settled selection that has not yet created its one absolute
-/// observer deadline. Phase 6 consumes this value to execute the exact plan.
-#[derive(Debug)]
-pub(crate) struct BlockingSettlementWait<'a> {
-    receipt: BlockingOperationReceipt<completion::Targeted>,
-    selection: WaitSelection,
-    control: BlockingReceiptControl<'a>,
-}
-
-/// Result of the applied portion of a targeted settlement wait.
-// Boxing the polling continuation would add an allocation at the settlement
-// boundary; this enum is an internal, short-lived owner value.
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug)]
-pub(crate) enum BlockingAfterApplied<'a> {
-    Settled(BlockingReceiptControl<'a>),
-    Poll(BlockingPollingContinuation<'a>),
-}
-
-/// Exact polling work delegated to Phase 6 without claiming settlement.
-#[derive(Debug)]
-pub(crate) struct BlockingPollingContinuation<'a> {
-    pub(crate) target: crate::CameraId,
-    pub(crate) axes: AffectedAxes,
-    pub(crate) plan: crate::prepared::SettlementPlan,
-    pub(crate) deadline: Instant,
-    pub(crate) control: BlockingReceiptControl<'a>,
 }
 
 impl BlockingCommandReceipt {
     pub(crate) fn wait(self, control: &mut BlockingReceiptControl<'_>) -> Result<(), Error> {
-        let timeout = self.core.configured_timeout();
-        wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
+        let deadline = control.deadline_after(self.core.configured_timeout())?;
+        wait_core_until(&self.core, control, deadline).and_then(normalize_command_outcome)
     }
 
     // Used only by owner unit tests.
@@ -814,15 +694,15 @@ impl BlockingCommandReceipt {
         control: &mut BlockingReceiptControl<'_>,
         timeout: Duration,
     ) -> Result<(), Error> {
-        wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
+        let deadline = control.deadline_after(timeout)?;
+        wait_core_until(&self.core, control, deadline).and_then(normalize_command_outcome)
     }
 }
 
 impl<R> BlockingInquiryReceipt<R> {
     pub(crate) fn wait(self, control: &mut BlockingReceiptControl<'_>) -> Result<R, Error> {
-        let timeout = self.core.configured_timeout();
-        let outcome = wait_core_for(self.core, control, timeout)?;
-        normalize_inquiry_outcome(outcome, &self.decoder)
+        let deadline = control.deadline_after(self.core.configured_timeout())?;
+        self.wait_until(control, deadline)
     }
 
     fn wait_until(
@@ -830,7 +710,7 @@ impl<R> BlockingInquiryReceipt<R> {
         control: &mut BlockingReceiptControl<'_>,
         deadline: Instant,
     ) -> Result<R, Error> {
-        let outcome = wait_core_until(self.core, control, deadline)?;
+        let outcome = wait_core_until(&self.core, control, deadline)?;
         normalize_inquiry_outcome(outcome, &self.decoder)
     }
 }
@@ -840,156 +720,132 @@ where
     K: completion::Kind,
 {
     pub(crate) fn id(&self) -> u64 {
-        self.core.id().get()
+        self.observation.id().get()
     }
 
-    pub(crate) fn applied(self, control: &mut BlockingReceiptControl<'_>) -> Result<(), Error> {
-        let timeout = self.core.configured_timeout();
-        wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
-    }
-
-    pub(crate) fn applied_with_timeout(
-        self,
+    /// Waits for application, within `timeout` or the configured observer
+    /// deadline.
+    pub(crate) fn applied(
+        &mut self,
         control: &mut BlockingReceiptControl<'_>,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> Result<(), Error> {
-        wait_core_for(self.core, control, timeout).and_then(normalize_command_outcome)
+        let timeout = timeout.unwrap_or_else(|| self.observation.applied_timeout());
+        let deadline = control.deadline_after(timeout)?;
+        self.applied_until(control, deadline)
     }
 
-    /// Owner-level cancellation used only by src/runtime/owner/tests.rs
-    /// `mod blocking`, which compiles on the blocking-without-async leg (#636).
-    /// The public path goes through `BlockingReceiptControl::cancel_operation`.
-    #[cfg(all(test, not(feature = "async")))]
-    pub(crate) fn cancel_test<D: BlockingWireDriver + ?Sized>(
-        self,
-        owner: &mut BlockingOwner,
-        driver: &mut D,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
-        owner.cancel_core(driver, self.core)
+    fn applied_until(
+        &mut self,
+        control: &mut BlockingReceiptControl<'_>,
+        deadline: Instant,
+    ) -> Result<(), Error> {
+        ensure_same_owner(control, self.observation.origin())?;
+        pump_until(control, deadline, || self.observation.applied())?
+    }
+
+    /// Cancels the operation and waits for the cancellation's conclusion,
+    /// within `timeout` or the configured cancellation deadline (#777).
+    ///
+    /// A known terminal outcome answers without sending anything. Otherwise
+    /// the handle's one cancellation intent is requested; a request for an
+    /// intent the owner already holds observes it instead of sending another.
+    /// A refusal, or a busy owner turn, leaves the operation running and this
+    /// receipt intact.
+    pub(crate) fn cancel(
+        &mut self,
+        control: &mut BlockingReceiptControl<'_>,
+        timeout: Option<Duration>,
+    ) -> Result<CancellationOutcome, Error> {
+        let timeout = timeout.unwrap_or_else(|| self.observation.cancellation_timeout());
+        let deadline = control.deadline_after(timeout)?;
+        if let Some(verdict) = self.observation.cancellation() {
+            return verdict;
+        }
+        ensure_same_owner(control, self.observation.origin())?;
+        let request = self.observation.cancellation_request();
+        if let Err(error) = control.cancel_operation(request) {
+            // A terminal outcome that raced the refusal still decides.
+            return self.observation.cancellation().unwrap_or(Err(error));
+        }
+        pump_until(control, deadline, || self.observation.cancellation())?
     }
 }
 
 impl BlockingOperationReceipt<completion::Targeted> {
-    pub(crate) fn settled<'a>(
-        self,
-        control: BlockingReceiptControl<'a>,
-    ) -> BlockingSettlementWait<'a> {
-        let selection = WaitSelection::Configured;
-        BlockingSettlementWait {
-            receipt: self,
-            selection,
-            control,
+    /// Waits for application and then the profile-selected settlement
+    /// condition, within `timeout` or the configured settlement budget.
+    ///
+    /// Application is cached, so a wait that times out during polling
+    /// restarts from it with a fresh two-sample proof.
+    pub(crate) fn settled(
+        &mut self,
+        control: &mut BlockingReceiptControl<'_>,
+        timeout: Option<Duration>,
+    ) -> Result<(), Error> {
+        if self.observation.is_settled() {
+            return Ok(());
         }
-    }
-
-    pub(crate) fn settled_with_timeout<'a>(
-        self,
-        control: BlockingReceiptControl<'a>,
-        timeout: Duration,
-    ) -> BlockingSettlementWait<'a> {
-        BlockingSettlementWait {
-            receipt: self,
-            selection: WaitSelection::Override(timeout),
-            control,
-        }
-    }
-}
-
-impl<'a> BlockingSettlementWait<'a> {
-    pub(crate) fn wait(self) -> Result<BlockingReceiptControl<'a>, Error> {
-        let budget = match self.selection {
-            WaitSelection::Configured => {
-                self.receipt.settlement.default_budget().ok_or_else(|| {
-                    Error::InvalidState(
-                        "targeted operation omitted its configured settlement budget".into(),
-                    )
-                })?
-            }
-            WaitSelection::Override(timeout) => timeout,
+        let budget = match timeout {
+            Some(timeout) => timeout,
+            None => self.settlement.default_budget().ok_or_else(|| {
+                Error::InvalidState(
+                    "targeted operation omitted its configured settlement budget".into(),
+                )
+            })?,
         };
-        let deadline = self.control.deadline_after(budget)?;
-        match self.wait_applied_until(deadline)? {
-            BlockingAfterApplied::Settled(control) => Ok(control),
-            BlockingAfterApplied::Poll(continuation) => continuation.wait(),
-        }
-    }
-
-    /// Waits for application using the Phase-6-selected absolute deadline. The
-    /// same deadline must be retained by any returned polling continuation.
-    pub(crate) fn wait_applied_until(
-        mut self,
-        deadline: Instant,
-    ) -> Result<BlockingAfterApplied<'a>, Error> {
-        let target = self.receipt.core.target();
-        let outcome = wait_core_until(self.receipt.core, &mut self.control, deadline)?;
-        normalize_command_outcome(outcome)?;
-        match self.receipt.settlement.into_plan()?.into_inner() {
-            crate::prepared::SettlementPlan::CompletionIsSettled {
-                target: plan_target,
-                ..
-            } => {
-                debug_assert_eq!(plan_target, target);
-                Ok(BlockingAfterApplied::Settled(self.control))
+        let deadline = control.deadline_after(budget)?;
+        self.applied_until(control, deadline)?;
+        match self.settlement.plan()? {
+            crate::prepared::SettlementPlan::CompletionIsSettled { target, .. } => {
+                debug_assert_eq!(*target, self.observation.target());
             }
-            plan @ crate::prepared::SettlementPlan::Poll {
-                target: plan_target,
+            crate::prepared::SettlementPlan::Poll {
+                target,
+                queries,
                 axes,
+                tolerance,
+                interval,
                 ..
             } => {
-                debug_assert_eq!(plan_target, target);
-                debug_assert_eq!(axes, self.receipt.affected_axes);
-                Ok(BlockingAfterApplied::Poll(BlockingPollingContinuation {
-                    target,
-                    axes: self.receipt.affected_axes,
-                    plan,
-                    deadline,
-                    control: self.control,
-                }))
+                debug_assert_eq!(*target, self.observation.target());
+                debug_assert_eq!(*axes, self.affected_axes);
+                poll_settlement_blocking(control, queries, *axes, *tolerance, *interval, deadline)?;
             }
         }
-    }
-
-    #[cfg(all(test, not(feature = "async")))]
-    pub(crate) const fn selection(&self) -> WaitSelection {
-        self.selection
+        self.observation.mark_settled();
+        Ok(())
     }
 }
 
-impl<'a> BlockingPollingContinuation<'a> {
-    fn wait(mut self) -> Result<BlockingReceiptControl<'a>, Error> {
-        let crate::prepared::SettlementPlan::Poll {
-            target,
-            queries,
-            axes,
-            tolerance,
-            interval,
-            ..
-        } = self.plan
-        else {
-            return Err(Error::InvalidState(
-                "polling continuation carried a non-poll settlement plan".into(),
-            ));
-        };
-        debug_assert_eq!(target, self.target);
-        debug_assert_eq!(axes, self.axes);
-        let mut detector = crate::prepared::MotionDetector::new(axes, tolerance);
-        let baseline = sample_positions_blocking(&mut self.control, &queries, self.deadline)?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
-        }
-        loop {
-            pump_until_sample_boundary(&mut self.control, interval, self.deadline)?;
-            let snapshot = sample_positions_blocking(&mut self.control, &queries, self.deadline)?;
-            match detector.observe(snapshot)? {
-                crate::prepared::MotionState::Settled => return Ok(self.control),
-                crate::prepared::MotionState::Moving => {}
-                crate::prepared::MotionState::NeedSample => {
-                    return Err(Error::InvalidState(
-                        "movement detector lost its baseline snapshot".into(),
-                    ));
-                }
+/// Proves settlement by position polling: one baseline snapshot, then
+/// snapshots every `interval` until the detector reports no movement, all
+/// before one absolute owner-clock deadline.
+fn poll_settlement_blocking(
+    control: &mut BlockingReceiptControl<'_>,
+    queries: &crate::prepared::PositionQueryPlan,
+    axes: AffectedAxes,
+    tolerance: crate::camera::MovementTolerance,
+    interval: Duration,
+    deadline: Instant,
+) -> Result<(), Error> {
+    let mut detector = crate::prepared::MotionDetector::new(axes, tolerance);
+    let baseline = sample_positions_blocking(control, queries, deadline)?;
+    if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
+        return Err(Error::InvalidState(
+            "new movement detector rejected its baseline snapshot".into(),
+        ));
+    }
+    loop {
+        pump_until_sample_boundary(control, interval, deadline)?;
+        let snapshot = sample_positions_blocking(control, queries, deadline)?;
+        match detector.observe(snapshot)? {
+            crate::prepared::MotionState::Settled => return Ok(()),
+            crate::prepared::MotionState::Moving => {}
+            crate::prepared::MotionState::NeedSample => {
+                return Err(Error::InvalidState(
+                    "movement detector lost its baseline snapshot".into(),
+                ));
             }
         }
     }
@@ -1027,36 +883,34 @@ pub(crate) fn sample_positions_blocking(
 ) -> Result<crate::prepared::PositionSnapshot, Error> {
     let mut snapshot = crate::prepared::PositionSnapshot::default();
     if let Some(query) = &queries.pan_tilt {
-        ensure_before_deadline(control, deadline)?;
-        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-        snapshot.pan_tilt = Some(receipt.wait_until(control, deadline)?);
-        ensure_before_deadline(control, deadline)?;
+        snapshot.pan_tilt = Some(sample_blocking(control, query, deadline)?);
     }
     if let Some(query) = &queries.zoom {
-        ensure_before_deadline(control, deadline)?;
-        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-        snapshot.zoom = Some(receipt.wait_until(control, deadline)?);
-        ensure_before_deadline(control, deadline)?;
+        snapshot.zoom = Some(sample_blocking(control, query, deadline)?);
     }
     if let Some(query) = &queries.focus {
-        ensure_before_deadline(control, deadline)?;
-        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-        snapshot.focus = Some(receipt.wait_until(control, deadline)?);
-        ensure_before_deadline(control, deadline)?;
+        snapshot.focus = Some(sample_blocking(control, query, deadline)?);
     }
     if let Some(query) = &queries.iris {
-        ensure_before_deadline(control, deadline)?;
-        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-        snapshot.iris = Some(receipt.wait_until(control, deadline)?);
-        ensure_before_deadline(control, deadline)?;
+        snapshot.iris = Some(sample_blocking(control, query, deadline)?);
     }
     if let Some(query) = &queries.nd_filter {
-        ensure_before_deadline(control, deadline)?;
-        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-        snapshot.nd_filter = Some(receipt.wait_until(control, deadline)?);
-        ensure_before_deadline(control, deadline)?;
+        snapshot.nd_filter = Some(sample_blocking(control, query, deadline)?);
     }
     Ok(snapshot)
+}
+
+/// One position inquiry, admitted and answered strictly before `deadline`.
+fn sample_blocking<R>(
+    control: &mut BlockingReceiptControl<'_>,
+    query: &crate::prepared::PreparedInquiryTemplate<R>,
+    deadline: Instant,
+) -> Result<R, Error> {
+    ensure_before_deadline(control, deadline)?;
+    let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
+    let value = receipt.wait_until(control, deadline)?;
+    ensure_before_deadline(control, deadline)?;
+    Ok(value)
 }
 
 fn ensure_before_deadline(
@@ -1070,110 +924,24 @@ fn ensure_before_deadline(
     }
 }
 
-impl BlockingCancellationReceipt {
-    #[cfg(all(test, feature = "blocking"))]
-    pub(crate) fn recv_test(
-        self,
-    ) -> Result<crate::runtime::engine::CancellationObservation, Error> {
-        self.core.recv().map(test_cancellation_observation)
-    }
-
-    pub(crate) fn outcome(
-        mut self,
-        control: &mut BlockingReceiptControl<'_>,
-        timeout: Duration,
-    ) -> Result<CancellationOutcome, Error> {
-        if !control.owner_matches(&self.core.origin)? {
-            return Err(Error::InvalidState(
-                "cancellation receipt belongs to a different owner".into(),
-            ));
-        }
-        let deadline = control.deadline_after(timeout)?;
-        loop {
-            // An observation that was already buffered before this turn is
-            // authoritative regardless of whether this caller's observer
-            // deadline has subsequently elapsed.
-            if let Some(observation) = self.core.try_observation() {
-                return normalize_cancellation_observation(observation);
-            }
-            // Do not begin a fresh receive after an already-expired observer
-            // deadline, but retain equality for the input-at-deadline rule.
-            if control.now() > deadline {
-                return Err(Error::Timeout);
-            }
-            let pump_result = control.pump_once_until(Some(deadline));
-            // The receive turn may have fed a valid terminal frame to the
-            // engine after the caller's exact observer bound. Snapshot once
-            // after that turn: an input at equality wins, a strictly late
-            // observation remains in the engine but is invisible to this
-            // bounded observer.
-            let observed_after_pump = control.now();
-            // This cancellation's own terminal observation wins over the pump's
-            // verdict; without one, the pump reports the session boundary error
-            // rather than the raw transport cause (#629). That precedence
-            // applies only while this observer is on time.
-            if observed_after_pump <= deadline {
-                if let Some(observation) = self.core.try_observation() {
-                    return normalize_cancellation_observation(observation);
-                }
-            }
-            // In particular, do not hide a session-replacement verdict behind
-            // a local observer timeout (#629).
-            pump_result?;
-            if observed_after_pump >= deadline {
-                return Err(Error::Timeout);
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-fn test_cancellation_observation(
-    observation: ReceiptObservation,
-) -> crate::runtime::engine::CancellationObservation {
-    match observation {
-        ReceiptObservation::Terminal(RuntimeOutcome::Written) => {
-            crate::runtime::engine::CancellationObservation::Failed(Error::InvalidState(
-                "a local write outcome cannot authorize cancellation".into(),
-            ))
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Applied) => {
-            crate::runtime::engine::CancellationObservation::Completed
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Cancelled) => {
-            crate::runtime::engine::CancellationObservation::Cancelled
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(error))
-        | ReceiptObservation::CancellationFailed(error) => {
-            crate::runtime::engine::CancellationObservation::Failed(error)
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => {
-            crate::runtime::engine::CancellationObservation::Failed(Error::InvalidState(
-                "an inquiry outcome cannot authorize cancellation".into(),
-            ))
-        }
-    }
-}
-
-fn submission_observation_error(observation: ReceiptObservation) -> Error {
-    match observation {
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(error))
-        | ReceiptObservation::CancellationFailed(error) => error,
-        ReceiptObservation::Terminal(RuntimeOutcome::Cancelled) => Error::CommandCanceled,
-        ReceiptObservation::Terminal(RuntimeOutcome::Applied) => {
+fn submission_outcome_error(outcome: RuntimeOutcome) -> Error {
+    match outcome {
+        RuntimeOutcome::Failed(error) => error,
+        RuntimeOutcome::Cancelled => Error::CommandCanceled,
+        RuntimeOutcome::Applied => {
             Error::InvalidState("unwritten blocking submission completed as applied".into())
         }
-        ReceiptObservation::Terminal(RuntimeOutcome::Written) => {
+        RuntimeOutcome::Written => {
             Error::InvalidState("unwritten blocking submission completed as locally written".into())
         }
-        ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => Error::InvalidState(
+        RuntimeOutcome::Reply { .. } => Error::InvalidState(
             "unwritten blocking submission completed with an inquiry reply".into(),
         ),
     }
 }
 
-fn buffered_submission_error(completion: &CompletionObserver) -> Option<Error> {
-    completion.try_recv().map(submission_observation_error)
+fn buffered_submission_error(completion: &TerminalObserver) -> Option<Error> {
+    completion.try_recv().map(submission_outcome_error)
 }
 
 /// Submission behavior at the caller's admission boundary.
@@ -1247,30 +1015,41 @@ struct PumpProgress {
 /// read while retaining the caller-thread work bound.
 const RAW_RELEASE_PROBE_MAX_WAIT: Duration = Duration::from_millis(1);
 
-fn wait_core_for(
-    core: ReceiptCore,
+fn ensure_same_owner(
     control: &mut BlockingReceiptControl<'_>,
-    timeout: Duration,
-) -> Result<RuntimeOutcome, Error> {
-    let deadline = control.deadline_after(timeout)?;
-    wait_core_until(core, control, deadline)
+    origin: &Arc<()>,
+) -> Result<(), Error> {
+    if control.owner_matches(origin)? {
+        Ok(())
+    } else {
+        Err(Error::InvalidState(
+            "receipt belongs to a different owner".into(),
+        ))
+    }
 }
 
+/// Waits for a command or inquiry receipt's terminal outcome.
 fn wait_core_until(
-    core: ReceiptCore,
+    core: &ReceiptCore,
     control: &mut BlockingReceiptControl<'_>,
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
-    if !control.owner_matches(&core.origin)? {
-        return Err(Error::InvalidState(
-            "receipt belongs to a different owner".into(),
-        ));
-    }
+    ensure_same_owner(control, &core.origin)?;
+    pump_until(control, deadline, || core.try_outcome())
+}
+
+/// Drives the caller-thread owner until `verdict` is available or the
+/// observer deadline passes. Every blocking receipt wait uses this one loop.
+fn pump_until<T>(
+    control: &mut BlockingReceiptControl<'_>,
+    deadline: Instant,
+    mut verdict: impl FnMut() -> Option<T>,
+) -> Result<T, Error> {
     loop {
-        // A receipt outcome already buffered before this turn is not a new
-        // wait, so it remains observable even after the caller's deadline.
-        if let Some(outcome) = core.try_outcome() {
-            return Ok(outcome);
+        // An outcome already buffered before this turn is not a new wait, so
+        // it remains observable even after the caller's deadline.
+        if let Some(value) = verdict() {
+            return Ok(value);
         }
         // Preserve equality so a frame supplied exactly at the observer
         // deadline is still an input that this observer may consume.
@@ -1280,12 +1059,12 @@ fn wait_core_until(
         let pump_result = control.pump_once_until(Some(deadline));
         // One clock snapshot decides whether a newly produced outcome belongs
         // to this observer. The engine has already consumed every decoded
-        // frame regardless, so a strictly late terminal result remains its
-        // authoritative lifecycle result while this observer times out.
+        // frame regardless, so a strictly late outcome stays buffered for a
+        // later wait while this one times out.
         let observed_after_pump = control.now();
         if observed_after_pump <= deadline {
-            if let Some(outcome) = core.try_outcome() {
-                return Ok(outcome);
+            if let Some(value) = verdict() {
+                return Ok(value);
             }
         }
         // Preserve the pump's boundary verdict before declaring an observer
@@ -1670,18 +1449,17 @@ impl BlockingOwner {
         D: BlockingWireDriver + ?Sized,
         K: completion::Kind,
     {
-        prepared.admit_with(|request, affected_axes, settlement, timeout| {
+        prepared.admit_with(|request, affected_axes, settlement, timeouts| {
             self.submit_with_timeout_policy(
                 driver,
                 request,
-                timeout,
+                timeouts.applied,
                 SubmitPolicy::RequireFirstWrite,
             )
             .map(|core| BlockingOperationReceipt {
-                core,
+                observation: OperationObservation::new(core, timeouts.cancellation),
                 affected_axes,
                 settlement,
-                marker: PhantomData,
             })
         })
     }
@@ -1701,20 +1479,19 @@ impl BlockingOwner {
         F: BlockingFrameDecoder + ?Sized,
         K: completion::Kind,
     {
-        prepared.admit_with(|request, affected_axes, settlement, timeout| {
+        prepared.admit_with(|request, affected_axes, settlement, timeouts| {
             self.submit_with_timeout_policy_pumped(
                 driver,
                 reader,
                 decoder,
                 request,
-                timeout,
+                timeouts.applied,
                 SubmitPolicy::RequireFirstWrite,
             )
             .map(|core| BlockingOperationReceipt {
-                core,
+                observation: OperationObservation::new(core, timeouts.cancellation),
                 affected_axes,
                 settlement,
-                marker: PhantomData,
             })
         })
     }
@@ -2863,55 +2640,47 @@ impl BlockingOwner {
         }
     }
 
+    /// Requests one operation's cancellation in this owner turn (#777).
     fn cancel_core<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
-        receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
-        if !Arc::ptr_eq(&receipt.origin, &self.state.origin) {
-            return Err(RejectedCancellation::kept(
-                receipt,
-                Error::InvalidState("operation receipt belongs to a different owner".into()),
-            ));
+        request: CancellationRequest,
+    ) -> Result<(), Error> {
+        self.enter()?;
+        let id = request.id;
+        if let Some(input) = self.state.begin_cancellation(request) {
+            // Cancellation is externally ordered state, not a receive proof.
+            // If a raw correlation deadline is visible, preserve it for the
+            // next pump instead of letting this control turn release a
+            // successor.
+            let effects = self.input_for_mode(input, self.now(), PumpMode::Normal);
+            let _ = self.drive(driver, effects);
         }
-        if let Err(error) = self.enter() {
-            return Err(RejectedCancellation::kept(receipt, error));
-        }
-        if let Some(observation) = receipt.completion.try_recv() {
-            self.leave();
-            return Ok(BlockingCancellationReceipt {
-                core: cancellation_receipt_for(receipt, Some(observation)),
-            });
-        }
-        let id = receipt.id;
-        let registration = self.state.register_cancellation(id);
-        // Cancellation is externally ordered state, not a receive proof.  If
-        // a raw correlation deadline is visible, preserve it for the next
-        // pump instead of letting this control turn release a successor.
-        let effects = self.input_for_mode(Input::Cancel { id }, self.now(), PumpMode::Normal);
-        let _ = self.drive(driver, effects);
-        let acknowledged = registration
-            .acknowledgement
-            .recv()
-            .map_err(|_| Error::RuntimeShutdown);
+        // A refusal leaves the original request scheduled and observable
+        // (#612, #777).
+        let answer = self.state.conclude_cancellation(id);
         self.leave();
-        // A refusal leaves the original request scheduled and observable, so
-        // the receipt goes back to the caller rather than dying here (#612).
-        match acknowledged {
-            Ok(Ok(())) => Ok(BlockingCancellationReceipt {
-                core: cancellation_receipt_for(receipt, None),
-            }),
-            Ok(Err(error)) | Err(error) => Err(RejectedCancellation::kept(receipt, error)),
-        }
+        answer
     }
 
+    /// Requests cancellation of an admitted receipt's request. Owner tests
+    /// observe the outcome on the receipt's terminal slot and a failed
+    /// cancellation on the returned observer.
     #[cfg(test)]
-    pub(crate) fn cancel_test<D: BlockingWireDriver>(
+    pub(crate) fn cancel_test<D: BlockingWireDriver + ?Sized>(
         &mut self,
         driver: &mut D,
-        receipt: ReceiptCore,
-    ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
-        self.cancel_core(driver, receipt)
+        receipt: &ReceiptCore,
+    ) -> Result<super::CancellationObserver, Error> {
+        let (observer, cell) = super::CancellationObserver::pair();
+        self.cancel_core(
+            driver,
+            CancellationRequest {
+                id: receipt.id,
+                observer: cell,
+            },
+        )?;
+        Ok(observer)
     }
 
     /// Run only due scheduler work. This is intentionally distinct from a
@@ -3927,13 +3696,10 @@ mod tests {
             )
         }
 
-        fn cancel_operation(
-            &self,
-            receipt: ReceiptCore,
-        ) -> Result<BlockingCancellationReceipt, RejectedCancellation> {
+        fn cancel_operation(&self, request: CancellationRequest) -> Result<(), Error> {
             let mut owner = self.owner.borrow_mut();
             let mut driver = self.driver.borrow_mut();
-            owner.cancel_core(&mut **driver, receipt)
+            owner.cancel_core(&mut **driver, request)
         }
     }
 
@@ -3990,12 +3756,15 @@ mod tests {
             .expect("focus command is admitted")
     }
 
+    /// An acknowledged zoom operation whose cancellation intent is already
+    /// installed (and its cancel written), so a later `cancel` on the receipt
+    /// only observes the conclusion (#777).
     fn cancelling_zoom_receipt(
         owner: &mut BlockingOwner,
         driver: &mut FaultDriver,
         profile: &ProfileSpec,
-    ) -> BlockingCancellationReceipt {
-        let operation = owner
+    ) -> BlockingOperationReceipt<AppliedOnly> {
+        let mut operation = owner
             .submit_operation(
                 driver,
                 prepare_builtin_operation::<AppliedOnly, _>(
@@ -4017,9 +3786,11 @@ mod tests {
                 Instant::now(),
             )
             .expect("ACK is accepted");
+        let request = operation.observation.cancellation_request();
+        owner
+            .cancel_core(driver, request)
+            .expect("cancellation is accepted");
         operation
-            .cancel_test(owner, driver)
-            .expect("cancellation is accepted")
     }
 
     fn stage_ready_without_dispatch(
@@ -4511,7 +4282,7 @@ mod tests {
         let profile = generic_profile();
         let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
         let mut driver = FaultDriver;
-        let receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
+        let mut receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
         let start = Instant::now();
         let clock = ObserverClock::new(start);
         let timeout = Duration::from_millis(100);
@@ -4529,7 +4300,7 @@ mod tests {
             );
             let mut control = BlockingReceiptControl::shared(&host);
             receipt
-                .outcome(&mut control, timeout)
+                .cancel(&mut control, Some(timeout))
                 .expect("a cancellation terminal frame at equality wins")
         };
 
@@ -4544,7 +4315,7 @@ mod tests {
         let profile = generic_profile();
         let mut owner = BlockingOwner::new(raw_owner_policy()).expect("blocking owner");
         let mut driver = FaultDriver;
-        let receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
+        let mut receipt = cancelling_zoom_receipt(&mut owner, &mut driver, &profile);
         let start = Instant::now();
         let clock = ObserverClock::new(start);
         let timeout = Duration::from_millis(100);
@@ -4562,7 +4333,7 @@ mod tests {
             );
             let mut control = BlockingReceiptControl::shared(&host);
             receipt
-                .outcome(&mut control, timeout)
+                .cancel(&mut control, Some(timeout))
                 .expect_err("a late cancellation observation must not widen the bound")
         };
 
@@ -4865,7 +4636,7 @@ mod tests {
             )
             .expect("predecessor ACK is accepted");
         let _cancellation = owner
-            .cancel_test(&mut driver, predecessor)
+            .cancel_test(&mut driver, &predecessor)
             .expect("cancellation intent is accepted");
         assert!(matches!(
             owner.state().request_state(predecessor_id),

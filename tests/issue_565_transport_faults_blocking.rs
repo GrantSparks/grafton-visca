@@ -489,7 +489,7 @@ fn stream_write_failure_poisons_and_names_the_transport_cause() {
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
         .expect("camera two view");
 
-    let held = first_camera
+    let mut held = first_camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first submission");
 
@@ -572,20 +572,17 @@ fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket() {
     let session = Session::open(transport, sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("second submission");
 
     first.applied().expect("first operation applied");
-    let cancellation = second
-        .cancel()
-        .expect("the fallback-assigned second operation supports cancellation");
     assert_eq!(
-        cancellation
-            .outcome(Duration::from_secs(1))
+        second
+            .cancel_with_timeout(Duration::from_secs(1))
             .expect("the fallback-assigned socket must accept cancellation"),
         CancellationOutcome::Cancelled
     );

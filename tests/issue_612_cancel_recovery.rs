@@ -1,17 +1,16 @@
-//! A refused cancellation must never strand the caller (#612).
+//! A refused cancellation must never strand the caller (#612, #777).
 //!
 //! `PtzOpticsG2` is the one built-in profile without VISCA socket-cancel
 //! support, so cancelling one of its already-written commands is refused with
-//! [`Error::NotSupported`].  Every terminal method on an operation handle
-//! consumes it, and dropping a handle is exactly `detach` — no STOP is emitted
-//! — so a refusal that also swallowed the handle would leave a caller watching
-//! a moving axis with nothing left to observe it through.
+//! [`Error::NotSupported`]. Dropping a handle is exactly `detach` — no STOP is
+//! emitted — so a refusal that also swallowed the handle would leave a caller
+//! watching a moving axis with nothing left to observe it through.
 //!
-//! These tests pin the contract that closes that hole: the refusal hands the
-//! handle back, the recovered handle still observes the original operation the
-//! engine deliberately left running, a second cancel is refused the same
-//! recoverable way, and the documented recourse — an explicit typed STOP —
-//! reaches the wire while the original is still in flight.
+//! `cancel` borrows the handle, so a refusal is a plain error and the handle is
+//! untouched. These tests pin that contract: the same handle still observes
+//! the original operation the engine deliberately left running, a second
+//! cancel is refused the same way, and the documented recourse — an explicit
+//! typed STOP — reaches the wire while the original is still in flight.
 
 #![cfg(all(
     feature = "async",
@@ -160,8 +159,8 @@ async fn wait_for_reads<E: Executor>(executor: &E, probe: &TransportProbe, count
     }
 }
 
-/// The whole #612 contract on one moving axis: refuse, recover, stop, observe.
-async fn rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
+/// The whole contract on one moving axis: refuse, keep observing, stop.
+async fn refused_cancel_leaves_the_handle_observing<E: Executor>(executor: E) {
     let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
@@ -169,7 +168,7 @@ async fn rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
     // A continuous zoom: the axis keeps moving until something stops it.
-    let moving = camera
+    let mut moving = camera
         .zoom()
         .tele()
         .await
@@ -178,28 +177,20 @@ async fn rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
     probe.push(ACK_SOCKET_ONE);
     wait_for_reads(&executor, &probe, 1).await;
 
-    // The G2 has no socket-cancel, so the owner refuses — and hands the
-    // handle back rather than consuming it.
-    let rejected = moving
+    // The G2 has no socket-cancel, so the owner refuses. `cancel` borrows the
+    // handle, so the refusal leaves it in the caller's hands.
+    let refused = moving
         .cancel()
         .await
         .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    assert!(rejected.has_operation());
-    let moving = rejected
-        .into_operation()
-        .expect("a refused cancellation returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
 
-    // Recovery is repeatable: the second refusal returns the handle too, so a
-    // caller retrying in a loop can never fall off the end of the API.
-    let rejected = moving
+    // A refusal installs no intent, so a retry is refused the same way.
+    let refused = moving
         .cancel()
         .await
         .expect_err("the retry is refused on the same profile grounds");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    let (moving, error) = rejected.into_parts();
-    assert!(matches!(error, Error::NotSupported));
-    let moving = moving.expect("the retry also returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
 
     // No cancellation frame was ever written, and the original is still live.
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
@@ -207,7 +198,7 @@ async fn rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
     // The documented recourse for a profile without socket-cancel: an
     // explicit typed STOP, which the second command socket dispatches while
     // the original is still in flight.
-    let stop = camera.zoom().stop().await.expect("typed stop admitted");
+    let mut stop = camera.zoom().stop().await.expect("typed stop admitted");
     wait_for_writes(&executor, &probe, 2).await;
     assert_eq!(
         probe.writes(),
@@ -222,50 +213,48 @@ async fn rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
         .expect("stop observer deadline")
         .expect("the stop applies while the refused original is still running");
 
-    // The recovered handle is a real observer, not a husk: it still reports
-    // the original operation's own terminal state.
+    // The handle still reports the original operation's own terminal state,
+    // and a cancel after it concluded answers from that state.
     probe.push(COMPLETE_SOCKET_ONE);
     executor
         .timeout(Duration::from_secs(2), moving.applied())
         .await
-        .expect("recovered handle observer deadline")
-        .expect("the recovered handle still observes the original operation");
+        .expect("handle observer deadline")
+        .expect("the handle still observes the original operation");
+    assert!(matches!(
+        moving.cancel().await,
+        Ok(CancellationOutcome::Completed)
+    ));
+    assert_eq!(probe.writes().len(), 2, "a concluded cancel sends nothing");
 
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// A refused cancellation must not consume the handle even when the caller
-/// only ever wanted to detach it afterwards, and it must leave the engine's
-/// view of the original request untouched.
-async fn recovered_handle_can_still_be_detached<E: Executor>(executor: E) {
+/// A handle can be detached after a refused cancellation, and the refusal
+/// leaves the engine's view of the original request untouched.
+async fn handle_can_be_detached_after_a_refused_cancel<E: Executor>(executor: E) {
     let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
         .expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let moving = camera
+    let mut moving = camera
         .zoom()
         .tele()
         .await
         .expect("continuous zoom admitted");
     wait_for_writes(&executor, &probe, 1).await;
 
-    let rejected = moving
-        .cancel()
-        .await
-        .expect_err("G2 sent cancellation must be rejected by profile policy");
-    rejected
-        .into_operation()
-        .expect("a refused cancellation returns the operation handle")
-        .detach();
+    assert!(matches!(moving.cancel().await, Err(Error::NotSupported)));
+    moving.detach();
 
     // Detaching relinquishes observation only, exactly as it does for a handle
     // that was never offered to `cancel`: the original still completes.
     probe.push(ACK_SOCKET_ONE);
     probe.push(COMPLETE_SOCKET_ONE);
     wait_for_reads(&executor, &probe, 2).await;
-    let next = camera.zoom().stop().await.expect("typed stop admitted");
+    let mut next = camera.zoom().stop().await.expect("typed stop admitted");
     wait_for_writes(&executor, &probe, 2).await;
     probe.push(ACK_SOCKET_ONE);
     probe.push(COMPLETE_SOCKET_ONE);
@@ -283,10 +272,8 @@ async fn recovered_handle_can_still_be_detached<E: Executor>(executor: E) {
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// The recoverable-refusal shape must not disturb the path that already
-/// worked: a still-queued command cancels locally on every profile, consuming
-/// the handle and returning its terminal observer.
-async fn queued_cancel_still_succeeds_and_consumes<E: Executor>(executor: E) {
+/// A still-queued command cancels locally on every profile.
+async fn queued_cancel_concludes_cancelled_on_every_profile<E: Executor>(executor: E) {
     let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
@@ -305,13 +292,9 @@ async fn queued_cancel_still_succeeds_and_consumes<E: Executor>(executor: E) {
     probe.push(ACK_SOCKET_TWO);
     wait_for_reads(&executor, &probe, 2).await;
 
-    let queued = camera.pan_tilt().home().await.expect("queued operation");
-    let cancellation = queued
-        .cancel()
-        .await
-        .expect("a queued command is removed locally on any profile");
+    let mut queued = camera.pan_tilt().home().await.expect("queued operation");
     assert!(matches!(
-        cancellation.outcome(Duration::from_secs(1)).await,
+        queued.cancel_with_timeout(Duration::from_secs(1)).await,
         Ok(CancellationOutcome::Cancelled)
     ));
     assert_eq!(
@@ -325,10 +308,10 @@ async fn queued_cancel_still_succeeds_and_consumes<E: Executor>(executor: E) {
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// The dynamic projection erases the completion marker but not the recovery:
-/// a refused cancellation returns the dynamic handle too (#612).
+/// The dynamic projection erases the completion marker but not the contract:
+/// a refused cancellation leaves the dynamic handle observing too.
 #[cfg(feature = "dyn-api")]
-async fn dyn_rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
+async fn dyn_refused_cancel_leaves_the_handle_observing<E: Executor>(executor: E) {
     use grafton_visca::{dynapi::DynSessionCamera, request::builtin::ZoomDrive};
 
     let (transport, probe) = ScriptedTransport::new();
@@ -337,7 +320,7 @@ async fn dyn_rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
         .expect("owner session");
     let camera = DynSessionCamera::from_session(&session).expect("dynamic G2 camera");
 
-    let moving = camera
+    let mut moving = camera
         .submit_applied(&ZoomDrive::Tele)
         .await
         .expect("continuous zoom admitted");
@@ -345,21 +328,14 @@ async fn dyn_rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
     probe.push(ACK_SOCKET_ONE);
     wait_for_reads(&executor, &probe, 1).await;
 
-    let rejected = moving
-        .cancel()
-        .await
-        .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    let moving = rejected
-        .into_operation()
-        .expect("a refused cancellation returns the dynamic operation handle");
+    assert!(matches!(moving.cancel().await, Err(Error::NotSupported)));
 
     probe.push(COMPLETE_SOCKET_ONE);
     executor
         .timeout(Duration::from_secs(2), moving.applied())
         .await
-        .expect("recovered handle observer deadline")
-        .expect("the recovered dynamic handle still observes the original operation");
+        .expect("handle observer deadline")
+        .expect("the dynamic handle still observes the original operation");
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
     session.shutdown().await.expect("owner shutdown");
@@ -369,11 +345,11 @@ async fn dyn_rejected_cancel_returns_the_handle<E: Executor>(executor: E) {
 #[tokio::test]
 async fn tokio_refused_cancellation_is_recoverable() {
     let executor = grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
-    rejected_cancel_returns_the_handle(executor.clone()).await;
-    recovered_handle_can_still_be_detached(executor.clone()).await;
-    queued_cancel_still_succeeds_and_consumes(executor.clone()).await;
+    refused_cancel_leaves_the_handle_observing(executor.clone()).await;
+    handle_can_be_detached_after_a_refused_cancel(executor.clone()).await;
+    queued_cancel_concludes_cancelled_on_every_profile(executor.clone()).await;
     #[cfg(feature = "dyn-api")]
-    dyn_rejected_cancel_returns_the_handle(executor).await;
+    dyn_refused_cancel_leaves_the_handle_observing(executor).await;
 }
 
 #[cfg(feature = "runtime-smol")]
@@ -381,10 +357,10 @@ async fn tokio_refused_cancellation_is_recoverable() {
 fn smol_refused_cancellation_is_recoverable() {
     smol::block_on(async {
         let executor = grafton_visca::SmolRuntime::new();
-        rejected_cancel_returns_the_handle(executor).await;
-        recovered_handle_can_still_be_detached(executor).await;
-        queued_cancel_still_succeeds_and_consumes(executor).await;
+        refused_cancel_leaves_the_handle_observing(executor).await;
+        handle_can_be_detached_after_a_refused_cancel(executor).await;
+        queued_cancel_concludes_cancelled_on_every_profile(executor).await;
         #[cfg(feature = "dyn-api")]
-        dyn_rejected_cancel_returns_the_handle(executor).await;
+        dyn_refused_cancel_leaves_the_handle_observing(executor).await;
     });
 }

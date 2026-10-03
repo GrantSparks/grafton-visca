@@ -54,7 +54,7 @@ struct StopPanTiltOnExit<'a, 'session> {
 
 impl Drop for StopPanTiltOnExit<'_, '_> {
     fn drop(&mut self) {
-        if let Ok(stop) = self.camera.pan_tilt().stop() {
+        if let Ok(mut stop) = self.camera.pan_tilt().stop() {
             let _ = stop.applied();
         }
     }
@@ -73,7 +73,7 @@ fn movement(camera: &Camera<'_, PtzOpticsG2>) -> Result<(), Error> {
     // would keep moving. The guard is what bounds the motion to this scope.
     {
         let _stop_on_exit = StopPanTiltOnExit { camera };
-        let drive = camera.pan_tilt().move_direction(
+        let mut drive = camera.pan_tilt().move_direction(
             PanTiltDirection::Up,
             PanSpeed::new(6)?,
             TiltSpeed::new(6)?,

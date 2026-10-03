@@ -439,13 +439,11 @@ fn an_unresolvable_cancellation_reaches_the_caller() {
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let operation = camera
+    let mut operation = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("submission");
-    let cancellation = operation.cancel().expect("cancellation intent is recorded");
-
-    let error = cancellation
-        .outcome(Duration::from_secs(5))
+    let error = operation
+        .cancel_with_timeout(Duration::from_secs(5))
         .expect_err("a camera that never answers cannot confirm a cancellation");
     assert!(
         matches!(error, Error::CancellationUnconfirmed),

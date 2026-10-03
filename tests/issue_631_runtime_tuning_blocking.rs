@@ -448,7 +448,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
     let session = Session::open(transport, session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let operation = camera
+    let mut operation = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
         .expect("submission");
     assert_eq!(

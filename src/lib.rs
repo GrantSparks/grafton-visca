@@ -137,9 +137,9 @@
 //!   their governing completion/reply/settlement deadline and total retry
 //!   budget, so a crate-authorized retry remains observable. The
 //!   `applied_with_timeout` / `settled_with_timeout` forms replace *only* this
-//!   deadline. An observer
-//!   timeout returns [`Error::Timeout`], detaches the observer, and never sends
-//!   cancellation or changes a scheduler deadline.
+//!   deadline. An observer timeout returns [`Error::Timeout`] and ends only
+//!   that wait: the handle keeps observing and can wait again, and nothing
+//!   sends cancellation or changes a scheduler deadline.
 //! - **Transport timeout** — the driver-level bound on one read or write
 //!   (`read_timeout`/`write_timeout`), independent of both of the above.
 //!
@@ -147,8 +147,9 @@
 //!
 //! - **Cancel intent** — the owner deliberately accepted a request to cancel one
 //!   exact admitted operation. It suppresses every later retry but does not by
-//!   itself prove cancellation. `cancel()` returns once intent is recorded (or
-//!   an outcome was already buffered); it does not wait for the camera.
+//!   itself prove cancellation. A handle has at most one intent: `cancel()`
+//!   records it and waits for its conclusion, and calling `cancel()` again
+//!   observes the same intent instead of sending another.
 //! - **Cancelled** — the engine proved the operation cannot later succeed: it
 //!   was removed before transmission, a conclusive rejection left no executing
 //!   attempt with retry suppressed, or the camera returned the socket-specific
@@ -166,6 +167,10 @@
 //!   ([`requires_new_session`](Error::requires_new_session) is `false`) and
 //!   quarantines the correlation until the ambiguity deadline so a late reply
 //!   cannot misbind (issue #671).
+//! - **Observation** — every operation wait (`applied`, `settled`, `cancel`)
+//!   borrows its handle, and the handle caches the authoritative results it
+//!   receives. A repeated wait answers from the cache, and a wait that times
+//!   out or is dropped releases only itself.
 //! - **Detach** — relinquish the sole observation right without changing any
 //!   protocol state. Dropping a handle is exactly detach; it never cancels or
 //!   stops hardware.
@@ -843,9 +848,8 @@
 //!     use std::time::Duration;
 //!
 //!     // Submit one typed operation and retain its owner-backed lifecycle handle.
-//!     let operation = camera.zoom().tele().await?;
-//!     let cancellation = operation.cancel().await?;
-//!     let outcome = cancellation.outcome(Duration::from_secs(2)).await?;
+//!     let mut operation = camera.zoom().tele().await?;
+//!     let outcome = operation.cancel_with_timeout(Duration::from_secs(2)).await?;
 //!     println!("cancellation outcome: {outcome:?}");
 //!     Ok(())
 //! }
@@ -857,33 +861,32 @@
 //! movement, send the relevant STOP command and await its application.
 //!
 //! A refused cancellation is not cancellation intent: the owner leaves the
-//! original request scheduled and able to complete, so `cancel` consumes the
-//! handle only when it succeeds. A refusal returns [`CancelRejected`], which
-//! carries the handle back — take it with `into_operation()` to keep waiting or
-//! to retry. `?` in a function returning [`Error`] still works and detaches the
-//! handle, exactly as dropping it does.
+//! original request scheduled and able to complete. Because `cancel` borrows
+//! the handle, a refusal is a plain error and the handle keeps observing the
+//! operation.
 //!
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn stop_a_zoom_the_profile_cannot_cancel(
 //!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
-//!     let operation = camera.zoom().tele().await?;
-//!     let operation = match operation.cancel().await {
-//!         Ok(cancellation) => {
-//!             cancellation.detach();
-//!             return Ok(());
+//!     use grafton_visca::Error;
+//!
+//!     let mut operation = camera.zoom().tele().await?;
+//!     match operation.cancel().await {
+//!         Ok(outcome) => {
+//!             println!("cancellation outcome: {outcome:?}");
+//!             Ok(())
 //!         }
-//!         // The G2 has no socket-cancel; the handle comes back untouched.
-//!         Err(rejected) => match rejected.into_operation() {
-//!             Some(operation) => operation,
-//!             None => return Ok(()),
-//!         },
-//!     };
-//!     // The recourse that actually ends movement on such a profile.
-//!     camera.zoom().stop().await?.applied().await?;
-//!     operation.detach();
-//!     Ok(())
+//!         // The G2 has no socket-cancel. The recourse that actually ends
+//!         // movement on such a profile is an applied STOP, and the same
+//!         // handle still observes the original zoom.
+//!         Err(Error::NotSupported) => {
+//!             camera.zoom().stop().await?.applied().await?;
+//!             operation.applied().await
+//!         }
+//!         Err(error) => Err(error),
+//!     }
 //! }
 //! ```
 //!
@@ -1064,7 +1067,7 @@ mod session_config;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;
-pub use outcome::{CancelRejected, CancellationOutcome};
+pub use outcome::CancellationOutcome;
 
 mod operation_id;
 pub use operation_id::OperationId;
@@ -1072,7 +1075,7 @@ pub use operation_id::OperationId;
 #[cfg(feature = "async")]
 mod operation;
 #[cfg(feature = "async")]
-pub use operation::{Cancellation, Operation};
+pub use operation::Operation;
 
 #[cfg(feature = "async")]
 mod async_nouns;

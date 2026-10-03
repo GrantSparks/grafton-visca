@@ -564,9 +564,9 @@ mod tests {
         profile::ProfileSpec,
         profiles::{GenericVisca, SonyFR7},
         runtime::engine::{
-            CancellationObservation, CancellationPolicy, ControlPolicy, DecodedResponse,
-            EncodedMessage, EnvelopeSequence, ReplyShape, RequestContext, RetryPolicy,
-            RuntimeOutcome, RuntimeRequest, SequenceWidth, TimeoutPolicy,
+            CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeSequence,
+            ReplyShape, RequestContext, RetryPolicy, RuntimeOutcome, RuntimeRequest, SequenceWidth,
+            TimeoutPolicy,
         },
         transport::{
             builder::{AddressingMode, TransportConfig},
@@ -959,13 +959,7 @@ mod tests {
     }
 
     fn try_terminal(receipt: &super::super::ReceiptCore) -> Option<RuntimeOutcome> {
-        match receipt.completion.try_recv() {
-            Some(super::super::ReceiptObservation::Terminal(outcome)) => Some(outcome),
-            Some(super::super::ReceiptObservation::CancellationFailed(error)) => {
-                Some(RuntimeOutcome::Failed(error))
-            }
-            None => None,
-        }
+        receipt.completion.try_recv()
     }
 
     #[test]
@@ -2175,7 +2169,7 @@ mod tests {
             1,
             "the queued Sony ACK should advance the retried command"
         );
-        let _cancel = owner.cancel_test(&mut writer, receipt).unwrap();
+        let _cancel = owner.cancel_test(&mut writer, &receipt).unwrap();
         assert_eq!(
             sent.lock().unwrap().len(),
             2,
@@ -2330,7 +2324,7 @@ mod tests {
             2
         );
 
-        let cancellation = owner.cancel_test(&mut writer, camera_two).unwrap();
+        let cancellation = owner.cancel_test(&mut writer, &camera_two).unwrap();
         let sent = io.lock().unwrap().sent.clone();
         assert_eq!(sent.last(), Some(&vec![0x82, 0x21, 0xff]));
 
@@ -2341,9 +2335,10 @@ mod tests {
             1
         );
         assert!(matches!(
-            cancellation.recv_test(),
-            Ok(CancellationObservation::Cancelled)
+            try_terminal(&camera_two),
+            Some(RuntimeOutcome::Cancelled)
         ));
+        assert!(cancellation.try_recv().is_none());
         assert!(try_terminal(&camera_one).is_none());
         assert_eq!(
             owner

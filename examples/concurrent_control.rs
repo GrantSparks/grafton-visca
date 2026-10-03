@@ -52,7 +52,7 @@ async fn read_and_move(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let power = inquiry_camera.power();
     let (movement, power) = tokio::join!(
         async move {
-            let operation = movement_camera.zoom().tele().await?;
+            let mut operation = movement_camera.zoom().tele().await?;
             operation.applied().await
         },
         power.state(),

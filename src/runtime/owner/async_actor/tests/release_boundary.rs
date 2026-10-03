@@ -194,7 +194,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     assert_eq!(writes.recv_async().await.unwrap(), predecessor);
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout)
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
@@ -428,7 +428,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     assert_eq!(harness.writes.recv_async().await.unwrap(), a);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout)
     ));
 
     let (_c_completion, c_admitted) = handle
@@ -869,7 +869,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(harness.writes.recv_async().await.unwrap(), a);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout)
     ));
 
     let (b_completion, b_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
@@ -923,7 +923,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     // receive a fresh grace budget rather than inheriting A's deadline.
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout)
     ));
 
     let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();

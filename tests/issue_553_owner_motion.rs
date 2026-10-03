@@ -348,7 +348,7 @@ where
     );
 
     let stop_started = Instant::now();
-    let stop = camera
+    let mut stop = camera
         .zoom()
         .stop()
         .await

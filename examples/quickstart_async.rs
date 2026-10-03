@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if args.move_camera {
             println!("Running short zoom movement.");
             let start_result = match camera.zoom().tele().await {
-                Ok(operation) => operation.applied().await,
+                Ok(mut operation) => operation.applied().await,
                 Err(error) => Err(error),
             };
             if start_result.is_ok() {
@@ -106,7 +106,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Once movement starts, always attempt STOP before propagating
             // its result or waiting for the axis to become idle.
             let stop_result = match camera.zoom().stop().await {
-                Ok(operation) => operation.applied().await,
+                Ok(mut operation) => operation.applied().await,
                 Err(error) => Err(error),
             };
             if start_result.is_err() {

@@ -987,6 +987,15 @@ impl PreparedCommand {
     }
 }
 
+/// Configured observer deadlines of one admitted operation (#777).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OperationTimeouts {
+    /// Bounds a configured wait for application.
+    pub(crate) applied: Duration,
+    /// Bounds a configured wait for a cancellation's conclusion.
+    pub(crate) cancellation: Duration,
+}
+
 /// Returns the default lifetime for a caller observer.
 ///
 /// An observer that expires while its request can still be retried would turn
@@ -1075,15 +1084,38 @@ where
 
     pub(crate) fn admit_with<T>(
         self,
-        admit: impl FnOnce(RuntimeRequest, AffectedAxes, completion::Settlement<K>, Duration) -> T,
+        admit: impl FnOnce(
+            RuntimeRequest,
+            AffectedAxes,
+            completion::Settlement<K>,
+            OperationTimeouts,
+        ) -> T,
     ) -> T {
-        let timeout = observation_timeout(&self.context, self.context.timeout.completion);
+        let applied = observation_timeout(&self.context, self.context.timeout.completion);
+        // Once cancellation is requested, the engine concludes the operation
+        // within its cancellation ambiguity window plus the cancellation
+        // observation window, and never before the original completion
+        // deadline it already owned.
+        let cancellation = applied.max(
+            self.context
+                .timeout
+                .ambiguity
+                .saturating_add(self.context.timeout.cancellation),
+        );
         let request = RuntimeRequest::Command {
             wire: self.wire,
             context: self.context,
             applied_state: self.applied_state,
         };
-        admit(request, self.affected_axes, self.settlement, timeout)
+        admit(
+            request,
+            self.affected_axes,
+            self.settlement,
+            OperationTimeouts {
+                applied,
+                cancellation,
+            },
+        )
     }
 }
 
@@ -1792,9 +1824,9 @@ mod tests {
             default_budget,
         } = prepared
             .settlement
-            .into_plan()
+            .plan()
             .expect("targeted settlement plan")
-            .into_inner()
+            .clone()
         else {
             panic!("profile without completion must choose polling");
         };
@@ -2036,9 +2068,9 @@ mod tests {
         .expect("FR7 ND operation");
         let SettlementPlan::Poll { queries, axes, .. } = nd
             .settlement
-            .into_plan()
+            .plan()
             .expect("targeted ND settlement")
-            .into_inner()
+            .clone()
         else {
             panic!("FR7 must poll ND position without operation-complete support");
         };
@@ -2059,11 +2091,7 @@ mod tests {
         )
         .expect("PTZ iris operation");
         assert!(matches!(
-            completed
-                .settlement
-                .into_plan()
-                .expect("PTZ settlement")
-                .into_inner(),
+            completed.settlement.plan().expect("PTZ settlement").clone(),
             SettlementPlan::CompletionIsSettled { .. }
         ));
     }
@@ -2089,9 +2117,9 @@ mod tests {
             ..
         } = prepared
             .settlement
-            .into_plan()
+            .plan()
             .expect("BRC-H900 iris settlement")
-            .into_inner()
+            .clone()
         else {
             panic!("BRC-H900 must poll iris because it has no operation-complete reply");
         };
@@ -2496,10 +2524,17 @@ mod tests {
                 >= operation_budget,
             "targeted settlement observer must cover retry budget"
         );
-        let observer = operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        let request_timeouts = operation.context.timeout;
+        let timeouts = operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts);
         assert!(
-            observer >= operation_budget,
+            timeouts.applied >= operation_budget,
             "operation observer must cover retry budget"
+        );
+        // A cancellation observer outlives the application observer and the
+        // engine's cancellation ambiguity plus observation windows (#777).
+        assert!(timeouts.cancellation >= timeouts.applied);
+        assert!(
+            timeouts.cancellation >= request_timeouts.ambiguity + request_timeouts.cancellation
         );
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
@@ -2510,7 +2545,8 @@ mod tests {
         )
         .expect("applied-only operation preparation");
         let applied_only_budget = applied_only.context.retry.total_budget;
-        let observer = applied_only.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        let observer =
+            applied_only.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert!(
             observer >= applied_only_budget,
             "applied-only observer must cover retry budget"
@@ -2585,7 +2621,7 @@ mod tests {
         .expect("Sony operation preparation");
         let sony_budget = sony_operation.context.retry.total_budget;
         let sony_observer =
-            sony_operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+            sony_operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert_eq!(sony_budget, Duration::from_secs(60));
         assert!(
             sony_observer > Duration::from_secs(30),

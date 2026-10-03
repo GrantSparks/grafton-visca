@@ -26,8 +26,8 @@ fn assert_blocking_surface() {
     let _: Option<SessionConfig> = None;
     let _: Option<Operation<'static, Targeted>> = None;
     let _: Option<Operation<'static, AppliedOnly>> = None;
-    let _: fn(Operation<'static, Targeted>) -> Result<(), Error> = Operation::applied;
-    let _: fn(Operation<'static, AppliedOnly>) -> Result<(), Error> = Operation::applied;
+    let _: fn(&mut Operation<'static, Targeted>) -> Result<(), Error> = Operation::applied;
+    let _: fn(&mut Operation<'static, AppliedOnly>) -> Result<(), Error> = Operation::applied;
     let _: fn(ProfileSpec) -> SessionConfig = SessionConfig::new;
 }
 
@@ -46,7 +46,9 @@ fn assert_async_surface() {
     let _: Option<Session> = None;
     let _: Option<SessionConfig> = None;
     let _: Option<Operation<Targeted>> = None;
-    fn returns_future<K>(operation: Operation<K>) -> impl Future<Output = grafton_visca::Result<()>>
+    fn returns_future<K>(
+        operation: &mut Operation<K>,
+    ) -> impl Future<Output = grafton_visca::Result<()>> + '_
     where
         K: grafton_visca::completion::Kind,
     {

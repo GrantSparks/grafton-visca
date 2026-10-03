@@ -92,10 +92,12 @@ impl Settlement<Targeted> {
         }
     }
 
+    /// The prepared settlement plan. Borrowed, so a settlement wait that is
+    /// abandoned or times out can be restarted on the same handle (#777).
     #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn into_plan(self) -> Result<TargetedSettlementPlan> {
-        match self.plan {
-            LoweredPlan::Targeted(plan) => Ok(plan),
+    pub(crate) fn plan(&self) -> Result<&crate::prepared::SettlementPlan> {
+        match &self.plan {
+            LoweredPlan::Targeted(plan) => Ok(&plan.inner),
             LoweredPlan::AppliedOnly(_) => Err(crate::Error::InvalidState(
                 "targeted settlement was lowered as applied-only".into(),
             )),
@@ -137,10 +139,6 @@ impl core::fmt::Debug for TargetedSettlementPlan {
 impl TargetedSettlementPlan {
     pub(crate) fn new(inner: crate::prepared::SettlementPlan) -> Self {
         Self { inner }
-    }
-
-    pub(crate) fn into_inner(self) -> crate::prepared::SettlementPlan {
-        self.inner
     }
 }
 

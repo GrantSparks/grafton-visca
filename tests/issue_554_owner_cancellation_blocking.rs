@@ -130,17 +130,14 @@ fn blocking_g2_transmitted_cancel_is_not_supported_without_cancel_frame() {
     let session = Session::open(transport, g2_config()).expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
-    let original = camera.zoom().stop().expect("transmitted operation");
+    let mut original = camera.zoom().stop().expect("transmitted operation");
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
 
-    let rejected = original
+    let refused = original
         .cancel()
         .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    // The rejection hands the operation handle back (#612).
-    let original = rejected
-        .into_operation()
-        .expect("a rejected cancellation returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
+    // A refusal leaves the handle observing the original operation (#777).
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
 
     // The original frames are delivered before the next operation's frames.
@@ -150,8 +147,8 @@ fn blocking_g2_transmitted_cancel_is_not_supported_without_cancel_frame() {
     probe.push(ACK_AND_COMPLETE_SOCKET_ONE.to_vec());
     original
         .applied()
-        .expect("the recovered handle still observes the original operation");
-    let next = camera
+        .expect("the handle still observes the original operation");
+    let mut next = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("next operation");
     next.applied().expect("next operation applied");

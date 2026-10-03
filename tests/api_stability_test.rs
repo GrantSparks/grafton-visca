@@ -168,7 +168,7 @@ fn async_root_exports_are_profile_and_handle_safe() {
     use grafton_visca::{
         completion::{AppliedOnly, Targeted},
         profiles::PtzOpticsG2,
-        Camera, Cancellation, CompileTimeProfile, Operation, Session, SessionConfig,
+        Camera, CancellationOutcome, CompileTimeProfile, Operation, Session, SessionConfig,
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
@@ -180,10 +180,9 @@ fn async_root_exports_are_profile_and_handle_safe() {
     let _: PhantomData<SessionConfig> = PhantomData;
     let _: PhantomData<Operation<AppliedOnly>> = PhantomData;
     let _: PhantomData<Operation<Targeted>> = PhantomData;
-    let _: PhantomData<Cancellation> = PhantomData;
     assert_send_sync::<Operation<AppliedOnly>>();
     assert_send_sync::<Operation<Targeted>>();
-    assert_send_sync::<Cancellation>();
+    assert_send_sync::<CancellationOutcome>();
 }
 
 #[cfg(feature = "blocking")]
