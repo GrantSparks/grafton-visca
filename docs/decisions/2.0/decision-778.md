@@ -25,6 +25,11 @@ As recommended below:
 5. No coalescing. The halt (D21) admits its STOPs through this reserve.
    With the blocking worker (D24), the reserve also protects blocking stops.
 
+Implemented in #792. The reserve-exhausted error is
+`Error::ControlReserveExhausted { target, reserve }`. An urgent STOP takes its
+camera's reserve first and an ordinary slot only when that reserve is held;
+the permit records which budget it holds and the engine enforces it.
+
 ## Context
 
 Urgency is applied only after admission. The async owner takes a permit from
