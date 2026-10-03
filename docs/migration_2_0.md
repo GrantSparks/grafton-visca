@@ -384,10 +384,10 @@ ND-filter position inquiries.
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
 | `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and observes its profile-selected protocol settlement condition; it is not a 2.0.0-rc.2 bench-verified assertion of physical rest. |
-| `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns a linear `Operation<K>` **handle**; hold it and call `operation.cancel()`. The handle itself is the cancellation authority. |
-| `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` / `Cancellation` handle. |
+| `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns an `Operation<K>` **handle**; hold it and call `operation.cancel()`, which waits for the cancellation's `CancellationOutcome`. The handle itself is the cancellation authority. |
+| `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` handle. |
 | `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
-| `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation`, `DynAppliedOperation`, and `DynCancellation`. Applied-only handles have no settled operation. |
+| `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation` and `DynAppliedOperation`. Applied-only handles have no settled operation. |
 | Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
@@ -404,19 +404,58 @@ does not infer lifecycle semantics.
 
 1.x `InFlight` was borrow-oriented, so downstream crates could put it behind an
 object-safe trait whose `await_applied`, `await_settled`, and `cancel` methods
-took `&self`. That interface does not mechanically port: every 2.0 terminal
-method consumes the operation, and an applied-only operation has no settlement
-method.
+took `&self`. 2.0 waits borrow too, exclusively: `applied`, `settled`, and
+`cancel` take `&mut self`, so such a trait ports by changing the receiver to
+`&mut self` and boxing the borrowed future. An applied-only operation has no
+settlement method; its wrapper reports settlement as unsupported.
 
-Prefer keeping `Operation<Targeted>` or `Operation<AppliedOnly>` concrete until
-its terminal action. If an application boundary must erase the kind, give the
-wrapper consuming methods such as `self: Box<Self>` and return an owned future.
-For a targeted operation, dispatch settlement to `settled_with_timeout`; for an
-applied-only operation, report that settlement is unsupported. Cancellation
-also needs an explicit policy for `CancelRejected`: recover the returned
-operation when observation must continue, or deliberately convert the rejection
-to `Error` and detach it. A borrowed wrapper cannot honestly represent that
-ownership transfer.
+```rust
+#[cfg(feature = "async")]
+mod erased {
+    use std::{future::Future, pin::Pin};
+
+    use grafton_visca::{
+        completion::{AppliedOnly, Targeted},
+        CancellationOutcome, Error, Operation,
+    };
+
+    type Wait<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
+
+    pub trait Observed: Send {
+        fn applied(&mut self) -> Wait<'_, ()>;
+        fn settled(&mut self) -> Wait<'_, ()>;
+        fn cancel(&mut self) -> Wait<'_, CancellationOutcome>;
+    }
+
+    impl Observed for Operation<Targeted> {
+        fn applied(&mut self) -> Wait<'_, ()> {
+            Box::pin(Operation::applied(self))
+        }
+        fn settled(&mut self) -> Wait<'_, ()> {
+            Box::pin(Operation::settled(self))
+        }
+        fn cancel(&mut self) -> Wait<'_, CancellationOutcome> {
+            Box::pin(Operation::cancel(self))
+        }
+    }
+
+    impl Observed for Operation<AppliedOnly> {
+        fn applied(&mut self) -> Wait<'_, ()> {
+            Box::pin(Operation::applied(self))
+        }
+        fn settled(&mut self) -> Wait<'_, ()> {
+            Box::pin(async { Err(Error::NotSupported) })
+        }
+        fn cancel(&mut self) -> Wait<'_, CancellationOutcome> {
+            Box::pin(Operation::cancel(self))
+        }
+    }
+}
+```
+
+What does not port is sharing: one handle cannot be waited on from two places
+at once. Wait from the task that holds it, and pass `&mut` where 1.x passed
+`&`.
 
 ## Submission priority
 
@@ -508,7 +547,7 @@ To end motion, submit a stop: `camera.pan_tilt().stop()`, `camera.zoom().stop()`
 `camera.focus().stop()`, or `camera.motion().stop_all_motion()`. `cancel` records
 protocol cancellation and does not by itself prove motion ended.
 
-### A refused `cancel` hands the handle back
+### A refused `cancel` leaves the handle observing
 
 Cancelling a command that has already been written needs profile support for the
 standard VISCA socket-cancel command. `PtzOpticsG2` is the one built-in profile
@@ -517,41 +556,35 @@ deliberately leaves the original request scheduled and able to complete — the
 same per-phase contract 1.x had, where a still-queued command cancels locally on
 every profile.
 
-Because the original is still live, `cancel` consumes the handle only when it
-succeeds. A refusal returns `CancelRejected<H>`, which carries the handle back:
+`cancel` borrows the handle, so a refusal is a plain `Error::NotSupported` and
+the handle keeps observing the original:
 
 ```rust
 #[cfg(feature = "async")]
 async fn recover_refused_cancel(
     camera: &grafton_visca::Camera<grafton_visca::camera::profiles::PtzOpticsG2>,
-    operation: grafton_visca::Operation<grafton_visca::completion::AppliedOnly>,
-) -> Result<grafton_visca::Cancellation, grafton_visca::Error> {
+    mut operation: grafton_visca::Operation<grafton_visca::completion::AppliedOnly>,
+) -> Result<(), grafton_visca::Error> {
     use grafton_visca::Error;
 
-    let operation = match operation.cancel().await {
-        Ok(cancellation) => return Ok(cancellation),
-        Err(rejected) => rejected
-            .into_operation()
-            .ok_or(Error::RuntimeShutdown)?,
-    };
-    // Still observable, still retryable — and the axis is stopped the usual way.
-    camera.zoom().stop().await?.applied().await?;
-    operation.detach();
-    # Err(Error::NotSupported)
+    match operation.cancel().await {
+        Ok(_outcome) => Ok(()),
+        Err(Error::NotSupported) => {
+            // Still observable — and the axis is stopped the usual way.
+            camera.zoom().stop().await?.applied().await?;
+            operation.applied().await
+        }
+        Err(error) => Err(error),
+    }
 }
 ```
-
-`?` still works in a function returning `Error`: the `From<CancelRejected<H>>`
-conversion keeps the reason and detaches the handle, which is exactly what the
-consuming shape did before.
 
 The [v1.1.0 `InFlight` implementation](https://github.com/GrantSparks/grafton-visca/blob/v1.1.0/src/camera/inflight.rs)
 made async and dynamic `cancel` borrow the handle and documented that its exact
 response could still be awaited, so a `NotSupported` result also left the
-caller holding the handle. 2.0 keeps that recovery while keeping its linear
-consuming terminal methods. The same v1.1.0 implementation made the blocking
-handle consume on this path; 2.0 does not reproduce that asymmetry — both
-facades behave like the historical async one.
+caller holding the handle. 2.0 keeps that shape on every facade. The same
+v1.1.0 implementation made the blocking handle consume on this path; 2.0 does
+not reproduce that asymmetry.
 
 ### Scoped stop-on-exit guard
 
@@ -581,7 +614,7 @@ impl Drop for StopPanTiltOnExit<'_, '_> {
     fn drop(&mut self) {
         // `Drop` cannot report a failure and may run while unwinding, so the
         // stop is best effort — as in any scope guard.
-        if let Ok(stop) = self.camera.pan_tilt().stop() {
+        if let Ok(mut stop) = self.camera.pan_tilt().stop() {
             let _ = stop.applied();
         }
     }
@@ -596,7 +629,7 @@ fn bounded_drive(
 ) -> Result<(), Error> {
     // Hold the guard for the region that must stay bounded.
     let _stop_on_exit = StopPanTiltOnExit { camera };
-    let drive = camera.pan_tilt().move_direction(direction, pan, tilt)?;
+    let mut drive = camera.pan_tilt().move_direction(direction, pan, tilt)?;
     do_fallible_work()?; // an early `?` here still stops pan/tilt
     drive.applied()
 }
@@ -618,7 +651,7 @@ mod async_form {
 
     pub async fn bounded_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
         let result = drive_up(camera).await;
-        if let Ok(stop) = camera.pan_tilt().stop().await {
+        if let Ok(mut stop) = camera.pan_tilt().stop().await {
             let _ = stop.applied().await;
         }
         result
@@ -816,7 +849,7 @@ use grafton_visca::{
 fn resubmit_after_widening<'session, O>(
     session: &Session,
     camera: &Camera<'session, PtzOpticsG2>,
-    operation: Operation<'session, AppliedOnly>,
+    mut operation: Operation<'session, AppliedOnly>,
     command: O,
 ) -> Result<Operation<'session, AppliedOnly>, Error>
 where
@@ -824,7 +857,7 @@ where
 {
     session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
     // `operation` was admitted before the update and keeps its old deadline.
-    let _ = operation.cancel()?.outcome(Duration::from_secs(1));
+    let _ = operation.cancel_with_timeout(Duration::from_secs(1));
     let operation = camera.submit::<AppliedOnly, _>(&command)?;
     Ok(operation)
 }
