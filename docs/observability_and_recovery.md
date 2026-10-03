@@ -437,9 +437,10 @@ precise about which one a failure belongs to:
   drop correlated with network events) is the signature of this application-side
   timeout.
 
-The library never sends VISCA on its own — there are no per-camera background
-workers (see [`architecture_2_0.md`](architecture_2_0.md)) — so if a camera
-enforces an application idle timeout there are two application-side levers:
+The library never sends VISCA on its own: the owner, including a blocking
+session's worker thread, only carries out work the application submitted (see
+[`architecture_2_0.md`](architecture_2_0.md)). If a camera enforces an
+application idle timeout there are two application-side levers:
 
 1. **Detect or prevent it with an application heartbeat.** While the session would
    otherwise be idle, periodically issue a cheap inquiry (for example a power

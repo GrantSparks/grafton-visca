@@ -97,6 +97,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `control_reserve_admitted` and `control_reserve_rejected`. Construct it
     only through `Session::metrics()`; struct literals outside the crate no
     longer compile.
+- **BREAKING** (#780): A blocking session runs its owner on one native
+  worker thread (D24). The worker runs the same coordinator, turn logic, and
+  engine policy as the async owner, so the blocking facade no longer drives
+  the owner on the caller's thread. This revises the "no per-camera
+  background workers" invariant and the caller-thread model of #542: each
+  blocking session has exactly one worker, started by `Session::open` after
+  startup validation, and `close` joins it.
+  - Submission means admission, as on async. A returned operation handle
+    names an admitted request; a write failure is reported through the
+    operation's outcome. Work that cannot be written yet queues instead of
+    failing.
+  - The blocking `Session`, `Camera<P>`, `CameraSession<P>`, `Operation<K>`,
+    and `BlockingDynSessionCamera` own their link to the
+    worker instead of borrowing the session, and are `Send + Sync`;
+    `Session`, `Camera<P>`, and `BlockingDynSessionCamera` are `Clone`.
+    Share them across threads by cloning; a thread waiting on one operation
+    never blocks another thread's submit, cancel, or STOP.
+  - `blocking::CameraSession::camera()` returns `&Camera<P>`, and the new
+    `into_camera()` returns the owned camera, matching the async
+    `CameraSession`. `blocking::Camera::profile()`/`capabilities()` and the
+    same methods on `BlockingDynSessionCamera` are no longer `const`.
+  - `blocking::Session::subscribe_diagnostics(capacity)` returns the same
+    `DiagnosticSubscription` as the async facade; its `recv_timeout` waits
+    on the calling thread.
+  - The worker reads the transport in slices of at most 10 ms, so a STOP,
+    cancellation, or `close` reaches the owner within one slice plus any
+    in-progress write. A blocking transport must honour short read
+    timeouts.
+  - Async and blocking owners share one owner shell core, boundary types,
+    receipt observation, and transport framing; the coordinator now paces
+    receive after idle and fault pauses for both.
 
 ### Removed
 
@@ -105,6 +136,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself.
 - **BREAKING** (#777): `CancelRejected`. A refused cancellation is the
   plain `Error`, and the handle is unaffected.
+- **BREAKING** (#780): `Error::TransportBusy`. Blocking submission queues
+  work that cannot be written yet, as async submission always has.
+- **BREAKING** (#780): The `'session` lifetime on the blocking `Camera`,
+  `Operation`, and `BlockingDynSessionCamera`; noun accessors keep only
+  their `'view` borrow of the camera.
+- **BREAKING** (#780): `blocking::Session::drain_diagnostics`. Use
+  `subscribe_diagnostics`.
 
 ## [2.0.0-rc.2] - 2026-09-04
 

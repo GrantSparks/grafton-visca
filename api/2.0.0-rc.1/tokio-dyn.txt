@@ -12059,7 +12059,6 @@ pub grafton_visca::prelude::async::Error::StreamPoisoned::reason: alloc::borrow:
 pub grafton_visca::prelude::async::Error::SyntaxError
 pub grafton_visca::prelude::async::Error::Timeout
 pub grafton_visca::prelude::async::Error::Timeout::context: grafton_visca::FailureContext
-pub grafton_visca::prelude::async::Error::TransportBusy
 pub grafton_visca::prelude::async::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::async::Error::UnexpectedResponseType
 pub grafton_visca::prelude::async::Error::Unknown(u8)
@@ -13488,11 +13487,11 @@ pub fn grafton_visca::Operation<K>::detach(self)
 pub fn grafton_visca::Operation<K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::Operation<K> where K: grafton_visca::completion::Kind + core::fmt::Debug
 pub fn grafton_visca::Operation<K>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<K> core::marker::Freeze for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Freeze
-impl<K> core::marker::Send for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Send
-impl<K> core::marker::Sync for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Sync
-impl<K> core::marker::Unpin for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Unpin
-impl<K> core::marker::UnsafeUnpin for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::UnsafeUnpin
+impl<K> core::marker::Freeze for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Freeze
+impl<K> core::marker::Send for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Send
+impl<K> core::marker::Sync for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Sync
+impl<K> core::marker::Unpin for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Unpin
+impl<K> core::marker::UnsafeUnpin for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::UnsafeUnpin
 impl<K> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Operation<K>
 impl<K> !core::panic::unwind_safe::UnwindSafe for grafton_visca::Operation<K>
 pub struct grafton_visca::prelude::async::OperationId(_)
@@ -22995,7 +22994,6 @@ pub grafton_visca::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, st
 pub grafton_visca::Error::SyntaxError
 pub grafton_visca::Error::Timeout
 pub grafton_visca::Error::Timeout::context: grafton_visca::FailureContext
-pub grafton_visca::Error::TransportBusy
 pub grafton_visca::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::Error::UnexpectedResponseType
 pub grafton_visca::Error::Unknown(u8)
@@ -24731,11 +24729,11 @@ pub fn grafton_visca::Operation<K>::detach(self)
 pub fn grafton_visca::Operation<K>::id(&self) -> grafton_visca::OperationId
 impl<K> core::fmt::Debug for grafton_visca::Operation<K> where K: grafton_visca::completion::Kind + core::fmt::Debug
 pub fn grafton_visca::Operation<K>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<K> core::marker::Freeze for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Freeze
-impl<K> core::marker::Send for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Send
-impl<K> core::marker::Sync for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Sync
-impl<K> core::marker::Unpin for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::Unpin
-impl<K> core::marker::UnsafeUnpin for grafton_visca::Operation<K> where AsyncOperationReceipt<K>: core::marker::UnsafeUnpin
+impl<K> core::marker::Freeze for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Freeze
+impl<K> core::marker::Send for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Send
+impl<K> core::marker::Sync for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Sync
+impl<K> core::marker::Unpin for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::Unpin
+impl<K> core::marker::UnsafeUnpin for grafton_visca::Operation<K> where OperationReceipt<K, AsyncOwnerHandle>: core::marker::UnsafeUnpin
 impl<K> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Operation<K>
 impl<K> !core::panic::unwind_safe::UnwindSafe for grafton_visca::Operation<K>
 pub struct grafton_visca::OperationId(_)

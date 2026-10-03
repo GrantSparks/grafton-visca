@@ -479,17 +479,13 @@ already carries an intrinsic class — ordinary control is `Normal`, drives and
 absolute moves are `User`, and the typed stops plus owner-issued protocol cancellation are `Urgent`
 — so an emergency stop preempts queued work with no API call at all. Public QoS
 can move ordinary traffic among the lower three lanes but cannot cross that
-safety boundary. On the blocking facade this holds even on a raw profile while a
-caller still holds an un-awaited operation handle: the emergency stop's first
-write no longer fails `TransportBusy` against the raw single-candidate pre-ACK
-gate. Ordinary ACK-bearing work still uses the bounded #673 ACK drain, but an
-intrinsically `Urgent` stop bypasses that drain and may create one explicit
-two-candidate safety-lane state (#714). An ACK observed while both raw
-candidates are open binds to neither; either operation may therefore report
+safety boundary. On a raw profile an intrinsically `Urgent` stop may also cross
+one un-acknowledged raw command and create one explicit two-candidate
+safety-lane state (#714). An ACK observed while both raw candidates are open
+binds to neither; either operation may therefore report
 `UnsequencedCommandUnconfirmed` even though the stop bytes reached the camera.
-Only genuine socket-capacity contention — every command socket occupied by a
-distinct in-flight command — still fails a blocking operation submit fast with
-`TransportBusy`.
+Both facades queue work that cannot be written yet; nothing fails with a
+contention error.
 
 | 1.x call | 2.0 call |
 | --- | --- |
@@ -899,7 +895,6 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| The blocking owner is re-entered or a new operation-handle request cannot win its immediate first-dispatch boundary (socket capacity or an earlier normative scheduler winner) | `TransportBusy` | `false` | Serialize or back off the caller; do not reconnect on this error alone. |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An
@@ -928,12 +923,10 @@ urgent command-spacing clock, while consecutive commands and cancellations
 still honor physical command pacing.
 
 **Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
-quarantined only to its known ambiguity deadline. Ordinary blocking operation
-submission now waits through that bounded correlation release and writes at the
-deadline instead of returning `TransportBusy`; async submission remains queued
-to the same release. An intrinsically `Urgent` stop takes the safety-lane
-exception immediately (subject to command pacing and actual socket capacity)
-and skips the blocking pre-ACK drain. While the predecessor and stop are both
+quarantined only to its known ambiguity deadline. Ordinary work queues to that
+bounded correlation release on both facades. An intrinsically `Urgent` stop
+takes the safety-lane exception immediately (subject to command pacing and
+actual socket capacity). While the predecessor and stop are both
 open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
 later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
 the reply, not evidence that the urgent stop failed to reach the camera.

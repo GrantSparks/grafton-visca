@@ -307,7 +307,9 @@ the same boundary, taking the profile from `P` instead of a runtime
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
 correct stream/datagram send semantics. A blocking implementation must bound
 both `send_with_timeout` and `recv_into_with_timeout` by the supplied positive
-duration; the owner cannot preempt arbitrary synchronous code. Zero advertised
+duration; the owner cannot preempt arbitrary synchronous code. The blocking
+worker reads in slices of at most 10 ms, so a read that overruns its duration
+delays every STOP, cancellation, and `close` by the overrun. Zero advertised
 read/write timeouts are rejected at construction. A standard-kind caller-owned
 transport is checked against the profile transport registry; one that reports
 no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
