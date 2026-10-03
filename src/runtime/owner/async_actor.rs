@@ -3,6 +3,7 @@
 use std::{
     collections::VecDeque,
     future::Future,
+    ops::ControlFlow,
     pin::{pin, Pin},
     sync::Arc,
     task::Poll,
@@ -18,6 +19,10 @@ use crate::{
 use super::boundary::{
     AdmissionValidity, AdmissionWait, BoundaryReceivers, CancellationBoundary, ControlBoundary,
     OwnerHandleCore, OwnerSnapshot,
+};
+use super::receipt::{
+    observer_deadline, position_poll, settlement_budget, ObservationWake, OperationWait,
+    PositionPoll,
 };
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
@@ -336,7 +341,7 @@ where
         if let Some(verdict) = self.observation.cancellation() {
             return verdict;
         }
-        ensure_same_owner(&self.owner, self.observation.origin())?;
+        self.owner.core.ensure_origin(self.observation.origin())?;
         let request = self.observation.cancellation_request();
         if let Err(error) = self.owner.request_cancellation(request, deadline).await {
             // A terminal outcome that raced the refusal still decides.
@@ -362,34 +367,14 @@ impl AsyncOperationReceipt<completion::Targeted> {
         if self.observation.is_settled() {
             return Ok(());
         }
-        let budget = match timeout {
-            Some(timeout) => timeout,
-            None => self.settlement.default_budget().ok_or_else(|| {
-                Error::InvalidState(
-                    "targeted operation omitted its configured settlement budget".into(),
-                )
-            })?,
-        };
+        let budget = settlement_budget(&self.settlement, timeout)?;
         let deadline = self.owner.deadline_after(budget)?;
         self.applied_until(deadline).await?;
-        match self.settlement.plan()? {
-            crate::prepared::SettlementPlan::CompletionIsSettled { target, .. } => {
-                debug_assert_eq!(*target, self.observation.target());
-            }
-            crate::prepared::SettlementPlan::Poll {
-                target,
-                queries,
-                axes,
-                tolerance,
-                interval,
-                ..
-            } => {
-                debug_assert_eq!(*target, self.observation.target());
-                debug_assert_eq!(*axes, self.affected_axes);
-                poll_settlement_async(&self.owner, queries, *axes, *tolerance, *interval, deadline)
-                    .await
-                    .map_err(|error| super::settlement_error(error, self.observation.id()))?;
-            }
+        if let Some(poll) = position_poll(&self.settlement, &self.observation, self.affected_axes)?
+        {
+            poll_settlement_async(&self.owner, poll, deadline)
+                .await
+                .map_err(|error| super::settlement_error(error, self.observation.id()))?;
         }
         self.observation.mark_settled();
         Ok(())
@@ -402,15 +387,12 @@ impl AsyncOperationReceipt<completion::Targeted> {
 /// abandoned wait loses nothing authoritative.
 async fn poll_settlement_async(
     owner: &AsyncOwnerHandle,
-    queries: &crate::prepared::PositionQueryPlan,
-    axes: AffectedAxes,
-    tolerance: crate::camera::MovementTolerance,
-    interval: Duration,
+    poll: PositionPoll<'_>,
     deadline: Instant,
 ) -> Result<(), Error> {
     let control = owner.receipt_control();
-    let mut detector = crate::prepared::MotionDetector::new(axes, tolerance);
-    let baseline = sample_positions_async(owner, &control, queries, deadline).await?;
+    let mut detector = crate::prepared::MotionDetector::new(poll.axes, poll.tolerance);
+    let baseline = sample_positions_async(owner, &control, poll.queries, deadline).await?;
     if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
         return Err(Error::InvalidState(
             "new movement detector rejected its baseline snapshot".into(),
@@ -421,9 +403,9 @@ async fn poll_settlement_async(
         if remaining.is_zero() {
             return Err(Error::query_timeout());
         }
-        owner.clock.sleep(interval.min(remaining)).await;
+        owner.clock.sleep(poll.interval.min(remaining)).await;
         ensure_async_before_deadline(owner, deadline)?;
-        let snapshot = sample_positions_async(owner, &control, queries, deadline).await?;
+        let snapshot = sample_positions_async(owner, &control, poll.queries, deadline).await?;
         match detector.observe(snapshot)? {
             crate::prepared::MotionState::Settled => return Ok(()),
             crate::prepared::MotionState::Moving => {}
@@ -497,29 +479,6 @@ pub(crate) fn ensure_async_before_deadline(
     }
 }
 
-fn ensure_same_owner(owner: &AsyncOwnerHandle, origin: &Arc<()>) -> Result<(), Error> {
-    if Arc::ptr_eq(origin, &owner.core.origin) {
-        Ok(())
-    } else {
-        Err(Error::InvalidState(
-            "receipt belongs to a different owner".into(),
-        ))
-    }
-}
-
-/// What ended one wait for an observation slot.
-enum ObservationWake {
-    /// The terminal slot delivered (`None`: the owner dropped it unresolved).
-    Terminal(Option<RuntimeOutcome>),
-    /// The cancellation slot delivered (`None`: the owner dropped it, which it
-    /// does only when the operation's terminal outcome is already delivered).
-    Cancellation(Option<Error>),
-    /// The actor is gone.
-    ActorGone,
-    /// The observer deadline passed.
-    Deadline,
-}
-
 /// Waits for the next event on an operation's observation slots. This is the
 /// one race every async receipt wait uses: the terminal slot, then the
 /// cancellation slot, then actor liveness, then the observer deadline, in
@@ -539,12 +498,12 @@ async fn next_observation(
             None => future::pending().await,
         }
     };
-    let actor_gone = async {
+    let owner_gone = async {
         // Nothing is ever sent on this lane. It resolves when the actor has
         // dropped its sender, including an unwind before `run` can latch a
         // terminal owner error.
         while owner.core.actor_alive.recv_async().await.is_ok() {}
-        ObservationWake::ActorGone
+        ObservationWake::OwnerGone
     };
     let timer = async {
         owner.clock.sleep(remaining).await;
@@ -552,7 +511,7 @@ async fn next_observation(
     };
     future::or(
         terminal,
-        future::or(cancellation, future::or(actor_gone, timer)),
+        future::or(cancellation, future::or(owner_gone, timer)),
     )
     .await
 }
@@ -570,35 +529,16 @@ async fn observe_until<T>(
     deadline: Instant,
     verdict: impl Fn(&mut OperationObservation) -> Option<T>,
 ) -> Result<T, Error> {
-    ensure_same_owner(owner, observation.origin())?;
-    let mut cancellation_open = true;
+    owner.core.ensure_origin(observation.origin())?;
+    let mut wait = OperationWait::new(observation, verdict);
     loop {
-        if let Some(value) = verdict(observation) {
+        if let Some(value) = wait.verdict() {
             return Ok(value);
         }
-        let cancellation = observation
-            .cancellation_observer()
-            .filter(|_| cancellation_open);
-        match next_observation(
-            owner,
-            observation.terminal_observer(),
-            cancellation,
-            deadline,
-        )
-        .await
-        {
-            ObservationWake::Terminal(Some(outcome)) => observation.record_terminal(outcome),
-            ObservationWake::Cancellation(Some(error)) => {
-                observation.record_cancellation_failure(error);
-            }
-            ObservationWake::Cancellation(None) => cancellation_open = false,
-            ObservationWake::Terminal(None) | ObservationWake::ActorGone => {
-                return verdict(observation).ok_or_else(|| owner.core.disconnected_error());
-            }
-            ObservationWake::Deadline => {
-                return verdict(observation)
-                    .ok_or_else(|| super::observation_timeout(observation.id()));
-            }
+        let (terminal, cancellation) = wait.slots();
+        let wake = next_observation(owner, terminal, cancellation, deadline).await;
+        if let ControlFlow::Break(verdict) = wait.absorb(wake, &owner.core) {
+            return verdict;
         }
     }
 }
@@ -609,33 +549,13 @@ async fn wait_core_until(
     owner: &AsyncOwnerHandle,
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
-    ensure_same_owner(owner, &core.origin)?;
+    owner.core.ensure_origin(&core.origin)?;
     if let Some(outcome) = core.try_outcome() {
         return Ok(outcome);
     }
-    match next_observation(owner, &core.completion, None, deadline).await {
-        ObservationWake::Terminal(Some(outcome)) => Ok(outcome),
-        ObservationWake::Terminal(None) | ObservationWake::ActorGone => core
-            .try_outcome()
-            .ok_or_else(|| owner.core.disconnected_error()),
-        ObservationWake::Deadline => core
-            .try_outcome()
-            .ok_or_else(|| super::observation_timeout(core.id)),
-        ObservationWake::Cancellation(_) => Err(Error::InvalidState(
-            "a receipt without a cancellation slot observed one".into(),
-        )),
-    }
-}
-
-fn async_observer_deadline(clock: &BoundClock, timeout: Duration) -> Result<Instant, Error> {
-    clock
-        .now()
-        .checked_add(timeout)
-        .ok_or_else(|| Error::InvalidParameter {
-            parameter: "observer timeout",
-            value: format!("{timeout:?}").into(),
-            reason: "duration exceeds the monotonic clock range".into(),
-        })
+    next_observation(owner, &core.completion, None, deadline)
+        .await
+        .conclude(core, &owner.core)
 }
 
 /// Cloneable async owner handle: the shared boundary core plus the
@@ -706,7 +626,7 @@ impl AsyncOwnerHandle {
     }
 
     pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
-        async_observer_deadline(&self.clock, timeout)
+        observer_deadline(self.clock.now(), timeout)
     }
 
     pub(crate) fn receipt_control(&self) -> AsyncReceiptControl {

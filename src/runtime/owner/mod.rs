@@ -13,10 +13,12 @@ mod async_transport;
 mod blocking;
 #[cfg(feature = "blocking")]
 mod blocking_transport;
-// The blocking owner adopts the shared boundary and shell core with its
-// worker thread (D24).
+// The blocking owner adopts the shared boundary, receipt observation and
+// shell core with its worker thread (D24).
 #[cfg(feature = "async")]
 mod boundary;
+#[cfg(feature = "async")]
+mod receipt;
 #[cfg(feature = "async")]
 mod shell;
 mod turn;

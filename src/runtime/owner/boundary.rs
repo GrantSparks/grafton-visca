@@ -571,6 +571,17 @@ impl OwnerHandleCore {
         }
     }
 
+    /// Refuse a receipt whose observation slots belong to another owner.
+    pub(super) fn ensure_origin(&self, origin: &Arc<()>) -> Result<(), Error> {
+        if Arc::ptr_eq(origin, &self.origin) {
+            Ok(())
+        } else {
+            Err(Error::InvalidState(
+                "receipt belongs to a different owner".into(),
+            ))
+        }
+    }
+
     pub(super) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
     }
