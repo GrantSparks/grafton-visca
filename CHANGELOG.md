@@ -80,6 +80,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     data".
   - `is_retryable()` is documented as classifying temporary conditions, not
     replay safety.
+- **BREAKING** (#778): `SessionConfig::admission_capacity` now bounds
+  ordinary requests only (D26). Each registered camera also has a control
+  reserve, one admission slot per typed STOP its profile supports
+  (pan/tilt, zoom, focus; at most three), that only an urgent typed STOP may
+  use. A STOP takes its camera's reserve first and an ordinary slot only when
+  the reserve is held, so queued ordinary work can no longer lock a STOP out
+  with `RuntimeQueueFull`, and one camera's stops cannot use another's
+  reserve. Up to `capacity` plus the reserves can be pending or active at
+  once. This extends D10 and D1; it changes no pacing, socket limit, raw
+  correlation hold, or in-progress write.
+  - New `Error::ControlReserveExhausted { target, reserve }` is returned when
+    a STOP finds its camera's reserve and ordinary admission both full. It is
+    a `BufferFull`-kind, retryable rejection.
+  - `MetricsSnapshot` is `#[non_exhaustive]` and gains
+    `control_reserve_admitted` and `control_reserve_rejected`. Construct it
+    only through `Session::metrics()`; struct literals outside the crate no
+    longer compile.
 
 ### Removed
 

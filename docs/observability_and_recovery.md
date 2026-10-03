@@ -12,6 +12,8 @@ without granting control over the protocol engine.
 | --- | --- |
 | `admitted` | Requests admitted into authoritative engine state. |
 | `admission_rejected` | Requests rejected before admission. |
+| `control_reserve_admitted` | Urgent typed STOPs admitted into their camera's control reserve rather than an ordinary slot. |
+| `control_reserve_rejected` | Urgent typed STOPs rejected because their camera's control reserve and ordinary admission were both full (also counted in `admission_rejected`). |
 | `writes` | Transport writes attempted. |
 | `write_failures` | Writes that returned an error. |
 | `terminal` | Requests reaching a terminal outcome. |
@@ -530,7 +532,7 @@ fixed; the remaining four are caller-tunable bounds:
 | Applied-state subscribers | 16 | no |
 | Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
-| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) | yes — `SessionConfig::with_admission_capacity()` |
+| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
 | Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
 | Retained incomplete framing bytes | 8192 by default | yes — `BufferConfig::max_buffer_size` |
@@ -540,6 +542,16 @@ boundary plus its pending/active owner lifecycle entry until safe terminal
 removal, including ambiguity quarantine. It defaults to 64; callers may choose
 any non-zero value below `usize::MAX` with
 `SessionConfig::with_admission_capacity()`.
+
+The capacity bounds ordinary work. Each registered camera also reserves one
+admission slot per typed STOP its profile supports — pan/tilt, zoom, and focus,
+so at most three — and only an urgent typed STOP may use those slots. A STOP
+takes its camera's reserve first and an ordinary slot only when the reserve is
+held, so queued ordinary work cannot lock a STOP out, and one camera's stops
+cannot use another camera's reserve. When a camera's reserve and the ordinary
+budget are both full, the STOP fails with `Error::ControlReserveExhausted`
+(D26, #778). An admitted STOP still waits for protocol pacing, socket
+availability, and in-progress writes.
 
 The three transport-buffer rows are set from `TransportConfig::buffer_config`
 every time a production session is built, so the first two have no single
