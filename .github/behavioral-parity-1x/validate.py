@@ -252,8 +252,8 @@ PINNED_V2_TARGETS: dict[str, tuple[str, str, str, str]] = {
     ),
     "v2-cancel-blocking": (
         "tests/issue_612_cancel_recovery_blocking.rs",
-        "blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available",
-        "blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available",
+        "blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available",
+        "blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available",
         "cancel",
     ),
     "v2-cancel-async": (
@@ -441,7 +441,7 @@ RECEIPT_EVIDENCE_PATTERNS = {
 SONY_CODE_RE = re.compile(r"\b(?:EnvelopeKind::Sony|Sony[A-Z][A-Za-z0-9]*|sony_[A-Za-z0-9_]+)\b")
 RAW_CODE_RE = re.compile(
     r"\b(?:EnvelopeKind::Raw|GenericVisca|NonDefaultCompileTimeProfile|PtzOptics[A-Za-z0-9]+|"
-    r"raw_[A-Za-z0-9_]+|generic_profile|g2_config|policy|rejected_cancel_returns_the_handle)\b|\braw::"
+    r"raw_[A-Za-z0-9_]+|generic_profile|g2_config|policy|refused_cancel_leaves_the_handle_observing)\b|\braw::"
 )
 
 # A libtest "running N tests" banner and per-test result line. A name filter

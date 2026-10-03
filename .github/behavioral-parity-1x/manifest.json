@@ -360,8 +360,8 @@
     {
       "id": "v2-cancel-blocking",
       "file": "tests/issue_612_cancel_recovery_blocking.rs",
-      "symbol": "blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available",
-      "test_path": "blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available",
+      "symbol": "blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available",
+      "test_path": "blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available",
       "envelope": "raw",
       "profile": "PtzOpticsG2",
       "receipt_class": "cancel",
