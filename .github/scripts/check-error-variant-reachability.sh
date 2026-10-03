@@ -97,8 +97,6 @@ record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
 record_construction InvalidState src/async_session.rs \
   'Error::InvalidState("session has no registered target".into())'
-record_construction TransportBusy src/runtime/owner/blocking.rs \
-  '.map_err(|_| Error::TransportBusy)?;'
 record_construction RuntimeShutdown src/runtime/engine/mod.rs \
   'self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)'
 record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \

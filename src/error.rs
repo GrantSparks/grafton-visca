@@ -28,7 +28,6 @@
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
 //! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
 //! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
-//! | Blocking owner re-entry, or an operation-handle submission that cannot win its immediate first-dispatch boundary | Any | Any | [`Error::TransportBusy`] | `false` | Serialize or back off this blocking caller; do not reconnect. |
 //! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. An urgent typed STOP can still use its target's control reserve. |
 //! | An urgent typed STOP finds its target's control reserve and ordinary admission both full | Any | Any | [`Error::ControlReserveExhausted`] | `false` | Back off briefly: earlier stops for that camera are still pending. |
 //! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
@@ -139,7 +138,6 @@ pub enum ErrorKind {
 /// - `NoSocket` - The addressed command socket is no longer available
 /// - `RuntimeQueueFull` - The local admission queue is full
 /// - `ControlReserveExhausted` - A camera's stop reserve and the ordinary queue are both full
-/// - `TransportBusy` - The blocking facade is already borrowing the transport
 /// - `TransportError` - One transport operation failed while the session remains live
 /// - `Timeout` - A deadline expired; [`Error::failure_context`] says which
 ///   one and whether resubmitting is safe
@@ -402,17 +400,6 @@ pub enum Error {
     /// Operation cannot be performed in current state.
     #[error("Invalid state: {0}")]
     InvalidState(Cow<'static, str>),
-
-    /// The blocking owner cannot enter this turn without violating exclusive
-    /// ownership.
-    ///
-    /// This has two meanings: a blocking call re-entered an owner turn already
-    /// in progress, or a newly submitted operation-handle request could not win
-    /// its immediate first-dispatch boundary. The latter includes socket
-    /// capacity and an earlier normative scheduler winner. It is never a
-    /// peer-disconnect verdict and is not emitted by the async facade.
-    #[error("Transport is busy with another operation")]
-    TransportBusy,
 
     /// Runtime has been shutdown.
     #[error("Runtime has been shutdown")]
@@ -756,7 +743,7 @@ impl Error {
             Self::UnsupportedTransport { .. } => ErrorKind::Unsupported,
 
             // Busy: transient contention
-            Self::TransportBusy | Self::CommandPending => ErrorKind::Busy,
+            Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
             Self::RuntimeIdentityExhausted => ErrorKind::Other,
@@ -888,7 +875,6 @@ impl Error {
             | Self::MaxRetriesExceeded
             | Self::NotSupported
             | Self::InvalidState(..)
-            | Self::TransportBusy
             | Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
             | Self::RuntimeIdentityExhausted
@@ -937,7 +923,7 @@ impl Error {
     /// that may succeed if the operation is retried. This includes:
     /// - Camera capacity states (`CommandBufferFull`, `NoSocket`)
     /// - Queue capacity (`RuntimeQueueFull`, `ControlReserveExhausted`)
-    /// - Pending operations (`CommandPending`, `TransportBusy`)
+    /// - Pending operations (`CommandPending`)
     /// - Isolated live-session transport failures (`TransportError`)
     /// - Deadline expiry (`Timeout` and timed-out I/O)
     ///
@@ -984,7 +970,6 @@ impl Error {
     ///
     /// The suggested delays are based on typical camera response times:
     /// - `CommandPending`: 50ms (command acknowledged, waiting for completion)
-    /// - `TransportBusy`: 50ms (blocking transport borrow is occupied)
     /// - `CommandBufferFull`: 200ms (wait for buffer space)
     /// - `NoSocket`: 200ms (wait for camera socket state to advance)
     /// - `TransportError`: 50ms (retry one isolated live-session operation)
@@ -1007,7 +992,6 @@ impl Error {
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
         match self {
             Self::CommandPending => Some(Duration::from_millis(50)),
-            Self::TransportBusy => Some(Duration::from_millis(50)),
             Self::TransportError(..) => Some(Duration::from_millis(50)),
             Self::CommandBufferFull
             | Self::RuntimeQueueFull { .. }
@@ -1395,8 +1379,6 @@ mod tests {
         assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
         assert!(Error::TransportError(Cow::Borrowed("datagram send failed")).is_retryable());
 
-        // Issue #501: TransportBusy is transient and should be retryable
-        assert!(Error::TransportBusy.is_retryable());
         // Issue #501: NoSocket is transient capacity and should be retryable
         assert!(Error::NoSocket.is_retryable());
         // Issue #501: CommandPending is now Busy via kind(), no special-case needed
@@ -1435,11 +1417,6 @@ mod tests {
             Some(Duration::from_millis(50))
         );
 
-        // Issue #501: TransportBusy → 50ms (extremely transient borrow conflict)
-        assert_eq!(
-            Error::TransportBusy.suggested_retry_delay(),
-            Some(Duration::from_millis(50))
-        );
         // Issue #501: NoSocket grouped with CommandBufferFull at 200ms
         assert_eq!(
             Error::NoSocket.suggested_retry_delay(),
@@ -1474,12 +1451,6 @@ mod tests {
             (
                 "pending command",
                 Error::CommandPending,
-                ErrorKind::Busy,
-                Some(Duration::from_millis(50)),
-            ),
-            (
-                "transport busy",
-                Error::TransportBusy,
                 ErrorKind::Busy,
                 Some(Duration::from_millis(50)),
             ),
@@ -1711,7 +1682,6 @@ mod tests {
         );
 
         // Busy
-        assert_eq!(Error::TransportBusy.kind(), ErrorKind::Busy);
         assert_eq!(Error::CommandPending.kind(), ErrorKind::Busy);
 
         // Other
@@ -1803,7 +1773,6 @@ mod tests {
             Error::CommandNotExecutable,
             Error::SyntaxError,
             Error::NoSocket,
-            Error::TransportBusy,
             Error::MaxRetriesExceeded,
             Error::CancellationUnconfirmed,
             // Issue #671: a raw command's default unconfirmed outcome fails the
@@ -1925,7 +1894,7 @@ mod tests {
 
     #[test]
     fn test_with_context_preserves_error_kind() {
-        let error = Error::TransportBusy;
+        let error = Error::CommandPending;
         let contextual = error.with_context("Operation failed");
         assert_eq!(contextual.kind(), ErrorKind::Busy);
 
@@ -1969,7 +1938,6 @@ mod tests {
                 Error::RuntimeQueueFull { capacity: 8 },
                 Duration::from_millis(200),
             ),
-            (Error::TransportBusy, Duration::from_millis(50)),
             (Error::CommandPending, Duration::from_millis(50)),
             (Error::io_timeout(), Duration::from_secs(2)),
         ];
@@ -2120,7 +2088,6 @@ mod tests {
             Error::CommandBufferFull,
             Error::RuntimeShutdown,
             Error::SyntaxError,
-            Error::TransportBusy,
         ] {
             assert_eq!(error.failure_context(), None, "{error:?}");
         }

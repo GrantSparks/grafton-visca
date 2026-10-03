@@ -4497,10 +4497,9 @@ fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
 
 /// A receive-side fault the owner has already classified as transient.
 fn fuzz_receive_fault(action: u64) -> Error {
-    match action % 4 {
+    match action % 3 {
         0 => Error::io_timeout(),
         1 => Error::from(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-        2 => Error::TransportBusy,
         _ => Error::TransportError("fuzz receive fault".into()),
     }
 }

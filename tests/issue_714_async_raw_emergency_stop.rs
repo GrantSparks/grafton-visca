@@ -201,7 +201,7 @@ async fn wait_for_writes<E: Executor>(
 
 async fn run_lost_ack_regressions<E: Executor>(executor: E) {
     // Ordinary work stays queued until the predecessor's 100 ms ACK deadline
-    // plus its one-second ambiguity window, then writes without TransportBusy.
+    // plus its one-second ambiguity window, then writes.
     let (transport, probe) = AsyncScriptTransport::new(vec![
         vec![],
         vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
