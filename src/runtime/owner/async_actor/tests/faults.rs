@@ -865,3 +865,39 @@ fn smol_stalled_write_never_parks_close() {
     ));
     join.join().unwrap();
 }
+/// Issue #780: an idle read paces the *receive* source only. While that pause
+/// is pending, admission, control and shutdown are still selected, so a
+/// boundary is applied before the pause ends rather than behind it.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn a_boundary_is_applied_during_an_idle_receive_pause() {
+    let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(Instant::now());
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let actor_task = tokio::spawn(actor.run(NoDataDriver {
+        reads: Arc::clone(&reads),
+    }));
+
+    // The first read is idle; the next selection parks with receive paced.
+    let pause = sleeps.recv_async().await.unwrap();
+    assert!(!pause.is_zero());
+    let paused_at = Executor::now(&runtime);
+
+    // Virtual time is frozen, so the pause cannot end. The admission is still
+    // applied, its write performed, and no further read taken.
+    let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(command()))
+        .await
+        .expect("an admission must not wait behind an idle receive pause")
+        .unwrap();
+    assert_eq!(Executor::now(&runtime), paused_at);
+    assert_eq!(reads.load(Ordering::Relaxed), 1, "receive stayed paced");
+
+    handle.shutdown().await.unwrap();
+    let snapshot = tokio::time::timeout(Duration::from_secs(1), actor_task)
+        .await
+        .expect("shutdown must not wait behind an idle receive pause")
+        .unwrap();
+    assert_eq!(snapshot.state, SessionState::Shutdown);
+    assert_eq!(reads.load(Ordering::Relaxed), 1);
+    drop(receipt);
+}

@@ -1004,11 +1004,21 @@ where
                 TurnPlan::Select(selection) => {
                     let frame_limit = self.core.state.policy().limits.frames_per_receive;
                     let receive = async {
-                        if selection.receive == ReceiveArm::ProofComplete {
+                        match selection.receive {
                             // The exact no-input probe for this release set is
                             // done: the receive source is immediately ready
                             // with the timer event instead of another read.
-                            return OwnerEvent::Wake;
+                            ReceiveArm::ProofComplete => return OwnerEvent::Wake,
+                            // An idle or faulted read paces the next one; the
+                            // other sources stay live while this one waits.
+                            ReceiveArm::Paced { until } => {
+                                Executor::sleep(
+                                    runtime.as_ref(),
+                                    until.saturating_duration_since(now),
+                                )
+                                .await;
+                            }
+                            ReceiveArm::Poll => {}
                         }
                         let result = Self::receive_within(
                             &mut driver,
@@ -1108,11 +1118,8 @@ where
                         .await;
                     step = self.core.resume(then, driver);
                 }
-                TurnStep::Pause { pause, outcome } => {
-                    let pause = self.core.receive_pause(pause, Executor::now(runtime));
-                    if !pause.is_zero() {
-                        Executor::sleep(runtime, pause).await;
-                    }
+                TurnStep::Pace { pause, outcome } => {
+                    self.core.pace_receive(pause, Executor::now(runtime));
                     return outcome;
                 }
                 TurnStep::Done(outcome) => return outcome,

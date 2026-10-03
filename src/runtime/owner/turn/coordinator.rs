@@ -6,6 +6,8 @@
 //! - the receive-versus-boundary [`SourcePhase`], the receive fairness ceiling
 //!   and the forced boundary turn it implies;
 //! - the one-turn control allowance granted to an already-due timer;
+//! - the pause that paces the next read after an idle or faulted receive,
+//!   during which every other source stays selectable (#675, #780);
 //! - the receive-first raw-correlation release proof ([`RawReleaseTurn`]);
 //! - the single retained-boundary slot that holds an admission or cancellation
 //!   selected while a raw release was due (#775), and the eligibility rule
@@ -76,6 +78,12 @@ pub(in crate::runtime::owner) enum SourcePhase {
 pub(in crate::runtime::owner) enum ReceiveArm {
     /// Poll the transport (or retained framer input).
     Poll,
+    /// Poll the transport, but not before `until`: the previous receive was
+    /// idle or a transient fault, and its paced pause has not elapsed. Every
+    /// other source stays selectable meanwhile, so a pause never delays a
+    /// boundary (#675). A pause is clamped to the next engine or grace
+    /// deadline, so it never defers a receive past a timer it must precede.
+    Paced { until: Instant },
     /// An exact no-input probe already completed for the latched release set:
     /// the receive source is immediately ready with a timer event instead of
     /// another read.
@@ -235,6 +243,8 @@ pub(in crate::runtime::owner) struct OwnerCoordinator<B> {
     planned: Planned,
     release: RawReleaseTurn,
     retained: Option<B>,
+    /// The instant before which receive must not be polled again.
+    receive_not_before: Option<Instant>,
 }
 
 impl<B> Default for OwnerCoordinator<B> {
@@ -248,6 +258,7 @@ impl<B> Default for OwnerCoordinator<B> {
             planned: Planned::default(),
             release: RawReleaseTurn::default(),
             retained: None,
+            receive_not_before: None,
         }
     }
 }
@@ -319,6 +330,11 @@ impl<B> OwnerCoordinator<B> {
             self.phase
         };
         let boundaries_eligible = self.retained.is_none();
+        self.receive_not_before = self.receive_not_before.filter(|until| *until > now);
+        let poll = match self.receive_not_before {
+            Some(until) => ReceiveArm::Paced { until },
+            None => ReceiveArm::Poll,
+        };
         let selection = |phase, receive, timer| Selection {
             phase,
             receive,
@@ -331,7 +347,7 @@ impl<B> OwnerCoordinator<B> {
             if let Some(retained) = self.retained.take() {
                 return TurnPlan::Redeliver(retained);
             }
-            return TurnPlan::Select(selection(phase, ReceiveArm::Poll, engine_timer));
+            return TurnPlan::Select(selection(phase, poll, engine_timer));
         }
 
         let complete_frame_buffered = self.forced && complete_frame_buffered();
@@ -359,14 +375,18 @@ impl<B> OwnerCoordinator<B> {
             (true, None) => selection(phase, ReceiveArm::ProofComplete, engine_timer),
             // A retained prefix owns a real time budget (#713). Even a fenced
             // set keeps polling receive, since its tail may still arrive.
-            (_, Some(until)) => {
-                selection(release_phase, ReceiveArm::Poll, TimerArm::Grace { until })
-            }
+            (_, Some(until)) => selection(release_phase, poll, TimerArm::Grace { until }),
             // Before due work can release correlation or dispatch, poll
             // receive under the same boundary order as every other turn.
-            (false, None) => selection(release_phase, ReceiveArm::Poll, engine_timer),
+            (false, None) => selection(release_phase, poll, engine_timer),
         };
         TurnPlan::Select(plan)
+    }
+
+    /// Defer the next receive until `until`, after an idle or transient-fault
+    /// receive. Selection keeps every other source live during the pause.
+    pub(in crate::runtime::owner) fn pace_receive(&mut self, until: Instant) {
+        self.receive_not_before = Some(until);
     }
 
     /// Hand a boundary returned by [`TurnPlan::Redeliver`] back because an

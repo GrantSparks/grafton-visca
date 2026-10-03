@@ -13,8 +13,9 @@
 //!   [`TurnStep::Drive`] asks the shell to write each transmit that
 //!   [`OwnerShellCore::next_transmit`] stages and report it back through
 //!   [`OwnerShellCore::finish_transmit`] (or its in-turn variant), then to
-//!   [`OwnerShellCore::resume`] the turn; a [`TurnStep::Pause`] asks it to
-//!   wait for the interval [`OwnerShellCore::receive_pause`] computes.
+//!   [`OwnerShellCore::resume`] the turn; a [`TurnStep::Pace`] asks it to
+//!   sample the clock for [`OwnerShellCore::pace_receive`], which defers the
+//!   next receive while every other source stays selectable.
 //!
 //! Nothing here touches a transport, an executor or the clock: every instant
 //! is sampled by the shell and passed in.
@@ -81,9 +82,10 @@ pub(super) enum TurnStep {
         effects: VecDeque<Effect>,
         then: Resume,
     },
-    /// Wait for the paced interval [`OwnerShellCore::receive_pause`] computes
-    /// for `pause`, then end the turn with `outcome`.
-    Pause {
+    /// Pace the next receive by the interval [`OwnerShellCore::pace_receive`]
+    /// computes for `pause` at an instant the shell samples once the turn's
+    /// effects are driven, then end the turn with `outcome`.
+    Pace {
         pause: ReceivePause,
         outcome: TurnOutcome,
     },
@@ -422,7 +424,7 @@ impl OwnerShellCore {
     ) -> TurnStep {
         match then.0 {
             Continuation::Done(outcome) => TurnStep::Done(outcome),
-            Continuation::Pause(pause, outcome) => TurnStep::Pause { pause, outcome },
+            Continuation::Pause(pause, outcome) => TurnStep::Pace { pause, outcome },
             Continuation::ConcludeCancellation { id, reply } => {
                 self.conclude_cancellation(id, &reply)
             }
@@ -430,6 +432,16 @@ impl OwnerShellCore {
             Continuation::Discard { error, received_at } => {
                 self.discard_undecodable_receive(&error, received_at)
             }
+        }
+    }
+
+    /// Defer the next receive by the paced interval for `pause`, sampled at
+    /// `now`. The coordinator keeps every other source selectable meanwhile,
+    /// so the pause never delays a boundary or a timer.
+    pub(super) fn pace_receive(&mut self, pause: ReceivePause, now: Instant) {
+        let pause = self.receive_pause(pause, now);
+        if let Some(until) = now.checked_add(pause).filter(|_| !pause.is_zero()) {
+            self.coordinator.pace_receive(until);
         }
     }
 
@@ -444,7 +456,7 @@ impl OwnerShellCore {
     /// already-expired raw hold: using that stale hold as a zero-duration
     /// clamp would make an immediately-idle custom transport spin before the
     /// real grace timer is selectable.
-    pub(super) fn receive_pause(&mut self, pause: ReceivePause, now: Instant) -> Duration {
+    fn receive_pause(&mut self, pause: ReceivePause, now: Instant) -> Duration {
         match pause {
             ReceivePause::Idle => {
                 let deadline = self
@@ -618,7 +630,7 @@ impl OwnerShellCore {
         received_at: Instant,
     ) -> TurnStep {
         match driver.has_buffered_stream_input() {
-            Ok(buffered) => TurnStep::Pause {
+            Ok(buffered) => TurnStep::Pace {
                 pause: ReceivePause::Idle,
                 outcome: Self::receive_outcome(buffered),
             },
@@ -1217,7 +1229,7 @@ mod tests {
                 now,
                 false,
             );
-            let TurnStep::Pause { pause, outcome } = step else {
+            let TurnStep::Pace { pause, outcome } = step else {
                 panic!("an idle receive pauses the receive source: {step:?}");
             };
             assert_eq!(pause, ReceivePause::Idle);
@@ -1258,7 +1270,7 @@ mod tests {
                 false,
             );
             assert!(matches!(step, TurnStep::Drive { .. }));
-            let TurnStep::Pause { pause, outcome } = run_turn(&mut core, step) else {
+            let TurnStep::Pace { pause, outcome } = run_turn(&mut core, step) else {
                 panic!("a transient fault pauses after its input is driven");
             };
             assert_eq!(pause, ReceivePause::Fault { run });

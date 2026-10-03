@@ -147,6 +147,18 @@ async fn raw_stream_release_idle_fault_fences_once() {
     assert_raw_release_idle_fault_fences_once(stream_policy(1)).await;
 }
 
+/// The earliest sleep one actor selection parked on.
+///
+/// A paced receive waits in the selection beside the engine or grace timer,
+/// so one selection can start several sleeps. The test runtime is
+/// single-threaded, so every sleep of that selection is announced before
+/// this task runs again; virtual time must advance only to the earliest.
+#[cfg(feature = "runtime-tokio")]
+async fn next_selection_sleep(sleeps: &flume::Receiver<Duration>) -> Duration {
+    let first = sleeps.recv_async().await.unwrap();
+    sleeps.try_iter().fold(first, Duration::min)
+}
+
 /// Both documented eager-idle transport shapes must make the raw stream
 /// release grace progress in virtual elapsed time, not in an unbounded number
 /// of receive polls.
@@ -201,18 +213,23 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
-    // Queue B while the eager driver walks its paced idle pauses toward H. At
-    // H, its admission must be selected through the ordinary boundary lane
-    // before the raw release Wake dispatches it.
+    // Submit B while the eager driver walks its paced idle pauses toward H.
+    // A pause keeps the boundary lanes live (#780), so B is admitted through
+    // the ordinary boundary lane before H, and only the raw release Wake may
+    // dispatch it.
     let successor_handle = handle.clone();
     let successor_task = tokio::spawn(async move { successor_handle.submit(inquiry()).await });
-    while handle.core.admissions.is_empty() {
+    while !successor_task.is_finished() {
         tokio::task::yield_now().await;
     }
+    assert!(
+        writes.is_empty(),
+        "an admission during a pause must not dispatch before the raw release"
+    );
     let reads_before_h = reads.load(Ordering::Relaxed);
     let mut until_hold = Duration::ZERO;
     while until_hold < HOLD {
-        let pause = sleeps.recv_async().await.unwrap();
+        let pause = next_selection_sleep(&sleeps).await;
         assert!(
             !pause.is_zero() && pause <= HOLD.saturating_sub(until_hold),
             "eager pre-release read must be paced, got {pause:?} after {until_hold:?}"
@@ -227,7 +244,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // after the final slice, the boundary-first grace Wake discards it.
     let mut elapsed = Duration::ZERO;
     while elapsed < GRACE {
-        let pause = sleeps.recv_async().await.unwrap();
+        let pause = next_selection_sleep(&sleeps).await;
         assert!(
             !pause.is_zero() && pause <= GRACE.saturating_sub(elapsed),
             "raw grace must install a real positive idle pause, got {pause:?} after {elapsed:?}"
