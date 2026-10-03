@@ -22,10 +22,15 @@ All of the following land before 2.0.0 final:
    budgets (#749 relationship preserved).
 4. `cancel` takes `&mut self` and is idempotent. The first call records the
    cancellation intent at the owner; later calls observe the same intent
-   instead of sending another. Once a terminal result is cached, `cancel`
-   returns `CancellationOutcome::Completed` without sending. Because the
+   instead of sending another. Once the terminal result is known, `cancel`
+   answers from it without sending: `Applied` is
+   `CancellationOutcome::Completed`, `Cancelled` is
+   `CancellationOutcome::Cancelled`, and a failure is that error. Because the
    handle is no longer consumed, a refused cancel is a plain error and the
-   `CancelRejected<Self>` wrapper (#612) is removed.
+   `CancelRejected<Self>` wrapper (#612) is removed. `cancel` waits for the
+   cancellation's conclusion and returns `CancellationOutcome` directly, so
+   the separate `Cancellation`/`DynCancellation` tokens are removed;
+   `cancel_with_timeout` bounds that wait.
 5. The original operation's terminal result stays observable after a
    cancellation outcome or a cancellation-send failure. The owner keeps
    separate observation slots for cancellation and for the terminal result,
@@ -33,6 +38,8 @@ All of the following land before 2.0.0 final:
    operation's outcome.
 6. `detach(self)` stays consuming, and drop remains detach (#567).
 7. `CancellationOutcome` becomes `#[non_exhaustive]`.
+
+Implemented in #790.
 
 Supersedes the #552 exit criteria "Wait, cancel, and detach consume the owning
 receipt" and "Drop and observer timeout detach" (except drop), and the
@@ -154,5 +161,9 @@ wrap the wait in an application-owned future that is never dropped.
 1. Receiver change before 2.0 final: yes.
 2. `cancel` moves to `&mut self` now, with idempotent intent and dual
    delivery (expanded from the original recommendation).
-3. A `cancel` after a cached terminal result returns `Completed`.
+3. A `cancel` after a known terminal result answers from it: `Completed`
+   after `Applied`, `Cancelled` after `Cancelled`, and the operation's error
+   after a failure. (Amended during implementation: the original wording,
+   "returns `Completed`", described only the applied case. Reporting a failed
+   operation as `Completed` would be dishonest.)
 4. `#[non_exhaustive]` on `CancellationOutcome`: yes.
