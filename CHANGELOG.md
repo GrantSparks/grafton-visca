@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a boundary retained behind a raw release being lost, rather than
   answered with the terminal error, when the async owner task unwinds (D25,
   #776).
+- Fixed a cancellation request that could not reach the owner hiding the
+  operation's outcome (D19, #777). `cancel` now answers from an outcome the
+  owner delivered before it stopped, and a cancellation that fails after the
+  owner accepted it leaves the handle observing the operation's own outcome.
 
 ### Changed
 
@@ -29,6 +33,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in one executor-free coordinator, and the actor polls its sources in the
   coordinator's single planned order. Both owners resolve retained raw stream
   input with one shared routine. Decision D25 (#776); no public API change.
+- **BREAKING** (#777): Operation waits borrow the handle instead of
+  consuming it. `applied`, `settled`, `cancel`, and their `_with_timeout`
+  forms take `&mut self` on the async, blocking, and dynamic handles, and the
+  handle caches the authoritative results it observes:
+  - a wait that times out, or is dropped as the losing branch of a `select!`,
+    ends only that wait, and the handle can wait again;
+  - `settled` after `applied` continues from the cached application, and a
+    repeated wait answers from the cache;
+  - `cancel` waits for the cancellation's conclusion and returns
+    `CancellationOutcome` directly. It is one idempotent intent per handle: a
+    repeated `cancel`, including after a timeout, observes the first intent
+    and never writes a second cancellation. Once the outcome is known it
+    decides the answer (`Completed`, `Cancelled`, or the operation's error).
+    Its default deadline covers the owner's own cancellation resolution;
+  - a refused cancellation is a plain error, and the handle keeps observing;
+  - `detach` still consumes the handle, and dropping it is still `detach`.
+
+  This replaces the #612 recovery shape (`CancelRejected` carrying the handle
+  back) and the consuming lifecycle the #552 exit criteria described.
+- **BREAKING** (#777): `CancellationOutcome` is `#[non_exhaustive]` (D19).
+
+### Removed
+
+- **BREAKING** (#777): `Cancellation`, `blocking::Cancellation`, and
+  `dynapi::DynCancellation`. `cancel` returns the `CancellationOutcome`
+  itself.
+- **BREAKING** (#777): `CancelRejected`. A refused cancellation is the
+  plain `Error`, and the handle is unaffected.
 
 ## [2.0.0-rc.2] - 2026-09-04
 

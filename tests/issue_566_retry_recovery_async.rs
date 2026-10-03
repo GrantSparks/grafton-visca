@@ -435,16 +435,12 @@ async fn an_unresolvable_cancellation_reaches_the_caller<E: Executor>(executor: 
         .expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let operation = camera
+    let mut operation = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("submission");
-    let cancellation = operation
-        .cancel()
-        .await
-        .expect("cancellation intent is recorded");
-    let error = cancellation
-        .outcome(Duration::from_secs(5))
+    let error = operation
+        .cancel_with_timeout(Duration::from_secs(5))
         .await
         .expect_err("a camera that never answers cannot confirm a cancellation");
     assert!(

@@ -85,9 +85,12 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
     assert!(frame < shutdown);
     assert_eq!(snapshot.state, SessionState::Shutdown);
 }
+/// A cancellation still queued when the session shuts down is drained with
+/// the terminal error, consuming nothing: the operation's terminal outcome,
+/// buffered before shutdown, still decides the cancellation (#777).
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
-async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
+async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
     let harness = harness();
@@ -100,7 +103,10 @@ async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
     let operation = handle.submit(command()).await.unwrap();
     let _ = started.recv_async().await.unwrap();
     let cancel_handle = handle.clone();
-    let cancel_task = tokio::spawn(async move { cancel_handle.cancel_test(operation).await });
+    let cancel_task = tokio::spawn(async move {
+        let observer = cancel_handle.cancel_test(&operation).await;
+        (observer, operation)
+    });
     while handle.cancellations.is_empty() {
         tokio::task::yield_now().await;
     }
@@ -117,11 +123,19 @@ async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
         .await
         .unwrap();
 
-    let cancellation = cancel_task.await.unwrap().unwrap();
-    assert!(matches!(
-        cancellation.recv_test().await.unwrap(),
-        CancellationObservation::Completed
-    ));
+    // The queued cancellation is drained at shutdown with the session's
+    // terminal error; the operation's buffered terminal outcome still decides
+    // the cancellation (#777).
+    let (answer, operation) = cancel_task.await.unwrap();
+    assert!(
+        matches!(answer, Err(Error::RuntimeShutdown)),
+        "got {answer:?}"
+    );
+    let terminal = operation.terminal().await.unwrap();
+    assert_eq!(
+        cancellation_outcome(&terminal).unwrap(),
+        CancellationOutcome::Completed
+    );
     assert_eq!(
         writes
             .lock()
@@ -261,7 +275,11 @@ async fn active_receipt_actor_disconnect_fails_closed() {
 
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        wait_core_for(receipt, handle.receipt_control(), Duration::from_secs(5)),
+        wait_core_until(
+            &receipt,
+            &handle,
+            handle.deadline_after(Duration::from_secs(5)).unwrap(),
+        ),
     )
     .await
     .expect("receipt wait must observe the actor disappearance")
@@ -288,12 +306,18 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
         .expect("admission must complete before the actor panic")
         .unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 1);
-    let cancellation = handle.cancel_test(receipt).await.unwrap();
+    let cancellation = handle.cancel_test(&receipt).await.unwrap();
     panic_signal.send_async(()).await.unwrap();
 
+    // The cancellation concludes on the receipt's terminal slot, whose wait
+    // fails closed; the cancellation observer is never resolved.
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        cancellation.outcome(handle.receipt_control(), Duration::from_secs(5)),
+        wait_core_until(
+            &receipt,
+            &handle,
+            handle.deadline_after(Duration::from_secs(5)).unwrap(),
+        ),
     )
     .await
     .expect("cancellation wait must observe the actor disappearance")
@@ -304,7 +328,14 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
             if message.contains("without publishing a terminal result")
     ));
     assert!(actor_task.await.is_err(), "the test driver must panic");
+    // The dead owner dropped the intent's cell unresolved, which disconnects
+    // the slot: a wait on it ends instead of hanging (#777).
+    let unresolved = tokio::time::timeout(Duration::from_secs(1), cancellation.recv_async())
+        .await
+        .expect("a dropped cancellation cell must disconnect its observer");
+    assert!(unresolved.is_none());
 }
+
 /// Issue #626. `run` drains the boundary lanes once and then drops its
 /// receivers. A message that lands in between used to be stranded forever:
 /// this handle's own sender keeps flume's queue alive, and with it the

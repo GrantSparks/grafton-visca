@@ -210,7 +210,7 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .await
         .expect("predecessor admission");
@@ -218,7 +218,7 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
     let first_written_at = Instant::now();
     executor.sleep(Duration::from_millis(150)).await;
     let ordinary = ordinary_operation();
-    let successor = camera
+    let mut successor = camera
         .submit::<AppliedOnly, _>(&ordinary)
         .await
         .expect("ordinary successor admission");
@@ -259,13 +259,13 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .await
         .expect("predecessor admission");
     wait_for_writes(&probe, 1, Duration::from_millis(50), &executor).await;
     let urgent_started = Instant::now();
-    let urgent = camera
+    let mut urgent = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("urgent admission");
@@ -426,21 +426,26 @@ mod parity {
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
-        let predecessor = camera_two
+        let mut predecessor = camera_two
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("camera two predecessor");
         let _socket_successor = camera_two
             .submit::<AppliedOnly, _>(&ordinary_operation_for(CameraId::CAMERA_2))
             .expect("camera two ACK drain");
-        let _cancellation = predecessor.cancel().expect("paced cancellation");
-        let ordinary = camera_one
+        // A zero-length wait records the paced cancellation and returns; the
+        // camera never answers it.
+        assert!(matches!(
+            predecessor.cancel_with_timeout(Duration::ZERO),
+            Err(Error::Timeout)
+        ));
+        let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
             .expect("camera one ordinary first write");
         assert!(matches!(
             ordinary.applied(),
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
-        let stop = camera_one
+        let mut stop = camera_one
             .submit::<AppliedOnly, _>(&FocusStop)
             .expect("urgent stop crosses camera-one PreAck hold");
         stop.applied()
@@ -503,7 +508,7 @@ mod parity {
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
-        let predecessor = camera_two
+        let mut predecessor = camera_two
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .await
             .expect("camera two predecessor");
@@ -513,8 +518,14 @@ mod parity {
             .await
             .expect("camera two successor");
         wait_for_writes(&probe, 2, Duration::from_secs(1), &executor).await;
-        let _cancellation = predecessor.cancel().await.expect("paced cancellation");
-        let ordinary = camera_one
+        // The request is delivered before the zero-length wait expires, so the
+        // owner records the paced cancellation exactly as the blocking owner
+        // does; the camera never answers it.
+        assert!(matches!(
+            predecessor.cancel_with_timeout(Duration::ZERO).await,
+            Err(Error::Timeout)
+        ));
+        let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
             .await
             .expect("camera one ordinary admission");
@@ -523,7 +534,7 @@ mod parity {
             ordinary.applied().await,
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
-        let stop = camera_one
+        let mut stop = camera_one
             .submit::<AppliedOnly, _>(&FocusStop)
             .await
             .expect("urgent stop crosses camera-one PreAck hold");

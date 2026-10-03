@@ -28,7 +28,7 @@ without granting control over the protocol engine.
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
 | `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
-| `dropped_observer_events` | Completion-observer events dropped after receiver loss. |
+| `dropped_observer_events` | Operation-observer events (terminal outcomes and cancellation failures) dropped because their handle was already detached or dropped. |
 | `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |
 | `dropped_boundary_work` | Boundary messages discarded during owner termination. |
 | `active` | Admitted, non-terminal requests currently retained. |

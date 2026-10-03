@@ -273,7 +273,7 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
         .expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let operation = camera
+    let mut operation = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
         .await
         .expect("submission");

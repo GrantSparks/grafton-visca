@@ -100,7 +100,8 @@ pub struct MetricsSnapshot {
     pub dropped_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
     pub dropped_diagnostic_events: u64,
-    /// Completion-observer events dropped after their receiver disappeared.
+    /// Operation-observer events — terminal outcomes and cancellation
+    /// failures — dropped because their handle was already gone.
     pub dropped_observer_events: u64,
     /// Applied-state events dropped because a subscriber queue was full.
     pub dropped_applied_events: u64,

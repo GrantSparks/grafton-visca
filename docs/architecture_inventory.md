@@ -77,8 +77,8 @@ dependency.
 
 The async dynamic surface is `DynSessionCamera` plus the object-safe
 `DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
-and `DynMotion`. It also exposes `DynTargetedOperation`,
-`DynAppliedOperation`, and `DynCancellation`. Its checked inventory covers
+and `DynMotion`. It also exposes `DynTargetedOperation` and
+`DynAppliedOperation`. Its checked inventory covers
 146 target-facing command methods and 62 typed inquiry methods, with the same
 semantic classes as the static surface. Dynamic projection erases profile and
 request types only; it does not introduce another runtime, owner, cancellation,

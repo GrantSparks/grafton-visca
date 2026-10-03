@@ -2,8 +2,8 @@
 //!
 //! These handles are deliberately mode-native: they expose direct
 //! [`Result`]s and never create or return a future. The owner remains the
-//! protocol and lifecycle authority; a handle only retains one owner receipt
-//! and the caller-thread control needed to observe it.
+//! protocol and lifecycle authority; a handle retains one operation's cached
+//! observation and the caller-thread control needed to observe it.
 
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
@@ -13,53 +13,58 @@ use crate::{
     prepared::{prepare_position_queries, ClassSelection},
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
     runtime::owner::{
-        sample_positions_blocking, BlockingCancellationReceipt, BlockingControlHost,
-        BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
+        sample_positions_blocking, BlockingControlHost, BlockingOperationReceipt,
+        BlockingReceiptControl, BlockingSessionHost,
     },
     stop_request::pan_tilt_stop_request,
-    AffectedAxes, CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile,
-    DiagnosticEvent, Error, Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning,
-    PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
+    AffectedAxes, CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticEvent, Error,
+    Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec,
+    Result, StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
 
 pub use crate::OperationId;
 
-/// A linear blocking operation handle.
+/// A blocking handle on one admitted operation.
 ///
 /// The lifetime ties the handle to the caller-thread session/owner control;
 /// the completion marker is the only type parameter. No profile, transport,
 /// executor, or runtime type appears in this public handle.
 ///
+/// # Waits borrow the handle
+///
+/// Every wait takes `&mut self`, and the handle caches the authoritative
+/// result once received. Waiting again returns the cached result, an
+/// [`applied`](Self::applied) wait can be followed by
+/// [`settled`](Operation::settled), and a wait that times out releases only
+/// that wait: the operation keeps running and the handle keeps observing it.
+///
 /// # Dropping never stops the camera
 ///
 /// Dropping this handle is exactly [`detach`](Self::detach): it relinquishes
-/// the observer and nothing else. The owner keeps the protocol state, never
+/// observation and nothing else. The owner keeps the protocol state, never
 /// interprets handle drop as cancellation, and no STOP is written, so an early
 /// `?` return or a panic unwinding past a live handle leaves physical movement
-/// running until something ends it. This matches 1.x exactly and is not a 2.0
-/// behaviour change.
+/// running until something ends it. This matches 1.x.
 ///
 /// To bound movement by a scope, write a small guard whose own `Drop` submits
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
 /// `examples/operation_handles.rs`. For an explicit stop on a path you
 /// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
 /// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
-/// [`cancel`](Self::cancel) records protocol cancellation but does not by
-/// itself prove motion ended.
+/// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
+/// prove motion ended.
 #[must_use = "observe, cancel, or explicitly detach this operation"]
 pub struct Operation<'session, K>
 where
     K: completion::Kind,
 {
-    receipt: Option<BlockingOperationReceipt<K>>,
-    /// Shared caller-thread owner control.  The handle never holds an
-    /// exclusive borrow for its lifetime; each consuming terminal method
-    /// creates a short-lived receipt control from this reference.
+    receipt: BlockingOperationReceipt<K>,
+    /// Shared caller-thread owner control. Each method takes one short-lived
+    /// owner turn through it; the handle never holds an exclusive borrow of
+    /// the session.
     host: &'session dyn BlockingControlHost,
-    id: OperationId,
-    marker: PhantomData<fn() -> K>,
 }
 
 impl<'session, K> Operation<'session, K>
@@ -78,128 +83,111 @@ where
         receipt: BlockingOperationReceipt<K>,
         host: &'session dyn BlockingControlHost,
     ) -> Self {
-        let id = OperationId::from_raw(receipt.id());
-        Self {
-            receipt: Some(receipt),
-            host,
-            id,
-            marker: PhantomData,
-        }
+        Self { receipt, host }
     }
 
     /// Returns the opaque identity assigned when this operation was admitted.
     #[must_use]
     pub fn id(&self) -> OperationId {
-        self.id
+        OperationId::from_raw(self.receipt.id())
     }
 
-    /// Waits for exact protocol application using the configured observer
-    /// deadline.
-    pub fn applied(self) -> Result<(), Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.applied(&mut control)
+    /// Waits for exact protocol application, bounded by the configured
+    /// observer deadline.
+    pub fn applied(&mut self) -> Result<(), Error> {
+        self.receipt
+            .applied(&mut BlockingReceiptControl::shared(self.host), None)
     }
 
-    /// Waits for exact protocol application using an explicit observer
-    /// deadline.
-    pub fn applied_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.applied_with_timeout(&mut control, timeout)
-    }
-
-    /// Records cancellation intent and returns its exact terminal observer.
+    /// Waits for exact protocol application, bounded by `timeout`.
     ///
-    /// # A refused cancellation hands this handle back
+    /// The deadline bounds only this wait. If it expires the operation keeps
+    /// running, its scheduler deadline is unchanged, and the handle can wait
+    /// again.
+    pub fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        self.receipt.applied(
+            &mut BlockingReceiptControl::shared(self.host),
+            Some(timeout),
+        )
+    }
+
+    /// Cancels the operation and waits for the cancellation's conclusion,
+    /// bounded by the configured cancellation deadline.
+    ///
+    /// The result is [`CancellationOutcome::Cancelled`] when cancellation
+    /// won, [`CancellationOutcome::Completed`] when the operation was applied
+    /// first, and the operation's own error when it failed first.
+    ///
+    /// Cancelling is idempotent. The handle has one cancellation intent;
+    /// calling `cancel` again, including after a timed-out call, observes that
+    /// intent instead of sending a second cancellation. Once the operation's
+    /// outcome is known, `cancel` answers from it without sending anything.
+    ///
+    /// # A refused cancellation leaves the operation running
     ///
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
     /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
     /// the only built-in profile in that position — the owner refuses with
-    /// [`Error::NotSupported`] and deliberately leaves the original request
-    /// scheduled, retryable, and able to complete.
+    /// [`Error::NotSupported`] and leaves the original request scheduled,
+    /// retryable, and able to complete. The handle is unaffected and can
+    /// still wait for it, and a [`Error::TransportBusy`] owner turn leaves it
+    /// unaffected too. A refusal does not stop the camera; a moving axis ends
+    /// with an applied typed STOP.
     ///
-    /// Because the original is still live, this method only consumes the
-    /// handle when it succeeds. A refusal returns [`CancelRejected`], which
-    /// carries the handle back so the caller can keep waiting on it, retry the
-    /// cancel, or drop it to detach. Recovering the handle does not stop the
-    /// camera; a moving axis ends with an applied typed STOP.
-    ///
-    /// `?` in a function returning [`Error`] still works — the [`From`]
-    /// conversion keeps the reason and detaches the handle.
+    /// A cancellation that was accepted but then failed without ending the
+    /// operation (its cancel write failed, or its observation deadline
+    /// expired) returns that error; the handle still observes the operation's
+    /// own outcome.
     ///
     /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
-    pub fn cancel(self) -> Result<Cancellation<'session>, CancelRejected<Self>> {
-        let host = self.host;
-        let id = self.id;
-        let (receipt, mut control) = match self.take_parts() {
-            Ok(parts) => parts,
-            Err(error) => return Err(CancelRejected::new(None, error)),
-        };
-        match control.cancel_operation(receipt) {
-            Ok(cancellation) => Ok(Cancellation::from_receipt(cancellation, host)),
-            Err((receipt, error)) => Err(CancelRejected::new(
-                receipt.map(|receipt| Self {
-                    receipt: Some(receipt),
-                    host,
-                    id,
-                    marker: PhantomData,
-                }),
-                error,
-            )),
-        }
+    pub fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
+        self.receipt
+            .cancel(&mut BlockingReceiptControl::shared(self.host), None)
     }
 
-    /// Explicitly relinquishes this operation's observation right.
+    /// [`cancel`](Self::cancel), bounded by `timeout` instead of the
+    /// configured cancellation deadline. If it expires, the cancellation
+    /// intent stays recorded and a later `cancel` observes it.
+    pub fn cancel_with_timeout(&mut self, timeout: Duration) -> Result<CancellationOutcome, Error> {
+        self.receipt.cancel(
+            &mut BlockingReceiptControl::shared(self.host),
+            Some(timeout),
+        )
+    }
+
+    /// Explicitly relinquishes this operation's observation.
     ///
     /// Detaching never records cancellation and never emits a physical STOP.
     /// It is the explicit spelling of what dropping the handle already does;
     /// movement continues until something else ends it.
     pub fn detach(self) {}
-
-    fn take_parts(
-        mut self,
-    ) -> Result<
-        (
-            BlockingOperationReceipt<K>,
-            BlockingReceiptControl<'session>,
-        ),
-        Error,
-    > {
-        let receipt = self
-            .receipt
-            .take()
-            .ok_or_else(|| Error::InvalidState("operation handle was already consumed".into()))?;
-        Ok((receipt, BlockingReceiptControl::shared(self.host)))
-    }
 }
 
 impl Operation<'_, completion::Targeted> {
-    /// Waits for exact application and the profile-selected protocol settlement
-    /// condition using the configured settlement plan and observer deadline.
-    pub fn settled(self) -> Result<(), Error> {
-        let (receipt, control) = self.take_parts()?;
-        receipt.settled(control).wait().map(drop)
+    /// Waits for exact application and the profile-selected protocol
+    /// settlement condition, bounded by the configured settlement budget.
+    ///
+    /// Application is cached, so calling this after
+    /// [`applied`](Operation::applied) continues from it. Settlement proven
+    /// by position polling is cached once proven; a polling wait that times
+    /// out restarts with a fresh proof.
+    pub fn settled(&mut self) -> Result<(), Error> {
+        self.receipt
+            .settled(&mut BlockingReceiptControl::shared(self.host), None)
     }
 
-    /// Waits for exact application and the profile-selected protocol settlement
-    /// condition using an explicit observer deadline.
-    pub fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        let (receipt, control) = self.take_parts()?;
-        receipt
-            .settled_with_timeout(control, timeout)
-            .wait()
-            .map(drop)
-    }
-}
-
-impl<K> Drop for Operation<'_, K>
-where
-    K: completion::Kind,
-{
-    fn drop(&mut self) {
-        // Dropping the receipt relinquishes observation only. The owner keeps
-        // protocol state and never interprets handle drop as cancellation.
-        let _ = self.receipt.take();
+    /// [`settled`](Self::settled), bounded by `timeout`.
+    ///
+    /// The deadline bounds only this wait; the prepared scheduler and
+    /// settlement policy are unchanged. Each abandoned polling attempt may
+    /// leave its admitted position inquiries running until their own
+    /// deadlines, within the session's admission capacity.
+    pub fn settled_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        self.receipt.settled(
+            &mut BlockingReceiptControl::shared(self.host),
+            Some(timeout),
+        )
     }
 }
 
@@ -210,68 +198,8 @@ where
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Operation")
-            .field("id", &self.id)
+            .field("id", &self.id())
             .finish()
-    }
-}
-
-/// A linear blocking cancellation observer for one exact operation.
-#[must_use = "observe or explicitly detach this cancellation"]
-pub struct Cancellation<'session> {
-    receipt: Option<BlockingCancellationReceipt>,
-    host: &'session dyn BlockingControlHost,
-}
-
-impl<'session> Cancellation<'session> {
-    /// Creates a cancellation observer over the same caller-thread owner as
-    /// the operation that produced it.
-    pub(crate) fn from_receipt(
-        receipt: BlockingCancellationReceipt,
-        host: &'session dyn BlockingControlHost,
-    ) -> Self {
-        Self {
-            receipt: Some(receipt),
-            host,
-        }
-    }
-
-    /// Observes whether cancellation won or the original operation completed
-    /// first, bounded by the supplied observer deadline.
-    pub fn outcome(self, timeout: Duration) -> Result<CancellationOutcome, Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.outcome(&mut control, timeout)
-    }
-
-    /// Explicitly relinquishes cancellation observation.
-    pub fn detach(self) {}
-
-    fn take_parts(
-        mut self,
-    ) -> Result<
-        (
-            BlockingCancellationReceipt,
-            BlockingReceiptControl<'session>,
-        ),
-        Error,
-    > {
-        let receipt = self.receipt.take().ok_or_else(|| {
-            Error::InvalidState("cancellation handle was already consumed".into())
-        })?;
-        Ok((receipt, BlockingReceiptControl::shared(self.host)))
-    }
-}
-
-impl fmt::Debug for Cancellation<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Cancellation").finish()
-    }
-}
-
-impl Drop for Cancellation<'_> {
-    fn drop(&mut self) {
-        // Cancellation intent, once recorded, is owner state. Dropping this
-        // observer never sends another cancellation or a physical STOP.
-        let _ = self.receipt.take();
     }
 }
 
@@ -914,7 +842,7 @@ impl<'session> BlockingCameraCore<'session> {
             let pan_tilt_result = match self.pan_tilt_stop_request() {
                 Ok(stop) => self
                     .submit::<completion::AppliedOnly, _>(&stop)
-                    .and_then(|operation| operation.applied()),
+                    .and_then(|mut operation| operation.applied()),
                 Err(error) => Err(error),
             };
             retain_first_error(&mut first_error, pan_tilt_result);
@@ -923,14 +851,14 @@ impl<'session> BlockingCameraCore<'session> {
         if self.profile.supports_axes(AffectedAxes::ZOOM) {
             let zoom_result = self
                 .submit::<completion::AppliedOnly, _>(&ZoomStop)
-                .and_then(|operation| operation.applied());
+                .and_then(|mut operation| operation.applied());
             retain_first_error(&mut first_error, zoom_result);
         }
 
         if self.profile.supports_axes(AffectedAxes::FOCUS) {
             let focus_result = self
                 .submit::<completion::AppliedOnly, _>(&FocusStop)
-                .and_then(|operation| operation.applied());
+                .and_then(|mut operation| operation.applied());
             retain_first_error(&mut first_error, focus_result);
         }
 

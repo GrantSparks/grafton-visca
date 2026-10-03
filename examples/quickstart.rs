@@ -26,7 +26,7 @@ impl Drop for StopZoomOnExit<'_, '_> {
     fn drop(&mut self) {
         // `Drop` cannot report a failure and may run while unwinding, so the
         // stop is best effort.
-        if let Ok(stop) = self.camera.zoom().stop() {
+        if let Ok(mut stop) = self.camera.zoom().stop() {
             let _ = stop.applied();
         }
     }
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // The guard bounds the zoom to this block: an early `?` below
             // still stops the camera before the session closes.
             let _stop_on_exit = StopZoomOnExit { camera: &camera };
-            let drive = camera.zoom().tele()?;
+            let mut drive = camera.zoom().tele()?;
             sleep(Duration::from_millis(250));
             drive.applied()?;
             camera.zoom().stop()?.applied()?;

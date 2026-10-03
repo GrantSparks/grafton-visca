@@ -1,10 +1,10 @@
-//! A refused cancellation must never strand the blocking caller (#612).
+//! A refused cancellation must never strand the blocking caller (#612, #777).
 //!
-//! The blocking twin of `issue_612_cancel_recovery.rs`.  1.x's blocking
+//! The blocking twin of `issue_612_cancel_recovery.rs`. 1.x's blocking
 //! `BlockingInFlight::cancel` consumed the handle on the `NotSupported` path
-//! and discarded the retained result with it; 2.0 holds both facades to the
-//! same contract, so a refusal here hands the operation handle back exactly as
-//! it does on the async surface.
+//! and discarded the retained result with it. In 2.0 `cancel` borrows the
+//! handle on both facades, so a refusal is a plain error and the same handle
+//! keeps observing the original operation.
 
 #![cfg(feature = "blocking")]
 
@@ -115,49 +115,46 @@ fn g2_config() -> SessionConfig {
 }
 
 #[test]
-fn blocking_refused_cancellation_returns_the_handle_and_leaves_stop_available() {
+fn blocking_refused_cancellation_leaves_the_handle_observing_and_stop_available() {
     let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config()).expect("owner session");
     let camera = session.camera::<PtzOpticsG2>().expect("G2 camera view");
 
     // A continuous zoom: the axis keeps moving until something stops it.
-    let moving = camera.zoom().tele().expect("continuous zoom admitted");
+    let mut moving = camera.zoom().tele().expect("continuous zoom admitted");
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
-    // The G2 has no socket-cancel, so the owner refuses — and hands the
-    // handle back rather than consuming it.
-    let rejected = moving
+    // The G2 has no socket-cancel, so the owner refuses. `cancel` borrows the
+    // handle, so the refusal leaves it in the caller's hands.
+    let refused = moving
         .cancel()
         .expect_err("G2 sent cancellation must be rejected by profile policy");
-    assert!(matches!(rejected.error(), Error::NotSupported));
-    assert!(rejected.has_operation());
-    let moving = rejected
-        .into_operation()
-        .expect("a refused cancellation returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
 
-    // Recovery is repeatable: retrying in a loop can never fall off the end of
-    // the API.
-    let rejected = moving
+    // A refusal installs no intent, so a retry is refused the same way.
+    let refused = moving
         .cancel()
         .expect_err("the retry is refused on the same profile grounds");
-    let (moving, error) = rejected.into_parts();
-    assert!(matches!(error, Error::NotSupported));
-    let moving = moving.expect("the retry also returns the operation handle");
+    assert!(matches!(refused, Error::NotSupported));
 
     // No cancellation frame was ever written.
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
-    // The recovered handle is a real observer, not a husk: it still reports
-    // the original operation's own terminal state, which is exactly the state
-    // 1.x's blocking facade discarded on this path.
+    // The handle still reports the original operation's own terminal state,
+    // which is exactly the state 1.x's blocking facade discarded on this path,
+    // and a cancel after it concluded answers from that state.
     probe.push(ACK_AND_COMPLETE_SOCKET_ONE);
     moving
         .applied()
-        .expect("the recovered handle still observes the original operation");
+        .expect("the handle still observes the original operation");
+    assert!(matches!(
+        moving.cancel(),
+        Ok(grafton_visca::CancellationOutcome::Completed)
+    ));
 
     // The documented recourse for a profile without socket-cancel: an
     // explicit typed STOP, which still reaches the wire.
-    let stop = camera.zoom().stop().expect("typed stop admitted");
+    let mut stop = camera.zoom().stop().expect("typed stop admitted");
     probe.push(ACK_AND_COMPLETE_SOCKET_ONE);
     stop.applied().expect("the stop applies");
     assert_eq!(

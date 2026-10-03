@@ -399,7 +399,9 @@ async fn dynamic_views(
 Use the generic `execute` for a plain request, `inquire` for a typed inquiry,
 and `submit` for a typed operation. Dynamic custom requests use the explicit
 targeted/applied-only request traits. An applied-only handle has no settled
-state; cancellation reports its owner outcome, and `detach` is the explicit
+state. Every wait borrows its handle and caches what it observes, so a timed-out
+wait can be retried and `settled` can follow `applied`; `cancel` is one
+idempotent intent that reports its owner outcome, and `detach` is the explicit
 fire-and-forget choice. Dropping a handle is exactly `detach` and never stops
 hardware, so an error path leaves movement running until something else ends
 it; see the scoped stop-on-exit guard in

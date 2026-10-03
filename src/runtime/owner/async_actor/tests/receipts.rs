@@ -38,11 +38,14 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
     let actor_task = tokio::spawn(actor.run(harness.driver));
     let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
 
-    let operation = handle
+    let mut operation = handle
         .submit_operation(prepared_zoom(&profile))
         .await
         .unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), operation.core.id());
+    assert_eq!(
+        started.recv_async().await.unwrap(),
+        operation.observation.id()
+    );
     gates
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
@@ -58,12 +61,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
     assert_eq!(handle.snapshot().await.unwrap().active, 0);
     assert_eq!(Runtime::now(&runtime), now);
 
-    let error = operation
-        .settled_with_timeout(handle.receipt_control(), Duration::ZERO)
-        .erase()
-        .wait()
-        .await
-        .unwrap_err();
+    let error = operation.settled(Some(Duration::ZERO)).await.unwrap_err();
     assert!(matches!(error, Error::Timeout));
     assert_eq!(
         writes.lock().unwrap().len(),
@@ -420,10 +418,16 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 2 }));
 
     let cancel_handle = handle.clone();
-    let first_cancel = tokio::spawn(async move { cancel_handle.cancel_test(first).await });
+    let first_cancel = tokio::spawn(async move {
+        let observer = cancel_handle.cancel_test(&first).await;
+        (observer, first)
+    });
     tokio::task::yield_now().await;
     let cancel_handle = handle.clone();
-    let mut second_cancel = tokio::spawn(async move { cancel_handle.cancel_test(second).await });
+    let mut second_cancel = tokio::spawn(async move {
+        let observer = cancel_handle.cancel_test(&second).await;
+        (observer, second)
+    });
     assert!(
         tokio::time::timeout(Duration::from_millis(20), &mut second_cancel)
             .await
@@ -435,9 +439,10 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
         .send_async(Ok(TransmissionMeta { sequence: Some(2) }))
         .await
         .unwrap();
-    let first_observation = first_cancel.await.unwrap().unwrap();
-    let second_observation = second_cancel.await.unwrap().unwrap();
-    drop((first_observation, second_observation));
+    let (first_observation, first) = first_cancel.await.unwrap();
+    let (second_observation, second) = second_cancel.await.unwrap();
+    drop((first_observation.unwrap(), second_observation.unwrap()));
+    drop((first, second));
 
     let (left, right) = tokio::join!(handle.shutdown(), handle.shutdown());
     left.unwrap();
@@ -674,13 +679,17 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
         .await
         .unwrap();
     let cancel_handle = handle.clone();
-    let cancel_task = tokio::spawn(async move { cancel_handle.cancel_test(operation).await });
+    let cancel_task = tokio::spawn(async move {
+        let observer = cancel_handle.cancel_test(&operation).await;
+        (observer, operation)
+    });
     let _cancel_write = started.recv_async().await.unwrap();
     gates
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
         .unwrap();
-    let cancellation = cancel_task.await.unwrap().unwrap();
+    let (cancellation, operation) = cancel_task.await.unwrap();
+    let cancellation = cancellation.unwrap();
     frames
         .send_async(batch(vec![DecodedFrame {
             target: CameraId::CAMERA_1,
@@ -692,10 +701,13 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
         }]))
         .await
         .unwrap();
-    assert!(matches!(
-        cancellation.recv_test().await.unwrap(),
-        CancellationObservation::Cancelled
-    ));
+    // The cancellation concludes on the operation's terminal slot.
+    let terminal = operation.terminal().await.unwrap();
+    assert_eq!(
+        cancellation_outcome(&terminal).unwrap(),
+        CancellationOutcome::Cancelled
+    );
+    assert!(cancellation.try_recv().is_none());
     handle.shutdown().await.unwrap();
     assert_eq!(actor_task.await.unwrap().active, 0);
 }

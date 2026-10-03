@@ -563,10 +563,7 @@ impl AsyncCameraCore {
             class,
         )?;
         let receipt = self.owner.submit_operation(prepared).await?;
-        Ok(Operation::from_receipt(
-            receipt,
-            self.owner.receipt_control(),
-        ))
+        Ok(Operation::from_receipt(receipt))
     }
 
     pub(crate) async fn stop_all_motion(&self) -> Result<()> {
@@ -575,7 +572,7 @@ impl AsyncCameraCore {
         if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
             let pan_tilt_result = match self.pan_tilt_stop_request() {
                 Ok(stop) => match self.submit::<completion::AppliedOnly, _>(&stop).await {
-                    Ok(operation) => operation.applied().await,
+                    Ok(mut operation) => operation.applied().await,
                     Err(error) => Err(error),
                 },
                 Err(error) => Err(error),
@@ -585,7 +582,7 @@ impl AsyncCameraCore {
 
         if self.profile.supports_axes(AffectedAxes::ZOOM) {
             let zoom_result = match self.submit::<completion::AppliedOnly, _>(&ZoomStop).await {
-                Ok(operation) => operation.applied().await,
+                Ok(mut operation) => operation.applied().await,
                 Err(error) => Err(error),
             };
             retain_first_error(&mut first_error, zoom_result);
@@ -593,7 +590,7 @@ impl AsyncCameraCore {
 
         if self.profile.supports_axes(AffectedAxes::FOCUS) {
             let focus_result = match self.submit::<completion::AppliedOnly, _>(&FocusStop).await {
-                Ok(operation) => operation.applied().await,
+                Ok(mut operation) => operation.applied().await,
                 Err(error) => Err(error),
             };
             retain_first_error(&mut first_error, focus_result);

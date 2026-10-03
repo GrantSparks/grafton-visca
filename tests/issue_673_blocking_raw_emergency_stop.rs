@@ -219,7 +219,7 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
 
     // A continuous zoom drive is submitted and its handle held un-awaited: its
     // command is on the wire but still awaiting its ACK, arming the gate.
-    let _drive = camera
+    let mut _drive = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("drive submitted");
     assert_eq!(
@@ -230,7 +230,7 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
 
     // Before the fix this returned Err(TransportBusy) with the write count
     // still at 1 while the camera kept moving.
-    let stop = camera
+    let mut stop = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("the emergency stop must reach the wire behind the live drive handle");
     assert_eq!(
@@ -274,10 +274,10 @@ fn two_unawaited_operation_handles_both_win_their_first_write() {
 
     let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&second_request)
         .expect("second submission wins its first write via the pump");
     assert_eq!(
@@ -395,12 +395,12 @@ fn ordinary_submit_waits_for_lost_ack_quarantine_instead_of_transport_busy() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("predecessor reaches the wire");
     let ordinary = raw_applied_only(RawReplyShape::AckThenCompletion);
     let submitted_at = Instant::now();
-    let successor = camera
+    let mut successor = camera
         .submit::<AppliedOnly, _>(&ordinary)
         .expect("ordinary successor waits for the lost-ACK quarantine");
     let elapsed = submitted_at.elapsed();
@@ -442,11 +442,11 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("predecessor reaches the wire");
     let submitted_at = Instant::now();
-    let urgent = camera
+    let mut urgent = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("urgent stop reaches the wire without an ACK drain");
     let elapsed = submitted_at.elapsed();
@@ -499,7 +499,7 @@ fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
         .expect("camera two view");
 
-    let predecessor = camera_two
+    let mut predecessor = camera_two
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("camera two predecessor reaches the wire");
     let _socket_successor = camera_two
@@ -508,12 +508,15 @@ fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
             RawReplyShape::AckThenCompletion,
         ))
         .expect("camera two ACK is drained before the successor writes");
-    let _cancellation = predecessor
-        .cancel()
-        .expect("camera two cancellation is recorded and paced");
+    // A zero-length wait records the intent and returns before the paced
+    // socket-cancel is written; the camera never answers it.
+    assert!(matches!(
+        predecessor.cancel_with_timeout(Duration::ZERO),
+        Err(Error::Timeout)
+    ));
 
     let camera_one_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let camera_one_operation = camera_one
+    let mut camera_one_operation = camera_one
         .submit::<AppliedOnly, _>(&camera_one_request)
         .expect("camera two's pending cancel cannot reject camera one");
     camera_one_operation

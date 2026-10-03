@@ -389,10 +389,9 @@ async fn tokio_dynamic_queued_targeted_cancel_is_owner_local() {
     }
     assert_eq!(writes.lock().expect("writes lock").len(), 1);
 
-    let queued = nouns.pan_tilt().home().await.expect("queued operation");
-    let cancellation = queued.cancel().await.expect("queued cancellation");
+    let mut queued = nouns.pan_tilt().home().await.expect("queued operation");
     assert!(matches!(
-        cancellation.outcome(Duration::from_secs(1)).await,
+        queued.cancel_with_timeout(Duration::from_secs(1)).await,
         Ok(CancellationOutcome::Cancelled)
     ));
     assert_eq!(writes.lock().expect("writes lock").len(), 1);

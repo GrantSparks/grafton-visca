@@ -452,7 +452,7 @@ async fn datagram_write_failure_fails_one_command_and_keeps_the_session<E: Execu
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let failing = camera
+    let mut failing = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("the submission is admitted before its write");
@@ -510,11 +510,11 @@ async fn stream_write_failure_poisons_and_names_the_transport_cause<E: Executor>
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
         .expect("camera two view");
 
-    let held = first_camera
+    let mut held = first_camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("first submission");
-    let failing = second_camera
+    let mut failing = second_camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("the second submission is admitted before its write");
@@ -642,23 +642,19 @@ async fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket<E: Ex
         .expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("second submission");
 
     first.applied().await.expect("first operation applied");
-    let cancellation = second
-        .cancel()
-        .await
-        .expect("the fallback-assigned second operation supports cancellation");
     assert_eq!(
-        cancellation
-            .outcome(std::time::Duration::from_secs(1))
+        second
+            .cancel_with_timeout(std::time::Duration::from_secs(1))
             .await
             .expect("the fallback-assigned socket must accept cancellation"),
         CancellationOutcome::Cancelled

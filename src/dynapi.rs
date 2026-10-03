@@ -51,6 +51,5 @@ pub use nouns::{
 };
 #[cfg(feature = "async")]
 pub use owner_projection::{
-    DynAppliedOperation, DynCancellation, DynSessionCamera, DynSessionCameraControl,
-    DynTargetedOperation,
+    DynAppliedOperation, DynSessionCamera, DynSessionCameraControl, DynTargetedOperation,
 };

@@ -14,88 +14,97 @@ use crate::{
     camera::{IdleWait, MotionQuery},
     capabilities::{Capabilities, TypedSupportSurface},
     completion::{AppliedOnly, Targeted},
-    operation::{Cancellation, Operation},
-    CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile, Error, Inquiry,
-    OperationCommand, OperationId, PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
+    operation::Operation,
+    CameraId, CancellationOutcome, CompileTimeProfile, Error, Inquiry, OperationCommand,
+    OperationId, PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
 };
 
 use super::DynFuture;
+
+/// The lifecycle methods every dynamic operation handle shares with the root
+/// [`Operation`] it wraps. Each projection adds only what its completion kind
+/// allows, so the dynamic layer never re-implements lifecycle behaviour.
+macro_rules! dyn_operation_lifecycle {
+    ($handle:ident, $kind:ty) => {
+        impl $handle {
+            pub(crate) fn from_operation(inner: Operation<$kind>) -> Self {
+                Self { inner }
+            }
+
+            /// Returns the operation's opaque owner-assigned identity.
+            #[must_use]
+            pub fn id(&self) -> OperationId {
+                self.inner.id()
+            }
+
+            /// Waits for exact protocol application, bounded by the
+            /// operation's configured observer deadline. See
+            /// [`Operation::applied`].
+            pub async fn applied(&mut self) -> Result<(), Error> {
+                self.inner.applied().await
+            }
+
+            /// Waits for exact protocol application, bounded by `timeout`.
+            /// See [`Operation::applied_with_timeout`].
+            pub async fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+                self.inner.applied_with_timeout(timeout).await
+            }
+
+            /// Cancels the operation and waits for the cancellation's
+            /// conclusion. Idempotent; a refusal leaves the operation running
+            /// and this handle unaffected. See [`Operation::cancel`].
+            pub async fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
+                self.inner.cancel().await
+            }
+
+            /// [`cancel`](Self::cancel), bounded by `timeout`. See
+            /// [`Operation::cancel_with_timeout`].
+            pub async fn cancel_with_timeout(
+                &mut self,
+                timeout: Duration,
+            ) -> Result<CancellationOutcome, Error> {
+                self.inner.cancel_with_timeout(timeout).await
+            }
+
+            /// Relinquishes observation without changing the operation's
+            /// protocol state.
+            pub fn detach(self) {
+                self.inner.detach();
+            }
+        }
+    };
+}
 
 /// A dynamically projected targeted operation.
 ///
 /// This wrapper erases the runtime profile, transport, executor, and target
 /// details while retaining the root [`Operation<Targeted>`] as its only
 /// lifecycle implementation. Targeted operations additionally expose
-/// profile-selected protocol-settlement waits.
+/// profile-selected protocol-settlement waits. Waits borrow the handle and
+/// cache their result, as documented on [`Operation`].
 ///
-/// Dropping this handle without resolving it is exactly `detach`: it
-/// relinquishes observation and never stops hardware, as documented on
-/// [`Operation`].
+/// Dropping this handle is exactly `detach`: it relinquishes observation and
+/// never stops hardware, as documented on [`Operation`].
 #[must_use = "await, cancel, or explicitly detach this dynamic operation"]
 #[derive(Debug)]
 pub struct DynTargetedOperation {
     inner: Operation<Targeted>,
 }
 
+dyn_operation_lifecycle!(DynTargetedOperation, Targeted);
+
 impl DynTargetedOperation {
-    pub(crate) fn from_operation(inner: Operation<Targeted>) -> Self {
-        Self { inner }
-    }
-
-    /// Returns the operation's opaque owner-assigned identity.
-    #[must_use]
-    pub fn id(&self) -> OperationId {
-        self.inner.id()
-    }
-
-    /// Waits for exact protocol application using the operation's configured
-    /// observer deadline.
-    pub async fn applied(self) -> Result<(), Error> {
-        self.inner.applied().await
-    }
-
-    /// Waits for exact protocol application using an explicit observer
-    /// deadline.
-    pub async fn applied_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        self.inner.applied_with_timeout(timeout).await
-    }
-
-    /// Requests cancellation and returns its exact terminal observer.
-    ///
-    /// A profile without VISCA socket-cancel support refuses a cancellation
-    /// of an already-written request and leaves the original running; the
-    /// returned [`CancelRejected`] carries this handle back so the caller can
-    /// keep waiting on it, retry, or drop it to detach (#612).
-    pub async fn cancel(self) -> Result<DynCancellation, CancelRejected<Self>> {
-        match self.inner.cancel().await {
-            Ok(cancellation) => Ok(DynCancellation::from_cancellation(cancellation)),
-            Err(rejected) => {
-                let (operation, error) = rejected.into_parts();
-                Err(CancelRejected::new(
-                    operation.map(Self::from_operation),
-                    error,
-                ))
-            }
-        }
-    }
-
     /// Waits for exact application and the owner's profile-selected protocol
-    /// settlement condition.
-    pub async fn settled(self) -> Result<(), Error> {
+    /// settlement condition. See [`Operation::settled`].
+    pub async fn settled(&mut self) -> Result<(), Error> {
         self.inner.settled().await
     }
 
-    /// Waits for exact application and the profile-selected protocol settlement
-    /// condition using an explicit observer deadline. The owner retains all
-    /// polling and deadline logic.
-    pub async fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
+    /// Waits for exact application and the profile-selected protocol
+    /// settlement condition, bounded by `timeout`. The owner retains all
+    /// polling and deadline logic. See [`Operation::settled_with_timeout`].
+    pub async fn settled_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
         self.inner.settled_with_timeout(timeout).await
-    }
-
-    /// Relinquishes observation without changing the operation's protocol
-    /// state.
-    pub fn detach(self) {
-        self.inner.detach();
     }
 }
 
@@ -103,92 +112,18 @@ impl DynTargetedOperation {
 ///
 /// This type deliberately has no `settled` or `settled_with_timeout` method:
 /// its structural API represents the closed applied-only completion kind.
-///
-/// Dropping this handle without resolving it is exactly `detach`: it
-/// relinquishes observation and never stops hardware, as documented on
+/// Waits borrow the handle and cache their result, as documented on
 /// [`Operation`].
+///
+/// Dropping this handle is exactly `detach`: it relinquishes observation and
+/// never stops hardware, as documented on [`Operation`].
 #[must_use = "await, cancel, or explicitly detach this dynamic operation"]
 #[derive(Debug)]
 pub struct DynAppliedOperation {
     inner: Operation<AppliedOnly>,
 }
 
-impl DynAppliedOperation {
-    pub(crate) fn from_operation(inner: Operation<AppliedOnly>) -> Self {
-        Self { inner }
-    }
-
-    /// Returns the operation's opaque owner-assigned identity.
-    #[must_use]
-    pub fn id(&self) -> OperationId {
-        self.inner.id()
-    }
-
-    /// Waits for exact protocol application using the operation's configured
-    /// observer deadline.
-    pub async fn applied(self) -> Result<(), Error> {
-        self.inner.applied().await
-    }
-
-    /// Waits for exact protocol application using an explicit observer
-    /// deadline.
-    pub async fn applied_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        self.inner.applied_with_timeout(timeout).await
-    }
-
-    /// Requests cancellation and returns its exact terminal observer.
-    ///
-    /// A profile without VISCA socket-cancel support refuses a cancellation
-    /// of an already-written request and leaves the original running; the
-    /// returned [`CancelRejected`] carries this handle back so the caller can
-    /// keep waiting on it, retry, or drop it to detach (#612).
-    pub async fn cancel(self) -> Result<DynCancellation, CancelRejected<Self>> {
-        match self.inner.cancel().await {
-            Ok(cancellation) => Ok(DynCancellation::from_cancellation(cancellation)),
-            Err(rejected) => {
-                let (operation, error) = rejected.into_parts();
-                Err(CancelRejected::new(
-                    operation.map(Self::from_operation),
-                    error,
-                ))
-            }
-        }
-    }
-
-    /// Relinquishes observation without changing the operation's protocol
-    /// state.
-    pub fn detach(self) {
-        self.inner.detach();
-    }
-}
-
-/// A dynamically projected cancellation observer.
-///
-/// The wrapped [`Cancellation`] retains the original operation's terminal
-/// receiver, so cancellation outcomes remain race-accurate and are never
-/// reconstructed by this dynamic layer.
-#[must_use = "observe or explicitly detach this dynamic cancellation"]
-#[derive(Debug)]
-pub struct DynCancellation {
-    inner: Cancellation,
-}
-
-impl DynCancellation {
-    pub(crate) fn from_cancellation(inner: Cancellation) -> Self {
-        Self { inner }
-    }
-
-    /// Observes the exact terminal cancellation outcome.
-    pub async fn outcome(self, timeout: Duration) -> Result<CancellationOutcome, Error> {
-        self.inner.outcome(timeout).await
-    }
-
-    /// Relinquishes cancellation observation without undoing cancellation
-    /// intent.
-    pub fn detach(self) {
-        self.inner.detach();
-    }
-}
+dyn_operation_lifecycle!(DynAppliedOperation, AppliedOnly);
 
 /// A small owner-backed dynamic camera view.
 ///

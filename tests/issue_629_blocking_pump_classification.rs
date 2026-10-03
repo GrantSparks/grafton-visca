@@ -231,12 +231,12 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
         .camera_for::<DirectZoomOnlyTypedSupport>(CameraId::CAMERA_2)
         .expect("camera two view");
 
-    let current = first_camera
+    let mut current = first_camera
         .submit::<Targeted, _>(&ZoomTarget::new(
             ZoomPosition::new(0x0100).expect("zoom position"),
         ))
         .expect("targeted operation write");
-    let peer = second_camera
+    let mut peer = second_camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("peer operation write");
 

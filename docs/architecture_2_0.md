@@ -495,7 +495,8 @@ Other targets and all command work remain independently eligible (#712).
 | Cancel in `Executing` (supported target) | Record intent, emit one socket cancellation, and retain the original completion correlation through the command's completion deadline; cancellation ambiguity does not shorten exact socket correlation (#724). |
 | Cancel after transmission on a target without socket cancellation | The cancellation observation fails with `Error::NotSupported`; record no intent, send no frame, and leave the original request active. |
 | Cancel of an inquiry | The cancellation observation fails with `Error::InquiryNotCancelable`. |
-| Duplicate cancel of the same request | `Ignored(DuplicateCancellation)`. |
+| Repeated cancel from the same handle | The owner observes the handle's one existing intent and gives the engine no second input (#777). |
+| Duplicate cancel reaching the engine | `Ignored(DuplicateCancellation)`. |
 | Successful cancel send | Transition to `AwaitingCancellationResolution` with `AwaitingTerminal`; wait for the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`) through the later of the retained completion and ambiguity deadlines. |
 | Failed datagram cancel send | Resolve the token with the error (`ObservationFailed`), retain the original request and routing, and never retry that cancel for the same socket assignment. An `Executing` original remains governed by its completion deadline, not the earlier cancellation ambiguity deadline (#724). |
 | Failed stream cancel send | Poison the session and resolve every entry and observer. |
@@ -705,6 +706,41 @@ meaningful target state and expose
 applied completion only. Dynamic handles preserve this distinction:
 `DynTargetedOperation` has `applied`, `settled`, `cancel`, and `detach`, while
 `DynAppliedOperation` has no settled operation.
+
+### Operation observation
+
+An operation handle observes its request through two one-shot slots the owner
+resolves at most once each (#777):
+
+- the **terminal slot** carries the request's authoritative outcome
+  (`Applied`, `Cancelled`, or the exact failure);
+- the **cancellation slot** exists only after the handle's first `cancel`, and
+  carries an error when an accepted cancellation ends without ending the
+  request: its write failed, or its observation deadline passed.
+
+Every wait borrows the handle (`&mut self`) and records each value it receives
+into a handle-side cache in the same poll, so dropping a wait — a timeout, or
+the losing branch of a `select!` — loses nothing, and a later wait answers from
+the cache before it consults the owner. Application is cached, so `settled`
+after `applied` continues from it. Settlement proven by position polling is
+cached once proven; polling state is local to one wait, and a wait abandoned
+mid-proof restarts with a fresh two-sample proof.
+
+Cancellation is one intent per handle. The first `cancel` creates the
+cancellation slot and ships it with the request; a later `cancel` — after a
+timeout or a dropped call — finds the owner already holding that intent and
+observes it, so the wire carries at most one cancellation. A refusal
+(`NotSupported`, `InquiryNotCancelable`) installs no intent and leaves the
+handle observing. The verdict is terminal-first: once the terminal outcome is
+known it decides (`Applied` is `Completed`, `Cancelled` is `Cancelled`, a
+failure is that error), whichever order the owner emitted the two slots in;
+only without one does a cancellation-slot error answer. A `cancel` after the
+owner stopped still answers from an outcome delivered before it stopped.
+
+The default observer deadline for `cancel` is the larger of the operation's
+application deadline and its ambiguity plus cancellation deadlines, so a
+default `cancel` outlives the owner's own cancellation resolution and reports
+its conclusion rather than a caller-side timeout.
 
 Use the noun view for ordinary controls and `submit` when a caller needs an
 explicit operation lifecycle. `motion().stop_all_motion()`,

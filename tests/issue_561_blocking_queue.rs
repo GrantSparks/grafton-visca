@@ -387,10 +387,10 @@ fn third_blocking_operation_rejects_until_a_socket_frees() {
         Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("second submission");
     let error = camera
@@ -417,7 +417,7 @@ fn third_blocking_operation_rejects_until_a_socket_frees() {
     assert_eq!(metrics.writes, 2);
 
     first.applied().expect("first operation applied");
-    let replacement = camera
+    let mut replacement = camera
         .submit::<AppliedOnly, _>(&pan_tilt_stop())
         .expect("a resubmission after a socket frees must write");
     let drained = written(&writes);
@@ -449,10 +449,10 @@ fn first_write_rejection_releases_admission_capacity() {
     let session = Session::open(transport.with_sony(), config).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("second submission");
 
@@ -503,7 +503,7 @@ fn one_socket_operation_rejection_is_immediate_and_retryable() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first operation");
     let error = camera
@@ -513,7 +513,7 @@ fn one_socket_operation_rejection_is_immediate_and_retryable() {
     assert_eq!(written(&writes).len(), 1);
 
     first.applied().expect("first operation applied");
-    let replacement = camera
+    let mut replacement = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("resubmission after the socket frees");
     assert_eq!(written(&writes).len(), 2);
@@ -561,7 +561,7 @@ fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit()
 
     // With only one admission permit, this proves that terminal removal also
     // released the permit rather than merely dropping the public observer.
-    let recovered = camera
+    let mut recovered = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("the terminalized request released its admission permit");
     assert_eq!(probe.attempts().len(), 2);
@@ -606,7 +606,7 @@ fn typed_operation_waits_for_profile_pacing_without_pumping_peer_replies() {
     let session = Session::open(transport.with_sony(), config).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first operation");
     assert_eq!(probe.attempts().len(), 1);
@@ -616,7 +616,7 @@ fn typed_operation_waits_for_profile_pacing_without_pumping_peer_replies() {
     // The second socket is free, but profile pacing is not. A correct submit
     // waits only for this request's dispatch eligibility and does not receive
     // the first operation's queued ACK/completion while waiting.
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("second operation waits for and then performs its own write");
     assert_eq!(probe.attempts().len(), 2);

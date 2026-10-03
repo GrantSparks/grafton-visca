@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, time::Duration};
 
 use grafton_visca::{
     camera::{IdleWait, MotionQuery},
@@ -25,7 +25,7 @@ use grafton_visca::{
         ZoomSpeed,
     },
     units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, Error, Session, ZoomDomain,
+    AffectedAxes, CameraId, CancellationOutcome, Error, Session, ZoomDomain,
 };
 
 fn camera_surface(camera: &dyn DynSessionCameraControl) {
@@ -344,27 +344,42 @@ fn assert_session_selectors(session: &Session) {
     let _: Result<DynSessionCamera, Error> = session.camera_dyn_for(CameraId::CAMERA_1);
 }
 
-fn assert_targeted_settled(targeted: DynTargetedOperation) {
-    let _ = targeted.settled();
+/// Waits borrow the handle (#777): application then settlement on one handle,
+/// cached results, and idempotent cancellation.
+async fn assert_targeted_lifecycle(mut targeted: DynTargetedOperation) -> Result<(), Error> {
+    targeted
+        .applied_with_timeout(Duration::from_millis(1))
+        .await?;
+    targeted.applied().await?;
+    targeted.settled().await?;
+    targeted.settled_with_timeout(Duration::from_secs(1)).await
 }
 
-fn assert_targeted_applied(targeted: DynTargetedOperation) {
-    let _ = targeted.applied();
-}
-
-fn assert_applied_wait(applied: DynAppliedOperation) {
-    let _ = applied.applied();
-}
-
-fn assert_applied_detach(applied: DynAppliedOperation) {
+async fn assert_applied_lifecycle(
+    mut applied: DynAppliedOperation,
+) -> Result<CancellationOutcome, Error> {
+    applied.applied().await?;
+    let _ = applied.cancel_with_timeout(Duration::from_secs(1)).await;
+    let outcome = applied.cancel().await?;
     applied.detach();
+    Ok(outcome)
+}
+
+fn assert_wait_futures_are_send(targeted: &mut DynTargetedOperation) {
+    fn assert_send<T: Send>(_: &T) {}
+    assert_send(&targeted.applied());
+    assert_send(&targeted.settled());
+    assert_send(&targeted.cancel());
 }
 
 fn assert_handle_shapes(targeted: DynTargetedOperation, applied: DynAppliedOperation) {
     let _: grafton_visca::OperationId = targeted.id();
     let _: grafton_visca::OperationId = applied.id();
-    assert_targeted_settled(targeted);
-    assert_applied_wait(applied);
+    let _ = (
+        assert_targeted_lifecycle,
+        assert_applied_lifecycle,
+        assert_wait_futures_are_send,
+    );
 }
 
 fn main() {

@@ -2,13 +2,13 @@
 //! G2 unsupported-post-send demonstration.
 //!
 //! Queued work is always locally cancellable, and on a socket-cancel-capable
-//! profile a command that has already been written can be cancelled too. There,
-//! `cancel()` returns a `Cancellation` whose `outcome()` is `Cancelled` or
-//! `Completed`. This example uses the cancel-capable `PtzOpticsG3` by default,
-//! so that supported path is reachable on the hardware it names. Pass
+//! profile a command that has already been written can be cancelled too.
+//! There, `cancel_with_timeout()` concludes with `Cancelled` or `Completed`.
+//! This example uses the cancel-capable `PtzOpticsG3` by default, so that
+//! supported path is reachable on the hardware it names. Pass
 //! `--g2-unsupported` to demonstrate the sole built-in profile without socket
 //! cancellation: after a G2 command is written, `cancel()` refuses with
-//! `Error::NotSupported` and returns the live handle inside `CancelRejected`.
+//! `Error::NotSupported`, and the same handle still observes the command.
 //!
 //! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an address
 //! on the command line.
@@ -60,17 +60,20 @@ async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
     // Start a continuous zoom drive and let its first write reach the camera, so
     // the cancel below exercises the post-send path rather than a local queue
     // removal.
-    let operation = camera.zoom().tele().await?;
+    let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let cancellation = operation.cancel().await?;
-    match cancellation.outcome(Duration::from_secs(2)).await? {
+    match operation
+        .cancel_with_timeout(Duration::from_secs(2))
+        .await?
+    {
         CancellationOutcome::Cancelled => {
             println!("cancellation confirmed: the drive was cancelled");
         }
         CancellationOutcome::Completed => {
             println!("the drive completed before cancellation could win");
         }
+        outcome => println!("cancellation concluded: {outcome:?}"),
     }
     // A cancellation outcome is protocol evidence, not proof that hardware is
     // physically still. Always pair a continuous drive with an explicit STOP.
@@ -80,20 +83,25 @@ async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
 }
 
 async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
-    let operation = camera.zoom().tele().await?;
+    let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let rejected = operation
-        .cancel()
-        .await
-        .expect_err("a sent G2 operation does not support socket cancellation");
-    if !matches!(rejected.error(), Error::NotSupported) {
-        return Err(rejected.into_error());
+    match operation.cancel().await {
+        Err(Error::NotSupported) => {}
+        Err(error) => return Err(error),
+        Ok(outcome) => {
+            println!("the drive concluded before cancellation was refused: {outcome:?}");
+            return Ok(());
+        }
     }
+    // The refused cancellation left the drive running and this handle
+    // observing it; an applied STOP is what ends the motion.
     println!("G2 cannot cancel a sent command; applying an explicit STOP");
-    let operation = rejected.into_operation().ok_or(Error::RuntimeShutdown)?;
     camera.zoom().stop().await?.applied().await?;
-    operation.detach();
+    match operation.applied_with_timeout(Duration::from_secs(2)).await {
+        Ok(()) => println!("the drive concluded as applied"),
+        Err(error) => println!("the drive concluded with {error}"),
+    }
 
     Ok(())
 }

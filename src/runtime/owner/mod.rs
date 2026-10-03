@@ -57,7 +57,7 @@ use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, Weak,
     },
     time::{Duration, Instant},
 };
@@ -670,11 +670,16 @@ impl Drop for AdmissionPermit {
     }
 }
 
+/// The owner-side half of one bounded, one-shot observation slot.
+///
+/// The owner resolves it at most once. A handle holds the matching
+/// [`Observer`]; dropping that observer marks the cell detached, so the owner
+/// can count an observation that nobody will read.
 #[derive(Debug)]
-struct ObserverCell {
+pub(crate) struct ObserverCell<T> {
     detached: AtomicBool,
     resolved: AtomicBool,
-    sender: flume::Sender<ReceiptObservation>,
+    sender: flume::Sender<T>,
 }
 
 /// The result of attempting to settle one receipt observer.
@@ -688,14 +693,14 @@ enum ObserverResolution {
     AlreadyResolved,
 }
 
-impl ObserverCell {
+impl<T> ObserverCell<T> {
     fn is_attached(&self) -> bool {
         !self.detached.load(Ordering::Acquire)
             && !self.resolved.load(Ordering::Acquire)
             && !self.sender.is_disconnected()
     }
 
-    fn resolve(&self, observation: ReceiptObservation) -> ObserverResolution {
+    fn resolve(&self, observation: T) -> ObserverResolution {
         // A previous successful resolution wins even if the receiver was
         // subsequently dropped. That is a duplicate delivery attempt, not a
         // newly lost observer event.
@@ -723,85 +728,81 @@ impl ObserverCell {
     }
 }
 
-#[derive(Debug, Clone)]
-enum ReceiptObservation {
-    Terminal(RuntimeOutcome),
-    CancellationFailed(Error),
-}
-
-/// A bounded terminal observer. Dropping it is the detach operation: no actor
-/// message and no protocol mutation are needed.
+/// The handle-side half of one bounded, one-shot observation slot.
+///
+/// The handle holds only a weak reference to the owner-side cell, so the
+/// owner's copy is the cell's only strong owner and dropping it unresolved
+/// disconnects the slot: a wait then ends instead of hanging.
+///
+/// Dropping the observer is the detach operation: no actor message and no
+/// protocol mutation are needed. A received value is never lost by an
+/// abandoned wait: flume's receive future leaves an unread value queued when
+/// it is dropped.
 #[derive(Debug)]
-pub(crate) struct CompletionObserver {
-    cell: Arc<ObserverCell>,
-    receiver: flume::Receiver<ReceiptObservation>,
+pub(crate) struct Observer<T> {
+    cell: Weak<ObserverCell<T>>,
+    receiver: flume::Receiver<T>,
 }
 
-impl CompletionObserver {
-    fn try_recv(&self) -> Option<ReceiptObservation> {
+impl<T> Observer<T> {
+    /// Creates a slot. The returned cell must be installed where the
+    /// observation is produced; dropping it unresolved disconnects the slot.
+    pub(crate) fn pair() -> (Self, Arc<ObserverCell<T>>) {
+        let (sender, receiver) = flume::bounded(1);
+        let cell = Arc::new(ObserverCell {
+            detached: AtomicBool::new(false),
+            resolved: AtomicBool::new(false),
+            sender,
+        });
+        let observer = Self {
+            cell: Arc::downgrade(&cell),
+            receiver,
+        };
+        (observer, cell)
+    }
+
+    /// The owner-side cell, while the owner still holds it.
+    fn cell(&self) -> Option<Arc<ObserverCell<T>>> {
+        self.cell.upgrade()
+    }
+
+    fn try_recv(&self) -> Option<T> {
         self.receiver.try_recv().ok()
     }
 
-    // Used by the blocking cancellation test helper.
-    #[cfg(all(test, feature = "blocking"))]
-    fn recv(&self) -> Result<ReceiptObservation, Error> {
-        self.receiver.recv().map_err(|_| Error::RuntimeShutdown)
-    }
-
+    /// Waits for the value; `None` once the owner dropped its cell unresolved.
     #[cfg(feature = "async")]
-    async fn recv_async(&self) -> Result<ReceiptObservation, Error> {
-        self.receiver
-            .recv_async()
-            .await
-            .map_err(|_| Error::RuntimeShutdown)
+    async fn recv_async(&self) -> Option<T> {
+        self.receiver.recv_async().await.ok()
     }
 }
 
-impl Drop for CompletionObserver {
+impl<T> Drop for Observer<T> {
     fn drop(&mut self) {
-        self.cell.detached.store(true, Ordering::Release);
+        if let Some(cell) = self.cell.upgrade() {
+            cell.detached.store(true, Ordering::Release);
+        }
     }
 }
 
-fn completion_pair() -> (Arc<ObserverCell>, CompletionObserver) {
-    let (sender, receiver) = flume::bounded(1);
-    let cell = Arc::new(ObserverCell {
-        detached: AtomicBool::new(false),
-        resolved: AtomicBool::new(false),
-        sender,
-    });
-    (Arc::clone(&cell), CompletionObserver { cell, receiver })
-}
+/// Observes one request's authoritative terminal outcome.
+pub(crate) type TerminalObserver = Observer<RuntimeOutcome>;
 
-/// A cancellation the owner refused, carrying the operation's observation
-/// authority back to the caller (#612).
+/// Observes a cancellation that failed *without* ending its operation: a
+/// cancellation write that could not be sent, or a cancellation observation
+/// deadline that expired. The operation's own terminal outcome is still
+/// delivered through its [`TerminalObserver`] (#777).
+pub(crate) type CancellationObserver = Observer<Error>;
+
+/// One cancellation request for an admitted operation (#777).
 ///
-/// A refused cancellation is never cancellation intent: the engine leaves the
-/// original request scheduled and able to complete, so its observer is still
-/// meaningful and must not be destroyed by the failure. `receipt` is `None`
-/// only when the owner itself is gone, which is the one case where no receipt
-/// could be observed anyway.
+/// The handle creates the cancellation observer and ships its owner-side half
+/// with every request, so a retried or abandoned `cancel` observes the same
+/// intent instead of creating a second one.
 #[derive(Debug)]
-pub(crate) struct RejectedCancellation {
-    pub(crate) receipt: Option<ReceiptCore>,
-    pub(crate) error: Error,
-}
-
-impl RejectedCancellation {
-    pub(crate) const fn kept(receipt: ReceiptCore, error: Error) -> Self {
-        Self {
-            receipt: Some(receipt),
-            error,
-        }
-    }
-
-    #[cfg(any(feature = "async", test))]
-    pub(crate) const fn lost(error: Error) -> Self {
-        Self {
-            receipt: None,
-            error,
-        }
-    }
+pub(crate) struct CancellationRequest {
+    pub(crate) id: RequestId,
+    pub(crate) observer: Arc<ObserverCell<Error>>,
 }
 
 /// Exact, linear observation authority shared by the mode-specific receipt
@@ -810,7 +811,7 @@ impl RejectedCancellation {
 pub(crate) struct ReceiptCore {
     pub(crate) id: RequestId,
     pub(crate) target: CameraId,
-    pub(crate) completion: CompletionObserver,
+    pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
     pub(crate) origin: Arc<()>,
 }
@@ -819,7 +820,7 @@ impl ReceiptCore {
     fn new(
         id: RequestId,
         target: CameraId,
-        completion: CompletionObserver,
+        completion: TerminalObserver,
         configured_timeout: Duration,
         origin: Arc<()>,
     ) -> Self {
@@ -845,7 +846,7 @@ impl ReceiptCore {
     }
 
     fn try_outcome(&self) -> Option<RuntimeOutcome> {
-        self.completion.try_recv().map(observation_outcome)
+        self.completion.try_recv()
     }
 
     #[cfg(all(test, feature = "blocking", not(feature = "async")))]
@@ -861,17 +862,11 @@ impl ReceiptCore {
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) async fn terminal(&self) -> Result<RuntimeOutcome, Error> {
-        self.completion.recv_async().await.map(observation_outcome)
+        self.completion
+            .recv_async()
+            .await
+            .ok_or(Error::RuntimeShutdown)
     }
-}
-
-/// Selection retained with a targeted settlement receipt until the blocking
-/// observer creates its one absolute deadline. Selecting an override never
-/// mutates engine time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WaitSelection {
-    Configured,
-    Override(Duration),
 }
 
 fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
@@ -882,13 +877,6 @@ fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
         RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
             "a command observer received an inquiry reply".into(),
         )),
-    }
-}
-
-fn observation_outcome(observation: ReceiptObservation) -> RuntimeOutcome {
-    match observation {
-        ReceiptObservation::Terminal(outcome) => outcome,
-        ReceiptObservation::CancellationFailed(error) => RuntimeOutcome::Failed(error),
     }
 }
 
@@ -909,7 +897,7 @@ fn normalize_inquiry_outcome<R>(
 #[derive(Debug)]
 struct PendingAdmission {
     permit: AdmissionPermit,
-    observer: Arc<ObserverCell>,
+    observer: Arc<ObserverCell<RuntimeOutcome>>,
     reply: flume::Sender<Result<RequestId, Error>>,
     summary: RequestSummary,
 }
@@ -917,82 +905,166 @@ struct PendingAdmission {
 #[derive(Debug)]
 struct ActiveRequest {
     _permit: AdmissionPermit,
-    observer: Arc<ObserverCell>,
+    observer: Arc<ObserverCell<RuntimeOutcome>>,
     summary: RequestSummary,
+    /// The one cancellation intent a handle installed (#777). It lives exactly
+    /// as long as the request, so it adds no unbounded state.
+    cancellation: Option<CancellationIntent>,
 }
 
 #[derive(Debug)]
-struct CancellationWaiter {
-    acknowledgement: flume::Sender<Result<(), Error>>,
+struct CancellationIntent {
+    observer: Arc<ObserverCell<Error>>,
     recorded: bool,
 }
 
-#[derive(Debug)]
-struct CancellationRegistration {
-    acknowledgement: flume::Receiver<Result<(), Error>>,
-}
-
-/// Receiver for the exact terminal engine cancellation observation. The
-/// intermediate `Recorded` observation acknowledges `cancel()` and is not
-/// exposed as a terminal token outcome.
-#[derive(Debug)]
-pub(crate) struct CancellationCore {
-    origin: Arc<()>,
-    completion: CompletionObserver,
-    buffered: Option<ReceiptObservation>,
-}
-
-impl CancellationCore {
-    fn try_observation(&mut self) -> Option<ReceiptObservation> {
-        self.buffered.take().or_else(|| self.completion.try_recv())
-    }
-
-    // Used by the blocking cancellation test helper.
-    #[cfg(all(test, feature = "blocking"))]
-    fn recv(mut self) -> Result<ReceiptObservation, Error> {
-        match self.buffered.take() {
-            Some(observation) => Ok(observation),
-            None => self.completion.recv(),
-        }
-    }
-
-    // Used by the Tokio async cancellation test helper.
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    async fn recv_async(mut self) -> Result<ReceiptObservation, Error> {
-        match self.buffered.take() {
-            Some(observation) => Ok(observation),
-            None => self.completion.recv_async().await,
-        }
-    }
-}
-
-fn cancellation_receipt_for(
-    receipt: ReceiptCore,
-    buffered: Option<ReceiptObservation>,
-) -> CancellationCore {
-    CancellationCore {
-        origin: receipt.origin,
-        completion: receipt.completion,
-        buffered,
-    }
-}
-
-fn normalize_cancellation_observation(
-    observation: ReceiptObservation,
+/// What a cancellation tells its caller once the operation's terminal outcome
+/// is known: `Completed` after a successful application, `Cancelled` after a
+/// cancellation, and the failure itself after a failed operation.
+pub(crate) fn cancellation_outcome(
+    terminal: &RuntimeOutcome,
 ) -> Result<CancellationOutcome, Error> {
-    match observation {
-        ReceiptObservation::Terminal(RuntimeOutcome::Cancelled) => {
-            Ok(CancellationOutcome::Cancelled)
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Applied) => Ok(CancellationOutcome::Completed),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(error))
-        | ReceiptObservation::CancellationFailed(error) => Err(error),
-        ReceiptObservation::Terminal(RuntimeOutcome::Written) => Err(Error::InvalidState(
+    match terminal {
+        RuntimeOutcome::Cancelled => Ok(CancellationOutcome::Cancelled),
+        RuntimeOutcome::Applied => Ok(CancellationOutcome::Completed),
+        RuntimeOutcome::Failed(error) => Err(error.clone()),
+        RuntimeOutcome::Written => Err(Error::InvalidState(
             "a local write outcome cannot authorize cancellation".into(),
         )),
-        ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => Err(Error::InvalidState(
+        RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
             "an inquiry outcome cannot authorize cancellation".into(),
         )),
+    }
+}
+
+/// The handle-side observation state of one admitted operation (#777).
+///
+/// Every wait borrows it, so an abandoned or timed-out wait releases only that
+/// wait. The authoritative terminal outcome, a failed cancellation, and the
+/// handle's own settlement verdict are cached here once received, so later
+/// waits return them without touching the owner.
+#[derive(Debug)]
+pub(crate) struct OperationObservation {
+    core: ReceiptCore,
+    cancellation_timeout: Duration,
+    terminal: Option<RuntimeOutcome>,
+    settled: bool,
+    cancellation: Option<CancellationObserver>,
+    cancellation_failure: Option<Error>,
+}
+
+impl OperationObservation {
+    pub(crate) fn new(core: ReceiptCore, cancellation_timeout: Duration) -> Self {
+        Self {
+            core,
+            cancellation_timeout,
+            terminal: None,
+            settled: false,
+            cancellation: None,
+            cancellation_failure: None,
+        }
+    }
+
+    pub(crate) const fn id(&self) -> RequestId {
+        self.core.id()
+    }
+
+    pub(crate) const fn target(&self) -> CameraId {
+        self.core.target()
+    }
+
+    pub(crate) const fn origin(&self) -> &Arc<()> {
+        &self.core.origin
+    }
+
+    /// The configured observer deadline for application.
+    pub(crate) const fn applied_timeout(&self) -> Duration {
+        self.core.configured_timeout()
+    }
+
+    /// The configured observer deadline for a cancellation's conclusion.
+    pub(crate) const fn cancellation_timeout(&self) -> Duration {
+        self.cancellation_timeout
+    }
+
+    /// Moves every value the owner already delivered into the cache.
+    fn poll(&mut self) {
+        if self.terminal.is_none() {
+            self.terminal = self.core.completion.try_recv();
+        }
+        if self.cancellation_failure.is_none() {
+            self.cancellation_failure = self
+                .cancellation
+                .as_ref()
+                .and_then(CancellationObserver::try_recv);
+        }
+    }
+
+    /// The application verdict, once the terminal outcome is known.
+    pub(crate) fn applied(&mut self) -> Option<Result<(), Error>> {
+        self.poll();
+        self.terminal.clone().map(normalize_command_outcome)
+    }
+
+    /// The cancellation verdict, once known. The terminal outcome always
+    /// decides it, so the answer does not depend on the order in which the
+    /// owner emits a cancellation failure and a later terminal outcome.
+    pub(crate) fn cancellation(&mut self) -> Option<Result<CancellationOutcome, Error>> {
+        self.poll();
+        match &self.terminal {
+            Some(terminal) => Some(cancellation_outcome(terminal)),
+            None => self.cancellation_failure.clone().map(Err),
+        }
+    }
+
+    /// The request to send for this handle's single cancellation intent.
+    ///
+    /// While the owner holds the intent's cell, the request carries that same
+    /// cell, so the owner observes the existing intent. A cell the owner
+    /// dropped belonged to a refused request, which installed no intent; the
+    /// next request starts a fresh slot.
+    pub(crate) fn cancellation_request(&mut self) -> CancellationRequest {
+        self.poll();
+        let observer = match self.cancellation.as_ref().and_then(Observer::cell) {
+            Some(cell) => cell,
+            None => {
+                let (observer, cell) = Observer::pair();
+                self.cancellation = Some(observer);
+                cell
+            }
+        };
+        CancellationRequest {
+            id: self.core.id(),
+            observer,
+        }
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) fn record_terminal(&mut self, outcome: RuntimeOutcome) {
+        self.terminal.get_or_insert(outcome);
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) fn record_cancellation_failure(&mut self, error: Error) {
+        self.cancellation_failure.get_or_insert(error);
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) const fn terminal_observer(&self) -> &TerminalObserver {
+        &self.core.completion
+    }
+
+    #[cfg(feature = "async")]
+    pub(crate) fn cancellation_observer(&self) -> Option<&CancellationObserver> {
+        self.cancellation.as_ref()
+    }
+
+    pub(crate) const fn is_settled(&self) -> bool {
+        self.settled
+    }
+
+    pub(crate) fn mark_settled(&mut self) {
+        self.settled = true;
     }
 }
 
@@ -1310,7 +1382,9 @@ pub(crate) struct OwnerState {
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
-    cancellation_waiters: BTreeMap<RequestId, CancellationWaiter>,
+    /// A cancellation the engine refused while handling the request that is
+    /// being driven right now; read back by `conclude_cancellation`.
+    cancellation_refusal: Option<(RequestId, Error)>,
     target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
@@ -1371,7 +1445,7 @@ impl OwnerState {
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
-            cancellation_waiters: BTreeMap::new(),
+            cancellation_refusal: None,
             target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
@@ -1462,6 +1536,13 @@ impl OwnerState {
 
     pub(crate) fn boundary_error(&self) -> Option<Error> {
         self.session_error.clone()
+    }
+
+    /// Whether `id` is still an active request: admitted, and its terminal
+    /// outcome not yet delivered.
+    #[cfg(feature = "async")]
+    pub(crate) fn is_active(&self, id: RequestId) -> bool {
+        self.active.contains_key(&id)
     }
 
     // Used by owner tests and the test-only async snapshot helper (#636).
@@ -1809,20 +1890,20 @@ impl OwnerState {
         permit: AdmissionPermit,
     ) -> (
         Input,
-        CompletionObserver,
+        TerminalObserver,
         flume::Receiver<Result<RequestId, Error>>,
     ) {
-        let (observer, receiver) = completion_pair();
+        let (observer, cell) = TerminalObserver::pair();
         let (reply, admission) = flume::bounded(1);
-        let input = self.stage_admission_with(request, permit, observer, reply);
-        (input, receiver, admission)
+        let input = self.stage_admission_with(request, permit, cell, reply);
+        (input, observer, admission)
     }
 
     fn stage_admission_with(
         &mut self,
         request: RuntimeRequest,
         permit: AdmissionPermit,
-        observer: Arc<ObserverCell>,
+        observer: Arc<ObserverCell<RuntimeOutcome>>,
         reply: flume::Sender<Result<RequestId, Error>>,
     ) -> Input {
         let ticket = self.allocate_ticket();
@@ -1840,6 +1921,44 @@ impl OwnerState {
         Input::Admit { ticket, request }
     }
 
+    fn mark_cancellation_recorded(&mut self, id: RequestId) {
+        if let Some(intent) = self
+            .active
+            .get_mut(&id)
+            .and_then(|active| active.cancellation.as_mut())
+        {
+            intent.recorded = true;
+        }
+    }
+
+    /// A failed cancellation observation. Before the intent was recorded it is
+    /// the engine refusing the request, which leaves the operation running and
+    /// is answered to the cancelling caller; afterwards it is a cancellation
+    /// that failed without ending the operation, which reaches the handle's
+    /// cancellation observer. The operation's terminal slot is untouched
+    /// either way (#777).
+    fn cancellation_failed(&mut self, id: RequestId, error: Error) {
+        let Some(active) = self.active.get_mut(&id) else {
+            return;
+        };
+        match &active.cancellation {
+            Some(intent) if intent.recorded => {
+                if matches!(
+                    intent.observer.resolve(error),
+                    ObserverResolution::ReceiverLost
+                ) {
+                    self.metrics.dropped_observer_events =
+                        self.metrics.dropped_observer_events.saturating_add(1);
+                }
+            }
+            Some(_) => {
+                active.cancellation = None;
+                self.cancellation_refusal = Some((id, error));
+            }
+            None => {}
+        }
+    }
+
     fn allocate_ticket(&mut self) -> AdmissionTicket {
         loop {
             let value = self.next_ticket;
@@ -1851,29 +1970,32 @@ impl OwnerState {
         }
     }
 
-    fn register_cancellation(&mut self, id: RequestId) -> CancellationRegistration {
-        let (acknowledgement, acknowledgement_receiver) = flume::bounded(1);
-        if !self.active.contains_key(&id) {
-            let _ = acknowledgement.try_send(Err(Error::InvalidState(
-                "cancellation target is not active".into(),
-            )));
-        } else {
-            match self.cancellation_waiters.entry(id) {
-                std::collections::btree_map::Entry::Occupied(_) => {
-                    let _ = acknowledgement.try_send(Err(Error::InvalidState(
-                        "cancellation is already being observed".into(),
-                    )));
-                }
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(CancellationWaiter {
-                        acknowledgement,
-                        recorded: false,
-                    });
-                }
-            }
+    /// Installs a handle's cancellation intent and returns the engine input to
+    /// drive, or `None` when there is nothing to send (#777):
+    ///
+    /// - the request is no longer active, so its terminal outcome has already
+    ///   been delivered to the handle;
+    /// - the handle's intent is already installed, so cancelling again
+    ///   observes it instead of sending a second cancellation.
+    pub(crate) fn begin_cancellation(&mut self, request: CancellationRequest) -> Option<Input> {
+        self.cancellation_refusal = None;
+        let active = self.active.get_mut(&request.id)?;
+        if active.cancellation.is_some() {
+            return None;
         }
-        CancellationRegistration {
-            acknowledgement: acknowledgement_receiver,
+        active.cancellation = Some(CancellationIntent {
+            observer: request.observer,
+            recorded: false,
+        });
+        Some(Input::Cancel { id: request.id })
+    }
+
+    /// The answer to a cancellation request once its input has been driven:
+    /// the engine's refusal, if it refused, else success.
+    pub(crate) fn conclude_cancellation(&mut self, id: RequestId) -> Result<(), Error> {
+        match self.cancellation_refusal.take() {
+            Some((refused, error)) if refused == id => Err(error),
+            _ => Ok(()),
         }
     }
 
@@ -2045,6 +2167,7 @@ impl OwnerState {
                         _permit: permit,
                         observer,
                         summary,
+                        cancellation: None,
                     },
                 );
                 self.metrics.admitted = self.metrics.admitted.saturating_add(1);
@@ -2165,10 +2288,7 @@ impl OwnerState {
             }
             Effect::CancellationRecorded { id } => {
                 self.metrics.cancellations = self.metrics.cancellations.saturating_add(1);
-                if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                    waiter.recorded = true;
-                    let _ = waiter.acknowledgement.try_send(Ok(()));
-                }
+                self.mark_cancellation_recorded(id);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::CancellationRecorded { id, target });
                 }
@@ -2178,38 +2298,11 @@ impl OwnerState {
                 let target = self.active.get(&id).map(|active| active.summary.target);
                 let diagnostic = cancellation_diagnostic(&observation);
                 match observation {
-                    CancellationObservation::Recorded => {
-                        if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                            waiter.recorded = true;
-                            let _ = waiter.acknowledgement.try_send(Ok(()));
-                        }
-                    }
+                    CancellationObservation::Recorded
+                    | CancellationObservation::Cancelled
+                    | CancellationObservation::Completed => self.mark_cancellation_recorded(id),
                     CancellationObservation::Failed(error) => {
-                        if let Some(waiter) = self.cancellation_waiters.remove(&id) {
-                            if waiter.recorded {
-                                if self.active.get(&id).is_some_and(|active| {
-                                    matches!(
-                                        active
-                                            .observer
-                                            .resolve(ReceiptObservation::CancellationFailed(error)),
-                                        ObserverResolution::ReceiverLost
-                                    )
-                                }) {
-                                    self.metrics.dropped_observer_events =
-                                        self.metrics.dropped_observer_events.saturating_add(1);
-                                }
-                            } else {
-                                let _ = waiter.acknowledgement.try_send(Err(error));
-                            }
-                        }
-                    }
-                    CancellationObservation::Cancelled | CancellationObservation::Completed => {
-                        if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                            if !waiter.recorded {
-                                waiter.recorded = true;
-                                let _ = waiter.acknowledgement.try_send(Ok(()));
-                            }
-                        }
+                        self.cancellation_failed(id, error);
                     }
                 }
                 if let Some(target) = target {
@@ -2262,9 +2355,7 @@ impl OwnerState {
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
-                        active
-                            .observer
-                            .resolve(ReceiptObservation::Terminal(outcome.clone())),
+                        active.observer.resolve(outcome.clone()),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2276,11 +2367,6 @@ impl OwnerState {
                         target,
                         outcome: diagnostic,
                     });
-                }
-                if let Some(waiter) = self.cancellation_waiters.remove(&id) {
-                    if !waiter.recorded {
-                        let _ = waiter.acknowledgement.try_send(Ok(()));
-                    }
                 }
                 self.metrics.terminal = self.metrics.terminal.saturating_add(1);
                 AppliedEffect::None

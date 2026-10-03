@@ -352,7 +352,8 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
-    let handle = camera.submit(&PanTiltHome).await?;
+    let mut handle = camera.submit(&PanTiltHome).await?;
+    handle.applied().await?;
     handle.settled().await?;
 
     camera.submit(&ZoomStop).await?.applied().await?;
@@ -368,10 +369,17 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
   intended indication of target rest, not a 2.0.0-rc.2 bench-verified assertion
   that physical motion ended; exact model/firmware/transport/command evidence
   remains in the [hardware release checklist](docs/hardware_release_checklist.md).
-- `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
-  removable locally; sent work requires profile support and otherwise returns
-  `Error::NotSupported`. Success does not prove physical motion stopped, so use
-  a bounded STOP for continuous movement.
+- Waits borrow the handle, and the handle caches what it observes: `applied`
+  then `settled` on one handle continues from the cached application, a
+  repeated wait answers from the cache, and a wait that times out or loses a
+  `select!` ends only that wait.
+- `cancel` requests owner-owned, ID/socket-safe cancellation and waits for its
+  conclusion: `Cancelled`, or `Completed` when the operation applied first.
+  It is idempotent; a handle has one cancellation intent, and a repeated
+  `cancel` observes it. Queued work is removable locally; sent work requires
+  profile support and otherwise returns `Error::NotSupported`, leaving the
+  operation running and the handle observing it. Success does not prove
+  physical motion stopped, so use a bounded STOP for continuous movement.
 - Dropping a handle never stops hardware. Drop is `detach`: the submitted
   command remains owner-owned, may still be dispatched and complete, and
   physical movement continues, so an early `?` or a panic leaves the camera
