@@ -71,6 +71,7 @@ async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
         CancellationOutcome::Completed => {
             println!("the drive completed before cancellation could win");
         }
+        outcome => println!("cancellation concluded: {outcome:?}"),
     }
     // A cancellation outcome is protocol evidence, not proof that hardware is
     // physically still. Always pair a continuous drive with an explicit STOP.
