@@ -110,7 +110,7 @@ mod blocking_recovery {
                 // A zero-byte read is the peer closing the connection.
                 return Ok(0);
             }
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }

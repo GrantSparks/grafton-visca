@@ -86,7 +86,9 @@ record_construction InvalidPreset src/camera/profiles.rs \
 record_construction ParameterOutOfRange src/units.rs \
   'return Err(Error::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \
-  'RuntimeOutcome::Failed(last_error.unwrap_or(Error::Timeout))'
+  'Error::timeout(FailureStage::Terminal, certainty)'
+record_construction ObservationTimeout src/runtime/owner/mod.rs \
+  'Error::ObservationTimeout {'
 record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
   'Err(Error::MaxRetriesExceeded)'
 record_construction NotSupported src/runtime/owner/adapter.rs \

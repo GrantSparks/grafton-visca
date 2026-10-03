@@ -225,7 +225,7 @@ pub mod async_handshake {
         let remaining = attempt_budget.saturating_sub(elapsed);
 
         if remaining.is_zero() {
-            Err(Error::Timeout)
+            Err(Error::connect_timeout())
         } else {
             Ok(remaining)
         }
@@ -279,7 +279,7 @@ pub mod async_handshake {
 
     /// Whether a transport read means it simply had no bytes to offer.
     fn read_reported_no_data(error: &Error) -> bool {
-        matches!(error, Error::Timeout)
+        matches!(error, Error::Timeout { .. })
             || matches!(
                 error,
                 Error::Io(io_error)
@@ -333,7 +333,7 @@ pub mod async_handshake {
             let remaining =
                 remaining_attempt_budget(exec, attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?;
             if remaining < IF_CLEAR_SETTLE_DELAY {
-                return Err(Error::Timeout);
+                return Err(Error::connect_timeout());
             }
             timeout(exec, remaining, sleep(exec, IF_CLEAR_SETTLE_DELAY)).await?;
             Ok(())
@@ -399,7 +399,7 @@ pub mod async_handshake {
                         debug!("Address Set successful, found {camera_count} cameras");
                         return Ok(camera_count);
                     }
-                    Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
+                    Err(error @ (Error::Timeout { .. } | Error::ResponseTooLarge { .. }))
                         if attempt < max_attempts - 1 =>
                     {
                         warn!(?error, "Address Set attempt failed, retrying...");
@@ -443,7 +443,7 @@ pub mod async_handshake {
             let remaining = match remaining_attempt_budget(exec, attempt_started, timeout_duration)
             {
                 Ok(remaining) => remaining,
-                Err(Error::Timeout) => break,
+                Err(Error::Timeout { .. }) => break,
                 Err(error) => return Err(error),
             };
             match timeout(exec, remaining, stream.read(&mut temp_buf)).await {
@@ -458,21 +458,21 @@ pub mod async_handshake {
 
                     match pause_before_next_read(exec, attempt_started, timeout_duration).await {
                         Ok(()) => {}
-                        Err(Error::Timeout) => break,
+                        Err(Error::Timeout { .. }) => break,
                         Err(error) => return Err(error),
                     }
                 }
                 Ok(Ok(_)) => {
                     match pause_before_next_read(exec, attempt_started, timeout_duration).await {
                         Ok(()) => {}
-                        Err(Error::Timeout) => break,
+                        Err(Error::Timeout { .. }) => break,
                         Err(error) => return Err(error),
                     }
                 }
                 Ok(Err(error)) if read_reported_no_data(&error) => {
                     match pause_before_next_read(exec, attempt_started, timeout_duration).await {
                         Ok(()) => {}
-                        Err(Error::Timeout) => break,
+                        Err(Error::Timeout { .. }) => break,
                         Err(error) => return Err(error),
                     }
                 }
@@ -491,7 +491,7 @@ pub mod async_handshake {
             }
             _ => {
                 debug!("Address Set timeout - no cameras found");
-                Err(Error::Timeout)
+                Err(Error::connect_timeout())
             }
         }
     }
@@ -562,7 +562,7 @@ pub mod async_handshake {
                 BufferConfig::for_serial(),
             ));
 
-            assert!(matches!(result, Err(Error::Timeout)));
+            assert!(matches!(result, Err(Error::Timeout { .. })));
             assert_eq!(
                 clock.now().saturating_duration_since(attempt_started),
                 timeout
@@ -594,7 +594,7 @@ pub mod async_handshake {
                 BufferConfig::for_serial(),
             ));
 
-            assert!(matches!(result, Err(Error::Timeout)));
+            assert!(matches!(result, Err(Error::Timeout { .. })));
             assert_eq!(
                 clock.now().saturating_duration_since(attempt_started),
                 timeout
@@ -723,7 +723,7 @@ pub mod blocking_handshake {
         let remaining = attempt_budget.saturating_sub(attempt_started.elapsed());
 
         if remaining.is_zero() {
-            Err(Error::Timeout)
+            Err(Error::connect_timeout())
         } else {
             Ok(remaining)
         }
@@ -745,7 +745,7 @@ pub mod blocking_handshake {
         let mut guard = HandshakeTimeoutGuard::preserving(io);
         let deadline = attempt_started
             .checked_add(attempt_budget)
-            .ok_or(Error::Timeout)?;
+            .ok_or(Error::connect_timeout())?;
         let write_result =
             write_bounded(guard.port_mut(), bytes, deadline, configured_write_timeout);
         guard.restore()?;
@@ -800,7 +800,7 @@ pub mod blocking_handshake {
         if remaining_attempt_budget(attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?
             < IF_CLEAR_SETTLE_DELAY
         {
-            return Err(Error::Timeout);
+            return Err(Error::connect_timeout());
         }
         std::thread::sleep(IF_CLEAR_SETTLE_DELAY);
         Ok(())
@@ -846,7 +846,7 @@ pub mod blocking_handshake {
                     debug!("Address Set successful, found {camera_count} cameras");
                     return Ok(camera_count);
                 }
-                Err(error @ (Error::Timeout | Error::ResponseTooLarge { .. }))
+                Err(error @ (Error::Timeout { .. } | Error::ResponseTooLarge { .. }))
                     if attempt < max_attempts - 1 =>
                 {
                     warn!(?error, "Address Set attempt failed, retrying...");
@@ -878,7 +878,7 @@ pub mod blocking_handshake {
         loop {
             let remaining = match remaining_attempt_budget(attempt_started, timeout) {
                 Ok(remaining) => remaining,
-                Err(Error::Timeout) => break,
+                Err(Error::Timeout { .. }) => break,
                 Err(error) => return Err(error),
             };
 
@@ -902,13 +902,13 @@ pub mod blocking_handshake {
 
                     match pause_before_next_read(attempt_started, timeout) {
                         Ok(()) => {}
-                        Err(Error::Timeout) => break,
+                        Err(Error::Timeout { .. }) => break,
                         Err(error) => return Err(error),
                     }
                 }
                 Ok(_) => match pause_before_next_read(attempt_started, timeout) {
                     Ok(()) => {}
-                    Err(Error::Timeout) => break,
+                    Err(Error::Timeout { .. }) => break,
                     Err(error) => return Err(error),
                 },
                 Err(error) if read_reported_no_data(&error) => {
@@ -916,7 +916,7 @@ pub mod blocking_handshake {
                     // the one attempt deadline active and try again.
                     match pause_before_next_read(attempt_started, timeout) {
                         Ok(()) => {}
-                        Err(Error::Timeout) => break,
+                        Err(Error::Timeout { .. }) => break,
                         Err(error) => return Err(error),
                     }
                 }
@@ -939,7 +939,7 @@ pub mod blocking_handshake {
             }
             _ => {
                 debug!("Address Set timeout - no cameras found");
-                Err(Error::Timeout)
+                Err(Error::connect_timeout())
             }
         }
     }

@@ -22,7 +22,7 @@ use grafton_visca::{
     profile::{PositionInquirySupport, ProfileSpec},
     profiles::PtzOpticsG2,
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, Error, Executor, Session, SessionConfig,
+    AffectedAxes, Certainty, Error, Executor, FailureContext, FailureStage, Session, SessionConfig,
 };
 
 use profile_fixtures::MotionOwnerCompileTimeProfile;
@@ -285,7 +285,16 @@ where
                 .with_interval(Duration::from_secs(1)),
         )
         .await;
-    assert!(matches!(result, Err(Error::Timeout)));
+    // An idle wait is a read-only query: its deadline is repeatable (D20).
+    assert_eq!(
+        result
+            .expect_err("the camera keeps moving")
+            .failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Observation,
+            Certainty::NotAccepted
+        ))
+    );
     assert_eq!(writes.lock().expect("writes lock").len(), 1);
     session.shutdown().await.expect("shutdown");
 

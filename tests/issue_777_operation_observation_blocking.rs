@@ -23,7 +23,7 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::{PanTiltHome, ZoomDrive, ZoomStop},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    CancellationOutcome, Error,
+    CancellationOutcome, Certainty, Error, FailureContext, FailureStage,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
@@ -145,7 +145,7 @@ impl BlockingTransport for ScriptedTransport {
         let Some(bytes) = next else {
             // Model a silent camera: the read waits out its bound.
             std::thread::sleep(timeout.min(Duration::from_millis(1)));
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -189,10 +189,14 @@ fn a_timed_out_wait_keeps_the_handle_observing() {
     let (session, probe) = open();
     let mut moving = running_zoom(&session, &probe);
 
-    assert!(matches!(
-        moving.applied_with_timeout(SHORT),
-        Err(Error::Timeout)
-    ));
+    // The expired wait names the still-running operation and is never
+    // retryable: resubmitting would duplicate it (D20, #783).
+    let id = moving.id();
+    let expired = moving
+        .applied_with_timeout(SHORT)
+        .expect_err("nothing concluded the zoom");
+    assert!(matches!(expired, Error::ObservationTimeout { operation } if operation == id));
+    assert!(!expired.is_retryable());
     probe.push(COMPLETE_SOCKET_ONE);
     moving
         .applied()
@@ -217,7 +221,7 @@ fn application_then_settlement_restarts_an_abandoned_proof() {
     // Abandoned while awaiting application.
     assert!(matches!(
         home.settled_with_timeout(SHORT),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     probe.push(COMPLETE_SOCKET_ONE);
     home.applied().expect("home applied");
@@ -225,7 +229,7 @@ fn application_then_settlement_restarts_an_abandoned_proof() {
     // Abandoned while polling: the camera does not answer position inquiries.
     assert!(matches!(
         home.settled_with_timeout(SHORT),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     assert!(
         probe.writes().len() > 1,
@@ -267,11 +271,11 @@ fn cancellation_is_one_idempotent_intent() {
 
     assert!(matches!(
         moving.cancel_with_timeout(SHORT),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     assert!(matches!(
         moving.cancel_with_timeout(SHORT),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     assert_eq!(
         probe.writes(),
@@ -318,9 +322,16 @@ fn a_failed_cancellation_leaves_the_outcome_observable() {
     // The camera never answers the socket cancel, so the owner's own
     // cancellation observation deadline ends the intent.
     let failed = moving.cancel().expect_err("unanswered cancel fails");
-    assert!(matches!(failed, Error::Timeout), "{failed:?}");
+    assert_eq!(
+        failed.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::CancellationAttempt,
+            Certainty::StillLive
+        )),
+        "{failed:?}"
+    );
     let again = moving.cancel().expect_err("the failure is cached");
-    assert!(matches!(again, Error::Timeout), "{again:?}");
+    assert_eq!(again.failure_context(), failed.failure_context());
     assert_eq!(
         probe.writes(),
         vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()],
@@ -345,7 +356,7 @@ fn dropping_a_handle_mid_cancellation_keeps_the_owner_serving() {
     let mut moving = running_zoom(&session, &probe);
     assert!(matches!(
         moving.cancel_with_timeout(SHORT),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     drop(moving);
     probe.push(CANCELLED_SOCKET_ONE);

@@ -740,7 +740,7 @@ mod blocking_registry {
 
         fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
             self.counts.reads.fetch_add(1, Ordering::SeqCst);
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }
@@ -991,7 +991,7 @@ mod coexistence {
             dst: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            let bytes = self.responses.pop_front().ok_or(Error::Timeout)?;
+            let bytes = self.responses.pop_front().ok_or(Error::io_timeout())?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }

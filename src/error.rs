@@ -17,7 +17,9 @@
 //!
 //! | Event | Envelope | Transport | Public outcome | `requires_new_session()` | Application response |
 //! | --- | --- | --- | --- | --- | --- |
-//! | Observer or inquiry/response deadline expires without correlation ambiguity | Any | Any | [`Error::Timeout`] | `false` | Bound any new logical attempt. A timeout alone is not liveness proof. |
+//! | A caller's wait on an admitted operation, cancellation, command, or inquiry expires while the owner still holds the request | Any | Any | [`Error::ObservationTimeout`] (stage `Observation`, certainty `StillLive`) | `false` | Never resubmit: wait again on the handle, or reconcile. `is_retryable()` is `false`. |
+//! | The engine's protocol lifecycle reaches a terminal deadline without correlation ambiguity (ACK, completion, inquiry reply, or retry budget) | Sony, or a raw inquiry | Any | [`Error::Timeout`] (stage `Terminal`; certainty `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry, `NotAccepted` if never sent) | `false` | Follow [`Error::failure_context`]: reconcile an unconfirmed command, retry a conclusively failed inquiry. A timeout alone is not liveness proof. |
+//! | An admission deadline expires before the owner accepts the request | Any | Any | [`Error::Timeout`] (stage `PreAdmission`, certainty `NotAccepted`) | `false` | The request never existed; submitting it again is safe. |
 //! | A sent command's ACK/completion becomes unconfirmable under the default policy | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
 //! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
 //! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
@@ -33,7 +35,9 @@
 
 use thiserror::Error as ThisError;
 
-use std::{borrow::Cow, convert::Infallible, io, sync::Arc, time::Duration};
+use std::{borrow::Cow, convert::Infallible, fmt, io, sync::Arc, time::Duration};
+
+use crate::OperationId;
 
 /// Custom result type for VISCA operations.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -135,7 +139,8 @@ pub enum ErrorKind {
 /// - `RuntimeQueueFull` - The local admission queue is full
 /// - `TransportBusy` - The blocking facade is already borrowing the transport
 /// - `TransportError` - One transport operation failed while the session remains live
-/// - `Timeout` - General timeout condition
+/// - `Timeout` - A deadline expired; [`Error::failure_context`] says which
+///   one and whether resubmitting is safe
 ///
 /// Use [`Error::is_retryable()`] to check if an error can be retried, and
 /// [`Error::suggested_retry_delay()`] to get the recommended delay before retrying.
@@ -355,9 +360,34 @@ pub enum Error {
         max: i32,
     },
 
-    /// Operation exceeded timeout without response.
-    #[error("Operation timed out")]
-    Timeout,
+    /// A deadline expired.
+    ///
+    /// `context` says which deadline (the [`FailureStage`]) and what is known
+    /// about the request's effect (the [`Certainty`]): an admission deadline
+    /// (`PreAdmission`, `NotAccepted`), the engine's protocol lifecycle
+    /// (`Terminal`), a cancellation's resolution (`CancellationAttempt`), or
+    /// the session's connection (`Session`). A caller's own wait on a request
+    /// the owner still holds is [`Self::ObservationTimeout`] instead.
+    ///
+    /// A transport reports an idle read with this variant; owners treat that
+    /// as "no data" rather than as a failure.
+    #[error("Operation timed out ({})", context.stage)]
+    Timeout {
+        /// Which deadline expired, and what is known about the request.
+        context: FailureContext,
+    },
+
+    /// A caller's wait expired while the owner still holds the request.
+    ///
+    /// The request — an operation, a cancellation, a command, or an
+    /// inquiry — keeps running under its own deadlines and may still take
+    /// effect. Never resubmit it: wait again on the operation handle, or
+    /// reconcile the camera's state. [`Self::is_retryable`] is `false`.
+    #[error("Wait for operation {operation} timed out; it is still running")]
+    ObservationTimeout {
+        /// The admitted request the wait observed.
+        operation: OperationId,
+    },
 
     /// Maximum retry attempts exceeded.
     #[error("Maximum retries exceeded")]
@@ -527,6 +557,112 @@ pub enum Error {
     },
 }
 
+/// Where a deadline or certainty failure happened, and what is known about
+/// the affected request's effect. Read it with [`Error::failure_context`].
+///
+/// # Example
+///
+/// ```rust
+/// use grafton_visca::{Certainty, Error, FailureStage};
+///
+/// /// What to do after a failed submission or wait.
+/// enum Next {
+///     Resubmit,
+///     WaitAgain,
+///     Reconcile,
+///     GiveUp(Error),
+/// }
+///
+/// fn next_step(error: Error) -> Next {
+///     match error.failure_context() {
+///         Some(context) => match context.certainty {
+///             Certainty::NotAccepted | Certainty::FailedConclusively => Next::Resubmit,
+///             Certainty::StillLive if context.stage == FailureStage::Observation => {
+///                 Next::WaitAgain
+///             }
+///             Certainty::StillLive | Certainty::Unconfirmed => Next::Reconcile,
+///             _ => Next::GiveUp(error),
+///         },
+///         None => Next::GiveUp(error),
+///     }
+/// }
+///
+/// assert!(matches!(next_step(Error::io_timeout()), Next::Reconcile));
+/// assert!(matches!(
+///     next_step(Error::UnsequencedCommandUnconfirmed),
+///     Next::Reconcile
+/// ));
+/// assert!(matches!(next_step(Error::SyntaxError), Next::GiveUp(_)));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub struct FailureContext {
+    /// Which lifecycle stage the failure belongs to.
+    pub stage: FailureStage,
+    /// What is known about whether the request took effect.
+    pub certainty: Certainty,
+}
+
+impl FailureContext {
+    /// A context with the given stage and certainty.
+    #[must_use]
+    pub const fn new(stage: FailureStage, certainty: Certainty) -> Self {
+        Self { stage, certainty }
+    }
+}
+
+/// The lifecycle stage a failure belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum FailureStage {
+    /// Before the owner admitted the request.
+    PreAdmission,
+    /// A caller's wait: on a request the owner still holds, or on the
+    /// camera's state through read-only inquiries (settlement, idle and
+    /// motion queries).
+    Observation,
+    /// The engine's protocol lifecycle for the request: ACK, completion,
+    /// inquiry reply, retry budget, or correlation ambiguity.
+    Terminal,
+    /// The resolution of a cancellation the owner accepted.
+    CancellationAttempt,
+    /// The session's connection: connecting, handshaking, or one transport
+    /// read or write.
+    Session,
+}
+
+impl fmt::Display for FailureStage {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::PreAdmission => "before admission",
+            Self::Observation => "while observing",
+            Self::Terminal => "in the protocol lifecycle",
+            Self::CancellationAttempt => "while resolving a cancellation",
+            Self::Session => "on the connection",
+        })
+    }
+}
+
+/// What is known about whether a request took effect.
+///
+/// Submitting the same request again is safe only after [`Self::NotAccepted`]
+/// or [`Self::FailedConclusively`]: in both, the request had no effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Certainty {
+    /// The request was never accepted and has no effect. Submitting it again
+    /// is safe.
+    NotAccepted,
+    /// The owner still holds the request, which may yet take effect. Wait
+    /// again or reconcile; never resubmit.
+    StillLive,
+    /// The request ended without effect.
+    FailedConclusively,
+    /// The request ended, but whether it took effect is unknown. Reconcile
+    /// the camera's state before deciding to submit it again.
+    Unconfirmed,
+}
+
 impl Error {
     /// Get the kind of this error for categorized handling.
     ///
@@ -534,14 +670,16 @@ impl Error {
     /// ```rust
     /// use grafton_visca::{Error, ErrorKind};
     ///
-    /// let error = Error::Timeout;
-    /// assert_eq!(error.kind(), ErrorKind::Timeout);
+    /// let error = Error::CommandBufferFull;
+    /// assert_eq!(error.kind(), ErrorKind::BufferFull);
     /// ```
     #[must_use]
     pub fn kind(&self) -> ErrorKind {
         match self {
             // Timeout: transient timing failures
-            Self::Timeout | Self::MaxRetriesExceeded => ErrorKind::Timeout,
+            Self::Timeout { .. } | Self::ObservationTimeout { .. } | Self::MaxRetriesExceeded => {
+                ErrorKind::Timeout
+            }
 
             // Cancelled: explicit cancellation
             Self::CommandCanceled => ErrorKind::Cancelled,
@@ -726,7 +864,8 @@ impl Error {
             | Self::BufferTooSmall { .. }
             | Self::InvalidPreset { .. }
             | Self::ParameterOutOfRange { .. }
-            | Self::Timeout
+            | Self::Timeout { .. }
+            | Self::ObservationTimeout { .. }
             | Self::MaxRetriesExceeded
             | Self::NotSupported
             | Self::InvalidState(..)
@@ -780,7 +919,15 @@ impl Error {
     /// - Queue capacity (`RuntimeQueueFull`)
     /// - Pending operations (`CommandPending`, `TransportBusy`)
     /// - Isolated live-session transport failures (`TransportError`)
-    /// - Timeout conditions (`Timeout` and timed-out I/O)
+    /// - Deadline expiry (`Timeout` and timed-out I/O)
+    ///
+    /// This classifies the *condition*, not replay safety. Whether submitting
+    /// the same request again could duplicate a physical effect is a separate
+    /// question that [`Self::failure_context`] answers: only
+    /// [`Certainty::NotAccepted`] and [`Certainty::FailedConclusively`] are
+    /// replay-safe. An
+    /// [`Self::ObservationTimeout`] is never retryable, because its request is
+    /// still running.
     ///
     /// # Example
     ///
@@ -799,6 +946,8 @@ impl Error {
             // MaxRetriesExceeded maps to Timeout (retryable kind) but must not
             // itself be retried — doing so would cause infinite retry loops.
             Self::MaxRetriesExceeded => false,
+            // The request is still running; a new attempt would duplicate it.
+            Self::ObservationTimeout { .. } => false,
             _ => matches!(
                 self.kind(),
                 ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy | ErrorKind::Transport
@@ -843,8 +992,8 @@ impl Error {
             Self::CommandBufferFull | Self::RuntimeQueueFull { .. } | Self::NoSocket => {
                 Some(Duration::from_millis(200))
             }
-            Self::Timeout => Some(Duration::from_secs(2)),
-            Self::MaxRetriesExceeded => None,
+            Self::Timeout { .. } => Some(Duration::from_secs(2)),
+            Self::ObservationTimeout { .. } | Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),
             // Keep the fallback aligned with `is_retryable()`'s `ErrorKind`
             // classification. This includes I/O timeout spellings and gives
@@ -856,6 +1005,118 @@ impl Error {
                 _ => None,
             },
         }
+    }
+
+    /// Where a deadline or certainty failure happened, and what is known
+    /// about the affected request's effect.
+    ///
+    /// Returns `Some` for every timeout ([`Self::Timeout`],
+    /// [`Self::ObservationTimeout`]) and for the unconfirmed outcomes
+    /// ([`Self::UnsequencedCommandUnconfirmed`],
+    /// [`Self::CancellationUnconfirmed`]); `None` otherwise. A context wrapper
+    /// is looked through.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use grafton_visca::{Certainty, Error, FailureStage};
+    ///
+    /// fn may_resubmit(error: &Error) -> bool {
+    ///     error
+    ///         .failure_context()
+    ///         .is_some_and(|context| context.certainty == Certainty::NotAccepted)
+    /// }
+    ///
+    /// let unconfirmed = Error::UnsequencedCommandUnconfirmed;
+    /// assert!(!may_resubmit(&unconfirmed));
+    /// assert_eq!(
+    ///     unconfirmed.failure_context().map(|context| context.stage),
+    ///     Some(FailureStage::Terminal)
+    /// );
+    /// ```
+    #[must_use]
+    pub fn failure_context(&self) -> Option<FailureContext> {
+        match self {
+            Self::Timeout { context } => Some(*context),
+            Self::ObservationTimeout { .. } => Some(FailureContext::new(
+                FailureStage::Observation,
+                Certainty::StillLive,
+            )),
+            Self::UnsequencedCommandUnconfirmed => Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::Unconfirmed,
+            )),
+            Self::CancellationUnconfirmed => Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::Unconfirmed,
+            )),
+            Self::WithContext { source, .. } => source.failure_context(),
+            _ => None,
+        }
+    }
+
+    /// A timeout with the given stage and certainty.
+    pub(crate) const fn timeout(stage: FailureStage, certainty: Certainty) -> Self {
+        Self::Timeout {
+            context: FailureContext::new(stage, certainty),
+        }
+    }
+
+    /// An admission deadline expired before the owner accepted the request.
+    pub(crate) const fn admission_timeout() -> Self {
+        Self::timeout(FailureStage::PreAdmission, Certainty::NotAccepted)
+    }
+
+    /// A read-only state query (an idle wait or a motion query) ran out of
+    /// time. It changed nothing, so it can be repeated.
+    pub(crate) const fn query_timeout() -> Self {
+        Self::timeout(FailureStage::Observation, Certainty::NotAccepted)
+    }
+
+    /// Whether a caller's own deadline produced this error: its wait expired,
+    /// or its admission deadline passed. The request's protocol lifecycle did
+    /// not.
+    pub(crate) fn is_caller_deadline(&self) -> bool {
+        self.failure_context().is_some_and(|context| {
+            matches!(
+                context.stage,
+                FailureStage::Observation | FailureStage::PreAdmission
+            )
+        })
+    }
+
+    /// Reports a caller deadline met inside a read-only state query as the
+    /// query's own repeatable timeout, whichever inquiry it interrupted.
+    pub(crate) fn into_query_timeout(self) -> Self {
+        if self.is_caller_deadline() {
+            Self::query_timeout()
+        } else {
+            self
+        }
+    }
+
+    /// A connection could not be established or handshaken in time; nothing
+    /// was submitted.
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol",
+        feature = "transport-serial",
+        feature = "transport-serial-tokio"
+    ))]
+    pub(crate) const fn connect_timeout() -> Self {
+        Self::timeout(FailureStage::Session, Certainty::NotAccepted)
+    }
+
+    /// One transport read or write did not finish in time.
+    ///
+    /// This is how a transport reports an expired read or write timeout,
+    /// including an idle read that received nothing, which owners treat as
+    /// "no data" rather than as a failure. A write that timed out may or may
+    /// not have left, so its certainty is [`Certainty::Unconfirmed`].
+    #[must_use]
+    pub const fn io_timeout() -> Self {
+        Self::timeout(FailureStage::Session, Certainty::Unconfirmed)
     }
 
     /// Add operation context to this error.
@@ -913,7 +1174,7 @@ impl Error {
     /// );
     /// ```
     #[must_use]
-    pub fn context<D: std::fmt::Display>(self, context: D) -> Self {
+    pub fn context<D: fmt::Display>(self, context: D) -> Self {
         self.with_context(context.to_string())
     }
 
@@ -1084,7 +1345,10 @@ mod tests {
             .to_string(),
             "Invalid parameter 'test': test reason (value: invalid)"
         );
-        assert_eq!(Error::Timeout.to_string(), "Operation timed out");
+        assert_eq!(
+            Error::io_timeout().to_string(),
+            "Operation timed out (on the connection)"
+        );
     }
 
     #[test]
@@ -1106,7 +1370,7 @@ mod tests {
     #[test]
     fn test_is_retryable() {
         assert!(Error::CommandBufferFull.is_retryable());
-        assert!(Error::Timeout.is_retryable());
+        assert!(Error::io_timeout().is_retryable());
         assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
         assert!(Error::TransportError(Cow::Borrowed("datagram send failed")).is_retryable());
 
@@ -1142,7 +1406,7 @@ mod tests {
             Some(Duration::from_millis(50))
         );
         assert_eq!(
-            Error::Timeout.suggested_retry_delay(),
+            Error::io_timeout().suggested_retry_delay(),
             Some(Duration::from_secs(2))
         );
         assert_eq!(
@@ -1182,7 +1446,7 @@ mod tests {
         let cases = [
             (
                 "explicit timeout",
-                Error::Timeout,
+                Error::io_timeout(),
                 ErrorKind::Timeout,
                 Some(Duration::from_secs(2)),
             ),
@@ -1360,7 +1624,7 @@ mod tests {
         // Verify specific kind() mappings per issue #501
 
         // Timeout
-        assert_eq!(Error::Timeout.kind(), ErrorKind::Timeout);
+        assert_eq!(Error::io_timeout().kind(), ErrorKind::Timeout);
         assert_eq!(Error::MaxRetriesExceeded.kind(), ErrorKind::Timeout);
 
         // Cancelled
@@ -1510,7 +1774,7 @@ mod tests {
     fn requires_new_session_is_false_for_recoverable_and_deliberate_conditions() {
         for error in [
             Error::RuntimeShutdown,
-            Error::Timeout,
+            Error::io_timeout(),
             Error::CommandBufferFull,
             Error::CommandPending,
             Error::RuntimeQueueFull { capacity: 8 },
@@ -1644,7 +1908,7 @@ mod tests {
         let contextual = error.with_context("Operation failed");
         assert_eq!(contextual.kind(), ErrorKind::Busy);
 
-        let error = Error::Timeout;
+        let error = Error::io_timeout();
         let contextual = error.with_context("Operation timed out");
         assert_eq!(contextual.kind(), ErrorKind::Timeout);
 
@@ -1686,7 +1950,7 @@ mod tests {
             ),
             (Error::TransportBusy, Duration::from_millis(50)),
             (Error::CommandPending, Duration::from_millis(50)),
-            (Error::Timeout, Duration::from_secs(2)),
+            (Error::io_timeout(), Duration::from_secs(2)),
         ];
 
         for (error, expected_delay) in retryable_errors {
@@ -1736,5 +2000,134 @@ mod tests {
         let contextual = error.with_context("Failed to submit command");
         assert!(contextual.is_retryable());
         assert_eq!(contextual.kind(), ErrorKind::BufferFull);
+    }
+
+    /// D20 (#783): a caller's expired wait is its own variant, names the
+    /// still-running request, and is never retryable.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn observation_timeout_is_a_live_request_that_must_not_be_resubmitted() {
+        let operation = OperationId::from_raw(7);
+        let error = Error::ObservationTimeout { operation };
+        assert_eq!(error.kind(), ErrorKind::Timeout);
+        assert!(!error.is_retryable());
+        assert_eq!(error.suggested_retry_delay(), None);
+        assert!(!error.requires_new_session());
+        assert_eq!(
+            error.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Observation,
+                Certainty::StillLive
+            ))
+        );
+        assert_eq!(
+            error.to_string(),
+            "Wait for operation 7 timed out; it is still running"
+        );
+        assert!(error.is_caller_deadline());
+    }
+
+    /// D20 (#783): every timeout carries its stage and certainty, and a
+    /// context wrapper is looked through.
+    #[test]
+    fn every_timeout_constructor_carries_its_context() {
+        let cases = [
+            (
+                Error::admission_timeout(),
+                FailureStage::PreAdmission,
+                Certainty::NotAccepted,
+            ),
+            (
+                Error::query_timeout(),
+                FailureStage::Observation,
+                Certainty::NotAccepted,
+            ),
+            (
+                Error::io_timeout(),
+                FailureStage::Session,
+                Certainty::Unconfirmed,
+            ),
+        ];
+        for (error, stage, certainty) in cases {
+            let expected = Some(FailureContext::new(stage, certainty));
+            assert_eq!(error.failure_context(), expected, "{error:?}");
+            assert_eq!(error.kind(), ErrorKind::Timeout);
+            assert!(error.is_retryable(), "{error:?}");
+            assert_eq!(error.clone().context("wrapped").failure_context(), expected);
+        }
+    }
+
+    /// D20 (#783): a connection that could not be established submitted
+    /// nothing.
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol",
+        feature = "transport-serial",
+        feature = "transport-serial-tokio"
+    ))]
+    #[test]
+    fn a_connect_timeout_submitted_nothing() {
+        assert_eq!(
+            Error::connect_timeout().failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Session,
+                Certainty::NotAccepted
+            ))
+        );
+    }
+
+    /// D20 (#783): the unconfirmed outcomes report where certainty was lost;
+    /// other errors carry no failure context.
+    #[test]
+    fn unconfirmed_outcomes_carry_context_and_other_errors_do_not() {
+        assert_eq!(
+            Error::UnsequencedCommandUnconfirmed.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::Unconfirmed
+            ))
+        );
+        assert_eq!(
+            Error::CancellationUnconfirmed.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::Unconfirmed
+            ))
+        );
+        for error in [
+            Error::CommandBufferFull,
+            Error::RuntimeShutdown,
+            Error::SyntaxError,
+            Error::TransportBusy,
+        ] {
+            assert_eq!(error.failure_context(), None, "{error:?}");
+        }
+    }
+
+    /// D20 (#783): only a caller's own deadline is normalized into a query's
+    /// repeatable timeout; a terminal protocol timeout keeps its context.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn query_normalization_keeps_protocol_timeouts_exact() {
+        let observed = Error::ObservationTimeout {
+            operation: OperationId::from_raw(3),
+        };
+        assert_eq!(
+            observed.into_query_timeout().failure_context(),
+            Error::query_timeout().failure_context()
+        );
+        assert_eq!(
+            Error::admission_timeout()
+                .into_query_timeout()
+                .failure_context(),
+            Error::query_timeout().failure_context()
+        );
+        let terminal = Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively);
+        assert_eq!(
+            terminal.clone().into_query_timeout().failure_context(),
+            terminal.failure_context()
+        );
+        assert!(!terminal.is_caller_deadline());
     }
 }

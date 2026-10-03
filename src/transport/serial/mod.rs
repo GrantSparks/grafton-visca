@@ -37,7 +37,7 @@ pub(crate) fn write_bounded(
     while written < bytes.len() {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
         if remaining.is_zero() {
-            return Err(crate::Error::Timeout);
+            return Err(crate::Error::io_timeout());
         }
 
         port.set_timeout(device_timeout(configured_write_timeout.min(remaining)))
@@ -64,7 +64,7 @@ pub(crate) fn write_bounded(
                 ));
             }
             Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
-                return Err(crate::Error::Timeout);
+                return Err(crate::Error::io_timeout());
             }
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => {

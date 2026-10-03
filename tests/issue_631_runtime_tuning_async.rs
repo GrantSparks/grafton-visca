@@ -26,9 +26,9 @@ use grafton_visca::{
     profiles::SonyFR7,
     request,
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, CameraId, CameraSession, ControlClass, Error, Executor, Inquiry, InquiryRoute,
-    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, Session,
-    SessionConfig, TimeoutClass,
+    AffectedAxes, CameraId, CameraSession, ControlClass, Error, Executor, FailureStage, Inquiry,
+    InquiryRoute, OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass,
+    Session, SessionConfig, TimeoutClass,
 };
 
 /// The fixture profile's own acknowledgement deadline (the restored 1.x
@@ -176,7 +176,7 @@ async fn time_to_ack_timeout(session: &Session) -> Duration {
         .await
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     started.elapsed()
@@ -253,7 +253,7 @@ async fn a_widened_inquiry_timeout_governs_a_pre_existing_view<E: Executor>(exec
         .expect_err("a silent camera cannot answer an inquiry");
     let elapsed = started.elapsed();
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     assert!(
@@ -292,7 +292,7 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "the in-flight handle must still resolve on its own deadline, got {error:?}"
     );
     assert!(
@@ -486,7 +486,10 @@ async fn a_camera_session_reconfigures_its_own_session<E: Executor>(executor: E)
         .await
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
-    assert!(matches!(error, Error::Timeout), "got {error:?}");
+    assert!(
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        "got {error:?}"
+    );
     assert!(
         elapsed >= WIDE_ACK_TIMEOUT,
         "the camera session's next submission must use the new deadline, \

@@ -437,7 +437,7 @@ where
     {
         Ok(received) => Ok(BlockingReceive::Bytes(received)),
         // An expired application-owned idle read timeout is no data, not a
-        // failed read. Custom transports use `Error::Timeout`; raw
+        // failed read. Custom transports use `Error::io_timeout()`; raw
         // `WouldBlock`/`Interrupted` spellings mean the same thing. Preserve
         // raw `TimedOut`, which can be TCP keepalive exhaustion (#719).
         Err(error) if super::receive_reported_no_data(&error) => Ok(BlockingReceive::TimedOut),
@@ -723,7 +723,7 @@ mod tests {
                         std::io::ErrorKind::ConnectionRefused,
                     ))));
                 }
-                TombstoneIntegrationRead::TimedOut => return Err(Error::Timeout),
+                TombstoneIntegrationRead::TimedOut => return Err(Error::io_timeout()),
                 TombstoneIntegrationRead::BytesAtDeadline(bytes) => {
                     std::thread::sleep(timeout);
                     bytes
@@ -1022,7 +1022,7 @@ mod tests {
         let transport = ScriptedTransport::new(
             cfg,
             [
-                Err(Error::Timeout),
+                Err(Error::io_timeout()),
                 Err(Error::TransportError("boom".into())),
             ],
         );
@@ -1042,7 +1042,7 @@ mod tests {
 
     /// Issue #637/#719: raw `WouldBlock` and `Interrupted` mean an idle read;
     /// raw `TimedOut` remains a fault because TCP keepalive exhaustion can use
-    /// that spelling. Custom idle timers use `Error::Timeout`.
+    /// that spelling. Custom idle timers use `Error::io_timeout()`.
     #[test]
     fn reader_maps_raw_idle_io_kinds_to_the_same_no_data_answer() {
         let mut cfg = config();
@@ -1314,7 +1314,7 @@ mod tests {
         owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         assert!(!decoder.has_buffered_stream_input().unwrap());
 
@@ -1393,7 +1393,7 @@ mod tests {
         owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
 
         let successor = owner
@@ -1510,7 +1510,7 @@ mod tests {
         );
         assert!(matches!(
             try_terminal(&inquiry),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
 
         let successor = owner
@@ -1609,7 +1609,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             try_terminal(&inquiry),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
 
         let successor = owner
@@ -1671,7 +1671,7 @@ mod tests {
             owner.wake(&mut writer, Instant::now()).unwrap();
             assert!(matches!(
                 try_terminal(&first),
-                Some(RuntimeOutcome::Failed(Error::Timeout))
+                Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
             ));
 
             let successor = owner
@@ -1744,7 +1744,7 @@ mod tests {
             owner.wake(&mut writer, Instant::now()).unwrap();
             assert!(matches!(
                 try_terminal(&first),
-                Some(RuntimeOutcome::Failed(Error::Timeout))
+                Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
             ));
 
             let successor = owner
@@ -1832,7 +1832,7 @@ mod tests {
         owner.wake(&mut writer, Instant::now()).unwrap();
         assert!(matches!(
             try_terminal(&first),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         let camera_two = owner
             .submit(&mut writer, serial_inquiry(CameraId::CAMERA_2))

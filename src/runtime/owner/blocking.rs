@@ -741,7 +741,9 @@ where
         deadline: Instant,
     ) -> Result<(), Error> {
         ensure_same_owner(control, self.observation.origin())?;
-        pump_until(control, deadline, || self.observation.applied())?
+        pump_until(control, self.observation.id(), deadline, || {
+            self.observation.applied()
+        })?
     }
 
     /// Cancels the operation and waits for the cancellation's conclusion,
@@ -768,7 +770,9 @@ where
             // A terminal outcome that raced the refusal still decides.
             return self.observation.cancellation().unwrap_or(Err(error));
         }
-        pump_until(control, deadline, || self.observation.cancellation())?
+        pump_until(control, self.observation.id(), deadline, || {
+            self.observation.cancellation()
+        })?
     }
 }
 
@@ -810,7 +814,8 @@ impl BlockingOperationReceipt<completion::Targeted> {
             } => {
                 debug_assert_eq!(*target, self.observation.target());
                 debug_assert_eq!(*axes, self.affected_axes);
-                poll_settlement_blocking(control, queries, *axes, *tolerance, *interval, deadline)?;
+                poll_settlement_blocking(control, queries, *axes, *tolerance, *interval, deadline)
+                    .map_err(|error| super::settlement_error(error, self.observation.id()))?;
             }
         }
         self.observation.mark_settled();
@@ -858,7 +863,7 @@ fn pump_until_sample_boundary(
 ) -> Result<(), Error> {
     let now = control.now();
     if now >= deadline {
-        return Err(Error::Timeout);
+        return Err(Error::query_timeout());
     }
     let sample_at = now.checked_add(interval).unwrap_or(deadline).min(deadline);
     while control.now() < sample_at {
@@ -870,7 +875,7 @@ fn pump_until_sample_boundary(
         control.pump_once_until(Some(sample_at))?;
     }
     if control.now() >= deadline {
-        Err(Error::Timeout)
+        Err(Error::query_timeout())
     } else {
         Ok(())
     }
@@ -906,11 +911,14 @@ fn sample_blocking<R>(
     query: &crate::prepared::PreparedInquiryTemplate<R>,
     deadline: Instant,
 ) -> Result<R, Error> {
-    ensure_before_deadline(control, deadline)?;
-    let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
-    let value = receipt.wait_until(control, deadline)?;
-    ensure_before_deadline(control, deadline)?;
-    Ok(value)
+    let mut sample = || {
+        ensure_before_deadline(control, deadline)?;
+        let receipt = control.submit_inquiry_until(query.instantiate(), deadline)?;
+        let value = receipt.wait_until(control, deadline)?;
+        ensure_before_deadline(control, deadline)?;
+        Ok(value)
+    };
+    sample().map_err(Error::into_query_timeout)
 }
 
 fn ensure_before_deadline(
@@ -918,7 +926,7 @@ fn ensure_before_deadline(
     deadline: Instant,
 ) -> Result<(), Error> {
     if control.now() >= deadline {
-        Err(Error::Timeout)
+        Err(Error::query_timeout())
     } else {
         Ok(())
     }
@@ -1035,13 +1043,14 @@ fn wait_core_until(
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
     ensure_same_owner(control, &core.origin)?;
-    pump_until(control, deadline, || core.try_outcome())
+    pump_until(control, core.id, deadline, || core.try_outcome())
 }
 
 /// Drives the caller-thread owner until `verdict` is available or the
 /// observer deadline passes. Every blocking receipt wait uses this one loop.
 fn pump_until<T>(
     control: &mut BlockingReceiptControl<'_>,
+    id: RequestId,
     deadline: Instant,
     mut verdict: impl FnMut() -> Option<T>,
 ) -> Result<T, Error> {
@@ -1054,7 +1063,7 @@ fn pump_until<T>(
         // Preserve equality so a frame supplied exactly at the observer
         // deadline is still an input that this observer may consume.
         if control.now() > deadline {
-            return Err(Error::Timeout);
+            return Err(super::observation_timeout(id));
         }
         let pump_result = control.pump_once_until(Some(deadline));
         // One clock snapshot decides whether a newly produced outcome belongs
@@ -1072,7 +1081,7 @@ fn pump_until<T>(
         // rather than report the raw cause or silently mask that state (#629).
         pump_result?;
         if observed_after_pump >= deadline {
-            return Err(Error::Timeout);
+            return Err(super::observation_timeout(id));
         }
     }
 }
@@ -1850,7 +1859,7 @@ impl BlockingOwner {
         let deadline = self.first_dispatch_wait_deadline(dispatch_at, observer_deadline);
         loop {
             if observer_deadline.is_some_and(|observer| self.now() >= observer) {
-                return Err(Error::Timeout);
+                return Err(Error::admission_timeout());
             }
             let progress = self
                 .pump_once_inner(
@@ -1875,7 +1884,7 @@ impl BlockingOwner {
                 // can loop until the owner's one-second permanent-fault bound
                 // and turn a bounded submit into a session close (#747).
                 if observer_deadline.is_some_and(|observer| now >= observer) {
-                    return Err(Error::Timeout);
+                    return Err(Error::admission_timeout());
                 }
                 if let Some(await_until) = self
                     .raw_release
@@ -1980,7 +1989,7 @@ impl BlockingOwner {
         // deadline has elapsed, reject before staging admission or writing a
         // new inquiry.
         if observer_deadline.is_some_and(|deadline| self.now() >= deadline) {
-            return Err(Error::Timeout);
+            return Err(Error::admission_timeout());
         }
         self.enter()?;
         let result = self.submit_inner(
@@ -2058,9 +2067,11 @@ impl BlockingOwner {
                 // deadline. Terminalize the still-unwritten entry before
                 // returning so QueueAllowed work cannot survive as an orphan
                 // and write in a later owner turn (#723).
-                let rejection = self.state.reject_unwritten(id, Error::Timeout);
+                let rejection = self.state.reject_unwritten(id, Error::admission_timeout());
                 let _ = self.drive_without_due(driver, rejection);
-                return Err(buffered_submission_error(&completion).unwrap_or(Error::Timeout));
+                return Err(
+                    buffered_submission_error(&completion).unwrap_or(Error::admission_timeout())
+                );
             }
             // `first_dispatch` deliberately does not advance a
             // tombstone.  It can nevertheless dispatch an *unrelated* ready
@@ -3149,7 +3160,7 @@ pub(crate) fn raw_tombstone_fault_timeout_verdict() -> RawReleaseObserverDeadlin
         Duration::from_secs(1),
         started + OBSERVER,
     );
-    let timed_out = matches!(&result, Err(Error::Timeout));
+    let timed_out = matches!(&result, Err(Error::Timeout { .. }));
     assert!(
         timed_out,
         "faulting raw wait must return Timeout: {result:?}"
@@ -4012,7 +4023,7 @@ mod tests {
             )
             .expect_err("the bounded observer must expire before the fault run poisons");
 
-        assert!(matches!(error, Error::Timeout));
+        assert!(matches!(error, Error::Timeout { .. }));
         assert_eq!(clock.current(), started + OBSERVER);
         assert!(
             reader.calls
@@ -4238,7 +4249,7 @@ mod tests {
                 .expect_err("a terminal frame one nanosecond late is invisible to this observer")
         };
 
-        assert!(matches!(error, Error::Timeout));
+        assert!(matches!(error, Error::ObservationTimeout { .. }));
         assert_eq!(reader.deadline, Some(deadline));
         assert_eq!(owner.state().state(), SessionState::Running);
         assert_eq!(
@@ -4337,7 +4348,7 @@ mod tests {
                 .expect_err("a late cancellation observation must not widen the bound")
         };
 
-        assert!(matches!(error, Error::Timeout));
+        assert!(matches!(error, Error::ObservationTimeout { .. }));
         assert_eq!(reader.deadline, Some(deadline));
         assert_eq!(owner.state().state(), SessionState::Running);
         assert_eq!(

@@ -21,7 +21,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::{raw::INLINE_BYTES, CameraId, Error, ViscaSocket};
+use crate::{raw::INLINE_BYTES, CameraId, Certainty, Error, FailureStage, ViscaSocket};
 
 #[cfg(test)]
 mod tests;
@@ -1646,7 +1646,7 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Vec<Effect>,
     ) -> bool {
-        let Some((deadline, raw_active_command, last_error)) =
+        let Some((deadline, raw_active_command, error)) =
             self.entries.get(&owner.request).and_then(|entry| {
                 retry_budget_deadline(entry).map(|deadline| {
                     (
@@ -1654,7 +1654,10 @@ impl ProtocolEngine {
                         self.policy.envelope == EnvelopeKind::Raw
                             && !entry.request.is_inquiry()
                             && matches!(entry.phase, Phase::Sending { .. }),
-                        entry.last_error.clone(),
+                        entry
+                            .last_error
+                            .clone()
+                            .unwrap_or_else(|| terminal_timeout(entry)),
                     )
                 })
             })
@@ -1680,11 +1683,7 @@ impl ProtocolEngine {
             // A late Sony result — including a late transport error — cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
-            self.finish(
-                owner.request,
-                RuntimeOutcome::Failed(last_error.unwrap_or(Error::Timeout)),
-                effects,
-            );
+            self.finish(owner.request, RuntimeOutcome::Failed(error), effects);
         }
         true
     }
@@ -3472,7 +3471,12 @@ impl ProtocolEngine {
             }
             effects.push(Effect::CancellationObservation {
                 id: due.request,
-                observation: CancellationObservation::Failed(Error::Timeout),
+                // The cancellation could not be resolved in time; the
+                // original request keeps running under its own deadlines.
+                observation: CancellationObservation::Failed(Error::timeout(
+                    FailureStage::CancellationAttempt,
+                    Certainty::StillLive,
+                )),
             });
             return;
         }
@@ -3482,7 +3486,10 @@ impl ProtocolEngine {
             && retry_budget_due
             && retry_budget_at.is_some_and(|deadline| deadline == due.at)
         {
-            let error = entry.last_error.clone().unwrap_or(Error::Timeout);
+            let error = entry
+                .last_error
+                .clone()
+                .unwrap_or_else(|| terminal_timeout(entry));
             let raw_active_command = self.policy.envelope == EnvelopeKind::Raw
                 && !entry.request.is_inquiry()
                 && matches!(
@@ -3525,12 +3532,16 @@ impl ProtocolEngine {
                     self.schedule_retry(
                         due.request,
                         now,
-                        Error::Timeout,
+                        terminal_timeout(entry),
                         Backoff::AckCapped,
                         effects,
                     );
                 } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
+                    self.finish(
+                        due.request,
+                        RuntimeOutcome::Failed(terminal_timeout(entry)),
+                        effects,
+                    );
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
             }
@@ -3560,12 +3571,16 @@ impl ProtocolEngine {
                     self.schedule_retry(
                         due.request,
                         now,
-                        Error::Timeout,
+                        terminal_timeout(entry),
                         Backoff::Uncapped,
                         effects,
                     );
                 } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
+                    self.finish(
+                        due.request,
+                        RuntimeOutcome::Failed(terminal_timeout(entry)),
+                        effects,
+                    );
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
@@ -3608,12 +3623,16 @@ impl ProtocolEngine {
                     self.schedule_retry(
                         due.request,
                         now,
-                        Error::Timeout,
+                        terminal_timeout(entry),
                         Backoff::Uncapped,
                         effects,
                     );
                 } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
+                    self.finish(
+                        due.request,
+                        RuntimeOutcome::Failed(terminal_timeout(entry)),
+                        effects,
+                    );
                 }
                 record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
@@ -3632,17 +3651,12 @@ impl ProtocolEngine {
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
                 let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout;
+                let error = terminal_timeout(entry);
                 self.quarantine_raw_inquiry_correlation(due.request, now);
                 if retry_inquiry_timeout {
-                    self.schedule_retry(
-                        due.request,
-                        now,
-                        Error::Timeout,
-                        Backoff::Uncapped,
-                        effects,
-                    );
+                    self.schedule_retry(due.request, now, error, Backoff::Uncapped, effects);
                 } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(Error::Timeout), effects);
+                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                 }
                 record_deadline_expiry(due.request, DeadlineKind::InquiryReply, mark, effects);
             }
@@ -4352,6 +4366,24 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
             entry.phase,
             Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingCompletion { .. }
         )
+}
+
+/// The error for a request whose protocol lifecycle reached a terminal
+/// deadline without correlation ambiguity (D20, #783).
+///
+/// An inquiry has no effect, so its failure is conclusive. A command that is
+/// on the wire, or was, may have reached the camera, so its outcome is
+/// unconfirmed. A command still waiting for its first write was never
+/// accepted.
+fn terminal_timeout(entry: &Entry) -> Error {
+    let certainty = if entry.request.is_inquiry() {
+        Certainty::FailedConclusively
+    } else if matches!(entry.phase, Phase::Ready { .. }) && entry.last_error.is_none() {
+        Certainty::NotAccepted
+    } else {
+        Certainty::Unconfirmed
+    };
+    Error::timeout(FailureStage::Terminal, certainty)
 }
 
 /// The one admission-relative retry-budget deadline while it governs `entry`.

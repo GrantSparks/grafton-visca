@@ -378,7 +378,7 @@ mod blocking {
         owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         let hold_until = owner
             .state()
@@ -1097,7 +1097,7 @@ mod blocking {
         };
 
         assert!(
-            matches!(error, Error::Timeout),
+            matches!(error, Error::Timeout { .. }),
             "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
             clock.now(),
             driver.writes,
@@ -1282,7 +1282,7 @@ mod blocking {
         };
 
         assert!(
-            matches!(error, Error::Timeout),
+            matches!(error, Error::Timeout { .. }),
             "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
             clock.now(),
             driver.writes,
@@ -1462,7 +1462,7 @@ mod blocking {
         owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         let hold_until = owner
             .state()
@@ -1486,7 +1486,7 @@ mod blocking {
         }
         .expect_err("a ready budget before the raw hold cannot reach the wire");
 
-        assert!(matches!(error, Error::Timeout));
+        assert!(matches!(error, Error::Timeout { .. }));
         assert_eq!(driver.writes.len(), 1, "expired B never writes");
         assert_eq!(
             reader.calls, 1,
@@ -1529,7 +1529,7 @@ mod blocking {
         owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             predecessor.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         let hold_until = owner
             .state()
@@ -1595,7 +1595,7 @@ mod blocking {
         owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
 
         let mut other_target = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
@@ -1694,7 +1694,7 @@ mod blocking {
         owner.wake(&mut driver, Instant::now()).unwrap();
         assert!(matches!(
             first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
+            Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
         ));
         let hold_until = owner
             .state()
@@ -2087,7 +2087,7 @@ mod blocking {
         let deadline = Instant::now() + Duration::from_millis(1);
         assert!(matches!(
             owner.submit_inquiry_until(&mut driver, prepare(CameraId::CAMERA_2), deadline),
-            Err(Error::Timeout)
+            Err(Error::Timeout { .. })
         ));
         assert_eq!(driver.writes.len(), 1, "expired pacing writes no query");
         assert_eq!(
@@ -2261,11 +2261,11 @@ mod blocking {
 
         assert!(matches!(
             first.applied_with_timeout(Duration::ZERO),
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         assert!(matches!(
             second.applied_with_timeout(Duration::ZERO),
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
     }
 
@@ -2405,7 +2405,15 @@ mod blocking {
             )
             .expect_err("an unanswered position query cannot prove settlement");
 
-        assert!(matches!(error, Error::Timeout), "got {error:?}");
+        // A settlement wait that runs out of caller time between samples is
+        // the operation's own observation timeout (D20, #783).
+        assert!(
+            matches!(
+                error,
+                Error::ObservationTimeout { operation: id } if id.get() == operation.id()
+            ),
+            "got {error:?}"
+        );
         assert_eq!(
             driver.writes.len(),
             2,
@@ -2508,7 +2516,7 @@ mod blocking {
                 &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
                 Some(Duration::from_millis(1))
             ),
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         assert_eq!(driver.writes.len(), 2);
         assert_eq!(owner.state().active_len(), 1);
@@ -2928,7 +2936,7 @@ mod blocking {
                 &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
                 Duration::ZERO,
             ),
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         assert_eq!(driver.writes.len(), 1);
         assert!(!driver.writes[0].2);
@@ -5191,7 +5199,7 @@ mod blocking {
                 command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
             )
             .unwrap();
-        driver.results.push_back(Err(Error::Timeout));
+        driver.results.push_back(Err(Error::io_timeout()));
 
         let cancellation = owner.cancel_test(&mut driver, &operation).unwrap();
         assert!(matches!(
@@ -5581,7 +5589,7 @@ mod blocking {
     fn write_failure_and_shutdown_resolve_and_release_once() {
         let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
         let mut driver = FakeDriver {
-            results: VecDeque::from([Err(Error::Timeout)]),
+            results: VecDeque::from([Err(Error::io_timeout())]),
             ..FakeDriver::default()
         };
         let error = owner
@@ -5590,13 +5598,13 @@ mod blocking {
                 command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
             )
             .unwrap_err();
-        assert!(matches!(error, Error::Timeout));
+        assert!(matches!(error, Error::Timeout { .. }));
         assert_eq!(owner.state().active_len(), 0);
         assert_eq!(owner.state().permits().available(), 2);
 
         let mut stream_owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
         let mut stream_driver = FakeDriver {
-            results: VecDeque::from([Err(Error::Timeout)]),
+            results: VecDeque::from([Err(Error::io_timeout())]),
             ..FakeDriver::default()
         };
         let stream_error = stream_owner
@@ -6446,10 +6454,10 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
     use std::sync::Arc;
 
     for idle in [
-        Error::Timeout,
+        Error::io_timeout(),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::WouldBlock))),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::Interrupted))),
-        Error::Timeout.with_context("idle poll"),
+        Error::io_timeout().with_context("idle poll"),
     ] {
         assert!(
             receive_reported_no_data(&idle),
@@ -6522,8 +6530,8 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 
     // Errors that are already per-request are passed through untouched.
     assert!(matches!(
-        normalize_datagram_send_error(Error::Timeout),
-        Error::Timeout
+        normalize_datagram_send_error(Error::io_timeout()),
+        Error::Timeout { .. }
     ));
     assert!(matches!(
         normalize_datagram_send_error(Error::TransportError("serial encode failed".into())),
@@ -6690,7 +6698,7 @@ mod lifecycle_trace {
     /// that substitutes or collapses errors renders a different label.
     fn error_label(error: &Error) -> String {
         match error {
-            Error::Timeout => "Timeout".to_owned(),
+            Error::Timeout { .. } => "Timeout".to_owned(),
             Error::SyntaxError => "SyntaxError".to_owned(),
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
@@ -6721,7 +6729,7 @@ mod lifecycle_trace {
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
             "ok" => Ok(TransmissionMeta { sequence: None }),
-            "Timeout" => Err(Error::Timeout),
+            "Timeout" => Err(Error::io_timeout()),
             other => Err(Error::TransportError(Cow::Owned(other.to_owned()))),
         }
     }
@@ -7142,7 +7150,7 @@ mod lifecycle_trace {
                     "{} outcome operation id={} Error::{} source=observer",
                     self.at,
                     id.get(),
-                    error_label(&Error::Timeout)
+                    error_label(&Error::io_timeout())
                 ));
             }
             let (phase, _) = self

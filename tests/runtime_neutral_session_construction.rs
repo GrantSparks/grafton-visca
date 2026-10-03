@@ -78,7 +78,7 @@ impl Executor for ThreadExecutor {
         async move {
             futures_lite::future::race(async move { Ok(future.await) }, async move {
                 async_io::Timer::after(duration).await;
-                Err(Error::Timeout)
+                Err(Error::io_timeout())
             })
             .await
         }

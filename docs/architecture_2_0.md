@@ -500,7 +500,7 @@ Other targets and all command work remain independently eligible (#712).
 | Successful cancel send | Transition to `AwaitingCancellationResolution` with `AwaitingTerminal`; wait for the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`) through the later of the retained completion and ambiguity deadlines. |
 | Failed datagram cancel send | Resolve the token with the error (`ObservationFailed`), retain the original request and routing, and never retry that cancel for the same socket assignment. An `Executing` original remains governed by its completion deadline, not the earlier cancellation ambiguity deadline (#724). |
 | Failed stream cancel send | Poison the session and resolve every entry and observer. |
-| Observer detach or timeout | No engine input and no protocol transition. |
+| Observer detach or timeout | No engine input and no protocol transition. The expired wait reports `ObservationTimeout` (#783). |
 | Close / shutdown / poison | Resolve every active entry once, in admission order, with the distinct terminal error; clear every index and transmission; reject or drain boundary admissions deliberately. |
 
 Non-retryable camera and transport errors stay exact even when cancel intent

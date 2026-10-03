@@ -2520,6 +2520,27 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
     }
 }
 
+/// A caller's wait on `id` expired while the owner still holds the request
+/// (D20, #783).
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn observation_timeout(id: RequestId) -> Error {
+    Error::ObservationTimeout {
+        operation: crate::OperationId::from_raw(id.get()),
+    }
+}
+
+/// A settlement wait on operation `id` that ran out of caller time, while
+/// waiting for application or between position samples, is that operation's
+/// observation timeout: the operation may still be moving.
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
+    if error.is_caller_deadline() {
+        observation_timeout(id)
+    } else {
+        error
+    }
+}
+
 /// Whether one receive-side transport error means "no bytes arrived" rather
 /// than "this read failed".
 ///
@@ -2530,7 +2551,7 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// for its ACK, burning whole retry budgets in milliseconds, and on the async
 /// owner it would spin the actor's transient-fault arm (#625, #637).
 ///
-/// Both owners therefore normalize an explicit [`Error::Timeout`] and the
+/// Both owners therefore normalize any [`Error::Timeout`] and the
 /// non-fatal raw `WouldBlock` / `Interrupted` spellings to "this read produced
 /// no frames" and keep pumping. A raw `io::ErrorKind::TimedOut` is different:
 /// on a connected TCP socket it is the first error Linux commonly reports when
@@ -2538,7 +2559,7 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// mistaken for an application-owned idle timer (#719).
 pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
     match error {
-        Error::Timeout => true,
+        Error::Timeout { .. } => true,
         Error::Io(io) => matches!(
             io.kind(),
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted

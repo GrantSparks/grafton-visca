@@ -137,9 +137,11 @@
 //!   their governing completion/reply/settlement deadline and total retry
 //!   budget, so a crate-authorized retry remains observable. The
 //!   `applied_with_timeout` / `settled_with_timeout` forms replace *only* this
-//!   deadline. An observer timeout returns [`Error::Timeout`] and ends only
-//!   that wait: the handle keeps observing and can wait again, and nothing
-//!   sends cancellation or changes a scheduler deadline.
+//!   deadline. An observer timeout returns [`Error::ObservationTimeout`] and
+//!   ends only that wait: the request keeps running, the handle keeps
+//!   observing and can wait again, and nothing sends cancellation or changes
+//!   a scheduler deadline. Unlike a terminal [`Error::Timeout`], it is never
+//!   retryable: resubmitting would duplicate a request that is still live.
 //! - **Transport timeout** — the driver-level bound on one read or write
 //!   (`read_timeout`/`write_timeout`), independent of both of the above.
 //!
@@ -619,10 +621,10 @@
 //!         timeout: Duration,
 //!     ) -> Result<usize, Error> {
 //!         // Prefer an OS-level socket timeout. An expired idle timeout is
-//!         // reported as `Error::Timeout`, which the runtime reads as
+//!         // reported as `Error::io_timeout()`, which the runtime reads as
 //!         // "this read produced no frames".
 //!         let _ = (dst, timeout);
-//!         Err(Error::Timeout)
+//!         Err(Error::io_timeout())
 //!     }
 //!
 //!     fn send_semantics(&self) -> SendSemantics {
@@ -972,7 +974,7 @@ pub use crate::{
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
         PictureEffectMode, PresetNumber, WhiteBalanceMode,
     },
-    error::{Error, ErrorKind, Result},
+    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
     inquiry_conversions::{
         zoom_from_normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain, ZoomPositionExt,
     },

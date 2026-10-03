@@ -57,7 +57,7 @@ impl BlockingTransport for NoReplyTransport {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         *self.receives.lock().expect("receive lock") += 1;
-        Err(Error::Timeout)
+        Err(Error::io_timeout())
     }
 
     fn send_semantics(&self) -> SendSemantics {

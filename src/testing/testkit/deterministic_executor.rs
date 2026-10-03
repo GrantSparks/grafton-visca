@@ -934,7 +934,7 @@ where
         }
 
         if let Poll::Ready(()) = Pin::new(&mut self.sleep).poll(cx) {
-            return Poll::Ready(Err(Error::Timeout));
+            return Poll::Ready(Err(Error::io_timeout()));
         }
 
         Poll::Pending

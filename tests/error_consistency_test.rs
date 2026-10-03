@@ -58,7 +58,7 @@ fn test_error_retryability_consistency() {
         Error::TransportError("datagram send failed".into()),
         Error::CommandPending,
         Error::CommandBufferFull,
-        Error::Timeout,
+        Error::io_timeout(),
     ];
 
     for error in &retryable_errors {

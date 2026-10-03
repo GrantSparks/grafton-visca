@@ -793,7 +793,7 @@ where
             detached
                 .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
                 .await,
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         assert_eq!(
             writes
@@ -1198,7 +1198,7 @@ async fn establish_raw_inquiry_tombstone_with_probe_driver(
     assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
     assert!(matches!(
         predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1413,7 +1413,7 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
     // the exact coordinator consumes it on the first post-H probe.
     harness
         .reads
-        .try_send(ScriptedRawRead::RepeatingFault(Error::Timeout))
+        .try_send(ScriptedRawRead::RepeatingFault(Error::io_timeout()))
         .unwrap();
     runtime.advance(Duration::from_millis(1));
     harness.reads_observed.recv_async().await.unwrap();
@@ -1457,7 +1457,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
     assert!(matches!(
         predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1639,7 +1639,7 @@ async fn establish_raw_inquiry_tombstone(
             "the predecessor terminalizes at its inquiry deadline",
         )
         .await,
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -2319,7 +2319,7 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             reads.fetch_add(1, Ordering::Relaxed);
             match idle {
                 ImmediateRawIdle::NoData => Ok(AsyncReceive::NoData),
-                ImmediateRawIdle::Timeout => Ok(AsyncReceive::Fault(Error::Timeout)),
+                ImmediateRawIdle::Timeout => Ok(AsyncReceive::Fault(Error::io_timeout())),
             }
         }
     }

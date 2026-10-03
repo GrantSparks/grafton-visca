@@ -62,7 +62,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
     assert_eq!(Runtime::now(&runtime), now);
 
     let error = operation.settled(Some(Duration::ZERO)).await.unwrap_err();
-    assert!(matches!(error, Error::Timeout));
+    assert!(matches!(error, Error::ObservationTimeout { .. }));
     assert_eq!(
         writes.lock().unwrap().len(),
         1,
@@ -184,7 +184,10 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
         "the queued boundary owns capacity until the actor observes its expiry"
     );
     tokio::time::advance(Duration::from_millis(1)).await;
-    assert!(matches!(expiring.await.unwrap(), Err(Error::Timeout)));
+    assert!(matches!(
+        expiring.await.unwrap(),
+        Err(Error::Timeout { .. })
+    ));
 
     // Only now let the actor consume the expired boundary. A pre-fix actor
     // staged it and wrote it after this point because the caller had merely
@@ -244,7 +247,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
         .submit_with_timeout_until(inquiry(), Duration::from_secs(1), handle.now())
         .await
         .unwrap_err();
-    assert!(matches!(error, Error::Timeout));
+    assert!(matches!(error, Error::Timeout { .. }));
 
     actor.flush_pre_admission_rejections(true);
     let metrics = actor.state.metrics_snapshot();
@@ -289,7 +292,10 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         .handle_admission(boundary, &mut driver, &runtime, Executor::now(&runtime))
         .await;
 
-    assert!(matches!(reply.recv_async().await, Ok(Err(Error::Timeout))));
+    assert!(matches!(
+        reply.recv_async().await,
+        Ok(Err(Error::Timeout { .. }))
+    ));
     let metrics = actor.state.metrics_snapshot();
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);

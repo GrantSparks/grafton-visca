@@ -140,13 +140,14 @@ pub trait AsyncTransport: Send {
     ///   yet"; that is the one signal reserved for EOF. Returning
     ///   `Err(Error::ConnectionClosed)` for EOF is also accepted and ends the
     ///   session the same way, but `Ok(0)` is canonical.
-    /// - `Err(Error::Timeout)` — an idle read timeout expired and no bytes
+    /// - `Err(Error::io_timeout())` — an idle read timeout expired and no bytes
     ///   arrived. This is the recommended shape for a transport that must not
     ///   block indefinitely. The runtime treats it as "no data": the session
     ///   lives, framing state is untouched, and no request's retry budget is
     ///   spent. The raw I/O spellings [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
-    ///   normalized to the same meaning. Use `Error::Timeout`, not a raw
+    ///   normalized to the same meaning. Any [`Error::Timeout`] is read the same
+    ///   way. Use [`Error::io_timeout`], not a raw
     ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
@@ -176,11 +177,11 @@ pub trait AsyncTransport: Send {
     /// read timeout. The async runtime bounds every read with the session's
     /// configured `read_timeout` (the `TransportConfig` knob) and, if it elapses,
     /// drops this future and treats the read as an idle no-data receive — exactly
-    /// as if it had returned `Err(Error::Timeout)`. A read that consumed nothing
+    /// as if it had returned `Err(Error::io_timeout())`. A read that consumed nothing
     /// on cancellation keeps framing state intact, so implementations should be
     /// cancellation-safe; futures built from the standard async socket readers
     /// already are. A transport that *does* enforce its own internal timeout and
-    /// returns `Err(Error::Timeout)` also works and composes with this bound.
+    /// returns `Err(Error::io_timeout())` also works and composes with this bound.
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],

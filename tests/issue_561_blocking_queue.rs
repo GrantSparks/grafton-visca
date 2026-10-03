@@ -102,7 +102,7 @@ impl BlockingTransport for TwoSocketTransport {
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+        let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
         dst[..response.len()].copy_from_slice(&response);
         Ok(response.len())
     }
@@ -267,7 +267,7 @@ impl BlockingTransport for FirstWriteFailureTransport {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         *self.probe.reads.lock().expect("reads lock") += 1;
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+        let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
         dst[..response.len()].copy_from_slice(&response);
         Ok(response.len())
     }
@@ -367,7 +367,7 @@ impl BlockingTransport for PacingTransport {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         *self.probe.reads.lock().expect("reads lock") += 1;
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+        let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
         dst[..response.len()].copy_from_slice(&response);
         Ok(response.len())
     }

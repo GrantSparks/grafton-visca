@@ -194,7 +194,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     assert_eq!(writes.recv_async().await.unwrap(), predecessor);
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
@@ -347,7 +347,7 @@ async fn async_raw_tombstone_timeout_verdict(
         .await
         .expect("the caller observer expires at its bounded deadline")
         .unwrap();
-    assert!(matches!(result, Err(Error::Timeout)));
+    assert!(matches!(result, Err(Error::Timeout { .. })));
 
     let now = Executor::now(&runtime);
     assert!(
@@ -428,7 +428,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     assert_eq!(harness.writes.recv_async().await.unwrap(), a);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let (_c_completion, c_admitted) = handle
@@ -869,7 +869,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(harness.writes.recv_async().await.unwrap(), a);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let (b_completion, b_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
@@ -923,7 +923,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     // receive a fresh grace budget rather than inheriting A's deadline.
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
@@ -1006,7 +1006,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             "the production split-tail predecessor terminalizes",
         )
         .await,
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1075,7 +1075,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 "the ambiguous-prefix predecessor terminalizes",
             )
             .await,
-            RuntimeOutcome::Failed(Error::Timeout)
+            RuntimeOutcome::Failed(Error::Timeout { .. })
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
@@ -1518,7 +1518,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
             .await,
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());

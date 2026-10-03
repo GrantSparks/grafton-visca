@@ -696,7 +696,7 @@ mod tests {
     #[test]
     fn an_idle_read_timeout_decodes_as_no_data() {
         for idle in [
-            Error::Timeout,
+            Error::io_timeout(),
             Error::Io(std::sync::Arc::new(std::io::Error::from(
                 std::io::ErrorKind::WouldBlock,
             ))),

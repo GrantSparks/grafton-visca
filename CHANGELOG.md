@@ -54,6 +54,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   back) and the consuming lifecycle the #552 exit criteria described.
 - **BREAKING** (#777): `CancellationOutcome` is `#[non_exhaustive]` (D19).
 
+- **BREAKING** (#783): Every timeout says which deadline expired and what is
+  known about the request (D20). This refines the #755 failure matrix and the
+  #726 public failure model; it does not reverse D8 (#671) and reinstates no
+  session poisoning.
+  - New `Error::ObservationTimeout { operation }` is returned only when a
+    caller's wait on an admitted operation, cancellation, command, or inquiry
+    expires while the owner still holds the request. It names the
+    `OperationId`, its kind is `ErrorKind::Timeout`, and `is_retryable()` is
+    `false`: wait again or reconcile, never resubmit. Previously such waits
+    returned `Error::Timeout`, which `is_retryable()` called retryable.
+  - `Error::Timeout` becomes `Timeout { context: FailureContext }`. Its
+    `FailureStage` says where the deadline was (`PreAdmission`,
+    `Observation`, `Terminal`, `CancellationAttempt`, `Session`) and its
+    `Certainty` says what is known (`NotAccepted`, `StillLive`,
+    `FailedConclusively`, `Unconfirmed`). An admission-deadline expiry stays
+    `Timeout`, with `PreAdmission`/`NotAccepted`. An engine terminal timeout
+    is `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry,
+    and `NotAccepted` for a command never written.
+  - `Error::failure_context()` returns the context for every timeout and for
+    `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`.
+    `FailureContext`, `FailureStage`, and `Certainty` are `#[non_exhaustive]`.
+  - Custom transports report an expired read or write with
+    `Error::io_timeout()`; any `Error::Timeout` from a read still means "no
+    data".
+  - `is_retryable()` is documented as classifying temporary conditions, not
+    replay safety.
+
 ### Removed
 
 - **BREAKING** (#777): `Cancellation`, `blocking::Cancellation`, and

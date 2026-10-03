@@ -120,7 +120,7 @@ impl BlockingTransport for ProbeTransport {
             if self.wait_when_idle && !timeout.is_zero() {
                 std::thread::sleep(timeout);
             }
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         let bytes = next?;
         dst[..bytes.len()].copy_from_slice(&bytes);

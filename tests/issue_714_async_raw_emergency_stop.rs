@@ -325,7 +325,7 @@ mod parity {
             _dst: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            Err(Error::Timeout)
+            Err(Error::io_timeout())
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -361,7 +361,7 @@ mod parity {
             dst: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            let reply = self.replies.try_recv().map_err(|_| Error::Timeout)?;
+            let reply = self.replies.try_recv().map_err(|_| Error::io_timeout())?;
             dst[..reply.len()].copy_from_slice(&reply);
             Ok(reply.len())
         }
@@ -436,7 +436,7 @@ mod parity {
         // camera never answers it.
         assert!(matches!(
             predecessor.cancel_with_timeout(Duration::ZERO),
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
@@ -523,7 +523,7 @@ mod parity {
         // does; the camera never answers it.
         assert!(matches!(
             predecessor.cancel_with_timeout(Duration::ZERO).await,
-            Err(Error::Timeout)
+            Err(Error::ObservationTimeout { .. })
         ));
         let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())

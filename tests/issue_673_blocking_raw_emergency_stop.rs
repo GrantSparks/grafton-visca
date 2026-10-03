@@ -116,7 +116,7 @@ impl BlockingTransport for RawProbeTransport {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         *self.read_count.lock().expect("read count lock") += 1;
-        let bytes = self.reads.pop_front().ok_or(Error::Timeout)?;
+        let bytes = self.reads.pop_front().ok_or(Error::io_timeout())?;
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
     }
@@ -512,7 +512,7 @@ fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
     // socket-cancel is written; the camera never answers it.
     assert!(matches!(
         predecessor.cancel_with_timeout(Duration::ZERO),
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
 
     let camera_one_request = raw_applied_only(RawReplyShape::AckThenCompletion);

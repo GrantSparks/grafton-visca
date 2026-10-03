@@ -29,8 +29,8 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    request, AffectedAxes, CameraId, ControlClass, Error, Inquiry, InquiryRoute, OperationCommand,
-    OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute,
+    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 use grafton_visca::transport::{
@@ -156,7 +156,7 @@ impl BlockingTransport for SilentTransport {
             // A silent camera must not spin the owner's pump; a short pause is
             // what a real socket read would do while its deadline runs down.
             std::thread::sleep(timeout.min(Duration::from_millis(2)));
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -184,7 +184,7 @@ fn time_to_ack_timeout(session: &Session) -> Duration {
         .applied_with_timeout(Duration::from_secs(30))
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     started.elapsed()
@@ -274,7 +274,7 @@ fn a_widened_inquiry_timeout_governs_the_next_inquiry() {
         .expect_err("a silent camera cannot answer an inquiry");
     let elapsed = started.elapsed();
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     assert!(
@@ -308,7 +308,10 @@ fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
         .applied_with_timeout(Duration::from_secs(30))
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
-    assert!(matches!(error, Error::Timeout), "got {error:?}");
+    assert!(
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        "got {error:?}"
+    );
     assert!(
         elapsed >= WIDE_ACK_TIMEOUT,
         "the pre-existing view must pick up the new deadline, took {elapsed:?}"
@@ -470,7 +473,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
         "the in-flight receipt must still resolve on its own deadline, got {error:?}"
     );
     assert!(
@@ -519,7 +522,10 @@ fn a_camera_session_reconfigures_its_own_session() {
         .applied_with_timeout(Duration::from_secs(30))
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
-    assert!(matches!(error, Error::Timeout), "got {error:?}");
+    assert!(
+        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        "got {error:?}"
+    );
     assert!(
         elapsed >= WIDE_ACK_TIMEOUT,
         "the camera session's next submission must use the new deadline, \

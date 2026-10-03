@@ -115,7 +115,7 @@ mod blocking_single_camera {
                 .lock()
                 .expect("responses lock")
                 .pop_front()
-                .ok_or(Error::Timeout)?;
+                .ok_or(Error::io_timeout())?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }

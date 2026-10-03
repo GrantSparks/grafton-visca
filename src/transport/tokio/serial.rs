@@ -380,6 +380,6 @@ mod tests {
             perform_startup_handshakes_for_test(&executor, &mut io, &config),
         )
         .await;
-        assert!(matches!(bounded, Ok(Err(Error::Timeout))));
+        assert!(matches!(bounded, Ok(Err(Error::Timeout { .. }))));
     }
 }

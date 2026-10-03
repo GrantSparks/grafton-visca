@@ -56,7 +56,7 @@ impl BlockingTransport for SilentCamera {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         // A read that found nothing, not a transport fault.
-        Err(Error::Timeout)
+        Err(Error::io_timeout())
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -194,7 +194,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
         .applied()
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(error, Error::Timeout),
+        matches!(error, Error::Timeout { .. }),
         "the sequence-correlated retry budget must end in Timeout, got {error:?}"
     );
 

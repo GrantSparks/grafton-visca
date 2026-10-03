@@ -159,7 +159,9 @@ impl BlockingTransport for SerialTransport {
     ) -> Result<()> {
         // Apply write timeout using RAII guard for guaranteed restoration
         let guard = TimeoutGuard::preserving(&mut *self.port);
-        let deadline = Instant::now().checked_add(timeout).ok_or(Error::Timeout)?;
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or(Error::io_timeout())?;
         write_bounded(guard.port, bytes, deadline, timeout)?;
 
         // Do not call `SerialPort::flush`: on POSIX it is `tcdrain`, which can
@@ -184,7 +186,7 @@ impl BlockingTransport for SerialTransport {
                 if io_err.kind() == std::io::ErrorKind::TimedOut
                     || io_err.kind() == std::io::ErrorKind::WouldBlock =>
             {
-                Err(Error::Timeout)
+                Err(Error::io_timeout())
             }
             Err(io_err) => Err(io_err.into()),
         }
@@ -725,7 +727,7 @@ mod tests {
             BufferConfig::for_serial(),
         );
 
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
         assert_eq!(
             port.write_calls.load(Ordering::SeqCst),
             3,
@@ -750,7 +752,7 @@ mod tests {
             BufferConfig::for_serial(),
         );
 
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
         assert_eq!(port.write_calls.load(Ordering::SeqCst), 0);
         assert!(port.read_timeouts.borrow().is_empty());
         assert!(port.timeout_history.borrow().is_empty());
@@ -990,7 +992,7 @@ mod tests {
             Duration::from_millis(20),
         );
 
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
         assert_eq!(
             write_calls.load(Ordering::SeqCst),
             1,
@@ -1158,7 +1160,7 @@ mod tests {
         fn operation_that_fails(port: &mut dyn SerialPort) -> Result<()> {
             let _guard = TimeoutGuard::new(port, Duration::from_millis(100))?;
             // Simulate early return
-            Err(Error::Timeout)?;
+            Err(Error::io_timeout())?;
             #[allow(unreachable_code)]
             Ok(())
         }

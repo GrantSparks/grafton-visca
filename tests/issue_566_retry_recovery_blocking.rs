@@ -178,7 +178,7 @@ impl BlockingTransport for ScriptTransport {
             // A silent camera must not spin the owner's pump; a short pause is
             // what a real socket read would do while its deadline runs down.
             std::thread::sleep(timeout.min(Duration::from_millis(2)));
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())

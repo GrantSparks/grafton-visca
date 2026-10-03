@@ -98,7 +98,7 @@ impl BlockingTransport for StreamCamera {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         let Some(chunk) = self.reads.pop_front() else {
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         let n = chunk.len().min(dst.len());
         dst[..n].copy_from_slice(&chunk[..n]);

@@ -642,7 +642,7 @@ impl AsyncCameraCore {
             ensure_async_before_deadline(&self.owner, deadline)?;
             let remaining = deadline.saturating_duration_since(self.owner.now());
             if remaining.is_zero() {
-                return Err(Error::Timeout);
+                return Err(Error::query_timeout());
             }
             self.owner.sleep(wait.interval.min(remaining)).await;
             ensure_async_before_deadline(&self.owner, deadline)?;

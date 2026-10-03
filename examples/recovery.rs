@@ -102,9 +102,9 @@ impl BlockingTransport for FakeCamera {
     ) -> Result<usize, Error> {
         if matches!(self.peer, Peer::Silent) {
             std::thread::sleep(timeout.min(Duration::from_millis(5)));
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
-        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
+        let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
         dst[..reply.len()].copy_from_slice(&reply);
         Ok(reply.len())
     }
