@@ -745,7 +745,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         }) {
             let mut stats = inner.stats.write().await;
             stats.packets_dropped += 1;
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
 
         // Check if this is an inquiry command
@@ -839,8 +839,8 @@ impl AsyncTransport for ViscaCameraSimulator {
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::Timeout),
-                Err(_) => return Err(Error::Timeout),
+                Ok(Err(_)) => return Err(Error::io_timeout()),
+                Err(_) => return Err(Error::io_timeout()),
             }
         } else {
             // Fallback: create a new subscriber
@@ -849,8 +849,8 @@ impl AsyncTransport for ViscaCameraSimulator {
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::Timeout),
-                Err(_) => return Err(Error::Timeout),
+                Ok(Err(_)) => return Err(Error::io_timeout()),
+                Err(_) => return Err(Error::io_timeout()),
             }
         };
 

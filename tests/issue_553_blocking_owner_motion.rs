@@ -17,7 +17,7 @@ use grafton_visca::{
     command::CommandKind,
     profile::{PositionInquirySupport, ProfileSpec},
     transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, Error,
+    AffectedAxes, Certainty, Error, FailureContext, FailureStage,
 };
 
 use profile_fixtures::MotionOwnerCompileTimeProfile;
@@ -122,7 +122,7 @@ impl BlockingTransport for MotionTransport {
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+        let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
         dst[..response.len()].copy_from_slice(&response);
         Ok(response.len())
     }
@@ -263,7 +263,16 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
             IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(5))
                 .with_interval(Duration::from_secs(1)),
         );
-    assert!(matches!(result, Err(Error::Timeout)));
+    // An idle wait is a read-only query: its deadline is repeatable (D20).
+    assert_eq!(
+        result
+            .expect_err("the camera keeps moving")
+            .failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Observation,
+            Certainty::NotAccepted
+        ))
+    );
     assert_eq!(writes.lock().expect("writes lock").len(), 1);
     session.shutdown().expect("shutdown");
 

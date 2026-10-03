@@ -152,7 +152,7 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///
 ///     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize, Error> {
 ///         // Receive implementation bounded by `timeout`.
-///         Err(Error::Timeout)
+///         Err(Error::io_timeout())
 ///     }
 /// }
 /// ```
@@ -163,7 +163,7 @@ pub trait BlockingTransport: Send {
     /// known, or `timeout` expires. Implementations must arrange an OS/device
     /// write timeout or an equivalent bounded operation; the blocking owner
     /// cannot safely preempt an arbitrary synchronous implementation. Report
-    /// expiry as [`Error::Timeout`]. The [`CommandKind`] is used for proper
+    /// expiry as [`Error::io_timeout`]. The [`CommandKind`] is used for proper
     /// protocol framing (for example, Sony encapsulation).
     ///
     /// # Arguments
@@ -201,7 +201,7 @@ pub trait BlockingTransport: Send {
     /// This method must block until some data is available, an error is known,
     /// or `timeout` expires. Implementations must use an OS/device timeout or
     /// an equivalent bounded operation; they must not synthesize an immediate
-    /// idle result for a positive timeout. Report expiry as [`Error::Timeout`].
+    /// idle result for a positive timeout. Report expiry as [`Error::io_timeout`].
     ///
     /// # Arguments
     ///
@@ -221,12 +221,13 @@ pub trait BlockingTransport: Send {
     /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
     ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
     ///   yet"; that is the one signal reserved for EOF.
-    /// - `Err(Error::Timeout)` — `timeout` expired and no bytes arrived. The
+    /// - `Err(Error::io_timeout())` — `timeout` expired and no bytes arrived. The
     ///   runtime treats it as "no data": the session lives, framing state is
     ///   untouched, and no request's retry budget is spent. The raw I/O
     ///   spellings [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
-    ///   normalized to the same meaning. Use `Error::Timeout`, not a raw
+    ///   normalized to the same meaning. Any [`Error::Timeout`] is read the same
+    ///   way. Use [`Error::io_timeout`], not a raw
     ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
@@ -258,7 +259,7 @@ pub trait BlockingTransport: Send {
     /// # Returns
     ///
     /// * `Ok(n)` - Number of bytes read (0 = EOF)
-    /// * `Err(Error::Timeout)` - If the timeout expires
+    /// * `Err(Error::io_timeout())` - If the timeout expires
     /// * `Err(_)` - For other transport errors
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration)
         -> Result<usize, Error>;

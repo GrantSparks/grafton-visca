@@ -202,7 +202,7 @@ impl BlockingTransport for FaultTransport {
         dst: &mut [u8],
         _timeout: Duration,
     ) -> Result<usize, Error> {
-        let bytes = self.reads.pop_front().ok_or(Error::Timeout)??;
+        let bytes = self.reads.pop_front().ok_or(Error::io_timeout())??;
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
     }

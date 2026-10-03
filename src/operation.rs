@@ -78,9 +78,9 @@ where
 
     /// Waits for application, bounded by `timeout`.
     ///
-    /// The deadline bounds only this wait. If it expires the operation keeps
-    /// running, its scheduler deadline is unchanged, and the handle can wait
-    /// again.
+    /// The deadline bounds only this wait. If it expires the wait returns
+    /// [`Error::ObservationTimeout`]: the operation keeps running, its
+    /// scheduler deadline is unchanged, and the handle can wait again.
     pub async fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
         self.receipt.applied(Some(timeout)).await
     }

@@ -30,7 +30,8 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::{PanTiltHome, ZoomDrive, ZoomStop},
     transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    CancellationOutcome, Error, Executor, Operation, Session, SessionConfig,
+    CancellationOutcome, Certainty, Error, Executor, FailureContext, FailureStage, Operation,
+    Session, SessionConfig,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
@@ -234,10 +235,15 @@ async fn abandoned_waits_keep_the_handle_observing<E: Executor>(executor: E) {
     let (session, probe) = open(&executor).await;
     let mut moving = running_zoom(&executor, &session, &probe).await;
 
-    assert!(matches!(
-        moving.applied_with_timeout(SHORT).await,
-        Err(Error::Timeout)
-    ));
+    // The expired wait names the still-running operation and is never
+    // retryable: resubmitting would duplicate it (D20, #783).
+    let id = moving.id();
+    let expired = moving
+        .applied_with_timeout(SHORT)
+        .await
+        .expect_err("nothing concluded the zoom");
+    assert!(matches!(expired, Error::ObservationTimeout { operation } if operation == id));
+    assert!(!expired.is_retryable());
     let lost = future::or(async { Some(moving.applied().await) }, async {
         executor.sleep(SHORT).await;
         None
@@ -285,7 +291,7 @@ async fn application_then_settlement<E: Executor>(executor: E) {
     // Abandoned while awaiting application.
     assert!(matches!(
         home.settled_with_timeout(SHORT).await,
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     probe.push(COMPLETE_SOCKET_ONE);
     home.applied().await.expect("home applied");
@@ -293,7 +299,7 @@ async fn application_then_settlement<E: Executor>(executor: E) {
     // Abandoned while polling: the camera does not answer position inquiries.
     assert!(matches!(
         home.settled_with_timeout(SHORT).await,
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     assert!(
         probe.writes().len() > 1,
@@ -339,7 +345,7 @@ async fn cancellation_is_one_idempotent_intent<E: Executor>(executor: E) {
 
     assert!(matches!(
         moving.cancel_with_timeout(SHORT).await,
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     probe.await_writes(&executor, 2).await;
     assert!(
@@ -399,9 +405,16 @@ async fn a_failed_cancellation_leaves_the_outcome_observable<E: Executor>(execut
     // The camera never answers the socket cancel, so the owner's own
     // cancellation observation deadline ends the intent.
     let failed = moving.cancel().await.expect_err("unanswered cancel fails");
-    assert!(matches!(failed, Error::Timeout), "{failed:?}");
+    assert_eq!(
+        failed.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::CancellationAttempt,
+            Certainty::StillLive
+        )),
+        "{failed:?}"
+    );
     let again = moving.cancel().await.expect_err("the failure is cached");
-    assert!(matches!(again, Error::Timeout), "{again:?}");
+    assert_eq!(again.failure_context(), failed.failure_context());
     assert_eq!(
         probe.writes(),
         vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()],
@@ -501,11 +514,11 @@ async fn dyn_handles_share_the_contract<E: Executor>(executor: E) {
 
     assert!(matches!(
         moving.applied_with_timeout(SHORT).await,
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     assert!(matches!(
         moving.cancel_with_timeout(SHORT).await,
-        Err(Error::Timeout)
+        Err(Error::ObservationTimeout { .. })
     ));
     probe.await_writes(&executor, 2).await;
     probe.push(CANCELLED_SOCKET_ONE);

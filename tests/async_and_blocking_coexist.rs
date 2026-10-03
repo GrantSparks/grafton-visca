@@ -145,7 +145,7 @@ mod runtime_coexistence {
 
         fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
             let Some(response) = self.responses.pop_front() else {
-                return Err(Error::Timeout);
+                return Err(Error::io_timeout());
             };
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
@@ -341,7 +341,7 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
                 dst: &mut [u8],
                 _timeout: Duration,
             ) -> Result<usize, Error> {
-                let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+                let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
                 dst[..response.len()].copy_from_slice(&response);
                 Ok(response.len())
             }

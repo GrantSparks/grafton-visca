@@ -101,9 +101,9 @@ where
 
     /// Waits for exact protocol application, bounded by `timeout`.
     ///
-    /// The deadline bounds only this wait. If it expires the operation keeps
-    /// running, its scheduler deadline is unchanged, and the handle can wait
-    /// again.
+    /// The deadline bounds only this wait. If it expires the wait returns
+    /// [`Error::ObservationTimeout`]: the operation keeps running, its
+    /// scheduler deadline is unchanged, and the handle can wait again.
     pub fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
         self.receipt.applied(
             &mut BlockingReceiptControl::shared(self.host),
@@ -915,7 +915,7 @@ impl<'session> BlockingCameraCore<'session> {
             ensure_before_deadline(&control, deadline)?;
             let remaining = deadline.saturating_duration_since(control.now());
             if remaining.is_zero() {
-                return Err(Error::Timeout);
+                return Err(Error::query_timeout());
             }
             control.sleep(wait.interval.min(remaining));
             ensure_before_deadline(&control, deadline)?;
@@ -1122,7 +1122,7 @@ fn ensure_before_deadline(
     deadline: std::time::Instant,
 ) -> Result<(), Error> {
     if control.now() >= deadline {
-        Err(Error::Timeout)
+        Err(Error::query_timeout())
     } else {
         Ok(())
     }

@@ -183,7 +183,7 @@ mod blocking_surface {
             destination: &mut [u8],
             _timeout: Duration,
         ) -> Result<usize, Error> {
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
             destination[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }

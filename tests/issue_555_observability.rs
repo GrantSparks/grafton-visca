@@ -107,7 +107,7 @@ mod blocking_observability {
         }
 
         fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
+            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }

@@ -93,7 +93,7 @@ impl Executor for CustomExecutor {
         async move {
             futures_lite::future::race(async move { Ok(future.await) }, async move {
                 async_io::Timer::after(duration).await;
-                Err(Error::Timeout)
+                Err(Error::io_timeout())
             })
             .await
         }
@@ -118,7 +118,7 @@ fn main() -> Result<(), Error> {
         async_io::Timer::after(Duration::from_millis(50)).await;
     }));
     match timed_out {
-        Err(Error::Timeout) => println!("slow future timed out as expected"),
+        Err(Error::Timeout { .. }) => println!("slow future timed out as expected"),
         Err(error) => return Err(error),
         Ok(()) => {
             return Err(Error::InvalidState(

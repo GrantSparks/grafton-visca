@@ -59,7 +59,7 @@ mod timeout_tests {
         // Now poll the timeout
         let result = timeout_fut.await;
         assert!(
-            matches!(result, Err(grafton_visca::Error::Timeout)),
+            matches!(result, Err(grafton_visca::Error::Timeout { .. })),
             "Expected timeout error, got {:?}",
             result
         );
@@ -113,6 +113,6 @@ mod timeout_tests {
         // Should get the injected timeout error immediately (no hanging)
         let mut buf = vec![0u8; 1024];
         let result = transport.recv_into(&mut buf).await;
-        assert!(matches!(result, Err(grafton_visca::Error::Timeout)));
+        assert!(matches!(result, Err(grafton_visca::Error::Timeout { .. })));
     }
 }

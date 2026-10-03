@@ -96,7 +96,7 @@ pub async fn connect_tcp(
     // Connect with timeout
     let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
         .await
-        .map_err(|_| Error::Timeout)??;
+        .map_err(|_| Error::connect_timeout())??;
 
     apply_tcp_socket_options(&stream, config)?;
 
@@ -142,12 +142,12 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     // Perform async DNS resolution with remaining budget
     let remaining = deadline.remaining_at(Instant::now());
     if remaining.is_zero() {
-        return Err(Error::Timeout);
+        return Err(Error::connect_timeout());
     }
 
     let target_addr = tokio::time::timeout(remaining, tokio::net::lookup_host(address))
         .await
-        .map_err(|_| Error::Timeout)??
+        .map_err(|_| Error::connect_timeout())??
         .next()
         .ok_or_else(|| Error::InvalidAddress {
             reason: "No addresses resolved".into(),
@@ -162,12 +162,12 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     // Connect with remaining budget
     let remaining = deadline.remaining_at(Instant::now());
     if remaining.is_zero() {
-        return Err(Error::Timeout);
+        return Err(Error::connect_timeout());
     }
 
     tokio::time::timeout(remaining, socket.connect(target_addr))
         .await
-        .map_err(|_| Error::Timeout)??;
+        .map_err(|_| Error::connect_timeout())??;
 
     // Apply socket configuration
     if let Some(ttl) = config.ttl {

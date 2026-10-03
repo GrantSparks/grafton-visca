@@ -191,7 +191,7 @@ fn send_with_timeout<S>(
                 error.kind(),
                 io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
             ) {
-                Error::Timeout
+                Error::io_timeout()
             } else {
                 error.into()
             }
@@ -222,7 +222,7 @@ fn recv_with_timeout<S>(
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
 
         if let Err(error) = timeout_guard.set_timeout(Some(remaining)) {
@@ -241,7 +241,7 @@ fn recv_with_timeout<S>(
                 if error.kind() == io::ErrorKind::TimedOut
                     || error.kind() == io::ErrorKind::WouldBlock =>
             {
-                return Err(Error::Timeout);
+                return Err(Error::io_timeout());
             }
             Err(error) => return Err(error.into()),
         }
@@ -530,7 +530,7 @@ mod tests {
 
         let result = transport.recv_into_with_timeout(&mut dst, timeout);
 
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
         assert!(started.elapsed() >= timeout.saturating_sub(Duration::from_millis(20)));
     }
 
@@ -584,6 +584,6 @@ mod tests {
         let result = transport.recv_into_with_timeout(&mut dst, Duration::from_millis(70));
 
         sender.join().expect("sender thread");
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
     }
 }

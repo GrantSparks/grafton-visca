@@ -358,8 +358,8 @@ where
         let next = async {
             match response_rx.recv_async().await {
                 Ok(Ok(bytes)) => Ok(bytes),
-                Ok(Err(_)) => Err(Error::Timeout),
-                Err(_) => Err(Error::Timeout),
+                Ok(Err(_)) => Err(Error::io_timeout()),
+                Err(_) => Err(Error::io_timeout()),
             }
         };
 
@@ -589,7 +589,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
                 Ok(len)
             }
             Ok(Err(e)) => Err(e),
-            Err(_) => Err(Error::Timeout),
+            Err(_) => Err(Error::io_timeout()),
         }
     }
 }
@@ -882,7 +882,7 @@ pub mod helpers {
 
         /// Generate a transport timeout error
         pub fn transport_timeout() -> Step {
-            Step::InjectError(Error::Timeout)
+            Step::InjectError(Error::io_timeout())
         }
 
         /// Generate a connection lost error
@@ -958,7 +958,7 @@ mod tests {
             .unwrap();
         let mut buffer = vec![0u8; 256];
         let result = transport.recv_into_with_timeout(&mut buffer, Duration::from_millis(1));
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
     }
 
     #[cfg(feature = "async")]
@@ -1012,7 +1012,7 @@ mod tests {
         // Assert: recv yields Err(Timeout) immediately (no hangs)
         let mut buffer = vec![0u8; 256];
         let err = transport.recv_into(&mut buffer).await.unwrap_err();
-        assert!(matches!(err, Error::Timeout));
+        assert!(matches!(err, Error::Timeout { .. }));
     }
 
     #[cfg(all(test, feature = "test-utils", feature = "async"))]

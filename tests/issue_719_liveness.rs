@@ -76,7 +76,7 @@ impl BlockingTransport for LivenessTransport {
             )))),
             Peer::Silent | Peer::Answers => {
                 thread::sleep(timeout.min(Duration::from_millis(5)));
-                Err(Error::Timeout)
+                Err(Error::io_timeout())
             }
         }
     }
@@ -107,7 +107,7 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
         .power()
         .state()
         .expect_err("silent peer must exhaust the bounded probe");
-    assert!(matches!(error, Error::Timeout));
+    assert!(matches!(error, Error::Timeout { .. }));
     assert!(error.is_retryable());
     assert!(!error.requires_new_session());
     assert!(started.elapsed() < Duration::from_secs(1));

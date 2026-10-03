@@ -379,7 +379,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         .unwrap();
 
     for timeout in [
-        Error::Timeout,
+        Error::io_timeout(),
         Error::Io(Arc::new(std::io::Error::from(
             std::io::ErrorKind::WouldBlock,
         ))),

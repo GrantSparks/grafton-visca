@@ -457,7 +457,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
         a.completion.try_recv(),
-        Some(RuntimeOutcome::Failed(Error::Timeout))
+        Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
     ));
     assert!(
         observer.try_recv().is_none(),
@@ -496,10 +496,15 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
         .await
         .expect("B was claimed before its deadline");
     assert_eq!(owner.next_write("B dispatches at the release").await, b);
-    assert!(matches!(
-        admitted_within(&c_admitted, "queued C is answered").await,
-        Err(Error::Timeout)
-    ));
+    // C's admission deadline passed before the owner accepted it, so it
+    // never existed and may be resubmitted (D20, #783).
+    assert_eq!(
+        admitted_within(&c_admitted, "queued C is answered")
+            .await
+            .expect_err("C's admission deadline passed")
+            .failure_context(),
+        Error::admission_timeout().failure_context()
+    );
 
     let snapshot = owner.shutdown(actor_task).await;
     assert_eq!(snapshot.metrics.admitted, 2, "only A and B were admitted");

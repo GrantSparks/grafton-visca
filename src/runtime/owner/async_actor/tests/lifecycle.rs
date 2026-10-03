@@ -168,7 +168,7 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
     // The permit is acquired before the bounded boundary send. One more
     // yield lets that infallible next step enqueue before poison is released.
     tokio::task::yield_now().await;
-    gates.send_async(Err(Error::Timeout)).await.unwrap();
+    gates.send_async(Err(Error::io_timeout())).await.unwrap();
 
     assert!(matches!(
         first.terminal().await.unwrap(),

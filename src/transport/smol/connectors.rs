@@ -65,7 +65,7 @@ pub async fn connect_tcp(
     // Connect with timeout using race pattern
     let stream = race(async { Ok(TcpStream::connect(address).await?) }, async {
         Timer::after(config.connect_timeout).await;
-        Err(Error::Timeout)
+        Err(Error::connect_timeout())
     })
     .await?;
 
@@ -86,7 +86,7 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     // Perform DNS resolution with remaining budget using unblock (smol doesn't have native async DNS)
     let remaining = deadline.remaining_at(Instant::now());
     if remaining.is_zero() {
-        return Err(Error::Timeout);
+        return Err(Error::connect_timeout());
     }
 
     let address_owned = address.to_string();
@@ -106,7 +106,7 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
         },
         async {
             Timer::after(remaining).await;
-            Err(Error::Timeout)
+            Err(Error::connect_timeout())
         },
     )
     .await?;
@@ -120,7 +120,7 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
     // Connect with remaining budget
     let remaining = deadline.remaining_at(Instant::now());
     if remaining.is_zero() {
-        return Err(Error::Timeout);
+        return Err(Error::connect_timeout());
     }
 
     race(
@@ -130,7 +130,7 @@ pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSo
         },
         async {
             Timer::after(remaining).await;
-            Err(Error::Timeout)
+            Err(Error::connect_timeout())
         },
     )
     .await?;
@@ -286,7 +286,7 @@ mod tests {
                 },
                 async {
                     Timer::after(remaining).await;
-                    Err(Error::Timeout)
+                    Err(Error::connect_timeout())
                 },
             )
             .await;
@@ -306,7 +306,7 @@ mod tests {
                 },
                 async {
                     Timer::after(remaining).await;
-                    Err(Error::Timeout)
+                    Err(Error::connect_timeout())
                 },
             )
             .await;

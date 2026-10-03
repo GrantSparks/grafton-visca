@@ -86,7 +86,7 @@ where
         // Re-sample one fixed operation budget before each syscall instead.
         let remaining = timeout.saturating_sub(started.elapsed());
         if remaining.is_zero() {
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
         if let Err(error) = timeout_guard.set_timeout(Some(remaining)) {
             return Err(error.into());
@@ -101,7 +101,7 @@ where
             Ok(count) => written += count,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             Err(error) if configured_write_deadline_expired(&error) => {
-                return Err(Error::Timeout);
+                return Err(Error::io_timeout());
             }
             Err(error) => return Err(error.into()),
         }
@@ -128,7 +128,7 @@ where
             reason: Some("peer closed connection".into()),
         }),
         Ok(received) => Ok(received),
-        Err(error) if configured_read_deadline_expired(&error) => Err(Error::Timeout),
+        Err(error) if configured_read_deadline_expired(&error) => Err(Error::io_timeout()),
         Err(error) => Err(error.into()),
     }
 }
@@ -225,7 +225,9 @@ impl Tcp {
         }
 
         // All attempts failed
-        Err(last_error.map(Into::into).unwrap_or_else(|| Error::Timeout))
+        Err(last_error
+            .map(Into::into)
+            .unwrap_or_else(Error::connect_timeout))
     }
 }
 

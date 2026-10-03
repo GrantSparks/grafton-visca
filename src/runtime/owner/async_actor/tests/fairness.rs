@@ -108,7 +108,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     assert_eq!(writes.recv_async().await.unwrap(), predecessor);
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -210,7 +210,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         assert_eq!(writes.recv_async().await.unwrap(), predecessor);
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::Timeout)
+            RuntimeOutcome::Failed(Error::Timeout { .. })
         ));
 
         runtime.advance(HOLD);
@@ -342,7 +342,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     for control in controls {
@@ -420,7 +420,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 }
 #[cfg(feature = "runtime-tokio")]
@@ -666,7 +666,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     assert_eq!(writes.recv_async().await.unwrap(), predecessor);
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     let (_urgent_completion, urgent_admitted) =

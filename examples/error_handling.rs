@@ -66,7 +66,7 @@ fn classify_common_errors() {
     let examples = [
         Error::CommandBufferFull,
         Error::NoSocket,
-        Error::Timeout,
+        Error::io_timeout(),
         Error::SyntaxError,
         Error::CommandNotExecutable,
         Error::RuntimeQueueFull { capacity: 64 },
@@ -78,10 +78,13 @@ fn classify_common_errors() {
 
     println!("\nClassification:");
     for error in examples {
+        // `is_retryable` classifies the condition; `failure_context` says
+        // whether resubmitting the same request is safe.
         println!(
-            "  {error}: retryable={}, suggested_delay={:?}",
+            "  {error}: retryable={}, suggested_delay={:?}, context={:?}",
             error.is_retryable(),
-            error.suggested_retry_delay()
+            error.suggested_retry_delay(),
+            error.failure_context()
         );
     }
 }

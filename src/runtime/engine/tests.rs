@@ -10,6 +10,7 @@ use std::{
 use smallvec::{smallvec, SmallVec};
 
 use super::*;
+use crate::FailureContext;
 
 const POWER: InquiryRoute = InquiryRoute(1);
 const ZOOM: InquiryRoute = InquiryRoute(2);
@@ -459,7 +460,7 @@ fn stale_transmission_and_queue_tickets_are_inert() {
     let duplicate = engine.handle(
         Input::TransmissionFinished {
             transmission: tx,
-            result: Err(Error::Timeout),
+            result: Err(Error::io_timeout()),
         },
         start,
     );
@@ -3433,7 +3434,7 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
     let poison = engine.handle(
         Input::TransmissionFinished {
             transmission: cancel_tx,
-            result: Err(Error::Timeout),
+            result: Err(Error::io_timeout()),
         },
         start,
     );
@@ -4605,7 +4606,7 @@ fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
 /// A receive-side fault the owner has already classified as transient.
 fn fuzz_receive_fault(action: u64) -> Error {
     match action % 4 {
-        0 => Error::Timeout,
+        0 => Error::io_timeout(),
         1 => Error::from(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
         2 => Error::TransportBusy,
         _ => Error::TransportError("fuzz receive fault".into()),
@@ -4759,7 +4760,7 @@ fn fuzz_step(
                 TransportKind::Stream => terminal_faults && (action >> 33).is_multiple_of(8),
             };
             let result = if fails {
-                Err(Error::Timeout)
+                Err(Error::io_timeout())
             } else {
                 Ok(TransmissionMeta {
                     sequence: write_sequence,
@@ -5329,7 +5330,7 @@ fn seed_fuzz_coverage(
         coverage.record(engine, &timed_out);
         assert!(matches!(
             terminal_failure(&timed_out, first_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         let released = engine.advance(*now + Duration::from_millis(80));
         coverage.record(engine, &released);
@@ -5660,7 +5661,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::Timeout)
+            observation: CancellationObservation::Failed(Error::Timeout { .. })
         } if *seen == id
     )));
     assert!(engine.entry(id).is_some());
@@ -6181,7 +6182,7 @@ fn receive_fault_after_termination_is_inert() {
     );
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::Timeout,
+            error: Error::io_timeout(),
         },
         start,
     );
@@ -7879,10 +7880,17 @@ fn a_command_that_never_acks_exhausts_its_attempt_budget() {
 
     let exhausted = engine.handle(Input::Wake, now + Duration::from_millis(20));
     assert!(retry_scheduled(&exhausted).is_none(), "the budget is spent");
-    assert!(matches!(
-        terminal_failure(&exhausted, id),
-        Some(Error::Timeout)
-    ));
+    // A sent command that never acknowledged may still have reached the
+    // camera: its terminal timeout is unconfirmed (D20, #783).
+    assert_eq!(
+        terminal_failure(&exhausted, id)
+            .as_ref()
+            .and_then(Error::failure_context),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::Unconfirmed
+        ))
+    );
     assert!(engine.entry(id).is_none());
     engine.assert_invariants().unwrap();
 }
@@ -7992,7 +8000,7 @@ fn assert_initial_attempt_budget_expiry(
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
     assert!(
         deadline_expiries(&expired, id).is_empty(),
@@ -8036,10 +8044,16 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
     let budget_deadline = start + Duration::from_millis(10);
     assert_eq!(engine.next_wake(), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
-    assert!(matches!(
-        terminal_failure(&expired, queued_id),
-        Some(Error::Timeout)
-    ));
+    // Never written, so never accepted: resubmitting is safe (D20, #783).
+    assert_eq!(
+        terminal_failure(&expired, queued_id)
+            .as_ref()
+            .and_then(Error::failure_context),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::NotAccepted
+        ))
+    );
     assert!(!expired.iter().any(|effect| matches!(
         effect,
         Effect::Transmit { request, .. } if *request == queued_id
@@ -8659,7 +8673,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let expired = engine.finish_input_turn(turn, EngineTurn::COMPLETE);
         assert!(matches!(
             terminal_failure(&expired, id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         assert!(engine.sequences.is_empty());
         assert!(engine.lower_sequences.is_empty());
@@ -8686,7 +8700,10 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             }),
             budget_deadline + Duration::from_nanos(1),
         );
-        assert!(matches!(terminal_failure(&late, id), Some(Error::Timeout)));
+        assert!(matches!(
+            terminal_failure(&late, id),
+            Some(Error::Timeout { .. })
+        ));
         assert!(!late.iter().any(|effect| matches!(
             effect,
             Effect::Transition {
@@ -9085,7 +9102,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
         assert!(matches!(
             terminal_failure(&late, late_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         let ignored = position_of(&late, |effect| {
             matches!(effect, Effect::Ignored(IgnoreReason::UnmatchedFrame))
@@ -9125,7 +9142,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let expired = engine.advance(deadline);
         assert!(matches!(
             terminal_failure(&expired, id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         assert!(
             deadline_expiries(&expired, id).is_empty(),
@@ -11127,7 +11144,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     let inquiry_timeout = engine.advance(timeout_at);
     assert!(matches!(
         terminal_failure(&inquiry_timeout, inquiry_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
 
     let (command_send, command_id) = admit(
@@ -11252,7 +11269,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
         let timed_out = engine.advance(timeout_at);
         assert!(matches!(
             terminal_failure(&timed_out, inquiry_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         let (command_send, command_id) = admit(
             &mut engine,
@@ -11765,10 +11782,16 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
     assert!(request_transmit_optional(&successor).is_none());
 
     let timed_out = engine.advance(timeout_at);
-    assert!(matches!(
-        terminal_failure(&timed_out, first_id),
-        Some(Error::Timeout)
-    ));
+    // An inquiry has no effect, so its timeout is conclusive (D20, #783).
+    assert_eq!(
+        terminal_failure(&timed_out, first_id)
+            .as_ref()
+            .and_then(Error::failure_context),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::FailedConclusively
+        ))
+    );
     assert!(request_transmit_optional(&timed_out).is_none());
     assert!(matches!(
         phase_of(&engine, successor_id),
@@ -11831,7 +11854,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
     let timed_out = engine.advance(timeout_at);
     assert!(matches!(
         terminal_failure(&timed_out, first_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
 
     let (inquiry_effects, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), timeout_at);
@@ -12216,7 +12239,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
     let timed_out = engine.advance(budget_at);
     assert!(matches!(
         terminal_failure(&timed_out, first_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
     assert!(request_transmit_optional(&timed_out).is_none());
     assert!(engine.entry(first_id).is_none());
@@ -12362,7 +12385,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
         let first_reply = engine.advance(timeout_at);
         assert!(matches!(
             terminal_failure(&first_reply, first_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         let (successor, successor_id) = admit(
             &mut engine,
@@ -12403,7 +12426,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
         let expired = run_deadlines_only(&mut engine, release_at - Duration::from_nanos(1));
         assert!(matches!(
             terminal_failure(&expired, successor_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         assert!(request_transmit_optional(&expired).is_none());
         assert!(engine.entry(successor_id).is_none());
@@ -12426,7 +12449,7 @@ fn blocking_first_dispatch_waits_for_ordered_raw_tombstone_turn() {
         let expired = run_deadlines_only(&mut engine, release_at);
         assert!(matches!(
             terminal_failure(&expired, successor_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         assert!(request_transmit_optional(&expired).is_none());
         assert!(engine.entry(successor_id).is_none());
@@ -12510,7 +12533,7 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
     let expired = run_deadlines_only(&mut earlier, start + spacing - Duration::from_nanos(1));
     assert!(matches!(
         terminal_failure(&expired, earlier_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
     assert!(request_transmit_optional(&expired).is_none());
     assert!(earlier.entry(earlier_id).is_none());
@@ -12521,7 +12544,7 @@ fn blocking_pacing_wait_services_total_budget_before_first_write() {
     let expired = run_deadlines_only(&mut equal, start + spacing);
     assert!(matches!(
         terminal_failure(&expired, equal_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
     assert!(request_transmit_optional(&expired).is_none());
     assert!(equal.entry(equal_id).is_none());
@@ -12569,7 +12592,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         );
         assert!(matches!(
             terminal_failure(&equal, first_id),
-            Some(Error::Timeout)
+            Some(Error::Timeout { .. })
         ));
         let awaiting_reply = position_of(&equal, |effect| {
             matches!(
@@ -12620,7 +12643,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
     );
     assert!(matches!(
         terminal_failure(&late, first_id),
-        Some(Error::Timeout)
+        Some(Error::Timeout { .. })
     ));
     assert!(!late.iter().any(|effect| matches!(
         effect,

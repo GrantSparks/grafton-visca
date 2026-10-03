@@ -66,7 +66,7 @@ impl BlockingTransport for RuntimeProfileCamera {
         _timeout: Duration,
     ) -> Result<usize, Error> {
         let Some(reply) = self.replies.pop_front() else {
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         };
         dst[..reply.len()].copy_from_slice(&reply);
         Ok(reply.len())

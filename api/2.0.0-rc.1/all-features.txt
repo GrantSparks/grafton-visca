@@ -13794,6 +13794,8 @@ pub grafton_visca::prelude::async::Error::MessageLengthError
 pub grafton_visca::prelude::async::Error::MissingRuntime
 pub grafton_visca::prelude::async::Error::NoSocket
 pub grafton_visca::prelude::async::Error::NotSupported
+pub grafton_visca::prelude::async::Error::ObservationTimeout
+pub grafton_visca::prelude::async::Error::ObservationTimeout::operation: grafton_visca::OperationId
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange::max: i32
 pub grafton_visca::prelude::async::Error::ParameterOutOfRange::min: i32
@@ -13810,6 +13812,7 @@ pub grafton_visca::prelude::async::Error::StreamPoisoned
 pub grafton_visca::prelude::async::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::async::Error::SyntaxError
 pub grafton_visca::prelude::async::Error::Timeout
+pub grafton_visca::prelude::async::Error::Timeout::context: grafton_visca::FailureContext
 pub grafton_visca::prelude::async::Error::TransportBusy
 pub grafton_visca::prelude::async::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::async::Error::UnexpectedResponseType
@@ -13823,8 +13826,10 @@ pub grafton_visca::prelude::async::Error::WithContext::context: alloc::borrow::C
 pub grafton_visca::prelude::async::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
 impl grafton_visca::Error
 pub fn grafton_visca::Error::context<D: core::fmt::Display>(self, D) -> Self
+pub fn grafton_visca::Error::failure_context(&self) -> core::option::Option<grafton_visca::FailureContext>
 pub const fn grafton_visca::Error::from_code(u8) -> Self
 pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
+pub const fn grafton_visca::Error::io_timeout() -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
 pub fn grafton_visca::Error::requires_new_session(&self) -> bool
@@ -18000,6 +18005,8 @@ pub grafton_visca::prelude::blocking::Error::MessageLengthError
 pub grafton_visca::prelude::blocking::Error::MissingRuntime
 pub grafton_visca::prelude::blocking::Error::NoSocket
 pub grafton_visca::prelude::blocking::Error::NotSupported
+pub grafton_visca::prelude::blocking::Error::ObservationTimeout
+pub grafton_visca::prelude::blocking::Error::ObservationTimeout::operation: grafton_visca::OperationId
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::max: i32
 pub grafton_visca::prelude::blocking::Error::ParameterOutOfRange::min: i32
@@ -18016,6 +18023,7 @@ pub grafton_visca::prelude::blocking::Error::StreamPoisoned
 pub grafton_visca::prelude::blocking::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::prelude::blocking::Error::SyntaxError
 pub grafton_visca::prelude::blocking::Error::Timeout
+pub grafton_visca::prelude::blocking::Error::Timeout::context: grafton_visca::FailureContext
 pub grafton_visca::prelude::blocking::Error::TransportBusy
 pub grafton_visca::prelude::blocking::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::prelude::blocking::Error::UnexpectedResponseType
@@ -18029,8 +18037,10 @@ pub grafton_visca::prelude::blocking::Error::WithContext::context: alloc::borrow
 pub grafton_visca::prelude::blocking::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
 impl grafton_visca::Error
 pub fn grafton_visca::Error::context<D: core::fmt::Display>(self, D) -> Self
+pub fn grafton_visca::Error::failure_context(&self) -> core::option::Option<grafton_visca::FailureContext>
 pub const fn grafton_visca::Error::from_code(u8) -> Self
 pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
+pub const fn grafton_visca::Error::io_timeout() -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
 pub fn grafton_visca::Error::requires_new_session(&self) -> bool
@@ -30129,6 +30139,29 @@ impl core::marker::Unpin for grafton_visca::CancellationOutcome
 impl core::marker::UnsafeUnpin for grafton_visca::CancellationOutcome
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CancellationOutcome
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CancellationOutcome
+#[non_exhaustive] pub enum grafton_visca::Certainty
+pub grafton_visca::Certainty::FailedConclusively
+pub grafton_visca::Certainty::NotAccepted
+pub grafton_visca::Certainty::StillLive
+pub grafton_visca::Certainty::Unconfirmed
+impl core::clone::Clone for grafton_visca::Certainty
+pub fn grafton_visca::Certainty::clone(&self) -> grafton_visca::Certainty
+impl core::cmp::Eq for grafton_visca::Certainty
+impl core::cmp::PartialEq for grafton_visca::Certainty
+pub fn grafton_visca::Certainty::eq(&self, &grafton_visca::Certainty) -> bool
+impl core::fmt::Debug for grafton_visca::Certainty
+pub fn grafton_visca::Certainty::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::Certainty
+pub fn grafton_visca::Certainty::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::Certainty
+impl core::marker::StructuralPartialEq for grafton_visca::Certainty
+impl core::marker::Freeze for grafton_visca::Certainty
+impl core::marker::Send for grafton_visca::Certainty
+impl core::marker::Sync for grafton_visca::Certainty
+impl core::marker::Unpin for grafton_visca::Certainty
+impl core::marker::UnsafeUnpin for grafton_visca::Certainty
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Certainty
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::Certainty
 #[non_exhaustive] pub enum grafton_visca::ControlClass
 pub grafton_visca::ControlClass::Background
 pub grafton_visca::ControlClass::Normal
@@ -30462,6 +30495,8 @@ pub grafton_visca::Error::MessageLengthError
 pub grafton_visca::Error::MissingRuntime
 pub grafton_visca::Error::NoSocket
 pub grafton_visca::Error::NotSupported
+pub grafton_visca::Error::ObservationTimeout
+pub grafton_visca::Error::ObservationTimeout::operation: grafton_visca::OperationId
 pub grafton_visca::Error::ParameterOutOfRange
 pub grafton_visca::Error::ParameterOutOfRange::max: i32
 pub grafton_visca::Error::ParameterOutOfRange::min: i32
@@ -30478,6 +30513,7 @@ pub grafton_visca::Error::StreamPoisoned
 pub grafton_visca::Error::StreamPoisoned::reason: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::SyntaxError
 pub grafton_visca::Error::Timeout
+pub grafton_visca::Error::Timeout::context: grafton_visca::FailureContext
 pub grafton_visca::Error::TransportBusy
 pub grafton_visca::Error::TransportError(alloc::borrow::Cow<'static, str>)
 pub grafton_visca::Error::UnexpectedResponseType
@@ -30491,8 +30527,10 @@ pub grafton_visca::Error::WithContext::context: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
 impl grafton_visca::Error
 pub fn grafton_visca::Error::context<D: core::fmt::Display>(self, D) -> Self
+pub fn grafton_visca::Error::failure_context(&self) -> core::option::Option<grafton_visca::FailureContext>
 pub const fn grafton_visca::Error::from_code(u8) -> Self
 pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
+pub const fn grafton_visca::Error::io_timeout() -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
 pub fn grafton_visca::Error::requires_new_session(&self) -> bool
@@ -30619,6 +30657,32 @@ impl core::marker::Unpin for grafton_visca::command::ExposureMode
 impl core::marker::UnsafeUnpin for grafton_visca::command::ExposureMode
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::ExposureMode
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::ExposureMode
+#[non_exhaustive] pub enum grafton_visca::FailureStage
+pub grafton_visca::FailureStage::CancellationAttempt
+pub grafton_visca::FailureStage::Observation
+pub grafton_visca::FailureStage::PreAdmission
+pub grafton_visca::FailureStage::Session
+pub grafton_visca::FailureStage::Terminal
+impl core::clone::Clone for grafton_visca::FailureStage
+pub fn grafton_visca::FailureStage::clone(&self) -> grafton_visca::FailureStage
+impl core::cmp::Eq for grafton_visca::FailureStage
+impl core::cmp::PartialEq for grafton_visca::FailureStage
+pub fn grafton_visca::FailureStage::eq(&self, &grafton_visca::FailureStage) -> bool
+impl core::fmt::Debug for grafton_visca::FailureStage
+pub fn grafton_visca::FailureStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for grafton_visca::FailureStage
+pub fn grafton_visca::FailureStage::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::FailureStage
+pub fn grafton_visca::FailureStage::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::FailureStage
+impl core::marker::StructuralPartialEq for grafton_visca::FailureStage
+impl core::marker::Freeze for grafton_visca::FailureStage
+impl core::marker::Send for grafton_visca::FailureStage
+impl core::marker::Sync for grafton_visca::FailureStage
+impl core::marker::Unpin for grafton_visca::FailureStage
+impl core::marker::UnsafeUnpin for grafton_visca::FailureStage
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::FailureStage
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::FailureStage
 pub enum grafton_visca::FocusMode
 pub grafton_visca::FocusMode::Auto = 2
 pub grafton_visca::FocusMode::Manual = 3
@@ -32233,6 +32297,29 @@ impl<'a, P> core::marker::Unpin for grafton_visca::ExposureAccessor<'a, P> where
 impl<'a, P> core::marker::UnsafeUnpin for grafton_visca::ExposureAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<'a, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ExposureAccessor<'a, P>
 impl<'a, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ExposureAccessor<'a, P>
+#[non_exhaustive] pub struct grafton_visca::FailureContext
+pub grafton_visca::FailureContext::certainty: grafton_visca::Certainty
+pub grafton_visca::FailureContext::stage: grafton_visca::FailureStage
+impl grafton_visca::FailureContext
+pub const fn grafton_visca::FailureContext::new(grafton_visca::FailureStage, grafton_visca::Certainty) -> Self
+impl core::clone::Clone for grafton_visca::FailureContext
+pub fn grafton_visca::FailureContext::clone(&self) -> grafton_visca::FailureContext
+impl core::cmp::Eq for grafton_visca::FailureContext
+impl core::cmp::PartialEq for grafton_visca::FailureContext
+pub fn grafton_visca::FailureContext::eq(&self, &grafton_visca::FailureContext) -> bool
+impl core::fmt::Debug for grafton_visca::FailureContext
+pub fn grafton_visca::FailureContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::FailureContext
+pub fn grafton_visca::FailureContext::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::FailureContext
+impl core::marker::StructuralPartialEq for grafton_visca::FailureContext
+impl core::marker::Freeze for grafton_visca::FailureContext
+impl core::marker::Send for grafton_visca::FailureContext
+impl core::marker::Sync for grafton_visca::FailureContext
+impl core::marker::Unpin for grafton_visca::FailureContext
+impl core::marker::UnsafeUnpin for grafton_visca::FailureContext
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::FailureContext
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::FailureContext
 pub struct grafton_visca::FocusAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::FocusAccessor<'a, P>
 pub async fn grafton_visca::FocusAccessor<'a, P>::auto(&self) -> grafton_visca::Result<()>

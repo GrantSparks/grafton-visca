@@ -350,7 +350,7 @@ impl AdmissionValidity {
     /// Mark the boundary expired if no actor has already claimed admission.
     ///
     /// The boolean is the linearized answer to the caller's timeout race:
-    /// `true` means it may return `Error::Timeout`; `false` means an admitted
+    /// `true` means it may return an admission timeout; `false` means an admitted
     /// reply is authoritative and still has to be observed.
     fn expire_before_admission(&self) -> bool {
         self.state
@@ -734,7 +734,8 @@ impl AsyncOperationReceipt<completion::Targeted> {
                 debug_assert_eq!(*target, self.observation.target());
                 debug_assert_eq!(*axes, self.affected_axes);
                 poll_settlement_async(&self.owner, queries, *axes, *tolerance, *interval, deadline)
-                    .await?;
+                    .await
+                    .map_err(|error| super::settlement_error(error, self.observation.id()))?;
             }
         }
         self.observation.mark_settled();
@@ -765,7 +766,7 @@ async fn poll_settlement_async(
     loop {
         let remaining = deadline.saturating_duration_since(owner.now());
         if remaining.is_zero() {
-            return Err(Error::Timeout);
+            return Err(Error::query_timeout());
         }
         owner.clock.sleep(interval.min(remaining)).await;
         ensure_async_before_deadline(owner, deadline)?;
@@ -817,13 +818,16 @@ async fn sample_async<R>(
     query: &crate::prepared::PreparedInquiryTemplate<R>,
     deadline: Instant,
 ) -> Result<R, Error> {
-    ensure_async_before_deadline(owner, deadline)?;
-    let receipt = owner
-        .submit_inquiry_until(query.instantiate(), deadline)
-        .await?;
-    let value = receipt.wait_until(owner, deadline).await?;
-    ensure_async_before_deadline(owner, deadline)?;
-    Ok(value)
+    let sample = async {
+        ensure_async_before_deadline(owner, deadline)?;
+        let receipt = owner
+            .submit_inquiry_until(query.instantiate(), deadline)
+            .await?;
+        let value = receipt.wait_until(owner, deadline).await?;
+        ensure_async_before_deadline(owner, deadline)?;
+        Ok(value)
+    };
+    sample.await.map_err(Error::into_query_timeout)
 }
 
 /// Rechecks the owner-bound monotonic clock at every admission/sample
@@ -834,7 +838,7 @@ pub(crate) fn ensure_async_before_deadline(
     deadline: Instant,
 ) -> Result<(), Error> {
     if owner.now() >= deadline {
-        Err(Error::Timeout)
+        Err(Error::query_timeout())
     } else {
         Ok(())
     }
@@ -938,7 +942,10 @@ async fn observe_until<T>(
             ObservationWake::Terminal(None) | ObservationWake::ActorGone => {
                 return verdict(observation).ok_or_else(|| owner.disconnected_error());
             }
-            ObservationWake::Deadline => return verdict(observation).ok_or(Error::Timeout),
+            ObservationWake::Deadline => {
+                return verdict(observation)
+                    .ok_or_else(|| super::observation_timeout(observation.id()));
+            }
         }
     }
 }
@@ -958,7 +965,9 @@ async fn wait_core_until(
         ObservationWake::Terminal(None) | ObservationWake::ActorGone => {
             core.try_outcome().ok_or_else(|| owner.disconnected_error())
         }
-        ObservationWake::Deadline => core.try_outcome().ok_or(Error::Timeout),
+        ObservationWake::Deadline => core
+            .try_outcome()
+            .ok_or_else(|| super::observation_timeout(core.id)),
         ObservationWake::Cancellation(_) => Err(Error::InvalidState(
             "a receipt without a cancellation slot observed one".into(),
         )),
@@ -1193,7 +1202,7 @@ impl AsyncOwnerHandle {
             RequestLane::Command
         };
         if self.now() >= deadline {
-            let error = Error::Timeout;
+            let error = Error::admission_timeout();
             self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
@@ -1213,7 +1222,7 @@ impl AsyncOwnerHandle {
             AdmissionWait::Deadline {
                 expired_before_admission: true,
             } => {
-                let error = Error::Timeout;
+                let error = Error::admission_timeout();
                 // Winning `expire_before_admission` is the sole caller-side
                 // linearization point for this rejection. The actor observes
                 // `ExpiredElsewhere` and deliberately does not record it again.
@@ -1279,6 +1288,7 @@ impl AsyncOwnerHandle {
         request: CancellationRequest,
         deadline: Instant,
     ) -> Result<(), Error> {
+        let id = request.id;
         let (reply, receiver) = flume::bounded(1);
         let delivered = async {
             self.cancellations
@@ -1291,7 +1301,7 @@ impl AsyncOwnerHandle {
             self.clock
                 .sleep(deadline.saturating_duration_since(self.now()))
                 .await;
-            Err(Error::Timeout)
+            Err(super::observation_timeout(id))
         };
         future::or(delivered, expired).await
     }
@@ -2389,13 +2399,13 @@ where
                 true
             }
             AdmissionClaim::ExpiredHere => {
-                let error = Error::Timeout;
+                let error = Error::admission_timeout();
                 self.state.record_admission_rejection(target, lane, &error);
                 let _ = admission.reply.try_send(Err(error));
                 false
             }
             AdmissionClaim::ExpiredElsewhere => {
-                let _ = admission.reply.try_send(Err(Error::Timeout));
+                let _ = admission.reply.try_send(Err(Error::admission_timeout()));
                 false
             }
         }
