@@ -36,6 +36,13 @@ poisoning.
    replay safety. No rename.
 6. Recovery examples per stage go into `docs/observability_and_recovery.md`.
 
+Implemented in #791. The names chosen there: `Error::ObservationTimeout {
+operation }`; `Error::Timeout { context: FailureContext }`, with
+`FailureStage` and `Certainty`; the accessor `Error::failure_context()`; and
+`Error::io_timeout()` for a transport's expired read or write. Replay is safe
+after `NotAccepted` and after `FailedConclusively`: in both, the request had
+no effect.
+
 Refines the #755 matrix classification (and #726). Does not reverse D8 and
 does not reinstate blanket session poisoning. The control-reserve rejection
 variant from D26 is added in the same matrix update.
