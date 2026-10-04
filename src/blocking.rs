@@ -854,31 +854,31 @@ impl BlockingCameraCore {
 
     /// Observes movement on exactly the selected, profile-supported axes.
     ///
-    /// Two complete snapshots are taken through ordinary owner inquiries and
-    /// compared by the shared pure movement detector. The observer budget is
-    /// lowered once to one deadline.
+    /// Two complete snapshots are taken through ordinary owner inquiries,
+    /// separated by at least [`MotionQuery::window`] on the owner clock, and
+    /// compared by the shared pure movement detector. The window plus the
+    /// observer budget is lowered once to one owner-clock deadline.
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let queries = prepare_position_queries(
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            query.axes,
-        )?;
-        let deadline = self.owner.deadline_after(MOTION_QUERY_OBSERVER_BUDGET)?;
-        let mut detector = crate::prepared::MotionDetector::new(query.axes, query.tolerance);
+        let mut observation = crate::prepared::MotionWindow::new(query)?;
+        let queries =
+            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), query.axes)?;
+        let deadline = self
+            .owner
+            .deadline_after(observation.budget(MOTION_QUERY_OBSERVER_BUDGET)?)?;
 
         let baseline = sample_positions_blocking(&self.owner, &queries, deadline)?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
+        let final_not_before = observation.observe_baseline(baseline, Instant::now(), deadline)?;
+        loop {
+            let now = Instant::now();
+            if now >= final_not_before {
+                break;
+            }
+            std::thread::sleep(final_not_before.saturating_duration_since(now));
         }
         ensure_before_deadline(deadline)?;
+        let started_at = Instant::now();
         let next = sample_positions_blocking(&self.owner, &queries, deadline)?;
-        Ok(matches!(
-            detector.observe(next)?,
-            crate::prepared::MotionState::Moving
-        ))
+        observation.observe_final(next, started_at)
     }
 
     /// Waits for exactly the selected, profile-supported axes to become idle.

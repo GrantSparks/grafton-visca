@@ -1,11 +1,15 @@
 //! Pure profile-aware lowering from typed requests to inert engine inputs.
 
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use smallvec::SmallVec;
 
 use crate::{
-    camera::{MovementTolerance, PanTiltPosition},
+    camera::{MotionQuery, MovementTolerance, PanTiltPosition},
     command::{
         inquiry::{
             FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
@@ -257,6 +261,104 @@ impl MotionDetector {
                 MotionState::Settled
             },
         )
+    }
+}
+
+/// Temporal contract for one `is_moving` observation, shared by every facade
+/// (#781).
+///
+/// The facade supplies owner-clock instants; this type decides what they
+/// prove. The baseline's readings were all taken no later than the instant it
+/// was received, and the final snapshot may start only once `window` has
+/// elapsed after that. Every selected axis is therefore compared across at
+/// least `window`, however quickly the camera answers each inquiry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MotionWindow {
+    detector: MotionDetector,
+    window: Duration,
+    final_not_before: Option<Instant>,
+}
+
+impl MotionWindow {
+    /// Validates the query before any I/O.
+    pub(crate) fn new(query: MotionQuery) -> Result<Self> {
+        if query.window.is_zero() {
+            return Err(Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                value: "0ns".into(),
+                reason: "a movement observation needs a positive window".into(),
+            });
+        }
+        Ok(Self {
+            detector: MotionDetector::new(query.axes, query.tolerance),
+            window: query.window,
+            final_not_before: None,
+        })
+    }
+
+    /// The single absolute budget for the whole observation: both snapshots'
+    /// admission and replies plus the intervening wait.
+    pub(crate) fn budget(&self, inquiry_budget: Duration) -> Result<Duration> {
+        self.window
+            .checked_add(inquiry_budget)
+            .ok_or_else(|| Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                value: format!("{:?}", self.window).into(),
+                reason: "the observation deadline is not representable".into(),
+            })
+    }
+
+    /// Records the baseline received at `received_at` and returns the
+    /// earliest instant the final snapshot may start.
+    ///
+    /// A window that cannot elapse before `deadline` is insufficient evidence
+    /// and fails with [`Error::Timeout`] rather than reporting no movement.
+    pub(crate) fn observe_baseline(
+        &mut self,
+        snapshot: PositionSnapshot,
+        received_at: Instant,
+        deadline: Instant,
+    ) -> Result<Instant> {
+        if self.final_not_before.is_some() {
+            return Err(Error::InvalidState(
+                "movement window already has a baseline snapshot".into(),
+            ));
+        }
+        if self.detector.observe(snapshot)? != MotionState::NeedSample {
+            return Err(Error::InvalidState(
+                "new movement detector rejected its baseline snapshot".into(),
+            ));
+        }
+        let not_before = received_at
+            .checked_add(self.window)
+            .filter(|not_before| *not_before < deadline)
+            .ok_or(Error::Timeout)?;
+        self.final_not_before = Some(not_before);
+        Ok(not_before)
+    }
+
+    /// Compares the final snapshot, whose first inquiry started at
+    /// `started_at`, with the baseline. Returns whether movement was observed.
+    pub(crate) fn observe_final(
+        &mut self,
+        snapshot: PositionSnapshot,
+        started_at: Instant,
+    ) -> Result<bool> {
+        let not_before = self.final_not_before.ok_or_else(|| {
+            Error::InvalidState("movement window has no baseline snapshot".into())
+        })?;
+        if started_at < not_before {
+            return Err(Error::InvalidState(
+                "final movement snapshot started before the observation window elapsed".into(),
+            ));
+        }
+        match self.detector.observe(snapshot)? {
+            MotionState::Moving => Ok(true),
+            MotionState::Settled => Ok(false),
+            MotionState::NeedSample => Err(Error::InvalidState(
+                "movement detector lost its baseline snapshot".into(),
+            )),
+        }
     }
 }
 
@@ -1833,6 +1935,127 @@ mod tests {
                 .expect("template decoder"),
             ZoomPosition::new(0x0123).expect("zoom position")
         );
+    }
+
+    fn zoom_snapshot(value: u16) -> PositionSnapshot {
+        PositionSnapshot {
+            zoom: Some(ZoomPosition::new(value).expect("zoom")),
+            ..PositionSnapshot::default()
+        }
+    }
+
+    /// Runs the shared #781 window contract over synthetic owner-clock
+    /// instants: the baseline is received at `start`, and the final snapshot
+    /// starts exactly when the window allows.
+    fn windowed_zoom(query: MotionQuery, baseline: u16, last: u16) -> Result<bool> {
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(30);
+        let mut window = MotionWindow::new(query)?;
+        let not_before = window.observe_baseline(zoom_snapshot(baseline), start, deadline)?;
+        assert_eq!(not_before, start + query.window);
+        window.observe_final(zoom_snapshot(last), not_before)
+    }
+
+    #[test]
+    fn motion_window_rejects_a_zero_window_before_io() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::ZERO);
+        assert!(matches!(
+            MotionWindow::new(query),
+            Err(Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn motion_window_cannot_be_established_by_zero_time_sampling() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(100));
+        let start = Instant::now();
+        let mut window = MotionWindow::new(query).expect("valid window");
+        let not_before = window
+            .observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(30))
+            .expect("baseline");
+        // A pair taken back to back cannot report "no movement" for a window
+        // it did not span, even when the readings are identical.
+        let early = not_before - Duration::from_nanos(1);
+        assert!(matches!(
+            window.observe_final(zoom_snapshot(10), early),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(!window
+            .observe_final(zoom_snapshot(10), not_before)
+            .expect("a sample at the window edge is valid"));
+    }
+
+    #[test]
+    fn motion_window_that_cannot_fit_the_deadline_is_insufficient_evidence() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_secs(1));
+        let start = Instant::now();
+        let mut window = MotionWindow::new(query).expect("valid window");
+        // Slow inquiries consumed the budget: the window would end exactly at
+        // the deadline, so no final snapshot can start. That is a timeout,
+        // never a report of no movement.
+        assert!(matches!(
+            window.observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(1)),
+            Err(Error::Timeout)
+        ));
+        assert!(matches!(
+            window.observe_final(zoom_snapshot(10), start + Duration::from_secs(2)),
+            Err(Error::InvalidState(_))
+        ));
+    }
+
+    #[test]
+    fn motion_window_budget_covers_the_window_and_every_inquiry() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250));
+        let window = MotionWindow::new(query).expect("valid window");
+        assert_eq!(
+            window.budget(Duration::from_secs(30)).expect("budget"),
+            Duration::from_millis(30_250)
+        );
+        let huge =
+            MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
+                .expect("a positive window is structurally valid");
+        assert!(matches!(
+            huge.budget(Duration::from_secs(30)),
+            Err(Error::InvalidParameter { .. })
+        ));
+    }
+
+    #[test]
+    fn motion_window_compares_endpoints_across_the_whole_window() {
+        let tolerance = MovementTolerance {
+            zoom: 10,
+            ..MovementTolerance::default()
+        };
+        let query = MotionQuery::new(AffectedAxes::ZOOM)
+            .with_tolerance(tolerance)
+            .with_window(Duration::from_millis(500));
+        // Slow cumulative drift: individually small steps that add up to more
+        // than the tolerance over the window are movement.
+        assert!(windowed_zoom(query, 100, 111).expect("drift"));
+        // Quantized movement that has not yet crossed a step reads as equal.
+        assert!(!windowed_zoom(query, 100, 100).expect("quantized"));
+        // Stable noise within tolerance, in either direction, is not movement.
+        assert!(!windowed_zoom(query, 100, 110).expect("noise up"));
+        assert!(!windowed_zoom(query, 100, 90).expect("noise down"));
+        assert!(windowed_zoom(query, 100, 89).expect("past tolerance"));
+    }
+
+    #[test]
+    fn motion_window_ignores_unselected_axes() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM);
+        let start = Instant::now();
+        let mut window = MotionWindow::new(query).expect("valid window");
+        let mut baseline = zoom_snapshot(10);
+        baseline.focus = Some(FocusPosition::new(0));
+        let not_before = window
+            .observe_baseline(baseline, start, start + Duration::from_secs(30))
+            .expect("baseline");
+        let mut last = zoom_snapshot(10);
+        last.focus = Some(FocusPosition::new(0x0fff));
+        assert!(!window.observe_final(last, not_before).expect("final"));
     }
 
     #[test]

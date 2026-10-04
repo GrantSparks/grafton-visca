@@ -349,6 +349,17 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
 `is_moving_axes(MotionQuery)` is the axis-selecting form.
 
+A motion observation reads one position snapshot, waits until at least
+`MotionQuery::window` (default 100 ms, set with `with_window`) has elapsed on
+the owner clock, and reads a second. `true` means a selected axis moved by more
+than its tolerance across that window. `false` means no movement was detected
+over the window: an axis creeping slowly enough to stay within tolerance, or
+returning to its start within the window, is not detected. A longer window
+detects slower movement but makes the call take longer. A zero window is
+rejected with `Error::InvalidParameter` before any inquiry, and a window that
+cannot elapse within the observation deadline returns `Error::Timeout`, never
+`false`.
+
 Async noun futures borrow the temporary accessor. A direct call such as
 `camera.motion().stop_all_motion().await` is fine; bind each accessor before a
 macro retains several futures:
