@@ -4,7 +4,16 @@
 //! `camera.motion()` is the one camera-level motion safety/observation view.
 //! `stop_all_motion()` attempts pan/tilt, zoom, and focus STOP even when an
 //! earlier axis fails, returning a per-axis report under one common deadline.
-//! This example explicitly collapses the report to its first failure.
+//! This example prints every axis outcome and treats a pan/tilt or zoom failure
+//! as its error.
+//!
+//! A PTZOptics G2 in auto-focus mode (the factory default) rejects the focus
+//! STOP as not executable (`90 6y 41 FF`), which the library reports as a
+//! focus failure (`UnsequencedCommandUnconfirmed`) while pan/tilt and zoom are
+//! `Applied`. In auto focus the camera owns the focus motor, so the example
+//! shows that rejection but does not fail on it; in manual focus a focus STOP
+//! failure is treated as an error like the other axes. With manual focus all
+//! three axes are `Applied`.
 //! `is_moving`/`is_moving_axes`/`wait_until_idle` observe *only* the axes they
 //! are given; they never settle a submitted operation.
 //!
@@ -18,7 +27,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     blocking::{Camera, Connect},
     camera::{profiles::PtzOpticsG2, IdleWait, MotionQuery},
-    AffectedAxes, Error,
+    AffectedAxes, Error, FocusMode, HaltOutcome,
 };
 
 use support::finish_session;
@@ -61,8 +70,34 @@ fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     println!("pan/tilt idle");
 
     // Fence older declared motion, then inspect the supported STOP outcomes.
-    camera.motion().stop_all_motion()?.into_result()?;
+    let report = camera.motion().stop_all_motion()?;
+    println!("stop_all_motion pan/tilt: {}", describe(&report.pan_tilt));
+    println!("stop_all_motion zoom: {}", describe(&report.zoom));
+    println!("stop_all_motion focus: {}", describe(&report.focus));
+
+    // Pan/tilt and zoom failures are real motion hazards. A G2 in auto focus
+    // rejects the focus STOP as not executable, so that one focus failure is
+    // expected and printed above, not hidden; in manual focus it is an error.
+    let auto_focus = matches!(camera.focus().mode(), Ok(FocusMode::Auto));
+    let focus = if auto_focus { None } else { Some(report.focus) };
+    for outcome in [Some(report.pan_tilt), Some(report.zoom), focus]
+        .into_iter()
+        .flatten()
+    {
+        if let HaltOutcome::Failed(error) = outcome {
+            return Err(error);
+        }
+    }
     println!("stop_all_motion complete");
 
     Ok(())
+}
+
+fn describe(outcome: &HaltOutcome) -> String {
+    match outcome {
+        HaltOutcome::Unsupported => "unsupported".to_owned(),
+        HaltOutcome::Applied => "applied".to_owned(),
+        HaltOutcome::Failed(error) => format!("failed ({error})"),
+        other => format!("{other:?}"),
+    }
 }

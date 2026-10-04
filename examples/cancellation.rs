@@ -9,6 +9,12 @@
 //! `--g2-unsupported` to demonstrate the sole built-in profile without socket
 //! cancellation: after a G2 command is written, `cancel()` refuses with
 //! `Error::NotSupported`, and the same handle still observes the command.
+//! On real G2 hardware a continuous zoom drive usually reports ACK and
+//! completion together about 50 ms after the write while the lens keeps
+//! moving, so `cancel()` typically returns `Ok(Completed)` rather than the
+//! refusal. Either way the drive is still running, so the G2 path applies an
+//! explicit zoom STOP unconditionally after the cancellation attempt, whatever
+//! `cancel()` returned. The G3 path does the same.
 //!
 //! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an address
 //! on the command line.
@@ -86,21 +92,45 @@ async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    match operation.cancel().await {
-        Err(Error::NotSupported) => {}
-        Err(error) => return Err(error),
+    // On real G2 hardware the continuous drive usually reports ACK and
+    // completion together, about 50 ms after the write, while the zoom keeps
+    // moving. `cancel()` then answers `Ok(Completed)` instead of refusing, so
+    // neither outcome says anything about the lens.
+    let cancellation = operation.cancel().await;
+
+    // The explicit STOP is unconditional: it runs on every `cancel()` outcome,
+    // including `Completed` and an unexpected error, before any of them is
+    // reported. A cancellation outcome is protocol evidence, not proof that
+    // hardware is physically still.
+    let stop = match camera.zoom().stop().await {
+        Ok(mut stop) => stop.applied().await,
+        Err(error) => Err(error),
+    };
+
+    let refused = match cancellation {
+        Err(Error::NotSupported) => {
+            println!("G2 cannot cancel a sent command; explicit STOP applied");
+            true
+        }
+        Err(error) => {
+            // Surface the STOP failure on stderr; the cancel error is returned.
+            if let Err(stop_error) = &stop {
+                eprintln!("the explicit STOP also failed: {stop_error}");
+            }
+            return Err(error);
+        }
         Ok(outcome) => {
             println!("the drive concluded before cancellation was refused: {outcome:?}");
-            return Ok(());
+            false
         }
-    }
-    // The refused cancellation left the drive running and this handle
-    // observing it; an applied STOP is what ends the motion.
-    println!("G2 cannot cancel a sent command; applying an explicit STOP");
-    camera.zoom().stop().await?.applied().await?;
-    match operation.applied_with_timeout(Duration::from_secs(2)).await {
-        Ok(()) => println!("the drive concluded as applied"),
-        Err(error) => println!("the drive concluded with {error}"),
+    };
+    stop?;
+    if refused {
+        // The refused cancellation left this handle observing the drive.
+        match operation.applied_with_timeout(Duration::from_secs(2)).await {
+            Ok(()) => println!("the drive concluded as applied"),
+            Err(error) => println!("the drive concluded with {error}"),
+        }
     }
 
     Ok(())

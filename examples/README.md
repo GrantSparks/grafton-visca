@@ -54,7 +54,7 @@ If you're new to the library, start with these examples in order:
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
 - **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
 - **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
-- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` owner halt
+- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` owner halt with per-axis outcomes (a G2 in auto focus reports a focus STOP failure that is not a motion hazard)
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
@@ -69,7 +69,7 @@ If you're new to the library, start with these examples in order:
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
-- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates a refused `NotSupported` cancel leaving the handle observing
+- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates the G2 path, where `cancel()` is refused with `NotSupported` or (usually on hardware) returns `Completed` while the zoom keeps moving; an explicit STOP is always applied
 - **[cancellation_blocking.rs](cancellation_blocking.rs)** - Hardware-free blocking confirmed cancellation on a cancel-capable Sony profile
 - **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
