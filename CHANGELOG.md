@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.3] - 2026-10-04
+
 This candidate completes the adopted 2.0 decisions for software review.
 Physical-camera verification remains pending; the hardware checklist records
 the required representative scenarios before a stable release (#753).
