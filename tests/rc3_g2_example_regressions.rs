@@ -159,9 +159,11 @@ fn g2_cancel_after_immediate_completion_is_completed_and_sends_nothing() {
 /// Hardware observation (rc.3 motion_safety, PTZOptics G2 cam4 in auto focus,
 /// the factory default): focus STOP is rejected with `90 61 41 FF` (command not
 /// executable on a free socket) while pan/tilt and zoom STOP succeed. The
-/// report is pan/tilt Applied, zoom Applied, focus
-/// `Failed(UnsequencedCommandUnconfirmed)`; `into_result()` collapses this to
-/// an error, which is why the example must inspect each axis instead.
+/// report is pan/tilt Applied, zoom Applied, focus `Failed(_)` (rc.3 reports
+/// `UnsequencedCommandUnconfirmed`; the exact classification is deliberately
+/// not pinned, so a later conclusive not-executable mapping does not break
+/// this); `into_result()` collapses it to an error, which is why the example
+/// must inspect each axis instead.
 #[test]
 fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
     let (session, writes) = g2_session(halt_script(vec![vec![0x90, 0x61, 0x41, 0xff]]));
@@ -174,17 +176,8 @@ fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
         "{report:?}"
     );
     assert!(matches!(report.zoom, HaltOutcome::Applied), "{report:?}");
-    assert!(
-        matches!(
-            report.focus,
-            HaltOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
-        ),
-        "{report:?}"
-    );
-    assert!(matches!(
-        report.into_result(),
-        Err(Error::UnsequencedCommandUnconfirmed)
-    ));
+    assert!(matches!(report.focus, HaltOutcome::Failed(_)), "{report:?}");
+    assert!(report.into_result().is_err());
     assert_eq!(writes.lock().unwrap().as_slice(), all_writes());
     session.shutdown().expect("shutdown");
 }

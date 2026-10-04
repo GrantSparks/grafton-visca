@@ -69,21 +69,32 @@ async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
     let mut operation = camera.zoom().tele().await?;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    match operation
-        .cancel_with_timeout(Duration::from_secs(2))
-        .await?
-    {
-        CancellationOutcome::Cancelled => {
+    let cancellation = operation.cancel_with_timeout(Duration::from_secs(2)).await;
+
+    // A cancellation outcome is protocol evidence, not proof that hardware is
+    // physically still. The explicit STOP runs on every outcome, including an
+    // error, before any of them is reported.
+    let stop = match camera.zoom().stop().await {
+        Ok(mut stop) => stop.applied().await,
+        Err(error) => Err(error),
+    };
+    match cancellation {
+        Ok(CancellationOutcome::Cancelled) => {
             println!("cancellation confirmed: the drive was cancelled");
         }
-        CancellationOutcome::Completed => {
+        Ok(CancellationOutcome::Completed) => {
             println!("the drive completed before cancellation could win");
         }
-        outcome => println!("cancellation concluded: {outcome:?}"),
+        Ok(outcome) => println!("cancellation concluded: {outcome:?}"),
+        Err(error) => {
+            if let Err(stop_error) = &stop {
+                eprintln!("the explicit STOP also failed: {stop_error}");
+            }
+            return Err(error);
+        }
     }
-    // A cancellation outcome is protocol evidence, not proof that hardware is
-    // physically still. Always pair a continuous drive with an explicit STOP.
-    camera.zoom().stop().await?.applied().await?;
+    stop?;
+    println!("explicit STOP applied");
 
     Ok(())
 }
@@ -109,7 +120,7 @@ async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
 
     let refused = match cancellation {
         Err(Error::NotSupported) => {
-            println!("G2 cannot cancel a sent command; explicit STOP applied");
+            println!("G2 cannot cancel a sent command");
             true
         }
         Err(error) => {
@@ -125,6 +136,7 @@ async fn cancel_g2_drive(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
         }
     };
     stop?;
+    println!("explicit STOP applied");
     if refused {
         // The refused cancellation left this handle observing the drive.
         match operation.applied_with_timeout(Duration::from_secs(2)).await {
