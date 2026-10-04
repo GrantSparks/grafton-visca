@@ -42,6 +42,7 @@ enum Read {
     EndOfStream,
     Fail(Error),
     Panic,
+    Callback(Box<dyn FnOnce() + Send>),
 }
 
 /// A transport whose reads arrive from the test thread and whose writes are
@@ -101,6 +102,10 @@ impl BlockingTransport for ChannelTransport {
             Ok(Read::EndOfStream) => Ok(0),
             Ok(Read::Fail(error)) => Err(error),
             Ok(Read::Panic) => panic!("injected transport panic"),
+            Ok(Read::Callback(callback)) => {
+                callback();
+                Err(Error::io_timeout())
+            }
             Err(flume::RecvTimeoutError::Timeout) => Err(Error::io_timeout()),
             Err(flume::RecvTimeoutError::Disconnected) => {
                 thread::sleep(timeout);
@@ -633,6 +638,85 @@ fn close_joins_the_worker_after_it_releases_the_transport() {
     owner.close().unwrap();
     assert!(peer.transport_dropped());
     other.close().unwrap();
+}
+
+/// Exercise a transport calling close on its own worker both before and
+/// after an external closer has taken the join handle. Keep the callback
+/// parked until the join is in progress, so teardown cannot hide either race.
+fn self_close_with_external_join(external_first: bool) {
+    let (owner, peer) = Setup::datagram().spawn();
+    let callback_owner = owner.clone();
+    let (entered_tx, entered) = flume::bounded(1);
+    let (proceed, proceed_rx) = flume::bounded(1);
+    let (results_tx, results) = flume::bounded(1);
+    let (return_tx, return_rx) = flume::bounded(1);
+    peer.send(Read::Callback(Box::new(move || {
+        entered_tx.send(()).unwrap();
+        proceed_rx.recv_timeout(PROMPTLY).unwrap();
+        // Repeated self-close must also fail without consuming the join.
+        let first = callback_owner.close();
+        let second = callback_owner.close();
+        results_tx.send([first, second]).unwrap();
+        return_rx.recv_timeout(PROMPTLY).unwrap();
+    })));
+    entered.recv_timeout(PROMPTLY).unwrap();
+
+    let start_close = || {
+        let closer = owner.clone();
+        let (done_tx, done) = flume::bounded(1);
+        let join = thread::spawn(move || {
+            let result = closer.close();
+            done_tx.send(result).unwrap();
+        });
+        let deadline = Instant::now() + PROMPTLY;
+        while owner.worker.lock().unwrap().is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "external close did not take the join"
+            );
+            thread::yield_now();
+        }
+        (join, done)
+    };
+    let mut external = external_first.then(start_close);
+    proceed.send(()).unwrap();
+    for result in results
+        .recv_timeout(PROMPTLY)
+        .expect("self-close must not wait")
+    {
+        assert!(matches!(result, Err(Error::InvalidState(message))
+            if message == "blocking owner worker cannot close its own session"));
+    }
+    if !external_first {
+        assert!(
+            owner.worker.lock().unwrap().is_some(),
+            "self-close kept the join handle"
+        );
+        external = Some(start_close());
+    }
+    let (join, done) = external.unwrap();
+    assert!(matches!(done.try_recv(), Err(flume::TryRecvError::Empty)));
+    assert!(
+        !peer.transport_dropped(),
+        "callback still owns the transport"
+    );
+    return_tx.send(()).unwrap();
+    done.recv_timeout(PROMPTLY)
+        .expect("external close must join")
+        .unwrap();
+    join.join().unwrap();
+    assert!(peer.transport_dropped());
+    owner.close().unwrap();
+}
+
+#[test]
+fn worker_self_close_preserves_the_external_join() {
+    self_close_with_external_join(false);
+}
+
+#[test]
+fn worker_self_close_does_not_wait_for_an_external_join_in_progress() {
+    self_close_with_external_join(true);
 }
 
 /// Dropping the last handle stops the worker and releases the transport

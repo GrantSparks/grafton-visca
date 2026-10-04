@@ -17,8 +17,9 @@
 //! receive pending and the same pass continues down the order, exactly as a
 //! pending receive future does; only a full read timeout without data, or an
 //! eager transport that answers "no data" before its timeout, is an idle
-//! receive event (#675). Control, STOP and close latency are therefore bounded
-//! by one slice plus any transport write in progress.
+//! receive event (#675). One read keeps the worker away from its boundary
+//! lanes for at most one slice. Queued boundaries, writes and protocol
+//! eligibility can add to a control or STOP request's total latency.
 
 use std::{
     collections::VecDeque,
@@ -46,9 +47,9 @@ use super::{
 use crate::runtime::engine::Effect;
 
 /// The longest one transport read keeps the worker away from its boundary
-/// lanes when nothing else is ready. It bounds control, STOP and close latency
-/// on an idle transport, at the cost of about a hundred timed-out reads a
-/// second.
+/// lanes when nothing else is ready. This bounds the contribution of one idle
+/// read to boundary latency, at the cost of about a hundred timed-out reads
+/// a second.
 pub(crate) const CONTROL_SLICE: Duration = Duration::from_millis(10);
 
 /// The read taken when a source later in the selection order is already
@@ -373,6 +374,9 @@ fn paced_wait(selection: Selection) -> Duration {
 #[derive(Debug, Clone)]
 pub(crate) struct BlockingOwnerHandle {
     core: OwnerHandleCore,
+    /// Retained after another closer takes the join handle, so a transport
+    /// callback can never wait for its own worker's teardown.
+    worker_id: thread::ThreadId,
     /// Taken by the first `close`; every other clone waits on the liveness
     /// lane instead. Dropping the last handle detaches the worker, which then
     /// stops on its own because every boundary lane has disconnected.
@@ -399,6 +403,7 @@ impl BlockingOwnerHandle {
             .spawn(move || worker.run(driver))?;
         Ok(Self {
             core,
+            worker_id: worker.thread().id(),
             worker: Arc::new(Mutex::new(Some(worker))),
         })
     }
@@ -623,20 +628,25 @@ impl BlockingOwnerHandle {
     /// [`Error::InvalidState`]. Any other clone waits on the liveness lane,
     /// which the worker drops only after the transport. A close issued on the
     /// worker thread itself, by a custom transport calling back into its own
-    /// session, cannot wait for that thread and returns once shutdown is
-    /// accepted. Otherwise the result is the async `close` contract: an
+    /// session, requests shutdown but returns [`Error::InvalidState`] because
+    /// it cannot wait for its own teardown. An external caller can still join
+    /// it. Otherwise the result is the async `close` contract: an
     /// explicit shutdown returns `Ok(())`, a transport close or stream poison
     /// that won the race is returned unchanged, and a failed shutdown signal
     /// is preserved.
     pub(crate) fn close(&self) -> Result<(), Error> {
         let shutdown = self.shutdown();
+        if self.worker_id == thread::current().id() {
+            return Err(Error::InvalidState(
+                "blocking owner worker cannot close its own session".into(),
+            ));
+        }
         let worker = self
             .worker
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .take();
         let teardown = match worker {
-            Some(worker) if worker.thread().id() == thread::current().id() => Ok(()),
             Some(worker) => match worker.join() {
                 Ok(()) => self.core.closed_result(),
                 Err(_) => Err(Error::InvalidState("blocking owner worker panicked".into())),

@@ -332,7 +332,7 @@ impl MotionWindow {
         let not_before = received_at
             .checked_add(self.window)
             .filter(|not_before| *not_before < deadline)
-            .ok_or(Error::Timeout)?;
+            .ok_or_else(Error::query_timeout)?;
         self.final_not_before = Some(not_before);
         Ok(not_before)
     }
@@ -1998,7 +1998,7 @@ mod tests {
         // never a report of no movement.
         assert!(matches!(
             window.observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(1)),
-            Err(Error::Timeout)
+            Err(Error::Timeout { .. })
         ));
         assert!(matches!(
             window.observe_final(zoom_snapshot(10), start + Duration::from_secs(2)),

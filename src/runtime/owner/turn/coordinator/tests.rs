@@ -811,6 +811,17 @@ mod model {
                     self.coordinator.begin_turn();
                     let now = self.now;
                     let (wake, due) = (self.next_wake(), self.due(now));
+                    // The previous wake's allowance ends even when this plan
+                    // redelivers a retained boundary and never selects a
+                    // source. A later hold at the same synthetic instant is
+                    // a new wake, with its own allowance.
+                    if !wake.is_some_and(|deadline| deadline <= now)
+                        || self
+                            .control_wins_for_due_wake
+                            .is_some_and(|(deadline, _)| deadline != wake)
+                    {
+                        self.control_wins_for_due_wake = None;
+                    }
                     match self.coordinator.plan(now, wake, due, || false) {
                         TurnPlan::Redeliver(token) => {
                             let event = if self.shutdown {
@@ -1132,6 +1143,13 @@ mod model {
             world.step(step);
         }
         world.finish_and_check();
+    }
+
+    /// A completed hold followed by retained-boundary redelivery ends the
+    /// old wake's allowance, even if the next hold uses the same instant.
+    #[test]
+    fn redelivery_between_same_instant_holds_resets_control_allowance() {
+        run([5, 4, 15, 2, 15, 10, 15, 15, 4, 5, 7, 15].map(|index| ALPHABET[index]));
     }
 
     /// Two live admissions arrive at a due raw hold whose retained prefix

@@ -11,7 +11,13 @@
 //! its transport, but never emits a protocol STOP. [`Session::close`] is the
 //! deterministic release barrier.
 
-use std::{fmt, marker::PhantomData, sync::Arc, thread, time::Duration};
+use std::{
+    fmt,
+    marker::PhantomData,
+    sync::Arc,
+    thread,
+    time::{Duration, Instant},
+};
 
 use crate::{
     camera::{IdleWait, MotionQuery},
@@ -524,6 +530,9 @@ impl Session {
     /// poison that won the race is returned unchanged. If sending this call's
     /// shutdown signal fails immediately, that error is preserved. A worker
     /// that panicked is reported as [`Error::InvalidState`].
+    /// A custom transport calling this from its own worker requests shutdown
+    /// but receives [`Error::InvalidState`] immediately: it cannot wait for
+    /// its own teardown. A caller on another thread can still close and join.
     pub fn close(self) -> Result<(), Error> {
         self.owner.close()
     }
@@ -860,8 +869,12 @@ impl BlockingCameraCore {
     /// observer budget is lowered once to one owner-clock deadline.
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
         let mut observation = crate::prepared::MotionWindow::new(query)?;
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), query.axes)?;
+        let queries = prepare_position_queries(
+            self.target,
+            self.profile.as_ref(),
+            self.tuning(),
+            query.axes,
+        )?;
         let deadline = self
             .owner
             .deadline_after(observation.budget(MOTION_QUERY_OBSERVER_BUDGET)?)?;
@@ -873,7 +886,7 @@ impl BlockingCameraCore {
             if now >= final_not_before {
                 break;
             }
-            std::thread::sleep(final_not_before.saturating_duration_since(now));
+            thread::sleep(final_not_before.saturating_duration_since(now));
         }
         ensure_before_deadline(deadline)?;
         let started_at = Instant::now();
@@ -903,7 +916,7 @@ impl BlockingCameraCore {
 
         loop {
             ensure_before_deadline(deadline)?;
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 return Err(Error::query_timeout());
             }

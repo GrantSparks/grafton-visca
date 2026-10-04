@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Adapted motion-window deadline errors and blocking clock imports to the
+  integrated structured-error and worker APIs (#781).
+- Fixed blocking worker self-close deadlocking when another caller had already
+  taken its join handle (#780). Transport callbacks now request shutdown and
+  receive `InvalidState` without waiting or consuming the join handle; an
+  external caller can still wait for complete teardown. Clarified that the
+  read slice bounds one read's contribution to control latency, rather than
+  total latency through queued work and protocol constraints.
+- Fixed the coordinator model retaining an old control allowance across
+  retained-boundary redelivery (#776). A new hold at the same synthetic
+  instant now receives its own allowance; the disclosed regression seed is
+  preserved. Production arbitration is unchanged.
 - Fixed a second admission or cancellation overwriting the one the async owner
   retains while a raw correlation release is due (#775). While that single
   deferred slot is occupied, the actor no longer selects further admissions

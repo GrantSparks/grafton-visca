@@ -377,9 +377,13 @@ pre-ACK drain, or busy-transport rejection.
 
 The worker polls the boundary lanes in the coordinator's order and reads the
 transport in bounded slices of at most 10 ms (1 ms when a later source is
-already ready), so a STOP, cancellation, control request, or shutdown waits at
-most one slice behind an idle read, plus any write already in progress. An
-idle read is reported only when the configured `read_timeout` has elapsed
+already ready). This bounds the time one idle read keeps the worker away
+from its boundary lanes. Queued boundaries and writes can add to a STOP or
+control request's total latency; STOP dispatch also waits for protocol
+eligibility. A custom transport calling `close` from its own worker requests
+shutdown and receives `InvalidState` immediately, leaving the worker available
+for an external caller to join. An idle read is reported only when the
+configured `read_timeout` has elapsed
 without data, and the coordinator paces an eagerly idle or faulting transport
 while every other source stays selectable.
 
@@ -393,7 +397,7 @@ default because the figures depend on the host):
 | Idle CPU | about 0.1% of one core per session |
 | Resident memory | about 94 KiB per idle session |
 | `close` latency | 12–20 ms (one read slice plus the join) |
-| STOP call to bytes at the camera, while another thread waits on a running zoom | p50 5.6 ms, p99 10.7 ms |
+| STOP call to bytes at the camera, while another thread waits on a running zoom, with no admission backlog and pacing already elapsed | p50 5.6 ms, p99 10.7 ms |
 
 An intrinsically `Urgent` stop may cross one raw positional candidate after
 command pacing. The resulting explicit two-candidate state makes every
