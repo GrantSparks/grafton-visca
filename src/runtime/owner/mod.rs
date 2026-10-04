@@ -931,7 +931,11 @@ impl<T> Observer<T> {
         self.receiver.recv_async().await.ok()
     }
 
-    #[cfg(all(test, feature = "async"))]
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
     async fn recv_async(&self) -> Option<T> {
         self.recv_observed_async()
             .await

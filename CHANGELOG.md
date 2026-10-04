@@ -13,6 +13,11 @@ the required representative scenarios before a stable release (#753).
 
 ### Fixed
 
+- Align fatal settlement-polling regressions with retained inquiry causes and
+  `Observation/Unconfirmed` replay certainty (#782). Match the async observer
+  test helper to runtime-backed tests and keep the checked atomic admission
+  counter compatible with both the pinned nightly and Rust 1.88 (#777, #779).
+
 - Timestamped owner deliveries (#777, #783) make operation observer deadlines exact: an
   outcome delivered at the deadline satisfies that wait; a later outcome stays
   cached for a subsequent borrowing wait. A timely cancellation failure is no
@@ -60,16 +65,16 @@ the required representative scenarios before a stable release (#753).
   error types named `Error` now use the `invalid_response` constructor convention
   while other custom error types retain `From<String>` (#788).
 
-- **BREAKING** (D21, #779): `stop_all_motion()` now returns `HaltReport` with an
+- **BREAKING** (D21): `stop_all_motion()` now returns `HaltReport` with an
   independent result for each supported axis. One owner halt fences older
   declared queued motion and retries, then admits STOPs under one end-to-end
   deadline while respecting protocol gates. Custom plain/raw commands can
-  declare their motion axes without gaining STOP priority.
-- **BREAKING** (D23, #782, revises #542's settlement contract): targeted `settled*` waits return `Settlement` evidence.
+  declare their motion axes without gaining STOP priority (#779).
+- **BREAKING** (D23, revises #542's settlement contract): targeted `settled*` waits return `Settlement` evidence.
   Stable-sample evidence reports its axes, window, and tolerance; it does not
   prove arrival at an endpoint. A later conflicting admission supersedes an
   unfinished polled observation. Established cached evidence and exact
-  profile-declared completion remain valid.
+  profile-declared completion remain valid (#782).
 
 - **BREAKING** (#781): `is_moving` and `is_moving_axes` now observe over an
   explicit time window instead of comparing two back-to-back snapshots.

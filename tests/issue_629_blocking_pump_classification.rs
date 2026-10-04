@@ -27,7 +27,7 @@ use grafton_visca::{
         AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
     },
     types::ZoomPosition,
-    CameraId, Error, OperationalTuning,
+    CameraId, Certainty, Error, FailureStage, OperationalTuning,
 };
 
 use profile_fixtures::DirectZoomOnlyTypedSupport;
@@ -174,9 +174,18 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
         .settled()
         .expect_err("a reset connection cannot settle the operation");
 
-    let Error::ConnectionClosed { reason, .. } = &error else {
+    let Error::SettlementObservationFailed { source, .. } = &error else {
+        panic!("settlement must preserve its inquiry cause, got {error:?}");
+    };
+    let Error::ConnectionClosed { reason, .. } = source.as_ref() else {
         panic!("settlement must report the session close, got {error:?}");
     };
+    assert!(!error.is_retryable());
+    let context = error
+        .failure_context()
+        .expect("applied move observation context");
+    assert_eq!(context.stage, FailureStage::Observation);
+    assert_eq!(context.certainty, Certainty::Unconfirmed);
     let reason = reason.as_ref().expect("the read fault names the close");
     assert!(
         reason.contains("connection reset"),
@@ -243,10 +252,19 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let error = current
         .settled()
         .expect_err("a stream retry write must end the settlement");
-    let Error::StreamPoisoned { reason, .. } = &error else {
+    let Error::SettlementObservationFailed { source, .. } = &error else {
+        panic!("settlement must preserve its inquiry cause, got {error:?}");
+    };
+    let Error::StreamPoisoned { reason, .. } = source.as_ref() else {
         panic!("settlement must report stream poison, got {error:?}");
     };
     assert!(reason.contains("public settlement retry write failed"));
     assert!(error.requires_new_session());
+    assert!(!error.is_retryable());
+    let context = error
+        .failure_context()
+        .expect("applied move observation context");
+    assert_eq!(context.stage, FailureStage::Observation);
+    assert_eq!(context.certainty, Certainty::Unconfirmed);
     assert!(matches!(peer.applied(), Err(Error::StreamPoisoned { .. })));
 }
