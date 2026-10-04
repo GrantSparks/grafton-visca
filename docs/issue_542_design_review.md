@@ -367,6 +367,48 @@ encoding.
     prefix is discarded and reported malformed at expiry without poisoning the
     session. The historical decision and supersession are recorded on the
     [#713 issue trail](https://github.com/GrantSparks/grafton-visca/issues/713#issuecomment-5508129430).
+19. Operation waits borrow the handle and cache the terminal result; an
+    expired or dropped wait releases only that wait. `cancel` borrows, is
+    idempotent, and returns `Completed` after a cached terminal result; the
+    terminal result stays observable after cancellation.
+    `CancellationOutcome` is non-exhaustive. Supersedes the consuming-receipt
+    parts of the #552 exit criteria and the #612 refusal shape. Record:
+    [`decisions/2.0/decision-777.md`](decisions/2.0/decision-777.md) (#777).
+20. A caller-side observer deadline on a live request is a distinct,
+    non-retryable error carrying the `OperationId`; timeouts expose typed
+    stage and certainty context. Admission-deadline expiry stays `Timeout`.
+    Refines the #755 matrix. Record:
+    [`decisions/2.0/decision-783.md`](decisions/2.0/decision-783.md) (#783).
+21. `stop_all_motion` is an owner-level halt: a one-time fence that
+    supersedes unsent earlier motion on the selected axes, independent STOP
+    dispatch, and a per-axis report. Raw/custom commands are suppressed only
+    when their axes are declared. Record:
+    [`decisions/2.0/decision-779.md`](decisions/2.0/decision-779.md) (#779).
+22. `is_moving` compares selected axes across at least an explicit window;
+    insufficient evidence is an error, never `false`. Record:
+    [`decisions/2.0/decision-781.md`](decisions/2.0/decision-781.md) (#781).
+23. Polled settlement is superseded when a later conflicting library
+    operation on the same target and axes is admitted first; `settled()`
+    returns its evidence. Profile completion is exact. Revises the #542
+    settlement contract. Record:
+    [`decisions/2.0/decision-782.md`](decisions/2.0/decision-782.md) (#782).
+24. Each blocking session runs one native worker thread over the shared
+    executor-free coordinator; concurrent use no longer fails with
+    `TransportBusy`. Revises the "no per-camera background workers"
+    invariant. Record:
+    [`decisions/2.0/decision-780.md`](decisions/2.0/decision-780.md) (#780).
+25. Source eligibility, retained-boundary ordering and deadline turns live in
+    one executor-free coordinator shared by both owners, covered by generated
+    event-sequence tests. Record:
+    [`decisions/2.0/decision-776.md`](decisions/2.0/decision-776.md) (#776).
+26. `admission_capacity` bounds ordinary requests; each target has a reserve,
+    sized to its supported typed STOP paths, that only urgent typed stops may
+    use. Exhausting it is a distinct error. Extends D1 and D10. Record:
+    [`decisions/2.0/decision-778.md`](decisions/2.0/decision-778.md) (#778).
+27. Public types whose fields or variants may grow are `#[non_exhaustive]`
+    with constructors before 2.0.0; protocol and arithmetic value types stay
+    exhaustive. Record:
+    [`decisions/2.0/decision-788.md`](decisions/2.0/decision-788.md) (#788).
 
 ## Release-candidate boundary
 
