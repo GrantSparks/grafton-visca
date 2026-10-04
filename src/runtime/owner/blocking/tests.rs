@@ -790,3 +790,101 @@ fn blocking_handles_are_send_and_sync() {
     assert_send_sync::<crate::blocking::Camera<GenericVisca>>();
     assert_send_sync::<crate::blocking::Operation<AppliedOnly>>();
 }
+
+/// Pin the dependency race without relying on a scheduler hitting its tiny
+/// window: the selector already observed Empty, then the last sender queued a
+/// value and dropped, and the selected result is Disconnected.
+#[test]
+fn selected_disconnect_recovers_queued_success_and_admission_rejection_with_owner_live() {
+    let (owner, _peer) = Setup::datagram().spawn();
+    for answer in [Ok(17_u64), Err(Error::runtime_queue_full(1))] {
+        let (sender, receiver) = flume::bounded(1);
+        let success = answer.is_ok();
+        sender.send(answer).unwrap();
+        drop(sender);
+        assert!(!owner.core.actor_alive.is_disconnected());
+        let recovered = resolve_selected_receive(&receiver, Err(flume::RecvError::Disconnected))
+            .map_err(|_| owner.core.disconnected_error())
+            .expect("queued admission answer survives selected disconnect");
+        if success {
+            assert_eq!(recovered.unwrap(), 17);
+        } else {
+            assert!(matches!(
+                recovered,
+                Err(Error::RuntimeQueueFull { capacity: 1, .. })
+            ));
+        }
+        assert!(receiver.try_recv().is_err(), "the reply is consumed once");
+        assert!(!owner.core.actor_alive.is_disconnected());
+    }
+    owner.close().unwrap();
+}
+
+#[test]
+fn selected_empty_disconnect_preserves_missing_and_published_owner_errors() {
+    let (owner, _peer) = Setup::datagram().spawn();
+    let (sender, receiver) = flume::bounded::<u64>(1);
+    drop(sender);
+    assert!(!owner.core.actor_alive.is_disconnected());
+    assert!(
+        matches!(owner.reply(&receiver).wait(), Err(Error::InvalidState(reason))
+        if reason == "owner actor disconnected without publishing a terminal result")
+    );
+    owner.close().unwrap();
+    assert!(owner.core.actor_alive.is_disconnected());
+    assert!(matches!(
+        owner.reply(&receiver).wait(),
+        Err(Error::RuntimeShutdown)
+    ));
+    assert!(matches!(
+        owner
+            .reply(&receiver)
+            .wait_deadline(Instant::now() + PROMPTLY),
+        Ok(Err(Error::RuntimeShutdown))
+    ));
+}
+
+#[test]
+fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
+    use super::super::Observed;
+    let (owner, peer) = Setup::datagram().spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    let deadline = Instant::now() + PROMPTLY;
+    let late = deadline + Duration::from_nanos(1);
+    let (sender, receiver) = flume::bounded(1);
+    sender
+        .send(Observed {
+            at: late,
+            value: RuntimeOutcome::Applied,
+        })
+        .unwrap();
+    drop(sender);
+    let event = resolve_selected_receive(&receiver, Err(flume::RecvError::Disconnected));
+    assert!(
+        matches!(
+            ObservationWake::Terminal(event.clone().ok()).conclude(
+                &receipt.core,
+                &owner.core,
+                deadline
+            ),
+            Err(Error::ObservationTimeout { .. })
+        ),
+        "a linear command receipt also keeps the observer deadline"
+    );
+    let mut observation = OperationObservation::new(receipt.core, PROMPTLY);
+    {
+        let mut wait =
+            OperationWait::new(&mut observation, OperationObservation::applied, deadline);
+        assert!(matches!(
+            wait.absorb(ObservationWake::Terminal(event.ok()), &owner.core),
+            ControlFlow::Break(Err(Error::ObservationTimeout { .. }))
+        ));
+    }
+    assert!(
+        matches!(observation.applied(late), Some(Ok(()))),
+        "late delivery stays cached for the next wait"
+    );
+    assert!(!owner.core.actor_alive.is_disconnected());
+    owner.close().unwrap();
+}

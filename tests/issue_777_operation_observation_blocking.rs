@@ -12,8 +12,8 @@ mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::Duration,
+    sync::{Arc, Condvar, Mutex},
+    time::{Duration, Instant},
 };
 
 use grafton_visca::{
@@ -43,6 +43,8 @@ const PAN_TILT_POSITION: &[u8] = &[
 
 /// A short wait that the scripted camera never answers in time.
 const SHORT: Duration = Duration::from_millis(20);
+/// Bounds a transport witness; elapsed observer time alone proves no write.
+const PROMPTLY: Duration = Duration::from_secs(5);
 
 /// Replays exactly the frames a test queues and records every write, except
 /// pan-tilt position inquiries, which it answers with a fixed position once a
@@ -56,7 +58,7 @@ struct ScriptedTransport {
 #[derive(Clone, Debug, Default)]
 struct Probe {
     responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
+    writes: Arc<(Mutex<Vec<Vec<u8>>>, Condvar)>,
     positions: Arc<Mutex<PositionReplies>>,
 }
 
@@ -87,10 +89,9 @@ impl Probe {
     }
 
     fn record_write(&self, bytes: &[u8]) {
-        self.writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
+        let (writes, written) = &*self.writes;
+        writes.lock().expect("writes lock").push(bytes.to_vec());
+        written.notify_all();
         if bytes == PAN_TILT_POSITION_INQUIRY {
             let mut positions = self.positions.lock().expect("positions lock");
             if positions.answering {
@@ -102,7 +103,20 @@ impl Probe {
     }
 
     fn writes(&self) -> Vec<Vec<u8>> {
-        self.writes.lock().expect("writes lock").clone()
+        self.writes.0.lock().expect("writes lock").clone()
+    }
+
+    fn await_write(&self, expected: &[u8]) {
+        let (writes, written) = &*self.writes;
+        let (writes, _) = written
+            .wait_timeout_while(writes.lock().expect("writes lock"), PROMPTLY, |writes| {
+                !writes.iter().any(|bytes| bytes == expected)
+            })
+            .expect("write witness lock");
+        assert!(
+            writes.iter().any(|bytes| bytes == expected),
+            "expected transport write {expected:?}; observed {writes:?}"
+        );
     }
 
     /// Writes other than position inquiries.
@@ -223,15 +237,27 @@ fn application_then_settlement_restarts_an_abandoned_proof() {
     probe.push(COMPLETE_SOCKET_ONE);
     home.applied().expect("home applied");
 
-    // Abandoned while polling: the camera does not answer position inquiries.
-    assert!(matches!(
-        home.settled_with_timeout(SHORT),
-        Err(Error::ObservationTimeout { .. })
-    ));
-    assert!(
-        probe.writes().len() > 1,
-        "settlement polls the pan-tilt position"
-    );
+    // A short observer deadline can expire before inquiry admission. Keep
+    // borrowing until an actual inquiry write proves polling began; the silent
+    // camera ensures that wait still abandons an unfinished settlement proof.
+    let witness_deadline = Instant::now() + PROMPTLY;
+    loop {
+        assert!(matches!(
+            home.settled_with_timeout(SHORT),
+            Err(Error::ObservationTimeout { .. })
+        ));
+        if probe
+            .writes()
+            .iter()
+            .any(|bytes| bytes == PAN_TILT_POSITION_INQUIRY)
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < witness_deadline,
+            "settlement inquiry was never written"
+        );
+    }
 
     probe.answer_positions();
     assert!(
@@ -277,6 +303,9 @@ fn cancellation_is_one_idempotent_intent() {
         moving.cancel_with_timeout(SHORT),
         Err(Error::ObservationTimeout { .. })
     ));
+    // Cancellation intent survives both observer timeouts. Await its actual
+    // write instead of treating elapsed observer time as worker progress.
+    probe.await_write(CANCEL_SOCKET_ONE);
     assert_eq!(
         probe.writes(),
         vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()],
@@ -359,6 +388,7 @@ fn dropping_a_handle_mid_cancellation_keeps_the_owner_serving() {
         Err(Error::ObservationTimeout { .. })
     ));
     drop(moving);
+    probe.await_write(CANCEL_SOCKET_ONE);
     probe.push(CANCELLED_SOCKET_ONE);
 
     let camera = session.camera::<Raw>().expect("raw camera");

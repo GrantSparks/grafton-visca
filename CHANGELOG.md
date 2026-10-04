@@ -13,6 +13,15 @@ the required representative scenarios before a stable release (#753).
 
 ### Fixed
 
+- Fixed a blocking reply-selection race that could report an owner disconnect
+  after the healthy worker had queued an admission, cancellation, or control
+  reply and dropped its sender (#780). Selected disconnects now recheck the
+  buffered value; observation slots retain their delivery timestamps and late
+  outcomes remain reusable after observer timeouts (#777).
+- Made blocking operation-observation regressions wait for actual settlement
+  inquiry and cancellation writes instead of assuming a short observer timeout
+  proves worker progress (#777).
+
 - Align fatal settlement-polling regressions with retained inquiry causes and
   `Observation/Unconfirmed` replay certainty (#782). Match the async observer
   test helper to runtime-backed tests and keep the checked atomic admission

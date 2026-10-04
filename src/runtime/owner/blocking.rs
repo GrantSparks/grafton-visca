@@ -427,7 +427,7 @@ impl BlockingOwnerHandle {
     ) -> flume::Selector<'a, Result<T, Error>> {
         flume::Selector::new()
             .recv(reply, |answer| {
-                answer.map_err(|_| self.core.disconnected_error())
+                resolve_selected_receive(reply, answer).map_err(|_| self.core.disconnected_error())
             })
             // Nothing is ever sent on this lane, so it fires exactly once,
             // when worker teardown drops its end after the driver.
@@ -931,7 +931,7 @@ fn next_observation(
 ) -> ObservationWake {
     let selector = flume::Selector::new()
         .recv(terminal.receiver(), |outcome| {
-            ObservationWake::Terminal(outcome.ok())
+            ObservationWake::Terminal(resolve_selected_receive(terminal.receiver(), outcome).ok())
         })
         // Nothing is ever sent on this lane. It fires when the worker has
         // dropped its sender, including an unwind before it could publish a
@@ -939,13 +939,27 @@ fn next_observation(
         .recv(&owner.core.actor_alive, |_| ObservationWake::OwnerGone);
     let selector = match cancellation {
         Some(observer) => selector.recv(observer.receiver(), |error| {
-            ObservationWake::Cancellation(error.ok())
+            ObservationWake::Cancellation(resolve_selected_receive(observer.receiver(), error).ok())
         }),
         None => selector,
     };
     selector
         .wait_deadline(deadline)
         .unwrap_or(ObservationWake::Deadline)
+}
+
+/// A selector can observe Empty, then a final send followed by disconnection,
+/// and report Disconnected while that last value is still queued. Recover it
+/// before interpreting the event as owner loss or an empty observation slot.
+fn resolve_selected_receive<T>(
+    receiver: &flume::Receiver<T>,
+    selected: Result<T, flume::RecvError>,
+) -> Result<T, flume::RecvError> {
+    selected.or_else(|_| {
+        receiver
+            .try_recv()
+            .map_err(|_| flume::RecvError::Disconnected)
+    })
 }
 
 /// Waits until `verdict` can be read from an operation's observation state;
