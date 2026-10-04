@@ -137,8 +137,10 @@ impl BlockingDynSessionCamera {
         self.core.submit(operation)
     }
 
-    /// Stops every profile-supported motion axis through the shared owner.
-    pub fn stop_all_motion(&self) -> Result<(), Error> {
+    /// Orders one owner halt under a common deadline.
+    /// Older declared motion is fenced; inspect each supported axis result in
+    /// the report. STOP dispatch respects protocol gates and is not physical feedback.
+    pub fn stop_all_motion(&self) -> Result<crate::HaltReport, Error> {
         self.core.stop_all_motion()
     }
 

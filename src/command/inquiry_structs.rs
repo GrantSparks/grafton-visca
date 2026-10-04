@@ -561,6 +561,7 @@ macro_rules! define_inquiry_kind_enum {
         /// Used to indicate what kind of data parser should expect in the response
         /// payload.
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[non_exhaustive]
         pub enum InquiryKind {
             $($variants)*
         }
@@ -643,6 +644,7 @@ macro_rules! define_inquiry_data_enum {
         /// associated data.  These are returned wrapped in
         /// [`Response::Inquiry(...)`](Response::Inquiry).
         #[derive(Debug, Copy, Clone)]
+        #[non_exhaustive]
         pub enum InquiryData {
             $($variants)*
         }

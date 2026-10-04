@@ -19,7 +19,7 @@ fn main() {
         vertical: false,
     };
     let _position = grafton_visca::camera::PanTiltPosition::new(0, 0);
-    let _response = Response::Completion { socket: None };
+    let _response = Response::completion(None);
     let payload = Payload::new(&[0x02]);
     let _ = payload
         .parse_bool("contract", BoolConvention::OnIs02)

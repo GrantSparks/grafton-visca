@@ -299,6 +299,7 @@ pub(crate) struct ProtocolEngine {
     next_transmission_id: IdAllocator,
     next_generation: IdAllocator,
     next_admission_order: u64,
+    motion_fences: [[u64; 5]; 9],
     next_transmission_order: u64,
     jitter: Jitter,
     last_request_sent: Option<Instant>,
@@ -334,6 +335,7 @@ impl ProtocolEngine {
             next_transmission_id: IdAllocator::new(),
             next_generation: IdAllocator::new(),
             next_admission_order: 0,
+            motion_fences: [[0; 5]; 9],
             next_transmission_order: 0,
             jitter: Jitter::new(),
             last_request_sent: None,
@@ -668,6 +670,106 @@ impl ProtocolEngine {
         Ok(())
     }
 
+    /// Establish a one-time owner halt fence without dispatching or discarding
+    /// correlation for writes already in flight. Ready/retry work is terminal;
+    /// future retry decisions consult the same bounded fence table.
+    pub(crate) fn halt(
+        &mut self,
+        target: CameraId,
+        axes: crate::AffectedAxes,
+        cutoff: u64,
+    ) -> Vec<Effect> {
+        let fences = &mut self.motion_fences[usize::from(target.id())];
+        for (index, fence) in fences.iter_mut().enumerate() {
+            if axes.bits() & (1 << index) != 0 {
+                *fence = (*fence).max(cutoff);
+            }
+        }
+        let ids: Vec<_> = self
+            .entries
+            .iter()
+            .filter_map(|(id, entry)| {
+                (matches!(entry.phase, Phase::Ready { .. } | Phase::Backoff { .. })
+                    && self.motion_superseded(entry.request.context()).is_some())
+                .then_some(*id)
+            })
+            .collect();
+        let mut effects = Vec::new();
+        for id in ids {
+            self.finish(
+                id,
+                RuntimeOutcome::Failed(Error::MotionSuperseded { axes }),
+                &mut effects,
+            );
+        }
+        effects
+    }
+
+    /// A staged write is still unsent. Expire an overdue halt STOP here,
+    /// without fabricating a transport failure or poisoning a healthy stream.
+    pub(crate) fn expire_unwritten_halt(
+        &mut self,
+        transmission: TransmissionId,
+        now: Instant,
+    ) -> Option<Vec<Effect>> {
+        let Some(owner) = self.transmissions.get(&transmission).copied() else {
+            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+        };
+        let compatible = self.entries.get(&owner.request).is_some_and(|entry| {
+            entry.generation == owner.generation && entry.attempt == owner.attempt
+                && match owner.kind {
+                    CorrelationKind::Request => matches!(entry.phase, Phase::Sending { transmission: active, .. } if active == transmission),
+                    CorrelationKind::Cancellation => matches!(entry.cancellation, CancelState::Sending { transmission: active, .. } if active == transmission),
+                }
+        });
+        if !compatible {
+            self.transmissions.remove(&transmission);
+            return Some(vec![Effect::Ignored(
+                IgnoreReason::IncompatibleTransmissionResult,
+            )]);
+        }
+        if owner.kind != CorrelationKind::Request {
+            return None;
+        }
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
+        };
+        if entry
+            .request
+            .context()
+            .dispatch_deadline
+            .is_none_or(|deadline| now < deadline)
+        {
+            return None;
+        }
+        let certainty = if entry.attempt == 0 {
+            Certainty::NotAccepted
+        } else {
+            Certainty::Unconfirmed
+        };
+        let mut effects = Vec::new();
+        self.finish(
+            owner.request,
+            RuntimeOutcome::Failed(Error::timeout(FailureStage::Terminal, certainty)),
+            &mut effects,
+        );
+        Some(effects)
+    }
+
+    fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
+        let motion = context.motion.filter(|motion| !motion.stop)?;
+        let fences = self.motion_fences[usize::from(context.target.id())];
+        fences
+            .iter()
+            .enumerate()
+            .any(|(index, cutoff)| {
+                motion.axes.bits() & (1 << index) != 0
+                    && *cutoff != 0
+                    && context.submission_order <= *cutoff
+            })
+            .then_some(motion.axes)
+    }
+
     fn admit(
         &mut self,
         ticket: AdmissionTicket,
@@ -687,6 +789,13 @@ impl ProtocolEngine {
             return;
         }
         let context = *request.context();
+        if let Some(axes) = self.motion_superseded(&context) {
+            effects.push(Effect::AdmissionRejected {
+                ticket,
+                error: Error::MotionSuperseded { axes },
+            });
+            return;
+        }
         if let Err(error) = self.admission_slot_available(&request, slot) {
             effects.push(Effect::AdmissionRejected { ticket, error });
             return;
@@ -1321,7 +1430,13 @@ impl ProtocolEngine {
             && self.entries.values().all(|candidate| {
                 candidate.request.context().target != target
                     || !raw_unacknowledged_command_candidate(candidate)
-                    || candidate.request.context().reply_shape == ReplyShape::AckThenCompletion
+                    || (candidate.request.context().reply_shape == ReplyShape::AckThenCompletion
+                        // Sibling STOPs in one halt may dispatch after ACK,
+                        // without awaiting completion. Crossing each other's
+                        // pre-ACK window would destroy raw attribution.
+                        && !(entry.request.context().dispatch_deadline.is_some()
+                            && candidate.request.context().dispatch_deadline.is_some()
+                            && entry.request.context().submission_order == candidate.request.context().submission_order))
             })
     }
 
@@ -3002,6 +3117,20 @@ impl ProtocolEngine {
         backoff: Backoff,
         effects: &mut Vec<Effect>,
     ) {
+        if let Some(axes) = self
+            .entries
+            .get(&id)
+            .and_then(|entry| self.motion_superseded(entry.request.context()))
+        {
+            // A prior attempt may already have affected hardware. Keep the
+            // superseded outcome conservative; never call it NotAccepted.
+            self.finish(
+                id,
+                RuntimeOutcome::Failed(Error::MotionSuperseded { axes }),
+                effects,
+            );
+            return;
+        }
         let Some((cancellation, policy, submitted_at, attempt)) =
             self.entries.get(&id).map(|entry| {
                 (
@@ -4632,6 +4761,9 @@ mod cancellation_regression_tests {
 
     fn context() -> RequestContext {
         RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: camera(),
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(1),

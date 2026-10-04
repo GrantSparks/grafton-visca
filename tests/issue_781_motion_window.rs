@@ -98,9 +98,10 @@ fn profile() -> ProfileSpec {
 /// Any change of more than one unit is movement.
 fn creeping_zoom_query(window: Duration) -> MotionQuery {
     MotionQuery::new(AffectedAxes::ZOOM)
-        .with_tolerance(MovementTolerance {
-            zoom: 1,
-            ..MovementTolerance::default()
+        .with_tolerance({
+            let mut config = MovementTolerance::default();
+            config.zoom = 1;
+            config
         })
         .with_window(window)
 }
@@ -271,7 +272,7 @@ mod async_facade {
                 self.response_tx
                     .send_async(response)
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             }
             Ok(())
         }
@@ -281,7 +282,7 @@ mod async_facade {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }

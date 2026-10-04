@@ -128,7 +128,7 @@ impl BlockingTransport for LaneTransport {
             .push(bytes.to_vec());
         self.response_tx
             .send(vec![0x90, 0x40 | socket, 0xff])
-            .map_err(|_| Error::ConnectionClosed { reason: None })
+            .map_err(|_| Error::connection_closed(None))
     }
 
     fn recv_into_with_timeout(
@@ -141,7 +141,7 @@ impl BlockingTransport for LaneTransport {
             .recv_timeout(timeout)
             .map_err(|error| match error {
                 flume::RecvTimeoutError::Timeout => Error::io_timeout(),
-                flume::RecvTimeoutError::Disconnected => Error::ConnectionClosed { reason: None },
+                flume::RecvTimeoutError::Disconnected => Error::connection_closed(None),
             })?;
         let length = bytes.len();
         dst[..length].copy_from_slice(&bytes);

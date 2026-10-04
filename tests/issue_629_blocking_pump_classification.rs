@@ -174,7 +174,7 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
         .settled()
         .expect_err("a reset connection cannot settle the operation");
 
-    let Error::ConnectionClosed { reason } = &error else {
+    let Error::ConnectionClosed { reason, .. } = &error else {
         panic!("settlement must report the session close, got {error:?}");
     };
     let reason = reason.as_ref().expect("the read fault names the close");
@@ -243,7 +243,7 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let error = current
         .settled()
         .expect_err("a stream retry write must end the settlement");
-    let Error::StreamPoisoned { reason } = &error else {
+    let Error::StreamPoisoned { reason, .. } = &error else {
         panic!("settlement must report stream poison, got {error:?}");
     };
     assert!(reason.contains("public settlement retry write failed"));

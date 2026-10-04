@@ -23,7 +23,7 @@ use crate::{
         ClassSelection,
     },
     profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
-    request::builtin::{FocusStop, PanTiltStop, ZoomStop},
+    request::builtin::PanTiltStop,
     runtime::{
         owner::AsyncTransportAdapter,
         owner::{
@@ -32,8 +32,8 @@ use crate::{
     },
     stop_request::pan_tilt_stop_request,
     transport::{AsyncTransport, HasTransportConfig},
-    AffectedAxes, CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot,
-    OperationCommand, PlainCommand, Result, SessionConfig, StateCache, SubmissionClass,
+    CameraId, DiagnosticSubscription, Error, Inquiry, MetricsSnapshot, OperationCommand,
+    PlainCommand, Result, SessionConfig, StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -566,37 +566,11 @@ impl AsyncCameraCore {
         Ok(Operation::from_receipt(receipt))
     }
 
-    pub(crate) async fn stop_all_motion(&self) -> Result<()> {
-        let mut first_error = None;
-
-        if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
-            let pan_tilt_result = match self.pan_tilt_stop_request() {
-                Ok(stop) => match self.submit::<completion::AppliedOnly, _>(&stop).await {
-                    Ok(mut operation) => operation.applied().await,
-                    Err(error) => Err(error),
-                },
-                Err(error) => Err(error),
-            };
-            retain_first_error(&mut first_error, pan_tilt_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::ZOOM) {
-            let zoom_result = match self.submit::<completion::AppliedOnly, _>(&ZoomStop).await {
-                Ok(mut operation) => operation.applied().await,
-                Err(error) => Err(error),
-            };
-            retain_first_error(&mut first_error, zoom_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::FOCUS) {
-            let focus_result = match self.submit::<completion::AppliedOnly, _>(&FocusStop).await {
-                Ok(mut operation) => operation.applied().await,
-                Err(error) => Err(error),
-            };
-            retain_first_error(&mut first_error, focus_result);
-        }
-
-        first_error.map_or(Ok(()), Err)
+    pub(crate) async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
+        let started = self.owner.now();
+        let prepared =
+            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
+        self.owner.halt(prepared, started).await
     }
 
     pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
@@ -779,7 +753,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// # Urgent requests are never demoted
     ///
     /// A request the crate classifies [`crate::ControlClass::Urgent`] — the typed
-    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and owner-issued
+    /// stops [`PanTiltStop`], [`ZoomStop`](crate::request::builtin::ZoomStop), [`FocusStop`](crate::request::builtin::FocusStop), and owner-issued
     /// protocol cancellation — ignores this default and stays urgent. A handle demoted to
     /// [`SubmissionClass::Background`] for telemetry polling therefore still
     /// preempts with an emergency stop. Per-submission overrides obey the same
@@ -845,14 +819,6 @@ impl<P: CompileTimeProfile> Camera<P> {
         O: OperationCommand<K> + ?Sized,
     {
         self.core.submit(operation).await
-    }
-}
-
-fn retain_first_error(first_error: &mut Option<Error>, result: Result<()>) {
-    if let Err(error) = result {
-        if first_error.is_none() {
-            *first_error = Some(error);
-        }
     }
 }
 
@@ -1019,7 +985,9 @@ mod tests {
 
         runtime
             .run_until(partial_motion_core(&session).stop_all_motion())
-            .expect("zoom-only stop succeeds");
+            .expect("zoom-only stop succeeds")
+            .into_result()
+            .expect("supported STOP applied");
 
         assert_eq!(
             probe.sent(),
@@ -1046,7 +1014,9 @@ mod tests {
 
         runtime
             .run_until(partial_motion_core(&session).stop_all_motion())
-            .expect("no-axis stop is a successful no-op");
+            .expect("no-axis stop is a successful no-op")
+            .into_result()
+            .expect("no supported axes");
 
         assert!(
             probe.sent().is_empty(),
@@ -1058,7 +1028,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_all_motion_returns_the_first_supported_failure_after_later_stops() {
+    fn stop_all_motion_reports_each_supported_axis_after_a_partial_failure() {
         let (runtime, _) = DeterministicExecutor::new();
         let (transport, writes) =
             FailFirstZoomStopSend::new([helpers::auto_respond_step()], runtime.clone());
@@ -1070,10 +1040,15 @@ mod tests {
             ))
             .expect("zoom-focus session");
 
+        let report = runtime
+            .run_until(partial_motion_core(&session).stop_all_motion())
+            .expect("halt was accepted");
+        assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
-            runtime.run_until(partial_motion_core(&session).stop_all_motion()),
-            Err(Error::TransportError(_))
+            report.zoom,
+            crate::HaltOutcome::Failed(Error::TransportError(_))
         ));
+        assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(
             writes.lock().expect("writes lock").clone(),
             vec![

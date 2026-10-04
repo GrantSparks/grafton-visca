@@ -375,7 +375,8 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode family"
+                feature: "shared exposure-mode family",
+                ..
             }
         ));
         assert!(
@@ -397,7 +398,8 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode family"
+                feature: "shared exposure-mode family",
+                ..
             }
         ));
         assert!(
@@ -426,7 +428,8 @@ mod blocking_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry"
+                feature: "typed inquiry IrisControlInquiry",
+                ..
             }
         ));
         assert!(
@@ -527,12 +530,12 @@ mod async_surface {
                 response_tx
                     .send_async(envelope(sequence, reply))
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 if payload.get(1) != Some(&0x09) {
                     response_tx
                         .send_async(envelope(sequence, vec![0x90, 0x51, 0xff]))
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 }
                 Ok(())
             }
@@ -548,7 +551,7 @@ mod async_surface {
                 let response = responses
                     .recv_async()
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 destination[..response.len()].copy_from_slice(&response);
                 Ok(response.len())
             }
@@ -784,7 +787,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode family"
+                feature: "shared exposure-mode family",
+                ..
             }
         ));
         assert!(
@@ -812,7 +816,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "shared exposure-mode family"
+                feature: "shared exposure-mode family",
+                ..
             }
         ));
         assert!(
@@ -840,7 +845,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry"
+                feature: "typed inquiry IrisControlInquiry",
+                ..
             }
         ));
         assert!(
@@ -869,7 +875,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "digital zoom"
+                feature: "digital zoom",
+                ..
             }
         ));
         assert!(writes.lock().expect("writes lock").is_empty());
@@ -895,7 +902,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry FlickerModeInquiry"
+                feature: "typed inquiry FlickerModeInquiry",
+                ..
             }
         ));
         assert!(
@@ -924,7 +932,8 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry"
+                feature: "typed inquiry IrisControlInquiry",
+                ..
             }
         ));
         assert!(

@@ -64,10 +64,7 @@ pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
             let write_into_body = quote! {
                 const LEN: usize = 5;
                 if buffer.len() < LEN {
-                    return ::core::result::Result::Err(#crate_path::Error::BufferTooSmall {
-                        required: LEN,
-                        actual: buffer.len(),
-                    });
+                    return ::core::result::Result::Err(#crate_path::Error::buffer_too_small(LEN, buffer.len()));
                 }
                 buffer[0] = camera_id.to_address_byte();
                 buffer[1] = 0x09;
@@ -745,13 +742,10 @@ fn generate_shared_decode_body(
                         );
                     }
                     let value = <#mode_type as ::core::convert::TryFrom<u8>>::try_from(payload[0])
-                        .map_err(|_| #crate_path::Error::InvalidResponse {
-                            expected: ::std::borrow::Cow::Owned(::std::format!(
+                        .map_err(|_| #crate_path::Error::invalid_response(::std::borrow::Cow::Owned(::std::format!(
                                 "Valid {} value",
                                 ::core::stringify!(#mode_type)
-                            )),
-                            actual: ::std::vec![payload[0]],
-                        })?;
+                            )), ::std::vec![payload[0]]))?;
                     ::core::result::Result::Ok(
                         #crate_path::command::InquiryData::#response_variant { #field_name: value }
                     )
@@ -809,11 +803,7 @@ fn generate_shared_decode_body(
                     );
                 }
                 let level = #crate_path::types::DefogLevel::new(payload[0]).map_err(|_| {
-                    #crate_path::Error::InvalidParameter {
-                        parameter: "level",
-                        value: ::std::borrow::Cow::Owned(payload[0].to_string()),
-                        reason: ::std::borrow::Cow::Borrowed("value out of range"),
-                    }
+                    #crate_path::Error::invalid_parameter("level", ::std::borrow::Cow::Owned(payload[0].to_string()), ::std::borrow::Cow::Borrowed("value out of range"))
                 })?;
                 ::core::result::Result::Ok(
                     #crate_path::command::InquiryData::#actual_variant { level }

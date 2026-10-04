@@ -597,7 +597,10 @@ where
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_profile(profile)?;
     let wire = encode(command, target)?;
-    let context = request_context(command, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(command, target, profile, tuning, class, false, false)?;
+    context.motion = command
+        .motion_axes()
+        .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
     Ok(PreparedCommand {
         wire,
         context,
@@ -779,7 +782,12 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_profile(profile)?;
     let affected_axes = operation.affected_axes();
-    let context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(operation, target, profile, tuning, class, false, false)?;
+    context.motion = Some(crate::runtime::engine::MotionEffect {
+        axes: affected_axes,
+        // Urgent admission authority comes only from the sealed built-in STOP hook.
+        stop: context.control.class == crate::runtime::engine::ControlClass::Urgent,
+    });
     let settlement = K::lower_settlement(
         target,
         profile,
@@ -903,6 +911,9 @@ where
             .unwrap_or(timing.minimum_command_spacing())
     };
     Ok(RequestContext {
+        motion: None,
+        submission_order: 0,
+        dispatch_deadline: None,
         target,
         timeout,
         retry: retry_policy(
@@ -3681,6 +3692,45 @@ mod tests {
     /// context as a protocol-policy fact. The engine reads it there rather than
     /// inferring it from the wire bytes.
     #[test]
+    fn declared_raw_motion_lowers_axes_without_forging_stop_authority() {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let policy =
+            crate::raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
+                .expect("policy");
+        let command = crate::raw::Plain::with_policy([0x81, 0x01, 0x04, 0x07, 0x02, 0xff], policy)
+            .expect("plain");
+        let undeclared = prepare_command(
+            &command,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepares");
+        assert!(undeclared.context.motion.is_none());
+        let declared = prepare_command(
+            &command.with_motion_axes(AffectedAxes::ZOOM),
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepares");
+        assert_eq!(
+            declared.context.motion,
+            Some(crate::runtime::engine::MotionEffect {
+                axes: AffectedAxes::ZOOM,
+                stop: false
+            })
+        );
+        assert_eq!(
+            declared.context.control.class,
+            crate::runtime::engine::ControlClass::Normal
+        );
+    }
+
+    #[test]
     fn raw_reply_shape_lowers_into_request_context() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("built-in profile");
@@ -3748,5 +3798,74 @@ mod tests {
         )
         .expect_err("a no-reply operation must not create an applied handle");
         assert!(matches!(error, Error::InvalidRequest(_)));
+    }
+}
+
+/// Three independent typed STOPs, lowered before entering the owner boundary.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+pub(crate) struct PreparedHalt {
+    pub(crate) target: CameraId,
+    pub(crate) axes: Option<AffectedAxes>,
+    pub(crate) requests: [Option<Result<RuntimeRequest>>; 3],
+    pub(crate) budget: Duration,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn prepare_halt(
+    target: CameraId,
+    profile: &ProfileSpec,
+    tuning: OperationalTuning,
+) -> PreparedHalt {
+    use crate::request::builtin::{FocusStop, ZoomStop};
+    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning);
+    let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
+        prepared.map(|prepared| {
+            prepared.admit_with(|request, _, _, timeouts| {
+                budget = budget.max(timeouts.applied);
+                request
+            })
+        })
+    };
+    let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
+        lower(
+            crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
+                prepare_operation(&stop, target, profile, tuning, ClassSelection::Request)
+            }),
+        )
+    });
+    let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
+        lower(prepare_operation(
+            &ZoomStop,
+            target,
+            profile,
+            tuning,
+            ClassSelection::Request,
+        ))
+    });
+    let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
+        lower(prepare_operation(
+            &FocusStop,
+            target,
+            profile,
+            tuning,
+            ClassSelection::Request,
+        ))
+    });
+    let mut axes: Option<AffectedAxes> = None;
+    for (supported, axis) in [
+        (pan_tilt.is_some(), AffectedAxes::PAN_TILT),
+        (zoom.is_some(), AffectedAxes::ZOOM),
+        (focus.is_some(), AffectedAxes::FOCUS),
+    ] {
+        if supported {
+            axes = Some(axes.map_or(axis, |old| old.union(axis)));
+        }
+    }
+    PreparedHalt {
+        target,
+        axes,
+        requests: [pan_tilt, zoom, focus],
+        budget,
     }
 }

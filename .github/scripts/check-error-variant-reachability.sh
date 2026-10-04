@@ -87,6 +87,12 @@ record_construction ParameterOutOfRange src/units.rs \
   'return Err(Error::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \
   'Error::timeout(FailureStage::Terminal, certainty)'
+record_construction MotionSuperseded src/runtime/engine/mod.rs \
+  'RuntimeOutcome::Failed(Error::MotionSuperseded'
+record_construction SettlementSuperseded src/runtime/owner/motion.rs \
+  'let error = Error::SettlementSuperseded'
+record_construction SettlementObservationFailed src/runtime/owner/mod.rs \
+  'Error::SettlementObservationFailed {'
 record_construction ObservationTimeout src/runtime/owner/mod.rs \
   'Error::ObservationTimeout {'
 record_construction ControlReserveExhausted src/runtime/owner/mod.rs \

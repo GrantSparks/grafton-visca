@@ -146,7 +146,7 @@ impl AsyncTransport for SilentTransport {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }
@@ -176,7 +176,7 @@ async fn time_to_ack_timeout(session: &Session) -> Duration {
         .await
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     started.elapsed()
@@ -253,7 +253,7 @@ async fn a_widened_inquiry_timeout_governs_a_pre_existing_view<E: Executor>(exec
         .expect_err("a silent camera cannot answer an inquiry");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     assert!(
@@ -292,7 +292,7 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "the in-flight handle must still resolve on its own deadline, got {error:?}"
     );
     assert!(
@@ -487,7 +487,7 @@ async fn a_camera_session_reconfigures_its_own_session<E: Executor>(executor: E)
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "got {error:?}"
     );
     assert!(

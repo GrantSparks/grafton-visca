@@ -267,9 +267,21 @@ impl RetryPolicy {
     };
 }
 
+/// Immutable motion semantics. Only trusted typed STOPs set `stop`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MotionEffect {
+    pub(crate) axes: crate::AffectedAxes,
+    pub(crate) stop: bool,
+}
+
 /// Every immutable protocol policy carried by an admitted request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RequestContext {
+    pub(crate) motion: Option<MotionEffect>,
+    /// Assigned under the owner ingress lock, independently of engine admission.
+    pub(crate) submission_order: u64,
+    /// Absolute last instant before which an owner-halt STOP may begin a write.
+    pub(crate) dispatch_deadline: Option<std::time::Instant>,
     pub(crate) target: CameraId,
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
@@ -395,6 +407,12 @@ pub(crate) enum RuntimeRequest {
 }
 
 impl RuntimeRequest {
+    pub(crate) fn context_mut(&mut self) -> &mut RequestContext {
+        match self {
+            Self::Command { context, .. } | Self::Inquiry { context, .. } => context,
+        }
+    }
+
     pub(crate) const fn context(&self) -> &RequestContext {
         match self {
             Self::Command { context, .. } | Self::Inquiry { context, .. } => context,

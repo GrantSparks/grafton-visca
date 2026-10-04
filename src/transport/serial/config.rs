@@ -13,6 +13,7 @@ use crate::transport::buffer::BufferConfig;
 /// This unified configuration is used by both blocking and async serial
 /// transports, ensuring consistent behavior across different runtime modes.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Config {
     /// Serial port path (e.g., "/dev/ttyUSB0" on Unix, "COM1" on Windows).
     pub port: String,

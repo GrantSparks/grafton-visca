@@ -24,7 +24,7 @@ Status vocabulary:
   available; record the blocker and owner.
 - `Pass` or `Fail` is allowed only with the evidence fields completed.
 
-The current `2.0.0-rc.2` status is intentionally unverified: no physical
+The current `2.0.0-rc.3` status is intentionally unverified: no physical
 hardware validation has been performed, and no hardware support has been
 verified for this release candidate.
 
@@ -41,7 +41,7 @@ Hardware operator/date: Pending
 | HW-01 | Representative Raw TCP and UDP command, inquiry, and motion-safe-stop flow | Pending (Not run) | Pending | Pending |
 | HW-02 | Blocking and Tokio Raw serial startup and timeout behavior, including attribution with at least two registered addresses | Pending (Not run) | Pending | Pending |
 | HW-03 | Representative Sony UDP envelope and sequence-numbered command and inquiry flow | Pending (Not run) | Pending | Pending |
-| HW-04 | Movement cancellation and emergency stop, plus disconnect and recovery, on representative Raw and Sony paths | Pending (Not run) | Pending | Pending |
+| HW-04 | Movement cancellation and owner halt: queued/retry fencing, independently dispatched STOPs and partial reports, then physical-rest observation, disconnect and recovery on representative Raw and Sony paths | Pending (Not run) | Pending | Pending |
 | HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pending (Not run) | Pending | Pending |
 
 ## Stable-release sign-off

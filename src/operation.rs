@@ -142,10 +142,11 @@ impl Operation<completion::Targeted> {
     /// settlement condition, bounded by the configured settlement budget.
     ///
     /// Application is cached, so calling this after
-    /// [`applied`](Operation::applied) continues from it. Settlement proven
+    /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
+    /// Later conflicting admission supersedes unfinished polled evidence. Settlement proven
     /// by position polling is cached once proven; a polling wait that is
     /// abandoned or times out restarts with a fresh proof.
-    pub async fn settled(&mut self) -> Result<(), Error> {
+    pub async fn settled(&mut self) -> Result<crate::Settlement, Error> {
         self.receipt.settled(None).await
     }
 
@@ -155,7 +156,10 @@ impl Operation<completion::Targeted> {
     /// settlement policy are unchanged. Each abandoned polling attempt may
     /// leave its admitted position inquiries running until their own
     /// deadlines, within the session's admission capacity.
-    pub async fn settled_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+    pub async fn settled_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<crate::Settlement, Error> {
         self.receipt.settled(Some(timeout)).await
     }
 }

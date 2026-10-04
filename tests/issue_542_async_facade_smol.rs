@@ -42,11 +42,11 @@ impl AsyncTransport for ProbeTransport {
             response_tx
                 .send_async(vec![0x90, 0x41, 0xff])
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             response_tx
                 .send_async(vec![0x90, 0x51, 0xff])
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             Ok(())
         }
     }
@@ -61,7 +61,7 @@ impl AsyncTransport for ProbeTransport {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }

@@ -36,21 +36,18 @@ macro_rules! visca_command {
         #[derive(Debug, Copy, Clone)]
         pub struct $name;
 
-        impl $crate::command::encode::WireEncode for $name {
+        impl $crate::__macro_support::WireEncode for $name {
             fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const BYTES: &[u8] = &[$($byte),*];
                 let len = BYTES.len() + 2;
 
                 if buffer.len() < len {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: len,
-                        actual: buffer.len()
-                    });
+                    return Err($crate::Error::buffer_too_small(len, buffer.len()));
                 }
 
                 buffer[0] = camera_id.to_address_byte();
                 buffer[1..1+BYTES.len()].copy_from_slice(BYTES);
-                buffer[len-1] = $crate::command::bytes::VISCA_TERMINATOR;
+                buffer[len-1] = $crate::command::VISCA_TERMINATOR;
                 Ok(len)
             }
 
@@ -72,7 +69,7 @@ macro_rules! visca_command {
             pub $field: $ftype,)*
         }
 
-        impl $crate::command::encode::WireEncode for $name {
+        impl $crate::__macro_support::WireEncode for $name {
             fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
                 const PREFIX: &[u8] = &[$($byte),*];
 
@@ -80,16 +77,13 @@ macro_rules! visca_command {
                 let Self { $($field),* } = self;
 
                 // Encode parameters without heap allocation
-                let params: $crate::macros::param::ParamBuf<$max_param_size> =
-                    $crate::macros::param::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
+                let params: $crate::__macro_support::ParamBuf<$max_param_size> =
+                    $crate::__macro_support::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
 
                 let total_len = 1 + PREFIX.len() + params.len() + 1; // camera_id + prefix + params + terminator
 
                 if buffer.len() < total_len {
-                    return Err($crate::Error::BufferTooSmall {
-                        required: total_len,
-                        actual: buffer.len()
-                    });
+                    return Err($crate::Error::buffer_too_small(total_len, buffer.len()));
                 }
 
                 let mut pos = 0;
@@ -102,7 +96,7 @@ macro_rules! visca_command {
                 buffer[pos..pos+params.len()].copy_from_slice(params.as_slice());
                 pos += params.len();
 
-                buffer[pos] = $crate::command::bytes::VISCA_TERMINATOR;
+                buffer[pos] = $crate::command::VISCA_TERMINATOR;
                 Ok(pos + 1)
             }
 

@@ -108,6 +108,7 @@ fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
         Error::UnsupportedTransport {
             profile: grafton_visca::camera::profiles::ProfileId::SonyFr7,
             transport: TransportKind::Tcp,
+            ..
         }
     ));
     assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);

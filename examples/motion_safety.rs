@@ -1,10 +1,10 @@
 //! Blocking motion safety and observation: `is_moving`, `is_moving_axes`,
-//! `wait_until_idle`, and the `stop_all_motion` emergency composite.
+//! `wait_until_idle`, and the `stop_all_motion` owner halt.
 //!
 //! `camera.motion()` is the one camera-level motion safety/observation view.
 //! `stop_all_motion()` attempts pan/tilt, zoom, and focus STOP even when an
-//! earlier axis fails, and returns the first error only after every attempt, so
-//! it is a genuine emergency stop rather than a fail-fast sequence.
+//! earlier axis fails, returning a per-axis report under one common deadline.
+//! This example explicitly collapses the report to its first failure.
 //! `is_moving`/`is_moving_axes`/`wait_until_idle` observe *only* the axes they
 //! are given; they never settle a submitted operation.
 //!
@@ -60,8 +60,8 @@ fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     ))?;
     println!("pan/tilt idle");
 
-    // The emergency composite: attempt every supported STOP, even if one fails.
-    camera.motion().stop_all_motion()?;
+    // Fence older declared motion, then inspect the supported STOP outcomes.
+    camera.motion().stop_all_motion()?.into_result()?;
     println!("stop_all_motion complete");
 
     Ok(())

@@ -129,9 +129,10 @@ impl RawProbeTransport {
             writes: Vec::new(),
         }));
         let (reply_tx, replies) = flume::unbounded();
-        let config = TransportConfig {
-            addressing: AddressingMode::Serial,
-            ..TransportConfig::default()
+        let config = {
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
         };
         (
             Self {
@@ -166,7 +167,7 @@ impl BlockingTransport for RawProbeTransport {
         for reply in replies {
             self.reply_tx
                 .send(reply)
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
         }
         Ok(())
     }
@@ -181,7 +182,7 @@ impl BlockingTransport for RawProbeTransport {
             .recv_timeout(timeout)
             .map_err(|error| match error {
                 flume::RecvTimeoutError::Timeout => Error::io_timeout(),
-                flume::RecvTimeoutError::Disconnected => Error::ConnectionClosed { reason: None },
+                flume::RecvTimeoutError::Disconnected => Error::connection_closed(None),
             })?;
         dst[..reply.len()].copy_from_slice(&reply);
         Ok(reply.len())
@@ -390,7 +391,9 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
     camera
         .motion()
         .stop_all_motion()
-        .expect("every stop applies while the drive is live");
+        .expect("every stop applies while the drive is live")
+        .into_result()
+        .expect("each supported STOP applied");
     assert_eq!(
         probe.write_count(),
         4,

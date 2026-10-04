@@ -155,17 +155,17 @@ impl AsyncTransport for ProbeTransport {
                 response_tx
                     .send_async(vec![source, 0x50, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             } else {
                 response_tx
                     .send_async(vec![source, 0x41, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 if complete {
                     response_tx
                         .send_async(vec![source, 0x51, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 }
             }
             Ok(())
@@ -182,7 +182,7 @@ impl AsyncTransport for ProbeTransport {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             destination[..response.len()].copy_from_slice(&response);
             Ok(response.len())
         }
@@ -289,7 +289,8 @@ async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "digital zoom"
+            feature: "digital zoom",
+            ..
         }
     ));
     assert!(writes.lock().expect("writes lock").is_empty());

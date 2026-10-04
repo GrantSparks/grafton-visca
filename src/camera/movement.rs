@@ -6,6 +6,7 @@ use crate::AffectedAxes;
 
 /// Per-axis tolerance used while comparing two position snapshots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MovementTolerance {
     /// Pan/tilt tolerance in raw VISCA units.
     pub pan_tilt: i32,

@@ -73,6 +73,12 @@ impl<const N: usize> ParamBuf<N> {
         &self.buf[..self.len]
     }
 
+    /// Whether the parameter buffer contains no bytes.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// Get the length of the parameter bytes.
     #[inline]
     pub fn len(&self) -> usize {

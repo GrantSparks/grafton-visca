@@ -31,9 +31,11 @@ use crate::{executor::Executor, transport::AsyncTransport};
 pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
 
 /// A step in a transport script defining what should happen when commands are sent.
+#[non_exhaustive]
 pub enum Step {
     /// Respond immediately when the next send occurs.
     /// If `matches` is provided, only respond if the sent bytes start with those bytes.
+    #[non_exhaustive]
     OnSend {
         /// Optional bytes to match against sent data
         matches: Option<Vec<u8>>,
@@ -42,6 +44,7 @@ pub enum Step {
     },
 
     /// Schedule responses after a virtual delay (uses the provided Executor in async mode).
+    #[non_exhaustive]
     After {
         /// Delay before sending responses
         delay: Duration,
@@ -55,6 +58,19 @@ pub enum Step {
     /// Generate responses dynamically based on the sent command bytes.
     /// The function receives the sent bytes and returns responses to send back.
     DynamicResponse(DynamicResponseFn),
+}
+
+impl Step {
+    /// Responds on the next send, optionally matching a byte prefix.
+    #[must_use]
+    pub fn on_send(matches: Option<Vec<u8>>, responses: Vec<Vec<u8>>) -> Self {
+        Self::OnSend { matches, responses }
+    }
+    /// Schedules responses after a virtual delay.
+    #[must_use]
+    pub fn after(delay: Duration, responses: Vec<Vec<u8>>) -> Self {
+        Self::After { delay, responses }
+    }
 }
 
 impl std::fmt::Debug for Step {

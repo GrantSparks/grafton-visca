@@ -7,7 +7,7 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
-> **2.0.0-rc.2** — The prerelease owner-backed API is available for review. It
+> **2.0.0-rc.3** — The prerelease owner-backed API is available for review. It
 > keeps one protocol owner per session and exposes typed static, blocking, async,
 > and dynamic views over that owner.
 >
@@ -18,7 +18,7 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 
 ---
 
-## 2.0.0-rc.2 Support Matrix
+## 2.0.0-rc.3 Support Matrix
 
 The 2.0 contract is owner-backed construction, mode-native sessions, typed
 profile views, and one request path for each semantic class. Hardware validation
@@ -323,7 +323,7 @@ fn move_home() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
-    // Blocking submit performs initial synchronous dispatch before returning.
+    // Blocking submit returns after owner admission; waits observe the outcome.
     camera.submit(&PanTiltHome)?.settled()?;
 
     // Applied-only commands have no meaningful settled state.
@@ -363,12 +363,12 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
 ```
 
 - `applied` means the exact command was accepted and protocol-completed.
-- `settled` additionally means the targeted operation meets the profile-selected
-  protocol settlement condition: a profile-declared completion-is-settled
-  signal, or two affected-axis position samples within tolerance. It is an
-  intended indication of target rest, not a 2.0.0-rc.2 bench-verified assertion
-  that physical motion ended; exact model/firmware/transport/command evidence
-  remains in the [hardware release checklist](docs/hardware_release_checklist.md).
+- `settled` returns `Settlement` evidence: exact profile-declared completion,
+  or stable samples reporting their axes, window, and tolerance. Stable samples
+  do not prove arrival at the requested endpoint. A later conflicting admission
+  supersedes unfinished polled settlement; previously cached evidence remains
+  valid. Physical bench evidence remains in the
+  [hardware release checklist](docs/hardware_release_checklist.md).
 - Waits borrow the handle, and the handle caches what it observes: `applied`
   then `settled` on one handle continues from the cached application, a
   repeated wait answers from the cache, and a wait that times out or loses a
@@ -470,27 +470,27 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
 ```toml
 [dependencies]
-grafton-visca = "=2.0.0-rc.2"
+grafton-visca = "=2.0.0-rc.3"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["async"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["async"] }
 
 # Async with Tokio
-grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "=2.0.0-rc.2", features = ["serde"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["transport-serial"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior
@@ -504,12 +504,9 @@ use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .camera_id(CameraId::CAMERA_1)
-    .transport_config(TransportConfig {
-        tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(
+    .transport_config({ let mut config = TransportConfig::default(); config.tcp_keepalive = Some(grafton_visca::transport::TcpKeepaliveConfig::new(
             Duration::from_secs(30),
-        )),
-        ..TransportConfig::default()
-    });
+        )); config });
 ```
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers

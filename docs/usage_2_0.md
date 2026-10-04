@@ -265,8 +265,9 @@ minimum pacing, raise its socket limit, undercut a profile command category,
 or use zero timeouts. When targets have different profile minima, the strictest
 applicable pacing and capacity policy wins. A settlement timeout is separate
 from protocol completion: a targeted operation may be acknowledged before the
-profile-selected protocol settlement condition is met. This is not a
-bench-verified assertion of physical rest; see the
+profile-selected settlement evidence is established. `Settlement` distinguishes
+exact profile completion from stable samples with a window and tolerance;
+stable samples do not prove arrival at the endpoint. See the
 [hardware release checklist](hardware_release_checklist.md). Inquiries always
 use `inquiry_timeout`.
 
@@ -349,6 +350,19 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
 `is_moving_axes(MotionQuery)` is the axis-selecting form.
 
+`stop_all_motion()` returns `HaltReport` under one end-to-end deadline. At owner
+acceptance it fences older declared queued motion and future retries, then
+admits each supported STOP independently while respecting protocol gates.
+Subsequent motion remains eligible. Inspect each axis's `HaltOutcome`, or use
+`into_result()` to explicitly retain only the first failure. Applied STOPs
+provide protocol evidence; they do not prove physical rest.
+
+Targeted `settled*` waits return `Settlement` evidence. A later conflicting
+admission makes unfinished polled settlement return `SettlementSuperseded`,
+even if that later motion is cancelled before writing. Other axes/targets and
+rejected requests do not supersede it. Established cached evidence and exact
+profile completion remain valid.
+
 A motion observation reads one position snapshot, waits until at least
 `MotionQuery::window` (default 100 ms, set with `with_window`) has elapsed on
 the owner clock, and reads a second. `true` means a selected axis moved by more
@@ -371,6 +385,8 @@ let (sony_result, raw_result) = tokio::join!(
     sony_motion.stop_all_motion(),
     raw_motion.stop_all_motion(),
 );
+sony_result?.into_result()?;
+raw_result?.into_result()?;
 ```
 
 Blocking runtime-profile code uses `BlockingDynSessionCamera`. Its generic

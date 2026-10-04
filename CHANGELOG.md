@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+This candidate completes the adopted 2.0 decisions for software review.
+Physical-camera verification remains pending; the hardware checklist records
+the required representative scenarios before a stable release (#753).
+
 ### Fixed
+
+- Timestamped owner deliveries (#777, #783) make operation observer deadlines exact: an
+  outcome delivered at the deadline satisfies that wait; a later outcome stays
+  cached for a subsequent borrowing wait. A timely cancellation failure is no
+  longer hidden by a late original completion.
+- Settlement polling failures (#782, #783) retain their inquiry cause while reporting
+  `Observation/Unconfirmed` for the applied move, so they cannot authorize
+  replay of that move.
 
 - Adapted motion-window deadline errors and blocking clock imports to the
   integrated structured-error and worker APIs (#781).
@@ -39,6 +51,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owner accepted it leaves the handle observing the operation's own outcome.
 
 ### Changed
+
+- **BREAKING**: Freeze extensible public configuration, diagnostic, error and
+  transport payloads with `#[non_exhaustive]`; expose narrow constructors for
+  external adapters and parsers. Use constructors or Default plus field
+  assignments, partial named patterns (`..`), and wildcard registry matches.
+  Fixed wire/value records and command payloads remain exhaustive. `ViscaEnum`
+  error types named `Error` now use the `invalid_response` constructor convention
+  while other custom error types retain `From<String>` (#788).
+
+- **BREAKING** (D21, #779): `stop_all_motion()` now returns `HaltReport` with an
+  independent result for each supported axis. One owner halt fences older
+  declared queued motion and retries, then admits STOPs under one end-to-end
+  deadline while respecting protocol gates. Custom plain/raw commands can
+  declare their motion axes without gaining STOP priority.
+- **BREAKING** (D23, #782, revises #542's settlement contract): targeted `settled*` waits return `Settlement` evidence.
+  Stable-sample evidence reports its axes, window, and tolerance; it does not
+  prove arrival at an endpoint. A later conflicting admission supersedes an
+  unfinished polled observation. Established cached evidence and exact
+  profile-declared completion remain valid.
 
 - **BREAKING** (#781): `is_moving` and `is_moving_axes` now observe over an
   explicit time window instead of comparing two back-to-back snapshots.

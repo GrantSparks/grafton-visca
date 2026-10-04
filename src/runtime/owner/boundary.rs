@@ -21,8 +21,8 @@ use crate::Error;
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::SessionState;
 use super::{
-    AdmissionPermit, AdmissionPermitPool, CancellationRequest, DiagnosticSubscription, LiveTuning,
-    ObserverCell, OwnerState, RequestId, RequestLane, RuntimeOutcome, RuntimeRequest,
+    AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
+    LiveTuning, ObserverCell, OwnerState, RequestLane, RuntimeOutcome, RuntimeRequest,
     TargetStateCache, TerminalObserver,
 };
 #[cfg(all(test, feature = "runtime-tokio"))]
@@ -132,7 +132,7 @@ impl AdmissionValidity {
 
 /// The owner's answer to one enqueued admission: the admitted request's
 /// identity, or why it was not admitted.
-pub(super) type AdmissionReply = flume::Receiver<Result<RequestId, Error>>;
+pub(super) type AdmissionReply = flume::Receiver<Result<Admitted, Error>>;
 
 /// A deadline-constrained admission a caller has enqueued, with what it
 /// must record if its deadline wins the race.
@@ -148,7 +148,7 @@ pub(super) struct AdmissionBoundary {
     pub(super) request: RuntimeRequest,
     pub(super) permit: AdmissionPermit,
     pub(super) observer: Arc<ObserverCell<RuntimeOutcome>>,
-    pub(super) reply: flume::Sender<Result<RequestId, Error>>,
+    pub(super) reply: flume::Sender<Result<Admitted, Error>>,
     /// Present only for a caller deadline that applies before admission.
     pub(super) validity: Option<AdmissionValidity>,
     /// The owner has already won the caller's pre-admission deadline race,
@@ -287,13 +287,27 @@ impl AdmissionRejectionIngress {
     }
 }
 
+/// The bounded priority lane shared by cancellation and owner halt.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-pub(super) struct CancellationBoundary {
-    pub(super) request: CancellationRequest,
-    /// `Ok` once the intent is installed (or the operation already
-    /// concluded); the refusal otherwise. The caller keeps its handle either
-    /// way (#777).
-    pub(super) reply: flume::Sender<Result<(), Error>>,
+pub(super) enum CancellationBoundary {
+    Cancel {
+        request: CancellationRequest,
+        reply: flume::Sender<Result<(), Error>>,
+    },
+    Halt(super::halt::HaltBoundary),
+}
+impl CancellationBoundary {
+    pub(super) fn fail(self, error: Error) {
+        match self {
+            Self::Cancel { reply, .. } => {
+                let _ = reply.try_send(Err(error));
+            }
+            Self::Halt(halt) => {
+                let _ = halt.reply.try_send(Err(error));
+            }
+        }
+    }
 }
 
 /// An admission or cancellation selected while a raw-correlation release was
@@ -376,6 +390,7 @@ enum ShutdownSignalState {
 pub(super) struct OwnerLifecycle {
     signal: Mutex<ShutdownSignalState>,
     terminal: Mutex<Option<Error>>,
+    next_submission: AtomicU64,
 }
 
 impl OwnerLifecycle {
@@ -383,7 +398,32 @@ impl OwnerLifecycle {
         Self {
             signal: Mutex::new(ShutdownSignalState::Open),
             terminal: Mutex::new(None),
+            next_submission: AtomicU64::new(1),
         }
+    }
+
+    fn allocate_order(&self) -> Result<u64, Error> {
+        self.next_submission
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map_err(|_| Error::RuntimeIdentityExhausted)
+    }
+
+    pub(super) fn fence_order(
+        &self,
+        motion: &Arc<super::motion::MotionRegistry>,
+        target: crate::CameraId,
+        axes: Option<crate::AffectedAxes>,
+    ) -> Result<u64, Error> {
+        let _guard = self.lock_open()?;
+        let cutoff = self.allocate_order()?;
+        // Lock order is ingress -> motion. No other path holds both, and no
+        // I/O occurs here: enqueue and settlement commit see one acceptance.
+        if let Some(axes) = axes {
+            motion.establish(target, axes, cutoff);
+        }
+        Ok(cutoff)
     }
 
     fn lock_signal(&self) -> MutexGuard<'_, ShutdownSignalState> {
@@ -668,6 +708,8 @@ impl OwnerHandleCore {
                 return Err(error);
             }
         };
+        let mut request = request;
+        request.context_mut().submission_order = self.lifecycle.allocate_order()?;
         let (completion, observer) = TerminalObserver::pair();
         let (reply, admission) = flume::bounded(1);
         let boundary = AdmissionBoundary {

@@ -380,10 +380,7 @@ fn generate_try_from_impl_with_attrs(
         if is_grafton_error {
             // Use InvalidResponse constructor for grafton_visca::Error
             quote! {
-                ::core::result::Result::Err(#error_type::InvalidResponse {
-                    expected: ::std::borrow::Cow::Borrowed(#error_message),
-                    actual: ::std::vec![value],
-                })
+                ::core::result::Result::Err(#error_type::invalid_response(::std::borrow::Cow::Borrowed(#error_message), ::std::vec![value]))
             }
         } else {
             // For other error types, try to use From trait

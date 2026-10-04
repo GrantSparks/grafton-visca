@@ -76,10 +76,7 @@ macro_rules! declare_net_transport {
                 ///
                 /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        buffer_config: BufferConfig::for_raw_ip(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.buffer_config = BufferConfig::for_raw_ip(); config };
                     Self::connect_with_config(address, config).await
                 }
 
@@ -87,11 +84,7 @@ macro_rules! declare_net_transport {
                 ///
                 /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
                 pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        connect_timeout: timeout,
-                        buffer_config: BufferConfig::for_raw_ip(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.connect_timeout = timeout; config.buffer_config = BufferConfig::for_raw_ip(); config };
                     Self::connect_with_config(address, config).await
                 }
 
@@ -159,9 +152,7 @@ macro_rules! declare_net_transport {
                     let n = self.reader.read(dst).await?;
 
                     if n == 0 {
-                        return Err(Error::ConnectionClosed {
-                            reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
-                        });
+                        return Err(Error::connection_closed(Some(std::borrow::Cow::Borrowed("peer closed connection"))));
                     }
 
                     Ok(n)
@@ -211,10 +202,7 @@ macro_rules! declare_net_transport {
                 /// The socket will bind to the appropriate unspecified address based on the
                 /// target address family.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.buffer_config = BufferConfig::for_udp(); config };
                     Self::connect_with_config(address, config).await
                 }
 
@@ -292,10 +280,7 @@ macro_rules! declare_net_transport {
                 ///
                 /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        buffer_config: BufferConfig::for_raw_ip(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.buffer_config = BufferConfig::for_raw_ip(); config };
                     Self::connect_with_config(address, config).await
                 }
 
@@ -303,11 +288,7 @@ macro_rules! declare_net_transport {
                 ///
                 /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
                 pub async fn connect_timeout(address: &str, timeout: Duration) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        connect_timeout: timeout,
-                        buffer_config: BufferConfig::for_raw_ip(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.connect_timeout = timeout; config.buffer_config = BufferConfig::for_raw_ip(); config };
                     Self::connect_with_config(address, config).await
                 }
 
@@ -375,9 +356,7 @@ macro_rules! declare_net_transport {
                     let n = self.stream.read(dst).await?;
 
                     if n == 0 {
-                        return Err(Error::ConnectionClosed {
-                            reason: Some(std::borrow::Cow::Borrowed("peer closed connection")),
-                        });
+                        return Err(Error::connection_closed(Some(std::borrow::Cow::Borrowed("peer closed connection"))));
                     }
 
                     Ok(n)
@@ -427,10 +406,7 @@ macro_rules! declare_net_transport {
                 /// The socket will bind to the appropriate unspecified address based on the
                 /// target address family.
                 pub async fn connect(address: &str) -> Result<Self, Error> {
-                    let config = TransportConfig {
-                        buffer_config: BufferConfig::for_udp(),
-                        ..Default::default()
-                    };
+                    let config = { let mut config = TransportConfig::default(); config.buffer_config = BufferConfig::for_udp(); config };
                     Self::connect_with_config(address, config).await
                 }
 

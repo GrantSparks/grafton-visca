@@ -174,9 +174,10 @@ mod async_registry {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
-                    config: TransportConfig {
-                        addressing,
-                        ..TransportConfig::default()
+                    config: {
+                        let mut config = TransportConfig::default();
+                        config.addressing = addressing;
+                        config
                     },
                     standard_kind,
                     addressing_hint,
@@ -222,14 +223,14 @@ mod async_registry {
                 if inquiry {
                     tx.send_async(vec![source, 0x50, 0x01, 0x02, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 } else {
                     tx.send_async(vec![source, 0x41, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                     tx.send_async(vec![source, 0x51, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 }
                 Ok(())
             }
@@ -246,7 +247,7 @@ mod async_registry {
                     .responses
                     .recv_async()
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 dst[..response.len()].copy_from_slice(&response);
                 Ok(response.len())
             }
@@ -724,9 +725,10 @@ mod blocking_registry {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
                 Self {
-                    config: TransportConfig {
-                        addressing,
-                        ..TransportConfig::default()
+                    config: {
+                        let mut config = TransportConfig::default();
+                        config.addressing = addressing;
+                        config
                     },
                     standard_kind,
                     addressing_hint,

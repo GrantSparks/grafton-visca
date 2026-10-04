@@ -62,17 +62,20 @@ impl std::fmt::Display for TransportKind {
 pub enum TransportOptions {
     /// TCP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "TCP"))]
+    #[non_exhaustive]
     Tcp {
         /// Host:port string (e.g., "192.168.0.110:5678")
         address: String,
     },
     /// UDP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "UDP"))]
+    #[non_exhaustive]
     Udp {
         /// Host:port string (e.g., "192.168.0.110:1259")
         address: String,
     },
     /// Serial connection.
+    #[non_exhaustive]
     Serial {
         /// Serial port path (e.g., "/dev/ttyUSB0")
         port: String,

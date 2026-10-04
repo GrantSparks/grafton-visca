@@ -128,7 +128,7 @@ mod asynchronous {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             self.probe.reads.fetch_add(1, Ordering::AcqRel);
             Ok(bytes.len())
@@ -178,7 +178,10 @@ mod asynchronous {
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .await
             .expect_err("ordinary admission is full");
-        assert!(matches!(refused, Error::RuntimeQueueFull { capacity: 1 }));
+        assert!(matches!(
+            refused,
+            Error::RuntimeQueueFull { capacity: 1, .. }
+        ));
 
         let mut stop = camera
             .submit::<AppliedOnly, _>(&ZoomStop)
@@ -216,7 +219,7 @@ mod asynchronous {
 
         assert!(matches!(
             camera.submit_applied(&ZoomDrive::Wide).await,
-            Err(Error::RuntimeQueueFull { capacity: 1 })
+            Err(Error::RuntimeQueueFull { capacity: 1, .. })
         ));
         let mut stop = camera
             .submit_applied(&ZoomStop)
@@ -354,7 +357,10 @@ mod blocking {
         let refused = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Wide)
             .expect_err("ordinary admission is full");
-        assert!(matches!(refused, Error::RuntimeQueueFull { capacity: 1 }));
+        assert!(matches!(
+            refused,
+            Error::RuntimeQueueFull { capacity: 1, .. }
+        ));
 
         let mut stop = camera
             .submit::<AppliedOnly, _>(&ZoomStop)

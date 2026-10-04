@@ -184,7 +184,7 @@ fn time_to_ack_timeout(session: &Session) -> Duration {
         .applied_with_timeout(Duration::from_secs(30))
         .expect_err("a silent camera cannot acknowledge");
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     started.elapsed()
@@ -274,7 +274,7 @@ fn a_widened_inquiry_timeout_governs_the_next_inquiry() {
         .expect_err("a silent camera cannot answer an inquiry");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "expected the owner's own deadline, got {error:?}"
     );
     assert!(
@@ -309,7 +309,7 @@ fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "got {error:?}"
     );
     assert!(
@@ -473,7 +473,7 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "the in-flight receipt must still resolve on its own deadline, got {error:?}"
     );
     assert!(
@@ -523,7 +523,7 @@ fn a_camera_session_reconfigures_its_own_session() {
         .expect_err("a silent camera cannot acknowledge");
     let elapsed = started.elapsed();
     assert!(
-        matches!(&error, Error::Timeout { context } if context.stage == FailureStage::Terminal),
+        matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
         "got {error:?}"
     );
     assert!(

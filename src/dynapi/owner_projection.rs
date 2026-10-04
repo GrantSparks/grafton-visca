@@ -96,14 +96,17 @@ dyn_operation_lifecycle!(DynTargetedOperation, Targeted);
 impl DynTargetedOperation {
     /// Waits for exact application and the owner's profile-selected protocol
     /// settlement condition. See [`Operation::settled`].
-    pub async fn settled(&mut self) -> Result<(), Error> {
+    pub async fn settled(&mut self) -> Result<crate::Settlement, Error> {
         self.inner.settled().await
     }
 
     /// Waits for exact application and the profile-selected protocol
     /// settlement condition, bounded by `timeout`. The owner retains all
     /// polling and deadline logic. See [`Operation::settled_with_timeout`].
-    pub async fn settled_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+    pub async fn settled_with_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<crate::Settlement, Error> {
         self.inner.settled_with_timeout(timeout).await
     }
 }
@@ -296,7 +299,7 @@ impl DynSessionCamera {
     }
 
     /// Stops all motion by delegating to the owner-backed camera view.
-    pub(crate) fn stop_all_motion(&self) -> DynFuture<'_, Result<(), Error>> {
+    pub(crate) fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>> {
         Box::pin(self.core.stop_all_motion())
     }
 

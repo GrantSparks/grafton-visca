@@ -273,7 +273,7 @@ impl BlockingOwnerWorker {
     ) where
         D: BlockingOwnerDriver,
     {
-        while let Some(staged) = self.core.next_transmit(&mut effects) {
+        while let Some(staged) = self.core.next_transmit(&mut effects, Instant::now()) {
             let result = match self.core.state.prepare_write(&staged) {
                 Ok(write) => driver.write(write),
                 Err(error) => Err(error),
@@ -524,7 +524,12 @@ impl BlockingOwnerHandle {
         let target = request.context().target;
         let (completion, admission) = self.core.enqueue_admission(request, None)?;
         let id = self.reply(&admission).wait()??;
-        Ok(ReceiptCore::new(id, target, completion, configured_timeout))
+        Ok(ReceiptCore::admitted(
+            id,
+            target,
+            completion,
+            configured_timeout,
+        ))
     }
 
     fn submit_with_timeout_until(
@@ -548,7 +553,58 @@ impl BlockingOwnerHandle {
             }
         };
         let id = reply??;
-        Ok(ReceiptCore::new(id, target, completion, configured_timeout))
+        Ok(ReceiptCore::admitted(
+            id,
+            target,
+            completion,
+            configured_timeout,
+        ))
+    }
+
+    pub(crate) fn halt(
+        &self,
+        prepared: crate::prepared::PreparedHalt,
+        started: Instant,
+    ) -> Result<crate::HaltReport, Error> {
+        let deadline = observer_deadline(started, prepared.budget)?;
+        let validity = super::boundary::AdmissionValidity::until(deadline);
+        let (reply, receiver) = flume::bounded(1);
+        let boundary = CancellationBoundary::Halt(super::halt::HaltBoundary {
+            prepared,
+            deadline,
+            validity: validity.clone(),
+            reply,
+        });
+        match self.core.cancellations.send_deadline(boundary, deadline) {
+            Ok(()) => {}
+            Err(flume::SendTimeoutError::Timeout(_)) => return Err(Error::admission_timeout()),
+            Err(flume::SendTimeoutError::Disconnected(_)) => {
+                return Err(self.core.disconnected_error())
+            }
+        }
+        let receipt = match self.reply(&receiver).wait_deadline(deadline) {
+            Ok(answer) => answer??,
+            Err(flume::select::SelectError::Timeout) => {
+                if validity.expire_before_admission() {
+                    return Err(Error::admission_timeout());
+                }
+                self.reply(&receiver).wait()??
+            }
+        };
+        let outcomes = receipt.slots.map(|slot| match slot {
+            None => crate::HaltOutcome::Unsupported,
+            Some(slot) => {
+                let result = slot.and_then(|core| {
+                    wait_core_until(&core, self, receipt.deadline)
+                        .and_then(normalize_command_outcome)
+                });
+                match result {
+                    Ok(()) => crate::HaltOutcome::Applied,
+                    Err(error) => crate::HaltOutcome::Failed(error),
+                }
+            }
+        });
+        Ok(super::halt::report(outcomes))
     }
 
     /// Deliver one cancellation request to the worker and return its answer,
@@ -564,7 +620,7 @@ impl BlockingOwnerHandle {
         match self
             .core
             .cancellations
-            .send_deadline(CancellationBoundary { request, reply }, deadline)
+            .send_deadline(CancellationBoundary::Cancel { request, reply }, deadline)
         {
             Ok(()) => {}
             Err(flume::SendTimeoutError::Timeout(_)) => {
@@ -718,13 +774,16 @@ where
     ) -> Result<CancellationOutcome, Error> {
         let timeout = timeout.unwrap_or_else(|| self.observation.cancellation_timeout());
         let deadline = self.owner.deadline_after(timeout)?;
-        if let Some(verdict) = self.observation.cancellation() {
+        if let Some(verdict) = self.observation.cancellation(deadline) {
             return verdict;
         }
         let request = self.observation.cancellation_request();
         if let Err(error) = self.owner.request_cancellation(request, deadline) {
             // A terminal outcome that raced the refusal still decides.
-            return self.observation.cancellation().unwrap_or(Err(error));
+            return self
+                .observation
+                .cancellation(deadline)
+                .unwrap_or(Err(error));
         }
         observe_until(
             &self.owner,
@@ -741,20 +800,31 @@ impl OperationReceipt<completion::Targeted, BlockingOwnerHandle> {
     ///
     /// Application is cached, so a wait that times out during polling
     /// restarts from it with a fresh two-sample proof.
-    pub(crate) fn settled(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        if self.observation.is_settled() {
-            return Ok(());
+    pub(crate) fn settled(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<crate::Settlement, Error> {
+        if let Some(cached) = self.observation.settled() {
+            return cached;
         }
         let budget = settlement_budget(&self.settlement, timeout)?;
         let deadline = self.owner.deadline_after(budget)?;
         self.applied_until(deadline)?;
         if let Some(poll) = position_poll(&self.settlement, &self.observation, self.affected_axes)?
         {
-            poll_settlement(&self.owner, poll, deadline)
-                .map_err(|error| super::settlement_error(error, self.observation.id()))?;
+            self.observation.check_settlement()?;
+            let result = poll_settlement(&self.owner, poll, deadline)
+                .map(|()| {
+                    crate::Settlement::observed_stable(poll.axes, poll.interval, poll.tolerance)
+                })
+                .map_err(|error| super::settlement_error(error, self.observation.id()));
+            self.observation.commit_settlement(result, true)
+        } else {
+            self.observation.commit_settlement(
+                Ok(crate::Settlement::profile_completion(self.affected_axes)),
+                false,
+            )
         }
-        self.observation.mark_settled();
-        Ok(())
     }
 }
 
@@ -884,9 +954,9 @@ fn observe_until<T>(
     owner: &BlockingOwnerHandle,
     observation: &mut OperationObservation,
     deadline: Instant,
-    verdict: impl Fn(&mut OperationObservation) -> Option<T>,
+    verdict: impl Fn(&mut OperationObservation, Instant) -> Option<T>,
 ) -> Result<T, Error> {
-    let mut wait = OperationWait::new(observation, verdict);
+    let mut wait = OperationWait::new(observation, verdict, deadline);
     loop {
         if let Some(value) = wait.verdict() {
             return Ok(value);
@@ -905,10 +975,14 @@ fn wait_core_until(
     owner: &BlockingOwnerHandle,
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
-    if let Some(outcome) = core.try_outcome() {
-        return Ok(outcome);
+    if let Some(outcome) = core.completion.try_observed() {
+        return if outcome.at <= deadline {
+            Ok(outcome.value)
+        } else {
+            Err(super::observation_timeout(core.id))
+        };
     }
-    next_observation(owner, &core.completion, None, deadline).conclude(core, &owner.core)
+    next_observation(owner, &core.completion, None, deadline).conclude(core, &owner.core, deadline)
 }
 
 #[cfg(test)]

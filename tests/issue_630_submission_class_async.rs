@@ -103,7 +103,7 @@ impl AsyncTransport for LaneTransport {
             response_tx
                 .send_async(vec![0x90, 0x40 | socket, 0xff])
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             Ok(())
         }
     }
@@ -118,7 +118,7 @@ impl AsyncTransport for LaneTransport {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             let length = bytes.len();
             dst[..length].copy_from_slice(&bytes);
             Ok(length)

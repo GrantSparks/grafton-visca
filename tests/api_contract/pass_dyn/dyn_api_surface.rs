@@ -35,7 +35,7 @@ fn camera_surface(camera: &dyn DynSessionCameraControl) {
 }
 
 fn motion_surface(motion: &dyn DynMotion) {
-    let _: DynFuture<'_, Result<(), Error>> = motion.stop_all_motion();
+    let _: DynFuture<'_, Result<grafton_visca::HaltReport, Error>> = motion.stop_all_motion();
     let _: DynFuture<'_, Result<bool, Error>> = motion.is_moving();
     let _: DynFuture<'_, Result<bool, Error>> =
         motion.is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM));
@@ -346,7 +346,7 @@ fn assert_session_selectors(session: &Session) {
 
 /// Waits borrow the handle (#777): application then settlement on one handle,
 /// cached results, and idempotent cancellation.
-async fn assert_targeted_lifecycle(mut targeted: DynTargetedOperation) -> Result<(), Error> {
+async fn assert_targeted_lifecycle(mut targeted: DynTargetedOperation) -> Result<grafton_visca::Settlement, Error> {
     targeted
         .applied_with_timeout(Duration::from_millis(1))
         .await?;

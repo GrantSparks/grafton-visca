@@ -14,6 +14,7 @@
 //! as well as the debug assertion.
 
 use super::*;
+use crate::runtime::owner::Admitted;
 
 const HOLD: Duration = Duration::from_secs(1);
 const GRACE: Duration = Duration::from_millis(100);
@@ -80,8 +81,8 @@ impl RetainedRelease {
             )
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
-        assert_eq!(harness.writes.recv_async().await.unwrap(), a);
-        let predecessor = ReceiptCore::new(a, CameraId::CAMERA_1, a_completion, a_timeout);
+        assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+        let predecessor = ReceiptCore::admitted(a, CameraId::CAMERA_1, a_completion, a_timeout);
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
@@ -99,7 +100,7 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            assert_eq!(harness.writes.recv_async().await.unwrap(), id);
+            assert_eq!(harness.writes.recv_async().await.unwrap(), id.id);
         }
 
         let mut live_receipts = Vec::with_capacity(live_commands);
@@ -118,7 +119,7 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            live_receipts.push(ReceiptCore::new(
+            live_receipts.push(ReceiptCore::admitted(
                 id,
                 CameraId::CAMERA_1,
                 completion,
@@ -198,7 +199,7 @@ impl RetainedRelease {
             .unwrap()
     }
 
-    fn enqueue_inquiry(&self) -> (TerminalObserver, flume::Receiver<Result<RequestId, Error>>) {
+    fn enqueue_inquiry(&self) -> (TerminalObserver, flume::Receiver<Result<Admitted, Error>>) {
         self.handle.core.enqueue_admission(inquiry(), None).unwrap()
     }
 
@@ -238,13 +239,14 @@ impl RetainedRelease {
 }
 
 async fn admitted_within(
-    reply: &flume::Receiver<Result<RequestId, Error>>,
+    reply: &flume::Receiver<Result<Admitted, Error>>,
     context: &'static str,
 ) -> Result<RequestId, Error> {
     tokio::time::timeout(Duration::from_secs(1), reply.recv_async())
         .await
         .expect(context)
         .expect("the admission reply must be answered, not dropped")
+        .map(|admitted| admitted.id)
 }
 
 type CancelTask = tokio::task::JoinHandle<(Result<CancellationObserver, Error>, ReceiptCore)>;
@@ -441,7 +443,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .handle
         .core
         .cancellations
-        .send_async(CancellationBoundary {
+        .send_async(CancellationBoundary::Cancel {
             request: CancellationRequest {
                 id: a_id,
                 observer: cell,

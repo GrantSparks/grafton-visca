@@ -13,10 +13,7 @@ fn main() {
     let _ = helpers::complete(1);
     let _ = helpers::standard_command_response(1);
 
-    let step = Step::After {
-        delay: Duration::from_millis(5),
-        responses: vec![helpers::complete(1)],
-    };
+    let step = Step::after(Duration::from_millis(5), vec![helpers::complete(1)]);
 
     #[cfg(feature = "blocking")]
     {

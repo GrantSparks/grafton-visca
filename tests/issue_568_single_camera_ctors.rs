@@ -333,7 +333,7 @@ mod async_single_camera {
                 response_tx
                     .send_async(vec![reply, 0x41, 0xff, reply, 0x51, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })
+                    .map_err(|_| Error::connection_closed(None))
             }
         }
 
@@ -347,7 +347,7 @@ mod async_single_camera {
                     .responses
                     .recv_async()
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 let length = bytes.len();
                 dst[..length].copy_from_slice(&bytes);
                 Ok(length)

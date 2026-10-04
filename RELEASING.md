@@ -11,11 +11,11 @@ targeted representative hardware pass.
 ## Version and changelog
 
 1. Choose the release version. The first candidate was `2.0.0-rc.1`; the
-   current candidate is `2.0.0-rc.2`.
+   current candidate is `2.0.0-rc.3`.
 2. Set `[workspace.package].version` in `Cargo.toml`; the macro crate inherits
    this value from the workspace.
 3. Pin the main crate's `grafton-visca-macros` dependency to the exact same
-   version (`=2.0.0-rc.2`, or the final version being prepared).
+   version (`=2.0.0-rc.3`, or the final version being prepared).
 4. Keep the root `Cargo.lock` ignored: this is a library workspace and release
    validation must work from a clean clone without a tracked lockfile. The
    validator checks both package manifests and the exact macro dependency with
@@ -23,7 +23,7 @@ targeted representative hardware pass.
    checkout-local lockfile immediately before its locked package/publish
    commands.
 5. Keep the 2.0 notes under `## [Unreleased]` until the release commit is
-   ready. At release time, move them to `## [2.0.0-rc.2] - YYYY-MM-DD` (or the
+   ready. At release time, move them to `## [2.0.0-rc.3] - YYYY-MM-DD` (or the
    final version) and restore an empty `Unreleased` heading.
 
 The `api/2.0.0-rc.1/` directory is the rolling public-surface baseline for the
@@ -78,8 +78,8 @@ change-record check covers the release delta instead of comparing `main` with
 itself:
 
 ```sh
-release_tag=v2.0.0-rc.2
-previous_release_tag=v2.0.0-rc.1
+release_tag=v2.0.0-rc.3
+previous_release_tag=v2.0.0-rc.2
 git fetch origin main --tags
 git switch --detach origin/main
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -165,7 +165,7 @@ identify either input by a moving branch name, a local dirty worktree, or a
 crate version that has not been published.
 
 This gate deliberately uses Cargo source replacement for the two local
-packages, so it does not assume `2.0.0-rc.2` already exists in crates.io. Make
+packages, so it does not assume `2.0.0-rc.3` already exists in crates.io. Make
 two disposable detached worktrees (one at each recorded SHA) and place this
 temporary Cargo configuration outside both repositories:
 
@@ -280,15 +280,15 @@ git fetch origin main --tags
 test "$(git rev-parse --verify origin/main^{commit})" = "$release_commit"
 git switch --detach "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
-bash .github/scripts/validate-release.sh v2.0.0-rc.2
-git tag -a v2.0.0-rc.2 "$release_commit" -m "grafton-visca 2.0.0-rc.2"
-git push origin v2.0.0-rc.2
+bash .github/scripts/validate-release.sh v2.0.0-rc.3
+git tag -a v2.0.0-rc.3 "$release_commit" -m "grafton-visca 2.0.0-rc.3"
+git push origin v2.0.0-rc.3
 ```
 
 Wait next for the CI run triggered by that **tag push** to complete
 successfully. A prior `main` run for the same commit is necessary but not
 sufficient: the tag run must report the exact workflow path,
-`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.2`, and
+`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.3`, and
 `head_sha=$release_commit`. Do not dispatch publication until that tag run is
 green. The publication workflow independently queries all pages of the Actions
 API and enforces the same exact tag-run identity before it can package either

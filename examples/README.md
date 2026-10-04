@@ -54,7 +54,7 @@ If you're new to the library, start with these examples in order:
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
 - **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
 - **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
-- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite
+- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` owner halt
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
@@ -178,10 +178,7 @@ blocking_session.close()?;
 
 let runtime = TokioRuntime::from_current()?;
 let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .transport_config(TransportConfig {
-        tcp_keepalive: Some(TcpKeepaliveConfig::default()),
-        ..TransportConfig::default()
-    })
+    .transport_config({ let mut config = TransportConfig::default(); config.tcp_keepalive = Some(TcpKeepaliveConfig::default()); config })
     .open_async(runtime)
     .await?;
 let async_camera = async_session.camera();

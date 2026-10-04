@@ -90,6 +90,17 @@ cargo fmt
 
 ## Code Style
 
+Commit hooks check formatting with the CI-pinned nightly formatter, lint the
+default feature set once, and run text hygiene checks. The default feature set
+already enables `blocking`; it does not need a second blocking-only lint pass.
+CI owns broad feature testing, all-feature and no-default linting, and rustdoc.
+
+For a feature-specific lint investigation, run an opt-in hook, for example
+`pre-commit run clippy-runtime-smol --hook-stage manual --all-files`.
+`pre-commit run --hook-stage manual --all-files` runs all the extra lint and
+rustdoc hooks. Use these when the change warrants them, rather than stacking
+the entire local matrix on top of a successful CI run for the same source.
+
 We maintain high code quality standards:
 
 - **Format**: Use `cargo fmt` before committing
@@ -457,7 +468,7 @@ mapped-v2-test-row counts in its job summary.
 
 Releases use a two-crate prerelease/final publish sequence because the main crate
 depends on the same-version `grafton-visca-macros` package. Follow
-[RELEASING.md](RELEASING.md) for `2.0.0-rc.2` versioning, changelog
+[RELEASING.md](RELEASING.md) for `2.0.0-rc.3` versioning, changelog
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
 release tag from a commit that has not passed the complete 2.0 matrix — public

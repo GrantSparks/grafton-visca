@@ -282,16 +282,16 @@ mod async_surface {
                     return reply_tx
                         .send_async(vec![0x90, 0x50, inquiry_level, 0xFF])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None });
+                        .map_err(|_| Error::connection_closed(None));
                 }
                 reply_tx
                     .send_async(vec![0x90, 0x41, 0xFF])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 reply_tx
                     .send_async(vec![0x90, 0x51, 0xFF])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })
+                    .map_err(|_| Error::connection_closed(None))
             }
         }
 
@@ -300,7 +300,7 @@ mod async_surface {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             destination[..reply.len()].copy_from_slice(&reply);
             Ok(reply.len())
         }

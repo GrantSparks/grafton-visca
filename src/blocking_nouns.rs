@@ -425,9 +425,12 @@ impl<P: CompileTimeProfile> Camera<P> {
 }
 
 impl<'view, P: CompileTimeProfile> MotionAccessor<'view, P> {
-    /// Stops every profile-supported pan/tilt, zoom, and focus axis through
-    /// the camera's single owner.
-    pub fn stop_all_motion(&self) -> Result<()> {
+    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
+    ///
+    /// Older declared motion is fenced at owner acceptance. STOPs share one
+    /// deadline and respect protocol gates; inspect each supported axis result
+    /// in the report. Applied STOPs do not prove physical rest.
+    pub fn stop_all_motion(&self) -> Result<crate::HaltReport> {
         self.camera.core().stop_all_motion()
     }
 

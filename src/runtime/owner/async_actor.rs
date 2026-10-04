@@ -287,13 +287,16 @@ where
     ) -> Result<CancellationOutcome, Error> {
         let timeout = timeout.unwrap_or_else(|| self.observation.cancellation_timeout());
         let deadline = self.owner.deadline_after(timeout)?;
-        if let Some(verdict) = self.observation.cancellation() {
+        if let Some(verdict) = self.observation.cancellation(deadline) {
             return verdict;
         }
         let request = self.observation.cancellation_request();
         if let Err(error) = self.owner.request_cancellation(request, deadline).await {
             // A terminal outcome that raced the refusal still decides.
-            return self.observation.cancellation().unwrap_or(Err(error));
+            return self
+                .observation
+                .cancellation(deadline)
+                .unwrap_or(Err(error));
         }
         observe_until(
             &self.owner,
@@ -311,21 +314,32 @@ impl OperationReceipt<completion::Targeted, AsyncOwnerHandle> {
     ///
     /// Application is cached, so a wait that is abandoned or times out during
     /// polling restarts from it with a fresh two-sample proof.
-    pub(crate) async fn settled(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        if self.observation.is_settled() {
-            return Ok(());
+    pub(crate) async fn settled(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<crate::Settlement, Error> {
+        if let Some(cached) = self.observation.settled() {
+            return cached;
         }
         let budget = settlement_budget(&self.settlement, timeout)?;
         let deadline = self.owner.deadline_after(budget)?;
         self.applied_until(deadline).await?;
         if let Some(poll) = position_poll(&self.settlement, &self.observation, self.affected_axes)?
         {
-            poll_settlement_async(&self.owner, poll, deadline)
+            self.observation.check_settlement()?;
+            let result = poll_settlement_async(&self.owner, poll, deadline)
                 .await
-                .map_err(|error| super::settlement_error(error, self.observation.id()))?;
+                .map(|()| {
+                    crate::Settlement::observed_stable(poll.axes, poll.interval, poll.tolerance)
+                })
+                .map_err(|error| super::settlement_error(error, self.observation.id()));
+            self.observation.commit_settlement(result, true)
+        } else {
+            self.observation.commit_settlement(
+                Ok(crate::Settlement::profile_completion(self.affected_axes)),
+                false,
+            )
         }
-        self.observation.mark_settled();
-        Ok(())
     }
 }
 
@@ -436,10 +450,10 @@ async fn next_observation(
     deadline: Instant,
 ) -> ObservationWake {
     let remaining = deadline.saturating_duration_since(owner.now());
-    let terminal = async { ObservationWake::Terminal(terminal.recv_async().await) };
+    let terminal = async { ObservationWake::Terminal(terminal.recv_observed_async().await) };
     let cancellation = async {
         match cancellation {
-            Some(observer) => ObservationWake::Cancellation(observer.recv_async().await),
+            Some(observer) => ObservationWake::Cancellation(observer.recv_observed_async().await),
             None => future::pending().await,
         }
     };
@@ -472,9 +486,9 @@ async fn observe_until<T>(
     owner: &AsyncOwnerHandle,
     observation: &mut OperationObservation,
     deadline: Instant,
-    verdict: impl Fn(&mut OperationObservation) -> Option<T>,
+    verdict: impl Fn(&mut OperationObservation, Instant) -> Option<T>,
 ) -> Result<T, Error> {
-    let mut wait = OperationWait::new(observation, verdict);
+    let mut wait = OperationWait::new(observation, verdict, deadline);
     loop {
         if let Some(value) = wait.verdict() {
             return Ok(value);
@@ -493,12 +507,16 @@ async fn wait_core_until(
     owner: &AsyncOwnerHandle,
     deadline: Instant,
 ) -> Result<RuntimeOutcome, Error> {
-    if let Some(outcome) = core.try_outcome() {
-        return Ok(outcome);
+    if let Some(outcome) = core.completion.try_observed() {
+        return if outcome.at <= deadline {
+            Ok(outcome.value)
+        } else {
+            Err(super::observation_timeout(core.id))
+        };
     }
     next_observation(owner, &core.completion, None, deadline)
         .await
-        .conclude(core, &owner.core)
+        .conclude(core, &owner.core, deadline)
 }
 
 /// Cloneable async owner handle: the shared boundary core plus the
@@ -668,7 +686,12 @@ impl AsyncOwnerHandle {
         let target = request.context().target;
         let (completion, admission) = self.core.enqueue_admission(request, None)?;
         match self.await_boundary_reply(&admission).await {
-            Ok(Ok(id)) => Ok(ReceiptCore::new(id, target, completion, configured_timeout)),
+            Ok(Ok(id)) => Ok(ReceiptCore::admitted(
+                id,
+                target,
+                completion,
+                configured_timeout,
+            )),
             Ok(Err(error)) | Err(error) => Err(error),
         }
     }
@@ -697,7 +720,12 @@ impl AsyncOwnerHandle {
             }
         };
         let id = reply??;
-        Ok(ReceiptCore::new(id, target, completion, configured_timeout))
+        Ok(ReceiptCore::admitted(
+            id,
+            target,
+            completion,
+            configured_timeout,
+        ))
     }
 
     /// Non-waiting admission used by capacity-sensitive facades. Failure occurs
@@ -717,10 +745,71 @@ impl AsyncOwnerHandle {
         let (completion, admission) = self.core.enqueue_admission(request, None)?;
         Ok(async move {
             match self.await_boundary_reply(&admission).await {
-                Ok(Ok(id)) => Ok(ReceiptCore::new(id, target, completion, configured_timeout)),
+                Ok(Ok(id)) => Ok(ReceiptCore::admitted(
+                    id,
+                    target,
+                    completion,
+                    configured_timeout,
+                )),
                 Ok(Err(error)) | Err(error) => Err(error),
             }
         })
+    }
+
+    pub(crate) async fn halt(
+        &self,
+        prepared: crate::prepared::PreparedHalt,
+        started: Instant,
+    ) -> Result<crate::HaltReport, Error> {
+        let deadline = observer_deadline(started, prepared.budget)?;
+        let validity = super::boundary::AdmissionValidity::until(deadline);
+        let (reply, receiver) = flume::bounded(1);
+        let boundary = CancellationBoundary::Halt(super::halt::HaltBoundary {
+            prepared,
+            deadline,
+            validity: validity.clone(),
+            reply,
+        });
+        let delivered = async {
+            self.core
+                .cancellations
+                .send_async(boundary)
+                .await
+                .map_err(|_| self.core.disconnected_error())?;
+            self.await_boundary_reply(&receiver).await?
+        };
+        let receipt = match future::or(async { Some(delivered.await) }, async {
+            self.clock
+                .sleep(deadline.saturating_duration_since(self.now()))
+                .await;
+            None
+        })
+        .await
+        {
+            Some(result) => result?,
+            None => {
+                if validity.expire_before_admission() {
+                    return Err(Error::admission_timeout());
+                }
+                self.await_boundary_reply(&receiver).await??
+            }
+        };
+        let mut outcomes = std::array::from_fn(|_| crate::HaltOutcome::Unsupported);
+        for (index, slot) in receipt.slots.into_iter().enumerate() {
+            if let Some(slot) = slot {
+                let result = match slot {
+                    Ok(core) => wait_core_until(&core, self, receipt.deadline)
+                        .await
+                        .and_then(normalize_command_outcome),
+                    Err(error) => Err(error),
+                };
+                outcomes[index] = match result {
+                    Ok(()) => crate::HaltOutcome::Applied,
+                    Err(error) => crate::HaltOutcome::Failed(error),
+                };
+            }
+        }
+        Ok(super::halt::report(outcomes))
     }
 
     /// A full cancellation queue applies backpressure; cancellation is never
@@ -738,7 +827,7 @@ impl AsyncOwnerHandle {
         let delivered = async {
             self.core
                 .cancellations
-                .send_async(CancellationBoundary { request, reply })
+                .send_async(CancellationBoundary::Cancel { request, reply })
                 .await
                 .map_err(|_| self.core.disconnected_error())?;
             self.await_boundary_reply(&receiver).await?
@@ -1095,7 +1184,10 @@ where
         D: AsyncOwnerDriver,
     {
         let write_timeout = self.core.state.policy().write_timeout;
-        while let Some(staged) = self.core.next_transmit(&mut effects) {
+        while let Some(staged) = self
+            .core
+            .next_transmit(&mut effects, OwnerClock::now(&self.runtime))
+        {
             let result = match self.core.state.prepare_write(&staged) {
                 Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
                 Err(error) => Err(error),

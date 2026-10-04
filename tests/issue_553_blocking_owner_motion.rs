@@ -285,14 +285,21 @@ fn blocking_owner_motion_surface_is_exact_and_deadline_bound() {
         )),
     )
     .expect("stop session");
-    assert!(matches!(
-        session
-            .camera::<MotionOwnerCompileTimeProfile>()
-            .expect("camera")
-            .motion()
-            .stop_all_motion(),
-        Err(Error::SyntaxError)
-    ));
+    let report = session
+        .camera::<MotionOwnerCompileTimeProfile>()
+        .expect("camera")
+        .motion()
+        .stop_all_motion()
+        .expect("owner accepted halt");
+    assert!(
+        matches!(
+            report.pan_tilt,
+            grafton_visca::HaltOutcome::Failed(Error::SyntaxError)
+        ),
+        "{report:?}"
+    );
+    assert!(matches!(report.zoom, grafton_visca::HaltOutcome::Applied));
+    assert!(matches!(report.focus, grafton_visca::HaltOutcome::Applied));
     let writes = writes.lock().expect("writes lock");
     assert_eq!(writes.len(), 3);
     assert!(writes[0].starts_with(&[0x81, 0x01, 0x06, 0x01]));

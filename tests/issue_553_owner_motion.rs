@@ -116,7 +116,7 @@ impl AsyncTransport for MotionTransport {
             self.response_tx
                 .send_async(response)
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
         }
         Ok(())
     }
@@ -126,7 +126,7 @@ impl AsyncTransport for MotionTransport {
             .responses
             .recv_async()
             .await
-            .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            .map_err(|_| Error::connection_closed(None))?;
         dst[..response.len()].copy_from_slice(&response);
         Ok(response.len())
     }
@@ -309,15 +309,22 @@ where
     )
     .await
     .expect("stop session");
-    assert!(matches!(
-        session
-            .camera::<MotionOwnerCompileTimeProfile>()
-            .expect("camera")
-            .motion()
-            .stop_all_motion()
-            .await,
-        Err(Error::SyntaxError)
-    ));
+    let report = session
+        .camera::<MotionOwnerCompileTimeProfile>()
+        .expect("camera")
+        .motion()
+        .stop_all_motion()
+        .await
+        .expect("owner accepted halt");
+    assert!(
+        matches!(
+            report.pan_tilt,
+            grafton_visca::HaltOutcome::Failed(Error::SyntaxError)
+        ),
+        "{report:?}"
+    );
+    assert!(matches!(report.zoom, grafton_visca::HaltOutcome::Applied));
+    assert!(matches!(report.focus, grafton_visca::HaltOutcome::Applied));
     {
         let writes = writes.lock().expect("writes lock");
         assert_eq!(writes.len(), 3);

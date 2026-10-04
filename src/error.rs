@@ -202,6 +202,7 @@ pub enum ErrorKind {
 pub enum Error {
     /// Failed to establish connection to the camera.
     #[error("Connection failed to {addr}: {source}")]
+    #[non_exhaustive]
     ConnectionFailed {
         /// The address that failed to connect.
         addr: Cow<'static, str>,
@@ -216,6 +217,7 @@ pub enum Error {
     /// failure whose byte position is unknowable is reported as
     /// [`Self::StreamPoisoned`] instead.
     #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default())]
+    #[non_exhaustive]
     ConnectionClosed {
         /// Optional reason for the connection closure.
         reason: Option<Cow<'static, str>>,
@@ -229,6 +231,7 @@ pub enum Error {
 
     /// Response from camera doesn't match the expected format.
     #[error("Invalid response: expected {expected}, got {actual:?}")]
+    #[non_exhaustive]
     InvalidResponse {
         /// Description of expected response.
         expected: Cow<'static, str>,
@@ -238,6 +241,7 @@ pub enum Error {
 
     /// Camera model doesn't support the requested feature.
     #[error("Feature '{feature}' not supported by this camera model")]
+    #[non_exhaustive]
     FeatureNotSupported {
         /// Name of the unsupported feature.
         feature: &'static str,
@@ -280,6 +284,7 @@ pub enum Error {
     #[error(
         "Invalid response length: expected {expected} bytes, got {actual} (payload: {payload_hex})"
     )]
+    #[non_exhaustive]
     InvalidResponseLength {
         /// Expected number of bytes for this response type.
         expected: usize,
@@ -320,6 +325,7 @@ pub enum Error {
 
     /// Invalid parameter provided to a command.
     #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
+    #[non_exhaustive]
     InvalidParameter {
         /// The parameter name that was invalid.
         parameter: &'static str,
@@ -331,6 +337,7 @@ pub enum Error {
 
     /// Buffer provided is too small for encoding.
     #[error("Buffer too small: required {required} bytes, but only {actual} available")]
+    #[non_exhaustive]
     BufferTooSmall {
         /// Required buffer size.
         required: usize,
@@ -340,6 +347,7 @@ pub enum Error {
 
     /// Invalid preset number for the camera model.
     #[error("Invalid preset {preset}: must be <= {max}")]
+    #[non_exhaustive]
     InvalidPreset {
         /// The requested preset number.
         preset: u8,
@@ -349,6 +357,7 @@ pub enum Error {
 
     /// Parameter value is out of the acceptable range.
     #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
+    #[non_exhaustive]
     ParameterOutOfRange {
         /// Name of the parameter.
         parameter: &'static str,
@@ -372,6 +381,7 @@ pub enum Error {
     /// A transport reports an idle read with this variant; owners treat that
     /// as "no data" rather than as a failure.
     #[error("Operation timed out ({})", context.stage)]
+    #[non_exhaustive]
     Timeout {
         /// Which deadline expired, and what is known about the request.
         context: FailureContext,
@@ -384,9 +394,41 @@ pub enum Error {
     /// effect. Never resubmit it: wait again on the operation handle, or
     /// reconcile the camera's state. [`Self::is_retryable`] is `false`.
     #[error("Wait for operation {operation} timed out; it is still running")]
+    #[non_exhaustive]
     ObservationTimeout {
         /// The admitted request the wait observed.
         operation: OperationId,
+    },
+
+    /// An owner halt superseded older declared motion. A previously written
+    /// attempt may have affected the camera; this is not proof of physical rest.
+    #[error("Motion on {axes:?} was superseded by an owner halt")]
+    #[non_exhaustive]
+    MotionSuperseded {
+        /// Axes selected by the fence.
+        axes: crate::AffectedAxes,
+    },
+
+    /// A later admitted operation prevents attribution of polled settlement.
+    #[error("Settlement of operation {operation} was superseded on {axes:?}")]
+    #[non_exhaustive]
+    SettlementSuperseded {
+        /// The original operation.
+        operation: OperationId,
+        /// Its affected axes.
+        axes: crate::AffectedAxes,
+    },
+
+    /// An applied operation's settlement could not be observed. The underlying
+    /// inquiry failure never authorizes replay of the original movement.
+    #[error("Could not observe settlement of operation {operation}: {source}")]
+    #[non_exhaustive]
+    SettlementObservationFailed {
+        /// The already-applied operation being observed.
+        operation: OperationId,
+        /// The exact polling failure, including its inquiry/transport context.
+        #[source]
+        source: Box<Error>,
     },
 
     /// Maximum retry attempts exceeded.
@@ -447,6 +489,7 @@ pub enum Error {
     ///
     /// [`SessionConfig::admission_capacity`]: crate::SessionConfig::admission_capacity
     #[error("Runtime queue full: at capacity ({capacity} pending commands)")]
+    #[non_exhaustive]
     RuntimeQueueFull {
         /// The maximum queue capacity that was reached.
         capacity: usize,
@@ -461,6 +504,7 @@ pub enum Error {
     /// no ordinary slot is free either. Back off briefly; an earlier stop for
     /// the same camera is still pending.
     #[error("Control reserve for camera {target} is full ({reserve} slots)")]
+    #[non_exhaustive]
     ControlReserveExhausted {
         /// The camera whose reserve is full.
         target: crate::CameraId,
@@ -490,6 +534,7 @@ pub enum Error {
     /// the camera before its outcome was lost, and the replacement session
     /// cannot prove otherwise.
     #[error("Stream transport poisoned: {reason}")]
+    #[non_exhaustive]
     StreamPoisoned {
         /// Description of why the transport was poisoned.
         reason: Cow<'static, str>,
@@ -503,6 +548,7 @@ pub enum Error {
     /// - The camera returned an unexpected response format
     /// - A decoder is missing for a specific profile's inquiry needs
     #[error("No decoder found for {inquiry_kind:?} (payload: {payload_hex})")]
+    #[non_exhaustive]
     DecoderNotFound {
         /// The inquiry kind that no decoder could handle.
         inquiry_kind: crate::command::inquiry_structs::InquiryKind,
@@ -512,6 +558,7 @@ pub enum Error {
 
     /// Invalid camera ID provided.
     #[error("Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")]
+    #[non_exhaustive]
     InvalidCameraId {
         /// The invalid camera ID that was provided.
         id: u8,
@@ -519,6 +566,7 @@ pub enum Error {
 
     /// Response exceeds maximum allowed size.
     #[error("Response too large: exceeds maximum of {max_size} bytes")]
+    #[non_exhaustive]
     ResponseTooLarge {
         /// Maximum allowed size.
         max_size: usize,
@@ -533,6 +581,7 @@ pub enum Error {
 
     /// Invalid network address format.
     #[error("Invalid address: {reason}")]
+    #[non_exhaustive]
     InvalidAddress {
         /// Reason why the address is invalid.
         reason: Cow<'static, str>,
@@ -540,6 +589,7 @@ pub enum Error {
 
     /// Selected standard transport is unsupported for the selected built-in profile.
     #[error("Profile {profile} does not support {transport} transport")]
+    #[non_exhaustive]
     UnsupportedTransport {
         /// Built-in profile that rejected the transport.
         profile: crate::camera::profiles::ProfileId,
@@ -554,6 +604,7 @@ pub enum Error {
     /// Error with additional context information.
     /// Wraps another error while preserving its retry intelligence and adding human-readable context.
     #[error("{context}: {source}")]
+    #[non_exhaustive]
     WithContext {
         /// Human-readable context describing what operation failed.
         context: Cow<'static, str>,
@@ -663,12 +714,176 @@ pub enum Certainty {
     StillLive,
     /// The request ended without effect.
     FailedConclusively,
-    /// The request ended, but whether it took effect is unknown. Reconcile
+    /// The requested physical outcome is unconfirmed. At the observation stage,
+    /// application may already be known while settlement is not. Reconcile
     /// the camera's state before deciding to submit it again.
     Unconfirmed,
 }
 
 impl Error {
+    /// Reports a failed connection attempt.
+    #[must_use]
+    pub fn connection_failed(addr: impl Into<Cow<'static, str>>, source: Arc<io::Error>) -> Self {
+        Self::ConnectionFailed {
+            addr: addr.into(),
+            source,
+        }
+    }
+
+    /// Reports a closed connection with an optional cause.
+    #[must_use]
+    pub const fn connection_closed(reason: Option<Cow<'static, str>>) -> Self {
+        Self::ConnectionClosed { reason }
+    }
+
+    /// Reports bytes that do not match the expected response.
+    #[must_use]
+    pub fn invalid_response(expected: impl Into<Cow<'static, str>>, actual: Vec<u8>) -> Self {
+        Self::InvalidResponse {
+            expected: expected.into(),
+            actual,
+        }
+    }
+
+    /// Reports a feature unsupported by the selected camera.
+    #[must_use]
+    pub const fn feature_not_supported(feature: &'static str) -> Self {
+        Self::FeatureNotSupported { feature }
+    }
+
+    /// Reports an invalid parameter and its diagnostic value.
+    #[must_use]
+    pub fn invalid_parameter(
+        parameter: &'static str,
+        value: impl Into<Cow<'static, str>>,
+        reason: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        Self::InvalidParameter {
+            parameter,
+            value: value.into(),
+            reason: reason.into(),
+        }
+    }
+
+    /// Reports a preset outside the supported range.
+    #[must_use]
+    pub const fn invalid_preset(preset: u8, max: u8) -> Self {
+        Self::InvalidPreset { preset, max }
+    }
+
+    /// Reports a numeric parameter outside its inclusive bounds.
+    #[must_use]
+    pub const fn parameter_out_of_range(
+        parameter: &'static str,
+        value: i32,
+        min: i32,
+        max: i32,
+    ) -> Self {
+        Self::ParameterOutOfRange {
+            parameter,
+            value,
+            min,
+            max,
+        }
+    }
+
+    /// Reports an encoding buffer smaller than required.
+    #[must_use]
+    pub const fn buffer_too_small(required: usize, actual: usize) -> Self {
+        Self::BufferTooSmall { required, actual }
+    }
+
+    /// Reports a caller wait that expired while the operation remains admitted.
+    #[must_use]
+    pub const fn observation_timeout(operation: OperationId) -> Self {
+        Self::ObservationTimeout { operation }
+    }
+
+    /// Reports declared motion superseded by an owner halt.
+    #[must_use]
+    pub const fn motion_superseded(axes: crate::AffectedAxes) -> Self {
+        Self::MotionSuperseded { axes }
+    }
+
+    /// Reports a polling failure after the movement was applied.
+    #[must_use]
+    pub fn settlement_observation_failed(
+        operation: OperationId,
+        source: impl Into<Box<Error>>,
+    ) -> Self {
+        Self::SettlementObservationFailed {
+            operation,
+            source: source.into(),
+        }
+    }
+
+    /// Reports exhausted ordinary admission capacity.
+    #[must_use]
+    pub const fn runtime_queue_full(capacity: usize) -> Self {
+        Self::RuntimeQueueFull { capacity }
+    }
+
+    /// Reports an exhausted urgent control reserve for one camera.
+    #[must_use]
+    pub const fn control_reserve_exhausted(target: crate::CameraId, reserve: usize) -> Self {
+        Self::ControlReserveExhausted { target, reserve }
+    }
+
+    /// Reports a stream whose framing or write position became unknowable.
+    #[must_use]
+    pub fn stream_poisoned(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self::StreamPoisoned {
+            reason: reason.into(),
+        }
+    }
+
+    /// Reports an inquiry payload with no registered decoder.
+    #[must_use]
+    pub fn decoder_not_found(
+        inquiry_kind: crate::command::inquiry_structs::InquiryKind,
+        payload_hex: impl Into<Box<str>>,
+    ) -> Self {
+        Self::DecoderNotFound {
+            inquiry_kind,
+            payload_hex: payload_hex.into(),
+        }
+    }
+
+    /// Reports an invalid VISCA camera address.
+    #[must_use]
+    pub const fn invalid_camera_id(id: u8) -> Self {
+        Self::InvalidCameraId { id }
+    }
+
+    /// Reports a response exceeding the configured size limit.
+    #[must_use]
+    pub const fn response_too_large(max_size: usize) -> Self {
+        Self::ResponseTooLarge { max_size }
+    }
+
+    /// Reports an invalid transport address.
+    #[must_use]
+    pub fn invalid_address(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self::InvalidAddress {
+            reason: reason.into(),
+        }
+    }
+
+    /// Reports a transport unsupported by a built-in profile.
+    #[must_use]
+    pub const fn unsupported_transport(
+        profile: crate::camera::profiles::ProfileId,
+        transport: crate::camera::TransportKind,
+    ) -> Self {
+        Self::UnsupportedTransport { profile, transport }
+    }
+
+    /// Reports that later admitted motion superseded this operation's settlement.
+    #[must_use]
+    pub const fn settlement_superseded(operation: OperationId, axes: crate::AffectedAxes) -> Self {
+        Self::SettlementSuperseded { operation, axes }
+    }
+
     /// Get the kind of this error for categorized handling.
     ///
     /// # Examples
@@ -749,7 +964,12 @@ impl Error {
             Self::RuntimeIdentityExhausted => ErrorKind::Other,
 
             // Delegated: unwrap context wrapper
-            Self::WithContext { source, .. } => source.kind(),
+            Self::WithContext { source, .. } | Self::SettlementObservationFailed { source, .. } => {
+                source.kind()
+            }
+            Self::MotionSuperseded { .. } | Self::SettlementSuperseded { .. } => {
+                ErrorKind::Cancelled
+            }
 
             // Io: inspect inner io::ErrorKind
             Self::Io(arc) => match arc.kind() {
@@ -814,7 +1034,7 @@ impl Error {
     /// ```rust
     /// use grafton_visca::Error;
     ///
-    /// let dropped = Error::ConnectionClosed { reason: None };
+    /// let dropped = Error::connection_closed(None);
     /// assert!(dropped.requires_new_session());
     ///
     /// // A deliberate shutdown is not a field disconnect.
@@ -836,7 +1056,9 @@ impl Error {
             Self::RuntimeShutdown => false,
 
             // Delegated: an added context string never changes the condition.
-            Self::WithContext { source, .. } => source.requires_new_session(),
+            Self::WithContext { source, .. } | Self::SettlementObservationFailed { source, .. } => {
+                source.requires_new_session()
+            }
 
             // Everything else is either a per-request outcome or a condition
             // the session survives. `Io` and `TransportError` stay here on
@@ -872,6 +1094,8 @@ impl Error {
             | Self::ParameterOutOfRange { .. }
             | Self::Timeout { .. }
             | Self::ObservationTimeout { .. }
+            | Self::MotionSuperseded { .. }
+            | Self::SettlementSuperseded { .. }
             | Self::MaxRetriesExceeded
             | Self::NotSupported
             | Self::InvalidState(..)
@@ -953,7 +1177,7 @@ impl Error {
             // itself be retried — doing so would cause infinite retry loops.
             Self::MaxRetriesExceeded => false,
             // The request is still running; a new attempt would duplicate it.
-            Self::ObservationTimeout { .. } => false,
+            Self::ObservationTimeout { .. } | Self::SettlementObservationFailed { .. } => false,
             _ => matches!(
                 self.kind(),
                 ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy | ErrorKind::Transport
@@ -998,7 +1222,9 @@ impl Error {
             | Self::ControlReserveExhausted { .. }
             | Self::NoSocket => Some(Duration::from_millis(200)),
             Self::Timeout { .. } => Some(Duration::from_secs(2)),
-            Self::ObservationTimeout { .. } | Self::MaxRetriesExceeded => None,
+            Self::ObservationTimeout { .. }
+            | Self::SettlementObservationFailed { .. }
+            | Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),
             // Keep the fallback aligned with `is_retryable()`'s `ErrorKind`
             // classification. This includes I/O timeout spellings and gives
@@ -1018,8 +1244,10 @@ impl Error {
     /// Returns `Some` for every timeout ([`Self::Timeout`],
     /// [`Self::ObservationTimeout`]) and for the unconfirmed outcomes
     /// ([`Self::UnsequencedCommandUnconfirmed`],
-    /// [`Self::CancellationUnconfirmed`]); `None` otherwise. A context wrapper
-    /// is looked through.
+    /// [`Self::CancellationUnconfirmed`], motion supersession, and settlement
+    /// observation failures); `None` otherwise. [`Self::WithContext`] is looked
+    /// through. [`Self::SettlementObservationFailed`] reports uncertainty for
+    /// the original movement while retaining the polling failure as its source.
     ///
     /// # Example
     ///
@@ -1043,6 +1271,13 @@ impl Error {
     pub fn failure_context(&self) -> Option<FailureContext> {
         match self {
             Self::Timeout { context } => Some(*context),
+            Self::SettlementObservationFailed { .. } | Self::SettlementSuperseded { .. } => Some(
+                FailureContext::new(FailureStage::Observation, Certainty::Unconfirmed),
+            ),
+            Self::MotionSuperseded { .. } => Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::Unconfirmed,
+            )),
             Self::ObservationTimeout { .. } => Some(FailureContext::new(
                 FailureStage::Observation,
                 Certainty::StillLive,
@@ -1061,7 +1296,8 @@ impl Error {
     }
 
     /// A timeout with the given stage and certainty.
-    pub(crate) const fn timeout(stage: FailureStage, certainty: Certainty) -> Self {
+    #[must_use]
+    pub const fn timeout(stage: FailureStage, certainty: Certainty) -> Self {
         Self::Timeout {
             context: FailureContext::new(stage, certainty),
         }

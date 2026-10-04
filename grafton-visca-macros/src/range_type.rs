@@ -250,17 +250,13 @@ pub(crate) fn expand(input: TokenStream) -> Result<TokenStream> {
                 value: #inner,
             ) -> ::core::result::Result<Self, #crate_path::Error> {
                 if !(Self::MIN..=Self::MAX).contains(&value) {
-                    return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
-                        parameter: ::core::stringify!(#name),
-                        value: ::std::borrow::Cow::Owned(::std::format!("{value}")),
-                        reason: {
+                    return ::core::result::Result::Err(#crate_path::Error::invalid_parameter(::core::stringify!(#name), ::std::borrow::Cow::Owned(::std::format!("{value}")), {
                             let min = Self::MIN;
                             let max = Self::MAX;
                             ::std::borrow::Cow::Owned(::std::format!(
                                 "must be between {min} and {max}"
                             ))
-                        },
-                    });
+                        }));
                 }
                 ::core::result::Result::Ok(Self(value))
             }

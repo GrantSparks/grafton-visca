@@ -290,17 +290,20 @@ mod async_standard {
         assert!(matches!(error, Error::InvalidAddress { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
-        let transport_config = TransportConfig {
-            connect_timeout: Duration::from_millis(17),
-            read_timeout: Duration::from_millis(19),
-            write_timeout: Duration::from_millis(23),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 11,
-                max_buffer_size: 17,
-            },
-            tcp_nodelay: Some(false),
-            tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
-            ..TransportConfig::default()
+        let transport_config = {
+            let mut config = TransportConfig::default();
+            config.connect_timeout = Duration::from_millis(17);
+            config.read_timeout = Duration::from_millis(19);
+            config.write_timeout = Duration::from_millis(23);
+            config.buffer_config = {
+                let mut config = BufferConfig::default();
+                config.recv_buffer_size = 11;
+                config.max_buffer_size = 17;
+                config
+            };
+            config.tcp_nodelay = Some(false);
+            config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(4)));
+            config
         };
         let session = CameraConfig::<PtzOpticsG2>::tcp("192.0.2.10:5678")
             .transport_config(transport_config)
@@ -316,17 +319,20 @@ mod async_standard {
         assert_eq!(call.config.tcp_keepalive, transport_config.tcp_keepalive);
         session.shutdown().await.expect("shutdown");
 
-        let udp_config = TransportConfig {
-            connect_timeout: Duration::from_millis(31),
-            read_timeout: Duration::from_millis(37),
-            write_timeout: Duration::from_millis(41),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 43,
-                max_buffer_size: 53,
-            },
-            ttl: Some(59),
-            addressing: AddressingMode::Ip,
-            ..TransportConfig::default()
+        let udp_config = {
+            let mut config = TransportConfig::default();
+            config.connect_timeout = Duration::from_millis(31);
+            config.read_timeout = Duration::from_millis(37);
+            config.write_timeout = Duration::from_millis(41);
+            config.buffer_config = {
+                let mut config = BufferConfig::default();
+                config.recv_buffer_size = 43;
+                config.max_buffer_size = 53;
+                config
+            };
+            config.ttl = Some(59);
+            config.addressing = AddressingMode::Ip;
+            config
         };
         let udp_camera_config = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
             .with_admission_capacity(NonZeroUsize::new(61).expect("nonzero queue depth"))
@@ -362,23 +368,29 @@ mod async_standard {
 
         for (buffer_config, message) in [
             (
-                BufferConfig {
-                    recv_buffer_size: 0,
-                    max_buffer_size: 64,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 0;
+                    config.max_buffer_size = 64;
+                    config
                 },
                 "transport receive buffer must be non-zero",
             ),
             (
-                BufferConfig {
-                    recv_buffer_size: 64,
-                    max_buffer_size: 0,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 64;
+                    config.max_buffer_size = 0;
+                    config
                 },
                 "transport maximum buffer must be non-zero",
             ),
             (
-                BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 65;
+                    config.max_buffer_size = 64;
+                    config
                 },
                 "transport receive buffer cannot exceed maximum buffer",
             ),
@@ -388,9 +400,10 @@ mod async_standard {
                 CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
             ] {
                 let error = config
-                    .transport_config(TransportConfig {
-                        buffer_config,
-                        ..TransportConfig::default()
+                    .transport_config({
+                        let mut config = TransportConfig::default();
+                        config.buffer_config = buffer_config;
+                        config
                     })
                     .open_async(runtime.clone())
                     .await
@@ -446,12 +459,15 @@ mod async_standard {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
         let error =
             CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config(TransportConfig {
-                    buffer_config: BufferConfig {
-                        recv_buffer_size: 65,
-                        max_buffer_size: 64,
-                    },
-                    ..TransportConfig::default()
+                .transport_config({
+                    let mut config = TransportConfig::default();
+                    config.buffer_config = {
+                        let mut config = BufferConfig::default();
+                        config.recv_buffer_size = 65;
+                        config.max_buffer_size = 64;
+                        config
+                    };
+                    config
                 })
                 .open_serial_async(runtime)
                 .await
@@ -525,9 +541,10 @@ mod blocking_standard {
     #[test]
     fn custom_blocking_session_open_uses_one_owner_and_hint() {
         let transport = ProbeTransport {
-            config: TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
+            config: {
+                let mut config = TransportConfig::default();
+                config.addressing = AddressingMode::Serial;
+                config
             },
             responses: VecDeque::new(),
         };
@@ -544,18 +561,20 @@ mod blocking_standard {
     fn custom_blocking_session_rejects_zero_io_timeouts_at_construction() {
         for (transport_config, message) in [
             (
-                TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    read_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
+                {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config.read_timeout = Duration::ZERO;
+                    config
                 },
                 "transport read timeout must be non-zero",
             ),
             (
-                TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    write_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
+                {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config.write_timeout = Duration::ZERO;
+                    config
                 },
                 "transport write timeout must be non-zero",
             ),
@@ -589,12 +608,15 @@ mod blocking_standard {
     #[test]
     fn invalid_blocking_buffer_bounds_fail_before_socket_open() {
         let error = CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1:1")
-            .transport_config(TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                ..TransportConfig::default()
+            .transport_config({
+                let mut config = TransportConfig::default();
+                config.buffer_config = {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 65;
+                    config.max_buffer_size = 64;
+                    config
+                };
+                config
             })
             .open()
             .expect_err("invalid buffer bounds must fail before socket I/O");
@@ -610,12 +632,15 @@ mod blocking_standard {
     fn invalid_blocking_serial_buffer_bounds_fail_before_device_open() {
         let error =
             CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config(TransportConfig {
-                    buffer_config: BufferConfig {
-                        recv_buffer_size: 65,
-                        max_buffer_size: 64,
-                    },
-                    ..TransportConfig::default()
+                .transport_config({
+                    let mut config = TransportConfig::default();
+                    config.buffer_config = {
+                        let mut config = BufferConfig::default();
+                        config.recv_buffer_size = 65;
+                        config.max_buffer_size = 64;
+                        config
+                    };
+                    config
                 })
                 .open_serial()
                 .expect_err("invalid buffer bounds must fail before serial-device open");

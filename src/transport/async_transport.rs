@@ -17,13 +17,16 @@ use crate::{
 /// is complete: a valid-looking prefix is not a complete datagram.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use = "a receive outcome must be classified before its bytes are decoded"]
+#[non_exhaustive]
 pub enum ReceiveOutcome {
     /// The complete payload was copied into the caller's buffer.
+    #[non_exhaustive]
     Complete {
         /// Number of payload bytes copied.
         bytes: usize,
     },
     /// The runtime/OS positively reported that the datagram was truncated.
+    #[non_exhaustive]
     Truncated {
         /// Number of payload bytes copied before the tail was discarded.
         copied: usize,
@@ -35,6 +38,7 @@ pub enum ReceiveOutcome {
     /// existing custom transports source-compatible while making the fallback
     /// safe: implementations that can distinguish an exact fit from
     /// truncation should override [`AsyncTransport::recv_into_with_outcome`].
+    #[non_exhaustive]
     PossiblyTruncated {
         /// Number of payload bytes copied.
         copied: usize,
@@ -42,6 +46,19 @@ pub enum ReceiveOutcome {
 }
 
 impl ReceiveOutcome {
+    /// Reports a complete payload copied into the receive buffer.
+    pub const fn complete(bytes: usize) -> Self {
+        Self::Complete { bytes }
+    }
+    /// Reports a payload known to have been truncated.
+    pub const fn truncated(copied: usize) -> Self {
+        Self::Truncated { copied }
+    }
+    /// Reports an exact buffer fit whose completeness is unknown.
+    pub const fn possibly_truncated(copied: usize) -> Self {
+        Self::PossiblyTruncated { copied }
+    }
+
     /// Number of payload bytes copied into the supplied buffer.
     pub const fn copied_len(self) -> usize {
         match self {

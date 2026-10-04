@@ -19,7 +19,8 @@ use crate::{
 
 use super::boundary::OwnerHandleCore;
 use super::{
-    CancellationObserver, OperationObservation, ReceiptCore, RuntimeOutcome, TerminalObserver,
+    CancellationObserver, Observed, OperationObservation, ReceiptCore, RuntimeOutcome,
+    TerminalObserver,
 };
 use crate::ResponseDecoder;
 
@@ -71,10 +72,10 @@ where
 #[derive(Debug)]
 pub(super) enum ObservationWake {
     /// The terminal slot delivered (`None`: the owner dropped it unresolved).
-    Terminal(Option<RuntimeOutcome>),
+    Terminal(Option<Observed<RuntimeOutcome>>),
     /// The cancellation slot delivered (`None`: the owner dropped it, which it
     /// does only when the operation's terminal outcome is already delivered).
-    Cancellation(Option<Error>),
+    Cancellation(Option<Observed<Error>>),
     /// The owner is gone.
     OwnerGone,
     /// The observer deadline passed.
@@ -91,14 +92,27 @@ impl ObservationWake {
         self,
         core: &ReceiptCore,
         owner: &OwnerHandleCore,
+        deadline: Instant,
     ) -> Result<RuntimeOutcome, Error> {
         match self {
-            Self::Terminal(Some(outcome)) => Ok(outcome),
-            Self::Terminal(None) | Self::OwnerGone => {
-                core.try_outcome().ok_or_else(|| owner.disconnected_error())
+            Self::Terminal(Some(outcome)) => {
+                if outcome.at <= deadline {
+                    Ok(outcome.value)
+                } else {
+                    Err(super::observation_timeout(core.id))
+                }
             }
+            Self::Terminal(None) | Self::OwnerGone => core
+                .completion
+                .try_observed()
+                .filter(|event| event.at <= deadline)
+                .map(|event| event.value)
+                .ok_or_else(|| owner.disconnected_error()),
             Self::Deadline => core
-                .try_outcome()
+                .completion
+                .try_observed()
+                .filter(|event| event.at <= deadline)
+                .map(|event| event.value)
                 .ok_or_else(|| super::observation_timeout(core.id)),
             Self::Cancellation(_) => Err(Error::InvalidState(
                 "a receipt without a cancellation slot observed one".into(),
@@ -115,6 +129,7 @@ impl ObservationWake {
 pub(super) struct OperationWait<'a, V> {
     observation: &'a mut OperationObservation,
     verdict: V,
+    deadline: Instant,
     /// Cleared once the owner drops the cancellation slot, so the wait stops
     /// selecting a slot that can no longer deliver.
     cancellation_open: bool,
@@ -122,19 +137,24 @@ pub(super) struct OperationWait<'a, V> {
 
 impl<'a, T, V> OperationWait<'a, V>
 where
-    V: Fn(&mut OperationObservation) -> Option<T>,
+    V: Fn(&mut OperationObservation, Instant) -> Option<T>,
 {
-    pub(super) fn new(observation: &'a mut OperationObservation, verdict: V) -> Self {
+    pub(super) fn new(
+        observation: &'a mut OperationObservation,
+        verdict: V,
+        deadline: Instant,
+    ) -> Self {
         Self {
             observation,
             verdict,
+            deadline,
             cancellation_open: true,
         }
     }
 
     /// The verdict, once the cache holds it.
     pub(super) fn verdict(&mut self) -> Option<T> {
-        (self.verdict)(self.observation)
+        (self.verdict)(self.observation, self.deadline)
     }
 
     /// The slots the next race waits on: the terminal slot and, while it can
@@ -158,10 +178,24 @@ where
     ) -> ControlFlow<Result<T, Error>> {
         match wake {
             ObservationWake::Terminal(Some(outcome)) => {
+                let late = outcome.at > self.deadline;
                 self.observation.record_terminal(outcome);
+                if late {
+                    return ControlFlow::Break(
+                        self.verdict()
+                            .ok_or_else(|| super::observation_timeout(self.observation.id())),
+                    );
+                }
             }
             ObservationWake::Cancellation(Some(error)) => {
+                let late = error.at > self.deadline;
                 self.observation.record_cancellation_failure(error);
+                if late {
+                    return ControlFlow::Break(
+                        self.verdict()
+                            .ok_or_else(|| super::observation_timeout(self.observation.id())),
+                    );
+                }
             }
             ObservationWake::Cancellation(None) => self.cancellation_open = false,
             ObservationWake::Terminal(None) | ObservationWake::OwnerGone => {

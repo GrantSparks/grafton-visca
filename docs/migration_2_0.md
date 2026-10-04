@@ -20,8 +20,50 @@ observe application, wait for profile-selected settlement, cancel, or detach.
 
 This applies across pan/tilt, zoom, focus, presets, iris, and ND-filter
 operations—not only normalized zoom. A completed VISCA command is not always a
-physical-rest observation; choose `settled()` only when the profile supplies
-the required position inquiry and that distinction matters.
+physical-rest observation. `settled()` returns `Settlement`: either exact
+profile-declared completion evidence or stable position samples over a reported
+window and tolerance. Stable samples do not prove arrival at the requested endpoint.
+
+## Extensible public payloads (#788)
+
+Public configuration records and named error, diagnostic, response, transport
+option and test-script payloads reserve room for future fields. Construct them
+through their existing fluent methods or new narrow constructors. For records
+with public writable fields and Default, assign only the fields you change:
+
+```rust
+use grafton_visca::{Error, transport::{BufferConfig, TransportConfig}};
+
+let mut config = TransportConfig::default();
+config.buffer_config = BufferConfig::for_raw_ip();
+let error = Error::connection_closed(None);
+match error {
+    Error::ConnectionClosed { reason, .. } => assert!(reason.is_none()),
+    _ => {},
+}
+```
+
+Named patterns need `..` even when the parent enum was already non-exhaustive.
+Matches over `InquiryKind`, `InquiryData`, `FrameSequence`, `ReceiveOutcome`,
+`Step` and `TestExecutorType` also need a wildcard arm. These registries can grow;
+fixed wire/value records and command payloads retain their literal construction
+and exhaustive field patterns. Opaque types with private fields continue to use
+their existing constructors.
+
+Custom parsers use `Response::cmd_ack`, `completion` or `unknown`; custom transports
+use `ReceiveOutcome::complete`, `truncated` or `possibly_truncated` and
+`FrameMeta::new`. Capability validators use `ValidationError::out_of_range` or
+`invalid_value`; test scripts use `Step::on_send` or `after`. Error constructors
+use snake_case names such as `Error::feature_not_supported`, `invalid_parameter`,
+`runtime_queue_full` and `stream_poisoned`; `Error::timeout(stage, certainty)`
+retains structured deadline evidence. `Settlement::profile_completion`,
+`observed_stable` and `HaltReport::new` support downstream fake adapter results.
+
+Exported macros follow the same construction rules. A configured `ViscaEnum`
+error type whose final path segment is `Error` must offer
+`invalid_response(expected, actual)`, accepting `Cow<'static, str>` (or
+`impl Into<Cow<'static, str>>`) and a `Vec<u8>` payload. Other custom error names retain the `From<String>` convention.
+Renamed dependency aliases remain supported.
 
 ## Construction and feature selection
 
@@ -160,7 +202,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `advanced()`. |
-| 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving()` (no argument, samples `AffectedAxes::MOVEMENT`), `is_moving_axes(MotionQuery)` for an explicit axis set, `wait_until_idle(IdleWait)`, and `stop_all_motion()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
+| 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving()` (no argument, samples `AffectedAxes::MOVEMENT`), `is_moving_axes(MotionQuery)` for an explicit axis set, `wait_until_idle(IdleWait)`, and `stop_all_motion()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
 | 2.0.0-rc.2 `MotionQuery { axes, tolerance }` and an `is_moving`/`is_moving_axes` verdict from two back-to-back snapshots | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`, so struct literals no longer compile; use the constructors and `with_*` methods. The second snapshot now starts at least `window` (default 100 ms) after the first, so each call takes at least that long. `false` means no movement detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep (#781). |
 | 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `camera::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `camera::MotionQuery` for `is_moving_axes`. The `debug` field has no counterpart — use `tracing`. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
@@ -384,7 +426,7 @@ ND-filter position inquiries.
 | Concrete async `_op` methods (`pan_tilt_*_op`, `set_*_op`, `preset_recall_op`, and similar) | Construct the typed request and call `submit`; use the returned targeted/applied-only handle. |
 | `start_*`, `*_and_wait`, `_result`, and `*_op` twins | One noun method for ordinary completion, or one `submit` call for lifecycle control. No aliases or result twins. |
 | `await_completion` | `applied`; use `settled` only on a targeted operation. |
-| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and observes its profile-selected protocol settlement condition; it is not a 2.0.0-rc.2 bench-verified assertion of physical rest. |
+| `InFlight::await_applied(timeout)` / `BlockingInFlight::await_applied(timeout)`, and `await_settled(timeout)` | `Operation::applied()` / `settled()` for the request's configured deadline, or `applied_with_timeout(timeout)` / `settled_with_timeout(timeout)` for an explicit one. `settled*` exists only on a targeted operation and returns `Settlement` evidence. Stable samples are attributed to that operation only while no later conflicting motion has been admitted; they do not prove arrival at its endpoint. |
 | `send_command_with_id(&cmd) -> (CommandId, _)` followed later by `cancel(command_id)` | `camera.submit::<K, _>(&op)` returns an `Operation<K>` **handle**; hold it and call `operation.cancel()`, which waits for the cancellation's `CancellationOutcome`. The handle itself is the cancellation authority. |
 | `CommandId` used as a cancellation key | `OperationId` (from `operation.id()`) is read-only observability only; it can no longer authorize waiting or cancellation. Cancel through the owning `Operation` handle. |
 | `cancel_command(ViscaSocket)` and `cancel_socket(ViscaSocket)` (cancel by socket) | There is no public cancel-by-socket call — socket cancellation is owner-only and is driven by cancelling the specific `Operation`. `ViscaSocket` still exists (`grafton_visca::ViscaSocket`) as a value type but is not a cancellation entry point. To force motion to end, submit the typed STOP. |
@@ -417,14 +459,14 @@ mod erased {
 
     use grafton_visca::{
         completion::{AppliedOnly, Targeted},
-        CancellationOutcome, Error, Operation,
+        CancellationOutcome, Error, Operation, Settlement,
     };
 
     type Wait<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
     pub trait Observed: Send {
         fn applied(&mut self) -> Wait<'_, ()>;
-        fn settled(&mut self) -> Wait<'_, ()>;
+        fn settled(&mut self) -> Wait<'_, Settlement>;
         fn cancel(&mut self) -> Wait<'_, CancellationOutcome>;
     }
 
@@ -432,7 +474,7 @@ mod erased {
         fn applied(&mut self) -> Wait<'_, ()> {
             Box::pin(Operation::applied(self))
         }
-        fn settled(&mut self) -> Wait<'_, ()> {
+        fn settled(&mut self) -> Wait<'_, Settlement> {
             Box::pin(Operation::settled(self))
         }
         fn cancel(&mut self) -> Wait<'_, CancellationOutcome> {
@@ -444,7 +486,7 @@ mod erased {
         fn applied(&mut self) -> Wait<'_, ()> {
             Box::pin(Operation::applied(self))
         }
-        fn settled(&mut self) -> Wait<'_, ()> {
+        fn settled(&mut self) -> Wait<'_, Settlement> {
             Box::pin(async { Err(Error::NotSupported) })
         }
         fn cancel(&mut self) -> Wait<'_, CancellationOutcome> {
@@ -543,6 +585,47 @@ otherwise.
 To end motion, submit a stop: `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
 `camera.focus().stop()`, or `camera.motion().stop_all_motion()`. `cancel` records
 protocol cancellation and does not by itself prove motion ended.
+
+`stop_all_motion()` is one owner halt with a common deadline for preparation,
+admission, STOP dispatch, and observation. An outer error means the owner did
+not accept the halt. After acceptance, `HaltReport` independently reports
+`Unsupported`, `Applied`, or `Failed(error)` for pan/tilt, zoom, and focus.
+Inspect every supported axis result, or call `into_result()` when the first
+failure is sufficient. For example, the blocking form is
+`camera.motion().stop_all_motion()?.into_result()?;`.
+
+The fence is established when the owner accepts the halt. Older declared motion
+on supported axes is suppressed if still queued, including work retained in an
+ingress channel; already-written attempts retain correlation and uncertainty,
+while their future retries are suppressed. Submissions ordered after acceptance
+remain eligible. Concurrent calls are ordered by this acceptance boundary, not
+by when a caller begins preparation. Independent STOP admission and dispatch respect protocol socket, ACK-correlation,
+and pacing gates; they do not wait for another STOP's completion. Each STOP retains the same absolute cutoff
+and cannot begin a late write. Once the owner claims acceptance, the caller may
+finish waiting for its bounded bookkeeping reply; that never renews the STOP or
+observation budget. Applied STOPs provide protocol evidence, not physical feedback.
+
+Custom plain requests may declare `Request::motion_axes()`; `raw::Plain` has
+`with_motion_axes`. Operation requests already declare their affected axes.
+Undeclared raw/custom requests remain outside the fence. An axis declaration
+never grants reserved STOP priority or changes the command's wire semantics.
+
+A later admitted motion on overlapping axes supersedes an earlier operation's
+unfinished polled settlement, even if the later motion is cancelled before it
+writes. Rejected submissions and other axes or targets do not supersede it.
+`Error::SettlementSuperseded` preserves the earlier operation's application
+result; it does not prove that movement failed or authorize replay. Successful
+cached evidence and profile-declared exact completion remain valid after later
+motion. Polling failures retain their source in
+`Error::SettlementObservationFailed`, with `Observation/Unconfirmed` context for
+the original operation. A polling inquiry's conclusive failure does not make
+replaying the original move safe.
+
+Borrowing waits classify outcomes by the injected owner clock at delivery.
+Delivery before or exactly at the observer deadline can satisfy that wait;
+a later delivery is cached for a subsequent wait. An on-time cancellation
+failure therefore remains visible even when a late original completion is
+ready when the waiter resumes.
 
 ### A refused `cancel` leaves the handle observing
 

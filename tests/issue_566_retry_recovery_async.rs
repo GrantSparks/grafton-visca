@@ -189,7 +189,7 @@ impl AsyncTransport for ScriptTransport {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }

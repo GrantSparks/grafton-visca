@@ -70,11 +70,9 @@ mod timeout_tests {
         // Test basic ScriptedTransport functionality
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        let mut transport = ScriptedTransport::new(vec![Step::OnSend {
-            matches: None,
-            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK
-        }])
-        .with_executor(executor.clone());
+        let mut transport =
+            ScriptedTransport::new(vec![Step::on_send(None, vec![vec![0x90, 0x41, 0xFF]])])
+                .with_executor(executor.clone());
 
         // Send a command
         transport

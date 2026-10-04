@@ -710,9 +710,9 @@ both shells, and an eager custom driver cannot hot-spin either owner (#723).
 Plain commands normally complete when the owner has protocol-applied them; a raw
 `NoReply` plain command instead reports only a successful local transport write.
 Typed inquiries return their decoded response. Targeted operations have a meaningful
-target state and expose applied plus settled completion. `settled` observes the
-profile-selected protocol settlement condition, not a bench-verified assertion
-of physical rest. Applied-only operations represent actuation without a
+target state and expose applied completion plus `Settlement` evidence. `settled`
+returns exact profile completion or stable samples with axes, window, and
+tolerance; stable samples do not prove arrival at the endpoint. Applied-only operations represent actuation without a
 meaningful target state and expose
 applied completion only. Dynamic handles preserve this distinction:
 `DynTargetedOperation` has `applied`, `settled`, `cancel`, and `detach`, while
@@ -735,17 +735,25 @@ the losing branch of a `select!` — loses nothing, and a later wait answers fro
 the cache before it consults the owner. Application is cached, so `settled`
 after `applied` continues from it. Settlement proven by position polling is
 cached once proven; polling state is local to one wait, and a wait abandoned
-mid-proof restarts with a fresh two-sample proof.
+mid-proof restarts with a fresh two-sample proof. A fixed per-target/per-axis
+generation bank orders successful engine admissions against establishment of
+polled evidence under one lock. A later conflicting admission supersedes an
+unfinished proof even if the new command is cancelled before writing. Rejected
+admissions do not advance generations. Evidence already cached and exact
+profile completion remain valid. Polling errors retain their source while
+reporting observation uncertainty for the original move.
 
 Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a
 timeout or a dropped call — finds the owner already holding that intent and
 observes it, so the wire carries at most one cancellation. A refusal
 (`NotSupported`, `InquiryNotCancelable`) installs no intent and leaves the
-handle observing. The verdict is terminal-first: once the terminal outcome is
-known it decides (`Applied` is `Completed`, `Cancelled` is `Cancelled`, a
+handle observing. The verdict is terminal-first among outcomes delivered on time: once the
+terminal outcome is known at or before the observer deadline it decides (`Applied` is `Completed`, `Cancelled` is `Cancelled`, a
 failure is that error), whichever order the owner emitted the two slots in;
-only without one does a cancellation-slot error answer. A `cancel` after the
+only without an on-time terminal does an on-time cancellation-slot error answer.
+Delivery timestamps use the injected owner clock, not inferred wire arrival.
+Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 
 The default observer deadline for `cancel` is the larger of the operation's
@@ -759,6 +767,17 @@ explicit operation lifecycle. `motion().stop_all_motion()`,
 `motion().wait_until_idle(...)` are the only camera-level motion
 safety/observation entry points. A dropped handle is not an automatic STOP;
 emergency stopping is an explicit STOP or motion operation.
+
+`stop_all_motion()` is one bounded owner transaction returning `HaltReport`.
+Acceptance atomically samples the ingress cutoff and publishes the supported-axis
+fence against settlement establishment. Earlier declared queued motion is
+suppressed, including work still in the ingress lane; already-written lifecycle
+and correlation survive, with future retries suppressed. STOPs are admitted
+independently using the existing reserve, then dispatch under one absolute
+deadline and normal protocol gates. Sibling raw STOPs wait for attributable ACKs,
+not each other's completions. A final write guard discards expired or stale
+staged STOPs without fabricating transport failures. Later admissions remain
+eligible; raw/custom commands participate only when they declare motion axes.
 
 Broadcast address assignment and interface clear are transport-lifecycle
 controls, not camera requests; the serial handshake owns them before the target

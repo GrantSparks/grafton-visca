@@ -205,6 +205,12 @@ pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
 ///
 /// The generated `TryFrom<u8>` implementation returns an error with a descriptive
 /// message listing all valid values when an invalid u8 is provided.
+/// The default error and configured types whose final path segment is `Error`
+/// must provide `invalid_response(expected, actual)`: `expected` accepts a
+/// `Cow<'static, str>` (or `impl Into<Cow<'static, str>>`) and `actual` is
+/// `Vec<u8>`. Other configured error names keep
+/// the `From<String>` convention. This constructor convention permits the
+/// library's error payload to remain non-exhaustive.
 #[proc_macro_derive(ViscaEnum, attributes(visca_enum))]
 pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

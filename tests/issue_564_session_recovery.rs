@@ -49,9 +49,10 @@ mod blocking_recovery {
             Self {
                 // Serial addressing selects stream send semantics, which is the
                 // transport class the spec poisons on a write failure.
-                config: TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    ..TransportConfig::default()
+                config: {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config
                 },
                 responses: VecDeque::new(),
                 writes_before_failure: usize::MAX,
@@ -277,9 +278,10 @@ mod tokio_recovery {
         fn new(writes_before_failure: usize) -> Self {
             let (response_tx, responses) = flume::unbounded();
             Self {
-                config: TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    ..TransportConfig::default()
+                config: {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config
                 },
                 responses,
                 response_tx,

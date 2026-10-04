@@ -333,7 +333,7 @@ mod asynchronous {
                     reply_tx
                         .send_async((*reply).to_vec())
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 }
                 Ok(())
             }
@@ -344,7 +344,7 @@ mod asynchronous {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             destination[..reply.len()].copy_from_slice(&reply);
             Ok(reply.len())
         }

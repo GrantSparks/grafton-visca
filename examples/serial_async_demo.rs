@@ -32,30 +32,32 @@ impl Args {
         let mut args = env::args().skip(1);
         let port = match args.next() {
             Some(value) if value.starts_with('-') => {
-                return Err(Error::InvalidParameter {
-                    parameter: "arguments",
-                    value: value.into(),
-                    reason: "unknown option; expected [port] [camera_id]".into(),
-                });
+                return Err(Error::invalid_parameter(
+                    "arguments",
+                    value,
+                    "unknown option; expected [port] [camera_id]",
+                ));
             }
             Some(value) => value,
             None => "/dev/ttyUSB0".to_string(),
         };
         let camera_id = match args.next() {
-            Some(raw) => raw.parse::<u8>().map_err(|_| Error::InvalidParameter {
-                parameter: "camera_id",
-                value: raw.into(),
-                reason: "expected a numeric VISCA camera ID in 1..=8".into(),
+            Some(raw) => raw.parse::<u8>().map_err(|_| {
+                Error::invalid_parameter(
+                    "camera_id",
+                    raw,
+                    "expected a numeric VISCA camera ID in 1..=8",
+                )
             })?,
             None => 1,
         };
 
         if let Some(extra) = args.next() {
-            return Err(Error::InvalidParameter {
-                parameter: "arguments",
-                value: extra.into(),
-                reason: "unexpected extra argument; expected [port] [camera_id]".into(),
-            });
+            return Err(Error::invalid_parameter(
+                "arguments",
+                extra,
+                "unexpected extra argument; expected [port] [camera_id]",
+            ));
         }
 
         Ok(Self { port, camera_id })

@@ -60,13 +60,16 @@ impl StreamCamera {
         // larger than the per-receive frame limit, reproducing the "more than 64
         // frames in one read" condition of #674 (a real raw-IP/serial session
         // uses a 256-byte buffer).
-        let config = TransportConfig {
-            addressing,
-            buffer_config: BufferConfig {
-                recv_buffer_size: 1024,
-                max_buffer_size: 8192,
-            },
-            ..TransportConfig::default()
+        let config = {
+            let mut config = TransportConfig::default();
+            config.addressing = addressing;
+            config.buffer_config = {
+                let mut config = BufferConfig::default();
+                config.recv_buffer_size = 1024;
+                config.max_buffer_size = 8192;
+                config
+            };
+            config
         };
         Self {
             config,

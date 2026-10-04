@@ -4,7 +4,7 @@ use std::{future::Future, marker::PhantomData, pin::Pin, time::Duration};
 
 use grafton_visca::{
     completion::{AppliedOnly, Targeted},
-    CancellationOutcome, Error, Operation, OperationId,
+    CancellationOutcome, Error, Operation, OperationId, Settlement,
 };
 
 fn assert_send_sync<T: Send + Sync>() {}
@@ -18,7 +18,7 @@ async fn applied_only(mut handle: Operation<AppliedOnly>) -> Result<(), Error> {
 
 /// Waits borrow the handle (#777): application then settlement on one handle,
 /// and a timed-out wait leaves the handle usable.
-async fn targeted(mut handle: Operation<Targeted>) -> Result<(), Error> {
+async fn targeted(mut handle: Operation<Targeted>) -> Result<Settlement, Error> {
     let _: OperationId = handle.id();
     if handle
         .applied_with_timeout(Duration::from_millis(1))
@@ -62,11 +62,11 @@ fn wait_futures_are_send(handle: &mut Operation<Targeted>) {
 
 /// A user's object-safe trait can box the borrowing waits.
 trait Observe {
-    fn observe(&mut self) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>>;
+    fn observe(&mut self) -> Pin<Box<dyn Future<Output = Result<Settlement, Error>> + Send + '_>>;
 }
 
 impl Observe for Operation<Targeted> {
-    fn observe(&mut self) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + '_>> {
+    fn observe(&mut self) -> Pin<Box<dyn Future<Output = Result<Settlement, Error>> + Send + '_>> {
         Box::pin(self.settled())
     }
 }
@@ -80,7 +80,7 @@ fn borrowing_waits() {
 
     fn targeted_method(
         handle: &mut Operation<Targeted>,
-    ) -> impl Future<Output = Result<(), Error>> + '_ {
+    ) -> impl Future<Output = Result<Settlement, Error>> + '_ {
         handle.settled_with_timeout(Duration::from_secs(1))
     }
 

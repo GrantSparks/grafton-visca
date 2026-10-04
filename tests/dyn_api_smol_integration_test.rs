@@ -46,11 +46,11 @@ impl AsyncTransport for SmolTransport {
             reply_tx
                 .send_async(vec![source, 0x41, 0xff])
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             reply_tx
                 .send_async(vec![source, 0x51, 0xff])
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             Ok(())
         }
     }
@@ -65,7 +65,7 @@ impl AsyncTransport for SmolTransport {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }
@@ -148,7 +148,9 @@ fn smol_dynamic_motion_view_delegates_to_same_owner() {
             .motion()
             .stop_all_motion()
             .await
-            .expect("motion safety delegation");
+            .expect("motion safety delegation")
+            .into_result()
+            .expect("each supported STOP applied");
         session.shutdown().await.expect("smol shutdown");
     });
 }
@@ -170,7 +172,8 @@ fn smol_dynamic_unsupported_gate_and_target_selection_are_preflighted() {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "digital zoom"
+                feature: "digital zoom",
+                ..
             }
         ));
         assert!(writes.lock().expect("writes lock").is_empty());

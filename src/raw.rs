@@ -400,6 +400,7 @@ fn is_visca_address(byte: u8) -> bool {
 pub struct Plain {
     wire: Wire,
     policy: Policy,
+    motion_axes: Option<AffectedAxes>,
 }
 
 impl Plain {
@@ -418,7 +419,16 @@ impl Plain {
         Ok(Self {
             wire: Wire::new(bytes)?,
             policy,
+            motion_axes: None,
         })
+    }
+
+    /// Declares axes moved by this command so an owner halt can suppress it.
+    /// Undeclared raw commands are never suppressed; this grants no STOP priority.
+    #[must_use]
+    pub const fn with_motion_axes(mut self, axes: AffectedAxes) -> Self {
+        self.motion_axes = Some(axes);
+        self
     }
 
     /// Returns the exact frame bytes retained by this value.
@@ -468,6 +478,10 @@ impl Request for Plain {
     const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
     const RETRY_CLASS: RetryClass = RetryClass::Never;
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn motion_axes(&self) -> Option<AffectedAxes> {
+        self.motion_axes
+    }
 
     fn timeout_class(&self) -> TimeoutClass {
         self.policy.timeout_class()

@@ -58,10 +58,7 @@ impl Request for SetVendorTone {
             0xFF,
         ];
         if buffer.len() < bytes.len() {
-            return Err(Error::BufferTooSmall {
-                required: bytes.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -83,10 +80,7 @@ impl Request for VendorNudge {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let bytes = [camera_id.to_address_byte(), 0x01, 0x06, 0x7F, 0x03, 0xFF];
         if buffer.len() < bytes.len() {
-            return Err(Error::BufferTooSmall {
-                required: bytes.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())

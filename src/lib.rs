@@ -120,7 +120,7 @@
 //!   profile-selected protocol settlement condition: a profile-declared
 //!   completion-is-settled signal, or two affected-axis position samples within
 //!   tolerance. It is an intended indication of target rest, not a
-//!   2.0.0-rc.2 bench-verified assertion that physical motion ended; exact
+//!   2.0.0-rc.3 bench-verified assertion that physical motion ended; exact
 //!   model/firmware/transport/command evidence remains in the repository's
 //!   `docs/hardware_release_checklist.md`.
 //!   Settlement is a caller wait, not an engine phase.
@@ -295,7 +295,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -336,9 +336,7 @@
 //! assert_eq!(json, "\"ptz-optics-g2\"");
 //!
 //! // Serialize transport configuration
-//! let transport = TransportOptions::Tcp {
-//!     address: "192.168.0.110:5678".to_string(),
-//! };
+//! let transport = TransportOptions::tcp("192.168.0.110:5678".to_string());
 //! let json = serde_json::to_string(&transport).unwrap();
 //! // Can be loaded from config files, environment variables, etc.
 //! # }
@@ -462,7 +460,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! ```rust
@@ -497,10 +495,7 @@
 //!
 //!     smol::block_on(async {
 //!         let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!             .transport_config(TransportConfig {
-//!                 tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(30))),
-//!                 ..TransportConfig::default()
-//!             });
+//!             .transport_config({ let mut config = TransportConfig::default(); config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(30))); config });
 //!
 //!         let session = config.open_async(SmolRuntime::new()).await?;
 //!         let camera = session.camera();
@@ -688,11 +683,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard
@@ -790,7 +785,8 @@
 //!     camera.pan_tilt().stop()?.applied()?;
 //!
 //!     // Move to home position
-//!     camera.pan_tilt().home()?.settled()
+//!     camera.pan_tilt().home()?.settled()?;
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -958,6 +954,10 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 #[doc(hidden)]
 pub mod __macro_support {
     #[doc(hidden)]
+    pub use crate::command::encode::WireEncode;
+    #[doc(hidden)]
+    pub use crate::macros::param::{IntoParamBuf, ParamBuf};
+    #[doc(hidden)]
     pub use grafton_visca_macros::__grafton_visca_range_type_decl;
     #[cfg(feature = "schemars")]
     pub use schemars;
@@ -1069,7 +1069,7 @@ mod session_config;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;
-pub use outcome::CancellationOutcome;
+pub use outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
 
 mod operation_id;
 pub use operation_id::OperationId;

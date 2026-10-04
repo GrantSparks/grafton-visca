@@ -137,7 +137,7 @@ impl AsyncTransport for ScriptedTransport {
             .responses
             .recv()
             .await
-            .ok_or(Error::ConnectionClosed { reason: None })?;
+            .ok_or(Error::connection_closed(None))?;
         dst[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
     }
@@ -366,6 +366,7 @@ async fn incompatible_standard_transport_fails_before_send_or_owner_spawn() {
         Error::UnsupportedTransport {
             profile: ProfileId::SonyFr7,
             transport: TransportKind::Tcp,
+            ..
         }
     ));
     assert!(sent.lock().expect("sent lock").is_empty());

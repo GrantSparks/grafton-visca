@@ -642,6 +642,15 @@ pub trait Request: Send + Sync {
         Self::CONTROL_CLASS
     }
 
+    /// Declares axes moved by a plain custom command for owner halt fencing.
+    ///
+    /// Undeclared plain/raw commands are never suppressed by a halt. Operation
+    /// commands instead use their mandatory [`OperationCommand::affected_axes`].
+    /// This grants no reserved STOP or cancellation authority.
+    fn motion_axes(&self) -> Option<AffectedAxes> {
+        None
+    }
+
     /// Resolves the request's class for owner admission.
     ///
     /// The private authority makes this an unforgeable crate-only hook. The

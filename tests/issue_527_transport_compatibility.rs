@@ -23,6 +23,7 @@ fn dynamic_tcp_for_sony_fr7_fails_before_address_resolution() {
         Error::UnsupportedTransport {
             profile: ProfileId::SonyFr7,
             transport: TransportKind::Tcp,
+            ..
         }
     ));
 }
@@ -39,6 +40,7 @@ fn dynamic_transport_validation_reports_profile_and_transport() {
         Error::UnsupportedTransport {
             profile: ProfileId::SonyFr7,
             transport: TransportKind::Serial,
+            ..
         }
     ));
 }

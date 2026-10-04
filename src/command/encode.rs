@@ -15,12 +15,13 @@ pub enum CommandKind {
     Inquiry,
 }
 
-/// The single crate-private wire encoder contract.
+/// The internal wire encoder contract used by generated command implementations.
 ///
 /// This trait intentionally exposes only frame mechanics. It is not a
 /// command registry and carries no request class, timeout, retry, routing, or
 /// completion metadata.
-pub(crate) trait WireEncode: Send + Sync {
+#[doc(hidden)]
+pub trait WireEncode: Send + Sync {
     /// Write one complete VISCA frame into `buffer`.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 }

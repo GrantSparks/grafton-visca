@@ -429,8 +429,12 @@ impl<'a, P: CompileTimeProfile> MotionAccessor<'a, P> {
         Self { camera }
     }
 
-    /// Stops all supported pan/tilt, zoom, and focus movement.
-    pub async fn stop_all_motion(&self) -> Result<()> {
+    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
+    ///
+    /// The owner fences older declared motion and independently dispatches STOPs
+    /// under one deadline, respecting protocol gates. Inspect each supported axis
+    /// in the returned report; application alone does not prove physical rest.
+    pub async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
         self.camera.core().stop_all_motion().await
     }
 

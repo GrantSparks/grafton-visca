@@ -69,10 +69,8 @@ fn classify_common_errors() {
         Error::io_timeout(),
         Error::SyntaxError,
         Error::CommandNotExecutable,
-        Error::RuntimeQueueFull { capacity: 64 },
-        Error::FeatureNotSupported {
-            feature: "advanced_zoom",
-        },
+        Error::runtime_queue_full(64),
+        Error::feature_not_supported("advanced_zoom"),
         Error::UnsequencedCommandUnconfirmed,
     ];
 
@@ -93,11 +91,12 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
-    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config(TransportConfig {
-        connect_timeout: Duration::from_secs(3),
-        read_timeout: Duration::from_secs(2),
-        write_timeout: Duration::from_secs(2),
-        ..TransportConfig::default()
+    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config({
+        let mut config = TransportConfig::default();
+        config.connect_timeout = Duration::from_secs(3);
+        config.read_timeout = Duration::from_secs(2);
+        config.write_timeout = Duration::from_secs(2);
+        config
     });
 
     let runtime = TokioRuntime::from_current()?;

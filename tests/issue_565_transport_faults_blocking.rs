@@ -500,7 +500,7 @@ fn stream_write_failure_poisons_and_names_the_transport_cause() {
         .expect("submission succeeds at admission")
         .applied()
         .expect_err("the second write fails on the wire");
-    let Error::StreamPoisoned { reason } = &error else {
+    let Error::StreamPoisoned { reason, .. } = &error else {
         panic!("a stream write failure is terminal for the session, got {error:?}");
     };
     assert!(

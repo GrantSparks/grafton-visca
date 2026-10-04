@@ -454,10 +454,7 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
     use std::time::Duration;
 
     let _ = helpers::ack(1);
-    let _ = Step::After {
-        delay: Duration::ZERO,
-        responses: vec![],
-    };
+    let _ = Step::after(Duration::ZERO, vec![]);
 
     #[cfg(feature = "blocking")]
     {

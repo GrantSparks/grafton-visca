@@ -5,7 +5,7 @@ use std::{marker::PhantomData, time::Duration};
 use grafton_visca::{
     blocking::{Operation, OperationId},
     completion::{AppliedOnly, Targeted},
-    CancellationOutcome, Error,
+    CancellationOutcome, Error, Settlement,
 };
 
 fn applied_only(mut handle: Operation<AppliedOnly>) -> Result<(), Error> {
@@ -16,7 +16,7 @@ fn applied_only(mut handle: Operation<AppliedOnly>) -> Result<(), Error> {
 
 /// Waits borrow the handle (#777): application then settlement on one handle,
 /// and a timed-out wait leaves the handle usable.
-fn targeted(mut handle: Operation<Targeted>) -> Result<(), Error> {
+fn targeted(mut handle: Operation<Targeted>) -> Result<Settlement, Error> {
     if handle
         .applied_with_timeout(Duration::from_millis(1))
         .is_err()
@@ -33,7 +33,7 @@ fn targeted(mut handle: Operation<Targeted>) -> Result<(), Error> {
 fn cancellation(mut handle: Operation<Targeted>) -> Result<bool, Error> {
     match handle.cancel_with_timeout(Duration::from_secs(1)) {
         Ok(_) => {}
-        Err(Error::NotSupported) => return handle.settled().map(|()| false),
+        Err(Error::NotSupported) => return handle.settled().map(|_| false),
         Err(error) => return Err(error),
     }
     let cancelled = match handle.cancel()? {

@@ -206,7 +206,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
         RuntimeOutcome::Failed(Error::Timeout { .. })
@@ -358,7 +358,7 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
 
     let deadline = initial + OBSERVER;
     let expiring_handle = handle.clone();
@@ -473,7 +473,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
         RuntimeOutcome::Failed(Error::Timeout { .. })
@@ -494,7 +494,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         )
         .await;
     let c = c_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
 
     let (_b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let b_boundary = actor.core.receivers.admissions.try_recv().unwrap();
@@ -582,7 +582,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .await,
         TurnOutcome::Continue
     );
-    assert_eq!(harness.writes.recv_async().await.unwrap(), b);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), b.id);
 }
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -942,7 +942,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
         RuntimeOutcome::Failed(Error::Timeout { .. })
@@ -1001,7 +1001,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         TurnOutcome::Continue
     );
     assert!(actor.core.coordinator.release().await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), _b.id);
 
     // B's zero-length response deadline creates its own timeout hold as
     // soon as that dispatch succeeds. C waits behind the new hold and must
@@ -1059,7 +1059,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         TurnOutcome::Continue
     );
     assert!(actor.core.coordinator.release().await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
 }
 /// Production adapter/framer coverage for the original literal-byte hole:
 /// a raw reply split at the exact tombstone boundary remains attributed to

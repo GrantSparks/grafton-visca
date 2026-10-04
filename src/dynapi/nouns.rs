@@ -424,8 +424,12 @@ pub trait DynAdvanced: Send + Sync {
 
 /// Object-safe motion safety and observation noun.
 pub trait DynMotion: Send + Sync {
-    /// Stops all supported pan/tilt, zoom, and focus movement.
-    fn stop_all_motion(&self) -> DynFuture<'_, Result<(), Error>>;
+    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
+    ///
+    /// The owner fences older declared motion and independently dispatches STOPs
+    /// under one deadline, respecting protocol gates. Inspect each supported axis
+    /// in the returned report; application alone does not prove physical rest.
+    fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>>;
     /// Reports whether protocol position samples indicate movement on any
     /// mechanical movement axis.
     ///
@@ -658,7 +662,7 @@ impl DynAdvanced for DynSessionCamera {
 }
 
 impl DynMotion for DynSessionCamera {
-    fn stop_all_motion(&self) -> DynFuture<'_, Result<(), Error>> {
+    fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>> {
         self.stop_all_motion()
     }
 

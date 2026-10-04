@@ -38,6 +38,7 @@
 ///
 /// This enum represents the different executor types available for testing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TestExecutorType {
     /// DeterministicExecutor - for logic and sequencing tests
     Deterministic,

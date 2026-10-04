@@ -192,7 +192,7 @@ fn a_timed_out_wait_keeps_the_handle_observing() {
     let expired = moving
         .applied_with_timeout(SHORT)
         .expect_err("nothing concluded the zoom");
-    assert!(matches!(expired, Error::ObservationTimeout { operation } if operation == id));
+    assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
     assert!(!expired.is_retryable());
     probe.push(COMPLETE_SOCKET_ONE);
     moving
@@ -234,7 +234,10 @@ fn application_then_settlement_restarts_an_abandoned_proof() {
     );
 
     probe.answer_positions();
-    home.settled().expect("two equal samples settle home");
+    assert!(
+        matches!(home.settled().expect("two equal samples settle home"), grafton_visca::Settlement::ObservedStable { axes, window, .. }
+        if axes == grafton_visca::AffectedAxes::PAN_TILT && !window.is_zero())
+    );
     let polled = probe.writes().len();
     home.settled_with_timeout(Duration::ZERO)
         .expect("settlement is cached");

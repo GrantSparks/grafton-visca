@@ -126,7 +126,7 @@ mod blocking_observability {
             _timeout: Duration,
         ) -> Result<(), Error> {
             if self.fail_send {
-                return Err(Error::ConnectionClosed { reason: None });
+                return Err(Error::connection_closed(None));
             }
             let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
             let source = if self.config.addressing == AddressingMode::Serial {
@@ -369,7 +369,7 @@ mod tokio_observability {
             let fail_send = self.fail_send;
             async move {
                 if fail_send {
-                    return Err(Error::ConnectionClosed { reason: None });
+                    return Err(Error::connection_closed(None));
                 }
                 tx.send_async(vec![source, 0x41, 0xff])
                     .await

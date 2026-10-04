@@ -120,7 +120,7 @@ impl AsyncTransport for CancellationTransport {
                 response_tx
                     .send_async(response)
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             }
             Ok(())
         }
@@ -136,7 +136,7 @@ impl AsyncTransport for CancellationTransport {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             let length = bytes.len();
             dst[..length].copy_from_slice(&bytes);
             self.reads.fetch_add(1, Ordering::AcqRel);

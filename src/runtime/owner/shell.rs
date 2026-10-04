@@ -366,7 +366,40 @@ impl OwnerShellCore {
             OwnerEvent::Shutdown | OwnerEvent::Admission(Err(_)) => {
                 self.terminate(ShutdownReason::Explicit, selected_at)
             }
-            OwnerEvent::Cancellation(CancellationBoundary { request, reply }) => {
+            OwnerEvent::Cancellation(CancellationBoundary::Halt(halt)) => {
+                match halt.validity.claim_for_admission(selected_at) {
+                    AdmissionClaim::Claimed => {
+                        match self.lifecycle.fence_order(
+                            &self.state.motion,
+                            halt.prepared.target,
+                            halt.prepared.axes,
+                        ) {
+                            Ok(cutoff) => {
+                                let receipt = self.state.accept_halt(
+                                    halt.prepared,
+                                    halt.deadline,
+                                    cutoff,
+                                    selected_at,
+                                );
+                                let _ = halt.reply.try_send(Ok(receipt));
+                                TurnStep::Drive {
+                                    effects: self.state.advance(selected_at),
+                                    then: Resume::done(TurnOutcome::Continue),
+                                }
+                            }
+                            Err(error) => {
+                                let _ = halt.reply.try_send(Err(error));
+                                TurnStep::Done(TurnOutcome::Continue)
+                            }
+                        }
+                    }
+                    AdmissionClaim::ExpiredHere | AdmissionClaim::ExpiredElsewhere => {
+                        let _ = halt.reply.try_send(Err(Error::admission_timeout()));
+                        TurnStep::Done(TurnOutcome::Continue)
+                    }
+                }
+            }
+            OwnerEvent::Cancellation(CancellationBoundary::Cancel { request, reply }) => {
                 let id = request.id;
                 match self.state.begin_cancellation(request) {
                     Some(input) => TurnStep::Drive {
@@ -477,7 +510,12 @@ impl OwnerShellCore {
     /// session verdict as it is applied. Returns `None` once `effects` is
     /// exhausted. A staged transmit ends any receive pause: its reply must
     /// be read as soon as it arrives.
-    pub(super) fn next_transmit(&mut self, effects: &mut VecDeque<Effect>) -> Option<StagedWrite> {
+    pub(super) fn next_transmit(
+        &mut self,
+        effects: &mut VecDeque<Effect>,
+        observed_at: Instant,
+    ) -> Option<StagedWrite> {
+        self.state.observed_at = observed_at;
         while let Some(effect) = effects.pop_front() {
             let terminal_transition = matches!(
                 &effect,
@@ -492,6 +530,14 @@ impl OwnerShellCore {
                 self.lifecycle.publish_terminal(error);
             }
             if let AppliedEffect::Transmit(staged) = applied {
+                if let Some(expired) = self
+                    .state
+                    .engine
+                    .expire_unwritten_halt(staged.transmission, observed_at)
+                {
+                    prepend_effects(effects, expired.into());
+                    continue;
+                }
                 self.coordinator.end_receive_pause();
                 return Some(staged);
             }
@@ -857,9 +903,11 @@ impl OwnerShellCore {
             OwnerEvent::Cancellation(cancellation) => {
                 // An operation that already concluded has delivered its
                 // terminal outcome, which answers the cancellation.
-                if !self.state.is_active(cancellation.request.id) {
-                    let _ = cancellation.reply.try_send(Ok(()));
-                    return None;
+                if let CancellationBoundary::Cancel { request, reply } = &cancellation {
+                    if !self.state.is_active(request.id) {
+                        let _ = reply.try_send(Ok(()));
+                        return None;
+                    }
                 }
                 RetainedBoundary::Cancellation(cancellation)
             }
@@ -1023,7 +1071,7 @@ impl OwnerShellCore {
             // The caller still holds its handle; a terminal outcome already
             // delivered to it takes precedence over this error (#777).
             RetainedBoundary::Cancellation(cancellation) => {
-                let _ = cancellation.reply.try_send(Err(error));
+                cancellation.fail(error);
             }
         }
         self.state.fail_unstaged_boundary(1);
@@ -1052,7 +1100,7 @@ impl OwnerShellCore {
             while let Ok(cancel) = self.receivers.cancellations.try_recv() {
                 // The caller keeps its handle, and a terminal outcome already
                 // delivered to it takes precedence over this error (#777).
-                let _ = cancel.reply.try_send(Err(error.clone()));
+                cancel.fail(error.clone());
                 dropped = dropped.saturating_add(1);
             }
             while let Ok(control) = self.receivers.control.try_recv() {
@@ -1142,9 +1190,13 @@ mod tests {
     impl RetainedStreamInput for Datagrams {}
 
     fn owner() -> (OwnerHandleCore, OwnerShellCore) {
+        owner_with_capacity(1)
+    }
+
+    fn owner_with_capacity(capacity: usize) -> (OwnerHandleCore, OwnerShellCore) {
         let policy = OwnerPolicy::single_target(
             ProtocolPolicy {
-                capacity: 1,
+                capacity,
                 envelope: EnvelopeKind::Raw,
                 transport: TransportKind::Datagram,
                 inquiry_capacity: 1,
@@ -1179,10 +1231,153 @@ mod tests {
     /// happen: none of these turns stage a transmit.
     fn run_turn(core: &mut OwnerShellCore, mut step: TurnStep) -> TurnStep {
         while let TurnStep::Drive { mut effects, then } = step {
-            assert!(core.next_transmit(&mut effects).is_none());
+            assert!(core.next_transmit(&mut effects, Instant::now()).is_none());
             step = core.resume(then, &mut Datagrams);
         }
         step
+    }
+
+    fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
+        use crate::runtime::engine::*;
+        RuntimeRequest::Command {
+            wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
+            context: RequestContext {
+                motion: Some(MotionEffect {
+                    axes: crate::AffectedAxes::ZOOM,
+                    stop,
+                }),
+                submission_order: 0,
+                dispatch_deadline: None,
+                target: CameraId::CAMERA_1,
+                timeout: TimeoutPolicy {
+                    ack: Duration::from_secs(1),
+                    completion: Duration::from_secs(1),
+                    inquiry: Duration::from_secs(1),
+                    cancellation: Duration::from_secs(1),
+                    ambiguity: Duration::from_secs(1),
+                },
+                retry: RetryPolicy::NEVER,
+                control: ControlPolicy {
+                    class: if stop {
+                        ControlClass::Urgent
+                    } else {
+                        ControlClass::Normal
+                    },
+                    ..ControlPolicy::default()
+                },
+                cancellation: CancellationPolicy::Supported,
+                reply_shape: ReplyShape::AckThenCompletion,
+            },
+            applied_state: None,
+        }
+    }
+
+    #[test]
+    fn staged_halt_stop_cannot_cross_shell_write_deadline_or_reappear_after_expiry() {
+        for expire_before_drain in [false, true] {
+            let now = Instant::now();
+            let deadline = now + Duration::from_millis(10);
+            let (handle, mut core) = owner();
+            let mut request = declared_request(true);
+            request.context_mut().dispatch_deadline = Some(deadline);
+            request.context_mut().retry.total_budget = Duration::from_millis(10);
+            let (completion, admission) = handle.enqueue_admission(request, None).unwrap();
+            let boundary = core.receivers.admissions.recv().unwrap();
+            let TurnStep::Drive { mut effects, .. } = core.handle(
+                OwnerEvent::Admission(Ok(boundary)),
+                &mut Datagrams,
+                now,
+                false,
+            ) else {
+                panic!("admission drives effects");
+            };
+            if expire_before_drain {
+                // First publish admission, but keep its staged Transmit in
+                // the drain while another effect advances owner time.
+                let mut retained = VecDeque::new();
+                while let Some(effect) = effects.pop_front() {
+                    if matches!(effect, Effect::Transmit { .. }) {
+                        retained.push_back(effect);
+                    } else {
+                        let _ = core.state.apply_effect(effect);
+                    }
+                }
+                effects = retained;
+                for effect in core.state.advance(deadline) {
+                    let _ = core.state.apply_effect(effect);
+                }
+            }
+            assert!(core.next_transmit(&mut effects, deadline).is_none());
+            assert!(admission.recv().unwrap().is_ok());
+            assert!(matches!(
+                completion.try_observed().map(|event| event.value),
+                Some(super::super::RuntimeOutcome::Failed(_))
+            ));
+            assert!(completion.try_observed().is_none(), "exactly one terminal");
+            assert_eq!(handle.permits.available(), 1);
+            assert_eq!(core.state.state(), SessionState::Running);
+        }
+    }
+
+    #[test]
+    fn halt_acceptance_fences_all_prior_channel_work_and_allows_later_admission() {
+        use super::super::{boundary::AdmissionValidity, halt::HaltBoundary};
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(1);
+        let (handle, mut core) = owner_with_capacity(4);
+        let (_first, first) = handle
+            .enqueue_admission(declared_request(false), None)
+            .unwrap();
+        let (reply, receipt) = flume::bounded(1);
+        handle
+            .cancellations
+            .send(CancellationBoundary::Halt(HaltBoundary {
+                prepared: crate::prepared::PreparedHalt {
+                    target: CameraId::CAMERA_1,
+                    axes: Some(crate::AffectedAxes::ZOOM),
+                    requests: [None, Some(Ok(declared_request(true))), None],
+                    budget: Duration::from_secs(1),
+                },
+                deadline,
+                validity: AdmissionValidity::until(deadline),
+                reply,
+            }))
+            .unwrap();
+        // This arrives after halt enqueue but before owner acceptance. It
+        // must belong to the same fence as the first channel-retained move.
+        let (_second, second) = handle
+            .enqueue_admission(declared_request(false), None)
+            .unwrap();
+        let halt = core.receivers.cancellations.recv().unwrap();
+        let _step = core.handle(OwnerEvent::Cancellation(halt), &mut Datagrams, now, false);
+        let halt = receipt.recv().unwrap().unwrap();
+        assert!(matches!(halt.slots[1], Some(Ok(_))));
+        for reply in [first, second] {
+            let boundary = core.receivers.admissions.recv().unwrap();
+            let step = core.handle(
+                OwnerEvent::Admission(Ok(boundary)),
+                &mut Datagrams,
+                now,
+                false,
+            );
+            let _ = run_turn(&mut core, step);
+            assert!(matches!(
+                reply.recv().unwrap(),
+                Err(Error::MotionSuperseded { .. })
+            ));
+        }
+        let (_later, later) = handle
+            .enqueue_admission(declared_request(false), None)
+            .unwrap();
+        let boundary = core.receivers.admissions.recv().unwrap();
+        let step = core.handle(
+            OwnerEvent::Admission(Ok(boundary)),
+            &mut Datagrams,
+            now,
+            false,
+        );
+        let _ = run_turn(&mut core, step);
+        assert!(later.recv().unwrap().is_ok());
     }
 
     #[test]

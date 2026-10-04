@@ -38,6 +38,7 @@ const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 16;
 /// engine can apply its collision-safe fallback. Outgoing Sony frames are
 /// always represented as [`Self::Full32`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FrameSequence {
     /// A sequence value whose complete 32-bit identity is present.
     Full32(u32),
@@ -66,9 +67,18 @@ impl FrameSequence {
 /// [`FrameMeta::sequence`] is `None` for [`RawVisca`]. Sony encapsulated frames
 /// carry typed sequence provenance that the runtime uses to correlate replies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FrameMeta {
     /// Sequence provenance for Sony protocol, `None` for raw VISCA.
     pub sequence: Option<FrameSequence>,
+}
+
+impl FrameMeta {
+    /// Constructs framing metadata with optional sequence provenance.
+    #[must_use]
+    pub const fn new(sequence: Option<FrameSequence>) -> Self {
+        Self { sequence }
+    }
 }
 
 /// Trait for protocol envelope implementations.

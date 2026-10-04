@@ -301,6 +301,9 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x47, 0xff]).unwrap()),
         context: RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(1),

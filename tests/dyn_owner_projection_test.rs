@@ -52,16 +52,16 @@ impl AsyncTransport for ScriptedTransport {
                         0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
                     ])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             } else {
                 reply_tx
                     .send_async(vec![0x90, 0x41, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 reply_tx
                     .send_async(vec![0x90, 0x51, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             }
             Ok(())
         }
@@ -77,7 +77,7 @@ impl AsyncTransport for ScriptedTransport {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }
@@ -309,7 +309,8 @@ where
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "optical-plus-digital zoom positioning"
+                feature: "optical-plus-digital zoom positioning",
+                ..
             }
         ));
     }
@@ -428,7 +429,8 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode family"
+            feature: "shared exposure-mode family",
+            ..
         }
     ));
     let error = fr7_nouns
@@ -439,7 +441,8 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode family"
+            feature: "shared exposure-mode family",
+            ..
         }
     ));
     assert!(
@@ -481,7 +484,8 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode family"
+            feature: "shared exposure-mode family",
+            ..
         }
     ));
     let error = partial_nouns
@@ -492,7 +496,8 @@ where
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "shared exposure-mode family"
+            feature: "shared exposure-mode family",
+            ..
         }
     ));
     assert!(

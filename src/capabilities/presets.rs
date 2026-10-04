@@ -84,6 +84,7 @@ impl<T: Presets> PresetsExt for T {}
 
 /// Preset tour configuration for cameras that support it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PresetTour {
     /// List of preset numbers to visit in order.
     pub presets: Vec<u8>,

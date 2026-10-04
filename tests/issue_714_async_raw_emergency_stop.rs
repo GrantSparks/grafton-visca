@@ -70,13 +70,11 @@ impl AsyncScriptTransport {
 
     #[cfg(feature = "blocking")]
     fn new_serial(steps: Vec<Vec<Vec<u8>>>) -> (Self, Probe) {
-        Self::new_with_config(
-            steps,
-            TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
-            },
-        )
+        Self::new_with_config(steps, {
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
+        })
     }
 
     fn new_with_config(steps: Vec<Vec<Vec<u8>>>, config: TransportConfig) -> (Self, Probe) {
@@ -114,7 +112,7 @@ impl AsyncTransport for AsyncScriptTransport {
             self.reply_tx
                 .send_async(reply)
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
         }
         Ok(())
     }
@@ -124,7 +122,7 @@ impl AsyncTransport for AsyncScriptTransport {
             .replies
             .recv_async()
             .await
-            .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            .map_err(|_| Error::connection_closed(None))?;
         dst[..reply.len()].copy_from_slice(&reply);
         Ok(reply.len())
     }
@@ -353,7 +351,7 @@ mod parity {
             for reply in replies {
                 self.reply_tx
                     .try_send(reply)
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             }
             Ok(())
         }

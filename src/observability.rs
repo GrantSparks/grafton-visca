@@ -189,6 +189,7 @@ pub enum DiagnosticResponse {
     /// A protocol error response was received.
     Error,
     /// A Sony transport-control reply was received.
+    #[non_exhaustive]
     SonyControl {
         /// The one- or two-byte control reply code, stored in network order.
         code: u16,
@@ -280,6 +281,7 @@ pub enum DiagnosticIgnoreReason {
 #[non_exhaustive]
 pub enum DiagnosticEvent {
     /// A request entered authoritative owner state.
+    #[non_exhaustive]
     Admitted {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -289,6 +291,7 @@ pub enum DiagnosticEvent {
         lane: DiagnosticLane,
     },
     /// Admission was rejected before an identity was allocated.
+    #[non_exhaustive]
     AdmissionRejected {
         /// Target camera.
         target: CameraId,
@@ -298,6 +301,7 @@ pub enum DiagnosticEvent {
         error: ErrorKind,
     },
     /// A response frame reached the owner.
+    #[non_exhaustive]
     FrameReceived {
         /// Target camera.
         target: CameraId,
@@ -305,6 +309,7 @@ pub enum DiagnosticEvent {
         response: DiagnosticResponse,
     },
     /// A request changed private protocol phase.
+    #[non_exhaustive]
     Transition {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -316,6 +321,7 @@ pub enum DiagnosticEvent {
         to: DiagnosticPhase,
     },
     /// A transport write completed.
+    #[non_exhaustive]
     WriteFinished {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -327,6 +333,7 @@ pub enum DiagnosticEvent {
         success: bool,
     },
     /// A retry was scheduled.
+    #[non_exhaustive]
     RetryScheduled {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -340,6 +347,7 @@ pub enum DiagnosticEvent {
     /// `will_retry` is the scheduler's decision for this exact expiry, so a
     /// subscriber never has to infer it from a [`DiagnosticEvent::Transition`]
     /// and the absence of a following [`DiagnosticEvent::RetryScheduled`].
+    #[non_exhaustive]
     DeadlineExpired {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -351,6 +359,7 @@ pub enum DiagnosticEvent {
         will_retry: bool,
     },
     /// Cancellation entered the owner.
+    #[non_exhaustive]
     CancellationRecorded {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -358,6 +367,7 @@ pub enum DiagnosticEvent {
         target: CameraId,
     },
     /// Cancellation changed observation state.
+    #[non_exhaustive]
     CancellationObserved {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -367,6 +377,7 @@ pub enum DiagnosticEvent {
         observation: DiagnosticCancellation,
     },
     /// An exact applied-state effect was committed.
+    #[non_exhaustive]
     AppliedState {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -376,6 +387,7 @@ pub enum DiagnosticEvent {
         key: StateKey,
     },
     /// A request reached a terminal outcome.
+    #[non_exhaustive]
     Terminal {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -385,6 +397,7 @@ pub enum DiagnosticEvent {
         outcome: DiagnosticOutcome,
     },
     /// Session state changed.
+    #[non_exhaustive]
     SessionChanged {
         /// Previous session state.
         from: SessionStatus,
@@ -394,6 +407,7 @@ pub enum DiagnosticEvent {
         reason: ErrorKind,
     },
     /// The engine deliberately ignored an input.
+    #[non_exhaustive]
     Ignored {
         /// Bounded reason.
         reason: DiagnosticIgnoreReason,

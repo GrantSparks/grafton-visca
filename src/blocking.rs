@@ -26,15 +26,15 @@ use crate::{
         prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
         ClassSelection,
     },
-    request::builtin::{FocusStop, PanTiltStop, ZoomStop},
+    request::builtin::PanTiltStop,
     runtime::owner::{
         ensure_before_deadline, sample_positions_blocking, BlockingOperationReceipt,
         BlockingOwnerHandle, BlockingTransportAdapter,
     },
     stop_request::pan_tilt_stop_request,
-    AffectedAxes, CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error,
-    Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec,
-    Result, StateCache, SubmissionClass,
+    CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
+    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
+    StateCache, SubmissionClass,
 };
 
 const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
@@ -167,10 +167,11 @@ impl Operation<completion::Targeted> {
     /// settlement condition, bounded by the configured settlement budget.
     ///
     /// Application is cached, so calling this after
-    /// [`applied`](Operation::applied) continues from it. Settlement proven
+    /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
+    /// Later conflicting admission supersedes unfinished polled evidence. Settlement proven
     /// by position polling is cached once proven; a polling wait that times
     /// out restarts with a fresh proof.
-    pub fn settled(&mut self) -> Result<(), Error> {
+    pub fn settled(&mut self) -> Result<crate::Settlement, Error> {
         self.receipt.settled(None)
     }
 
@@ -180,7 +181,7 @@ impl Operation<completion::Targeted> {
     /// settlement policy are unchanged. Each abandoned polling attempt may
     /// leave its admitted position inquiries running until their own
     /// deadlines, within the session's admission capacity.
-    pub fn settled_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+    pub fn settled_with_timeout(&mut self, timeout: Duration) -> Result<crate::Settlement, Error> {
         self.receipt.settled(Some(timeout))
     }
 }
@@ -827,46 +828,16 @@ impl BlockingCameraCore {
     /// Stops every profile-supported pan/tilt, zoom, and focus axis through
     /// this camera's one owner.
     ///
-    /// Every supported typed stop is submitted and observed even when an
-    /// earlier submission or application fails. The first supported-axis error
-    /// is returned only after every supported stop path has had its observation
-    /// attempted.
-    pub(crate) fn stop_all_motion(&self) -> Result<(), Error> {
-        let mut first_error = None;
-
-        if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
-            let pan_tilt_result = match self.pan_tilt_stop_request() {
-                Ok(stop) => self
-                    .submit::<completion::AppliedOnly, _>(&stop)
-                    .and_then(|mut operation| operation.applied()),
-                Err(error) => Err(error),
-            };
-            retain_first_error(&mut first_error, pan_tilt_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::ZOOM) {
-            let zoom_result = self
-                .submit::<completion::AppliedOnly, _>(&ZoomStop)
-                .and_then(|mut operation| operation.applied());
-            retain_first_error(&mut first_error, zoom_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::FOCUS) {
-            let focus_result = self
-                .submit::<completion::AppliedOnly, _>(&FocusStop)
-                .and_then(|mut operation| operation.applied());
-            retain_first_error(&mut first_error, focus_result);
-        }
-
-        first_error.map_or(Ok(()), Err)
+    /// One halt fences older declared motion, then admits supported STOPs
+    /// independently under a common deadline. The report retains each axis's
+    /// outcome even when another axis fails.
+    pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
+        let started = Instant::now();
+        let prepared =
+            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
+        self.owner.halt(prepared, started)
     }
 
-    /// Observes movement on exactly the selected, profile-supported axes.
-    ///
-    /// Two complete snapshots are taken through ordinary owner inquiries,
-    /// separated by at least [`MotionQuery::window`] on the owner clock, and
-    /// compared by the shared pure movement detector. The window plus the
-    /// observer budget is lowered once to one owner-clock deadline.
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
         let mut observation = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
@@ -1053,7 +1024,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// # Urgent requests are never demoted
     ///
     /// A request the crate classifies [`crate::ControlClass::Urgent`] — the typed
-    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and owner-issued
+    /// stops [`PanTiltStop`], [`ZoomStop`](crate::request::builtin::ZoomStop), [`FocusStop`](crate::request::builtin::FocusStop), and owner-issued
     /// protocol cancellation — ignores this default and stays urgent. A handle demoted to
     /// [`SubmissionClass::Background`] for telemetry polling therefore still
     /// preempts with an emergency stop. Per-submission overrides obey the same
@@ -1130,14 +1101,6 @@ pub use blocking_nouns::{
     MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor, PresetsAccessor,
     SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
 };
-
-fn retain_first_error(first_error: &mut Option<Error>, result: Result<(), Error>) {
-    if let Err(error) = result {
-        if first_error.is_none() {
-            *first_error = Some(error);
-        }
-    }
-}
 
 #[cfg(all(test, feature = "test-utils"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -1320,7 +1283,9 @@ mod tests {
 
         partial_motion_core(&session)
             .stop_all_motion()
-            .expect("zoom-only stop succeeds");
+            .expect("zoom-only stop succeeds")
+            .into_result()
+            .expect("supported STOP applied");
 
         assert_eq!(
             probe.sent(),
@@ -1342,7 +1307,9 @@ mod tests {
 
         partial_motion_core(&session)
             .stop_all_motion()
-            .expect("no-axis stop is a successful no-op");
+            .expect("no-axis stop is a successful no-op")
+            .into_result()
+            .expect("no supported axes");
 
         assert!(
             probe.sent().is_empty(),
@@ -1352,7 +1319,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_all_motion_returns_the_first_supported_failure_after_later_stops() {
+    fn stop_all_motion_reports_each_supported_axis_after_a_partial_failure() {
         let (transport, writes) = FailFirstZoomStopSend::new([helpers::auto_respond_step()]);
         let session = Session::open(
             transport,
@@ -1360,10 +1327,15 @@ mod tests {
         )
         .expect("zoom-focus session");
 
+        let report = partial_motion_core(&session)
+            .stop_all_motion()
+            .expect("halt was accepted");
+        assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
-            partial_motion_core(&session).stop_all_motion(),
-            Err(Error::TransportError(_))
+            report.zoom,
+            crate::HaltOutcome::Failed(Error::TransportError(_))
         ));
+        assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(
             writes.lock().expect("writes lock").clone(),
             vec![

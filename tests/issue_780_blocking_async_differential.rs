@@ -40,6 +40,8 @@ enum Completion {
     Immediate,
     /// ACK only for a zoom drive, so it stays executing until cancelled.
     HoldZoomDrive,
+    /// First STOP completes only after the other two STOPs have been written.
+    HoldPanTiltStop,
 }
 
 /// A deterministic raw VISCA camera with two command sockets.
@@ -90,12 +92,20 @@ impl Camera {
                 };
                 let socket = u8::try_from(index + 1).expect("two sockets");
                 self.replies.push_back(vec![0x90, 0x40 | socket, 0xff]);
-                let held = matches!(self.completion, Completion::HoldZoomDrive)
-                    && matches!(rest, [0x04, 0x07, drive, 0xff] if *drive != 0x00);
+                let held = (matches!(self.completion, Completion::HoldZoomDrive)
+                    && matches!(rest, [0x04, 0x07, drive, 0xff] if *drive != 0x00))
+                    || (matches!(self.completion, Completion::HoldPanTiltStop)
+                        && matches!(rest, [0x06, 0x01, _, _, 0x03, 0x03, 0xff]));
                 if held {
                     self.sockets[index] = true;
                 } else {
                     self.replies.push_back(vec![0x90, 0x50 | socket, 0xff]);
+                    if matches!(self.completion, Completion::HoldPanTiltStop)
+                        && matches!(rest, [0x04, 0x08, 0x00, 0xff])
+                    {
+                        self.sockets[0] = false;
+                        self.replies.push_back(vec![0x90, 0x51, 0xff]);
+                    }
                 }
             }
             _ => {}
@@ -215,15 +225,17 @@ enum Scenario {
     /// A malformed datagram ahead of the first reply is diagnosed and the
     /// session continues.
     MalformedDatagram,
+    Halt,
 }
 
 impl Scenario {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::Sequential,
         Self::QueuedSubmissions,
         Self::Cancellation,
         Self::UrgentStopWhileExecuting,
         Self::MalformedDatagram,
+        Self::Halt,
     ];
 
     /// The outcomes both facades must report, which anchors the comparison
@@ -236,6 +248,9 @@ impl Scenario {
             Self::QueuedSubmissions => vec!["Ok(())"; 3],
             Self::Cancellation => vec!["Ok(Cancelled)", "Ok(Cancelled)", "Err(CommandCanceled)"],
             Self::UrgentStopWhileExecuting => vec!["Ok(())", "Ok(Cancelled)"],
+            Self::Halt => {
+                vec!["Ok(HaltReport { pan_tilt: Applied, zoom: Applied, focus: Applied })"]
+            }
         }
     }
 
@@ -246,6 +261,7 @@ impl Scenario {
                 (Completion::HoldZoomDrive, false)
             }
             Self::MalformedDatagram => (Completion::Immediate, true),
+            Self::Halt => (Completion::HoldPanTiltStop, false),
         };
         Arc::new(Mutex::new(Camera::new(completion, garbage)))
     }
@@ -263,6 +279,7 @@ fn run_blocking(scenario: Scenario) -> Run {
     let camera = session.camera::<Raw>().expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
+        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all_motion())),
         Scenario::Sequential | Scenario::MalformedDatagram => {
             outcomes.push(outcome(
                 camera
@@ -336,6 +353,7 @@ async fn run_async(scenario: Scenario) -> Run {
     let camera = session.camera::<Raw>().expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
+        Scenario::Halt => outcomes.push(outcome(camera.motion().stop_all_motion().await)),
         Scenario::Sequential | Scenario::MalformedDatagram => {
             outcomes.push(outcome(applied_async(&camera, &ZoomDrive::Tele).await));
             outcomes.push(outcome(applied_async(&camera, &ZoomStop).await));
@@ -439,4 +457,58 @@ async fn blocking_and_async_owners_agree_on_every_scenario() {
         );
         assert_eq!(blocking, asynchronous, "{scenario:?} diverged");
     }
+}
+
+#[cfg(feature = "dyn-api")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch() {
+    let blocking = tokio::task::spawn_blocking(|| {
+        let shared = Scenario::Halt.camera();
+        let session = grafton_visca::blocking::Session::open(
+            BlockingWire {
+                config: TransportConfig::default(),
+                camera: Arc::clone(&shared),
+            },
+            config(),
+        )
+        .expect("session");
+        let camera = grafton_visca::dynapi::BlockingDynSessionCamera::from_session(&session)
+            .expect("dynamic blocking camera");
+        let outcomes = vec![outcome(camera.stop_all_motion())];
+        let metrics = session.metrics().expect("metrics");
+        session.close().expect("close");
+        let writes = shared.lock().expect("camera lock").writes.clone();
+        Run {
+            writes,
+            outcomes,
+            metrics,
+        }
+    })
+    .await
+    .expect("blocking scenario");
+    let shared = Scenario::Halt.camera();
+    let session = grafton_visca::Session::open(
+        AsyncWire {
+            config: TransportConfig::default(),
+            camera: Arc::clone(&shared),
+        },
+        config(),
+        TokioRuntime::from_current().expect("runtime"),
+    )
+    .await
+    .expect("session");
+    let camera =
+        grafton_visca::dynapi::DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let outcomes = vec![outcome(camera.motion().stop_all_motion().await)];
+    let metrics = session.metrics().await.expect("metrics");
+    session.shutdown().await.expect("shutdown");
+    let writes = shared.lock().expect("camera lock").writes.clone();
+    let asynchronous = Run {
+        writes,
+        outcomes,
+        metrics,
+    };
+    assert_eq!(blocking.outcomes, Scenario::Halt.expected_outcomes());
+    assert_eq!(blocking, asynchronous);
+    assert_eq!(asynchronous, run_async(Scenario::Halt).await);
 }

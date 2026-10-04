@@ -214,11 +214,11 @@ mod runtime_coexistence {
                 response_tx
                     .send_async(vec![0x90, 0x41, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 response_tx
                     .send_async(vec![0x90, 0x51, 0xff])
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 Ok(())
             }
         }
@@ -233,7 +233,7 @@ mod runtime_coexistence {
                     .responses
                     .recv_async()
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 dst[..response.len()].copy_from_slice(&response);
                 Ok(response.len())
             }
@@ -382,11 +382,11 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
                     response_tx
                         .send_async(vec![0x90, 0x41, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                     response_tx
                         .send_async(vec![0x90, 0x51, 0xff])
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                     Ok(())
                 }
             }
@@ -401,7 +401,7 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
                         .responses
                         .recv_async()
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                     dst[..response.len()].copy_from_slice(&response);
                     Ok(response.len())
                 }

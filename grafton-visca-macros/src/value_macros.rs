@@ -302,11 +302,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         quote! {
             const VALID_VALUES: &[#inner_type] = &#values_tokens;
             if !VALID_VALUES.contains(&value) {
-                return ::core::result::Result::Err(#crate_path::Error::InvalidParameter {
-                    parameter: ::core::stringify!(#name),
-                    value: ::std::borrow::Cow::Owned(::std::format!("{value}")),
-                    reason: ::std::borrow::Cow::Owned(::std::format!("must be one of {:?}", VALID_VALUES)),
-                });
+                return ::core::result::Result::Err(#crate_path::Error::invalid_parameter(::core::stringify!(#name), ::std::borrow::Cow::Owned(::std::format!("{value}")), ::std::borrow::Cow::Owned(::std::format!("must be one of {:?}", VALID_VALUES))));
             }
         }
     } else if let (Some(min), Some(max)) = (&attributes.min, &attributes.max) {
@@ -314,12 +310,7 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
         let max_tokens = &max.value;
         quote! {
             if !(#min_tokens..=#max_tokens).contains(&value) {
-                return ::core::result::Result::Err(#crate_path::Error::ParameterOutOfRange {
-                    parameter: ::core::stringify!(#name),
-                    value: value as i32,
-                    min: #min_tokens as i32,
-                    max: #max_tokens as i32,
-                });
+                return ::core::result::Result::Err(#crate_path::Error::parameter_out_of_range(::core::stringify!(#name), value as i32, #min_tokens as i32, #max_tokens as i32));
             }
         }
     } else {

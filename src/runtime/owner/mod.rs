@@ -5,6 +5,10 @@
 //! reusable I/O storage) and exposes small mode-native driver seams.
 
 mod adapter;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod halt;
+mod motion;
+use motion::{Admitted, MotionRegistry, MotionStamp};
 #[cfg(feature = "async")]
 mod async_actor;
 #[cfg(feature = "async")]
@@ -810,7 +814,14 @@ pub(crate) enum OwnerReceive {
 pub(crate) struct ObserverCell<T> {
     detached: AtomicBool,
     resolved: AtomicBool,
-    sender: flume::Sender<T>,
+    sender: flume::Sender<Observed<T>>,
+}
+
+/// A value and its authoritative owner-clock delivery instant.
+#[derive(Debug, Clone)]
+pub(crate) struct Observed<T> {
+    pub(crate) at: Instant,
+    pub(crate) value: T,
 }
 
 /// The result of attempting to settle one receipt observer.
@@ -831,7 +842,12 @@ impl<T> ObserverCell<T> {
             && !self.sender.is_disconnected()
     }
 
+    #[cfg(test)]
     fn resolve(&self, observation: T) -> ObserverResolution {
+        self.resolve_at(observation, Instant::now())
+    }
+
+    fn resolve_at(&self, observation: T, at: Instant) -> ObserverResolution {
         // A previous successful resolution wins even if the receiver was
         // subsequently dropped. That is a duplicate delivery attempt, not a
         // newly lost observer event.
@@ -848,7 +864,10 @@ impl<T> ObserverCell<T> {
         {
             return ObserverResolution::AlreadyResolved;
         }
-        match self.sender.try_send(observation) {
+        match self.sender.try_send(Observed {
+            at,
+            value: observation,
+        }) {
             Ok(()) => ObserverResolution::Delivered,
             Err(flume::TrySendError::Disconnected(_)) => ObserverResolution::ReceiverLost,
             // A cell has one sender and is marked resolved before sending, so
@@ -872,7 +891,7 @@ impl<T> ObserverCell<T> {
 #[derive(Debug)]
 pub(crate) struct Observer<T> {
     cell: Weak<ObserverCell<T>>,
-    receiver: flume::Receiver<T>,
+    receiver: flume::Receiver<Observed<T>>,
 }
 
 impl<T> Observer<T> {
@@ -897,20 +916,32 @@ impl<T> Observer<T> {
         self.cell.upgrade()
     }
 
+    #[cfg(test)]
     fn try_recv(&self) -> Option<T> {
+        self.try_observed().map(|observed| observed.value)
+    }
+
+    fn try_observed(&self) -> Option<Observed<T>> {
         self.receiver.try_recv().ok()
     }
 
     /// Waits for the value; `None` once the owner dropped its cell unresolved.
     #[cfg(feature = "async")]
-    async fn recv_async(&self) -> Option<T> {
+    async fn recv_observed_async(&self) -> Option<Observed<T>> {
         self.receiver.recv_async().await.ok()
+    }
+
+    #[cfg(all(test, feature = "async"))]
+    async fn recv_async(&self) -> Option<T> {
+        self.recv_observed_async()
+            .await
+            .map(|observed| observed.value)
     }
 
     /// The slot's receiver, for a blocking wait that selects over several
     /// slots. A receive error means the owner dropped its cell unresolved.
     #[cfg(feature = "blocking")]
-    const fn receiver(&self) -> &flume::Receiver<T> {
+    const fn receiver(&self) -> &flume::Receiver<Observed<T>> {
         &self.receiver
     }
 }
@@ -947,6 +978,7 @@ pub(crate) struct CancellationRequest {
 /// wrappers. It is deliberately neither cloneable nor publicly nameable.
 #[derive(Debug)]
 pub(crate) struct ReceiptCore {
+    motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
     pub(crate) target: CameraId,
     pub(crate) completion: TerminalObserver,
@@ -954,6 +986,17 @@ pub(crate) struct ReceiptCore {
 }
 
 impl ReceiptCore {
+    fn admitted(
+        admitted: Admitted,
+        target: CameraId,
+        completion: TerminalObserver,
+        timeout: Duration,
+    ) -> Self {
+        let mut core = Self::new(admitted.id, target, completion, timeout);
+        core.motion = admitted.motion;
+        core
+    }
+
     fn new(
         id: RequestId,
         target: CameraId,
@@ -961,6 +1004,7 @@ impl ReceiptCore {
         configured_timeout: Duration,
     ) -> Self {
         Self {
+            motion: None,
             id,
             target,
             completion,
@@ -978,10 +1022,6 @@ impl ReceiptCore {
 
     const fn configured_timeout(&self) -> Duration {
         self.configured_timeout
-    }
-
-    fn try_outcome(&self) -> Option<RuntimeOutcome> {
-        self.completion.try_recv()
     }
 
     // Consumed only by `async_actor::tests`, which additionally requires
@@ -1026,9 +1066,10 @@ fn normalize_inquiry_outcome<R>(
 
 #[derive(Debug)]
 struct PendingAdmission {
+    motion: Option<MotionStamp>,
     permit: AdmissionPermit,
     observer: Arc<ObserverCell<RuntimeOutcome>>,
-    reply: flume::Sender<Result<RequestId, Error>>,
+    reply: flume::Sender<Result<Admitted, Error>>,
     summary: RequestSummary,
 }
 
@@ -1077,10 +1118,10 @@ pub(crate) fn cancellation_outcome(
 pub(crate) struct OperationObservation {
     core: ReceiptCore,
     cancellation_timeout: Duration,
-    terminal: Option<RuntimeOutcome>,
-    settled: bool,
+    terminal: Option<Observed<RuntimeOutcome>>,
+    settled: Option<Result<crate::Settlement, Error>>,
     cancellation: Option<CancellationObserver>,
-    cancellation_failure: Option<Error>,
+    cancellation_failure: Option<Observed<Error>>,
 }
 
 impl OperationObservation {
@@ -1089,7 +1130,7 @@ impl OperationObservation {
             core,
             cancellation_timeout,
             terminal: None,
-            settled: false,
+            settled: None,
             cancellation: None,
             cancellation_failure: None,
         }
@@ -1116,30 +1157,40 @@ impl OperationObservation {
     /// Moves every value the owner already delivered into the cache.
     fn poll(&mut self) {
         if self.terminal.is_none() {
-            self.terminal = self.core.completion.try_recv();
+            self.terminal = self.core.completion.try_observed();
         }
         if self.cancellation_failure.is_none() {
             self.cancellation_failure = self
                 .cancellation
                 .as_ref()
-                .and_then(CancellationObserver::try_recv);
+                .and_then(CancellationObserver::try_observed);
         }
     }
 
     /// The application verdict, once the terminal outcome is known.
-    pub(crate) fn applied(&mut self) -> Option<Result<(), Error>> {
+    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
         self.poll();
-        self.terminal.clone().map(normalize_command_outcome)
+        self.terminal
+            .as_ref()
+            .filter(|event| event.at <= deadline)
+            .map(|event| normalize_command_outcome(event.value.clone()))
     }
 
     /// The cancellation verdict, once known. The terminal outcome always
     /// decides it, so the answer does not depend on the order in which the
     /// owner emits a cancellation failure and a later terminal outcome.
-    pub(crate) fn cancellation(&mut self) -> Option<Result<CancellationOutcome, Error>> {
+    pub(crate) fn cancellation(
+        &mut self,
+        deadline: Instant,
+    ) -> Option<Result<CancellationOutcome, Error>> {
         self.poll();
-        match &self.terminal {
-            Some(terminal) => Some(cancellation_outcome(terminal)),
-            None => self.cancellation_failure.clone().map(Err),
+        match self.terminal.as_ref().filter(|event| event.at <= deadline) {
+            Some(terminal) => Some(cancellation_outcome(&terminal.value)),
+            None => self
+                .cancellation_failure
+                .as_ref()
+                .filter(|event| event.at <= deadline)
+                .map(|event| Err(event.value.clone())),
         }
     }
 
@@ -1165,11 +1216,11 @@ impl OperationObservation {
         }
     }
 
-    pub(crate) fn record_terminal(&mut self, outcome: RuntimeOutcome) {
+    pub(crate) fn record_terminal(&mut self, outcome: Observed<RuntimeOutcome>) {
         self.terminal.get_or_insert(outcome);
     }
 
-    pub(crate) fn record_cancellation_failure(&mut self, error: Error) {
+    pub(crate) fn record_cancellation_failure(&mut self, error: Observed<Error>) {
         self.cancellation_failure.get_or_insert(error);
     }
 
@@ -1181,12 +1232,38 @@ impl OperationObservation {
         self.cancellation.as_ref()
     }
 
-    pub(crate) const fn is_settled(&self) -> bool {
-        self.settled
+    pub(crate) fn settled(&self) -> Option<Result<crate::Settlement, Error>> {
+        self.settled.clone()
     }
 
-    pub(crate) fn mark_settled(&mut self) {
-        self.settled = true;
+    pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
+        if let Some(stamp) = &self.core.motion {
+            if let Err(error) = stamp.check(crate::OperationId::from_raw(self.id().get())) {
+                self.settled = Some(Err(error.clone()));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_settlement(
+        &mut self,
+        result: Result<crate::Settlement, Error>,
+        polled: bool,
+    ) -> Result<crate::Settlement, Error> {
+        if polled {
+            if let Some(stamp) = &self.core.motion {
+                return stamp.commit(
+                    crate::OperationId::from_raw(self.id().get()),
+                    result,
+                    &mut self.settled,
+                );
+            }
+        }
+        if let Ok(evidence) = result {
+            self.settled = Some(Ok(evidence));
+        }
+        result
     }
 }
 
@@ -1416,7 +1493,7 @@ pub(crate) struct StagedWrite {
 /// The engine token is intentionally opaque here so blocking and async owners
 /// cannot manufacture a different timestamp for recursive write completions.
 #[derive(Debug)]
-pub(crate) struct OwnerInputTurn(InputTurn);
+pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
     fn target(&self) -> CameraId {
@@ -1511,6 +1588,7 @@ pub(crate) enum RawReleaseResolution {
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
+    observed_at: Instant,
     policy: OwnerPolicy,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
@@ -1519,6 +1597,7 @@ pub(crate) struct OwnerState {
     /// A cancellation the engine refused while handling the request that is
     /// being driven right now; read back by `conclude_cancellation`.
     cancellation_refusal: Option<(RequestId, Error)>,
+    motion: Arc<MotionRegistry>,
     target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
@@ -1578,12 +1657,14 @@ impl OwnerState {
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
+            observed_at: Instant::now(),
             policy,
             tuning,
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
             cancellation_refusal: None,
+            motion: Arc::new(MotionRegistry::default()),
             target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
@@ -1839,12 +1920,13 @@ impl OwnerState {
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.observe_input(&input);
-        self.engine.handle(input, now).into()
+        self.engine_input(input, |engine, input| engine.handle(input, now))
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
-        OwnerInputTurn(self.engine.begin_input_turn(now))
+        OwnerInputTurn(self.engine.begin_input_turn(now), now)
     }
 
     /// Applies an input in an active decoded-input turn without running due
@@ -1855,8 +1937,40 @@ impl OwnerState {
         turn: &OwnerInputTurn,
         input: Input,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.observe_input(&input);
-        self.engine.handle_in_turn(&turn.0, input).into()
+        self.engine_input(input, |engine, input| engine.handle_in_turn(&turn.0, input))
+    }
+
+    fn engine_input(
+        &mut self,
+        input: Input,
+        apply: impl FnOnce(&mut ProtocolEngine, Input) -> Vec<Effect>,
+    ) -> VecDeque<Effect> {
+        let admission = match &input {
+            Input::Admit {
+                ticket, request, ..
+            } => request
+                .context()
+                .motion
+                .map(|motion| (*ticket, *request.context(), motion)),
+            _ => None,
+        };
+        if let Some((ticket, context, motion)) = admission {
+            let registry = Arc::clone(&self.motion);
+            let (effects, stamp) = registry.admit(
+                context.target,
+                motion.axes,
+                context.submission_order,
+                || apply(&mut self.engine, input),
+            );
+            if let Some(pending) = self.pending.get_mut(&ticket) {
+                pending.motion = stamp;
+            }
+            effects.into()
+        } else {
+            apply(&mut self.engine, input).into()
+        }
     }
 
     pub(crate) fn finish_input_turn(
@@ -1864,6 +1978,7 @@ impl OwnerState {
         turn: OwnerInputTurn,
         engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.engine.finish_input_turn(turn.0, engine_turn).into()
     }
 
@@ -1892,6 +2007,7 @@ impl OwnerState {
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.engine.advance(now).into()
     }
 
@@ -1911,6 +2027,7 @@ impl OwnerState {
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.observe_write(staged, &result);
         self.engine
             .handle_turn(
@@ -1932,6 +2049,7 @@ impl OwnerState {
         staged: &StagedWrite,
         result: Result<TransmissionMeta, Error>,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.observe_write(staged, &result);
         self.engine
             .handle_in_turn(
@@ -1979,7 +2097,7 @@ impl OwnerState {
         request: RuntimeRequest,
         permit: AdmissionPermit,
         observer: Arc<ObserverCell<RuntimeOutcome>>,
-        reply: flume::Sender<Result<RequestId, Error>>,
+        reply: flume::Sender<Result<Admitted, Error>>,
     ) -> Input {
         let ticket = self.allocate_ticket();
         let summary = RequestSummary::new(&request);
@@ -1987,6 +2105,7 @@ impl OwnerState {
         let previous = self.pending.insert(
             ticket,
             PendingAdmission {
+                motion: None,
                 permit,
                 observer,
                 reply,
@@ -2024,7 +2143,7 @@ impl OwnerState {
         match &active.cancellation {
             Some(intent) if intent.recorded => {
                 if matches!(
-                    intent.observer.resolve(error),
+                    intent.observer.resolve_at(error, self.observed_at),
                     ObserverResolution::ReceiverLost
                 ) {
                     self.metrics.dropped_observer_events =
@@ -2225,6 +2344,7 @@ impl OwnerState {
                     return AppliedEffect::None;
                 };
                 let PendingAdmission {
+                    motion,
                     permit,
                     observer,
                     reply,
@@ -2254,7 +2374,7 @@ impl OwnerState {
                     control: summary.control,
                     cancellation: summary.cancellation,
                 });
-                let _ = reply.try_send(Ok(id));
+                let _ = reply.try_send(Ok(Admitted { id, motion }));
                 AppliedEffect::None
             }
             Effect::AdmissionRejected { ticket, error } => {
@@ -2429,7 +2549,9 @@ impl OwnerState {
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
-                        active.observer.resolve(outcome.clone()),
+                        active
+                            .observer
+                            .resolve_at(outcome.clone(), self.observed_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2611,7 +2733,10 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
     if error.is_caller_deadline() {
         observation_timeout(id)
     } else {
-        error
+        Error::SettlementObservationFailed {
+            operation: crate::OperationId::from_raw(id.get()),
+            source: Box::new(error),
+        }
     }
 }
 

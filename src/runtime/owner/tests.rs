@@ -40,7 +40,7 @@ fn stage_admission(
 ) -> (
     Input,
     TerminalObserver,
-    flume::Receiver<Result<RequestId, Error>>,
+    flume::Receiver<Result<Admitted, Error>>,
 ) {
     let (observer, cell) = TerminalObserver::pair();
     let (reply, admission) = flume::bounded(1);
@@ -228,6 +228,9 @@ mod control_reserve {
 
     fn context(target: u8, class: ControlClass) -> RequestContext {
         RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::new(target).unwrap(),
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(10),
@@ -403,6 +406,9 @@ mod metrics {
 
     fn request_context(retry: RetryPolicy) -> RequestContext {
         RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: ACK,
@@ -706,6 +712,353 @@ mod metrics {
         assert_copy::<DiagnosticEvent>();
         assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
     }
+    fn admit_observation(
+        state: &mut OwnerState,
+        request: RuntimeRequest,
+        now: Instant,
+    ) -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let (observer, cell) = TerminalObserver::pair();
+        let (reply, admitted) = flume::bounded(1);
+        let input = state.stage_admission_with(request, permit, Arc::clone(&cell), reply);
+        let turn = state.begin_input_turn(now);
+        for effect in state.input_in_turn(&turn, input) {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let core = ReceiptCore::admitted(
+            admitted.recv().unwrap().unwrap(),
+            CameraId::CAMERA_1,
+            observer,
+            ACK,
+        );
+        (OperationObservation::new(core, ACK), cell)
+    }
+
+    fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        admit_observation(&mut state, command(retrying()), Instant::now())
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn admission_supersedes_even_if_cancelled_before_write_but_rejection_does_not() {
+        use crate::AffectedAxes;
+        let now = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut request = command(retrying());
+        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        request.context_mut().submission_order = 1;
+        let (mut original, _) = admit_observation(&mut state, request.clone(), now);
+        // A same-target, same-axis request rejected before admission cannot
+        // steal attribution from the operation occupying the owner.
+        let held: Vec<_> = (0..3)
+            .map(|_| state.permits.try_acquire_ordinary().unwrap())
+            .collect();
+        let (handle, _ends) = boundary::OwnerHandleCore::new(&state);
+        assert!(matches!(
+            handle.enqueue_admission(request.clone(), None),
+            Err(Error::RuntimeQueueFull { .. })
+        ));
+        assert!(original.check_settlement().is_ok());
+        drop(held);
+        request.context_mut().submission_order = 2;
+        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let (input, completion, reply) = super::stage_admission(&mut state, request, permit);
+        let admission_turn = state.begin_input_turn(now);
+        let effects = state.input_in_turn(&admission_turn, input);
+        assert!(
+            matches!(
+                original.check_settlement(),
+                Err(Error::SettlementSuperseded { .. })
+            ),
+            "engine admission invalidates attribution before its Admitted effect drains"
+        );
+        for effect in effects {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
+        let later = OperationObservation::new(
+            ReceiptCore::admitted(
+                reply.recv().unwrap().unwrap(),
+                CameraId::CAMERA_1,
+                completion,
+                ACK,
+            ),
+            ACK,
+        );
+        let turn = state.begin_input_turn(now);
+        for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        assert!(matches!(
+            original.check_settlement(),
+            Err(Error::SettlementSuperseded { .. })
+        ));
+        assert!(matches!(
+            later
+                .core
+                .completion
+                .try_observed()
+                .map(|event| event.value),
+            Some(RuntimeOutcome::Cancelled)
+        ));
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn halt_owner_acceptance_orders_concurrent_ingress_and_settlement_generation() {
+        use crate::AffectedAxes;
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let (handle, ends) = boundary::OwnerHandleCore::new(&state);
+        let stamp = state
+            .motion
+            .establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 0);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let producer = handle.clone();
+        let ready = Arc::clone(&barrier);
+        let request = command(retrying());
+        let joined = std::thread::spawn(move || {
+            ready.wait();
+            producer.enqueue_admission(request, None).unwrap()
+        });
+        barrier.wait();
+        let cutoff = ends
+            .lifecycle
+            .fence_order(
+                &state.motion,
+                CameraId::CAMERA_1,
+                Some(AffectedAxes::PAN_TILT),
+            )
+            .unwrap();
+        let _held = joined.join().unwrap();
+        let concurrent = ends.receivers.admissions.recv().unwrap();
+        let order = concurrent.request.context().submission_order;
+        assert_ne!(
+            order, cutoff,
+            "concurrent enqueue has exactly one side of acceptance"
+        );
+        assert!(
+            stamp.check(crate::OperationId::from_raw(1)).is_err(),
+            "generation publishes at acceptance"
+        );
+        let _later = handle.enqueue_admission(command(retrying()), None).unwrap();
+        assert!(
+            ends.receivers
+                .admissions
+                .recv()
+                .unwrap()
+                .request
+                .context()
+                .submission_order
+                > cutoff
+        );
+        // The engine uses the actual acceptance cutoff, whichever side the
+        // concurrent enqueue took; an earlier halt enqueue is not the fence.
+        let mut motion = command(retrying());
+        motion.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        motion.context_mut().submission_order = order;
+        let _ = state
+            .engine
+            .halt(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, cutoff);
+        let effects = state.engine.handle_turn(
+            Input::Admit {
+                ticket: AdmissionTicket(99),
+                request: motion,
+                slot: AdmissionSlot::Ordinary,
+            },
+            Instant::now(),
+            EngineTurn::INPUT_ONLY,
+        );
+        assert_eq!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                Effect::AdmissionRejected {
+                    error: Error::MotionSuperseded { .. },
+                    ..
+                }
+            )),
+            order < cutoff
+        );
+    }
+
+    #[test]
+    fn operation_delivery_before_equal_and_after_deadline_is_cached_honestly() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        for delivered in [
+            deadline - Duration::from_nanos(1),
+            deadline,
+            deadline + Duration::from_nanos(1),
+        ] {
+            let (mut observation, cell) = observation_fixture();
+            cell.resolve_at(RuntimeOutcome::Applied, delivered);
+            assert_eq!(
+                observation.applied(deadline).is_some(),
+                delivered <= deadline
+            );
+            assert!(
+                matches!(
+                    observation.applied(deadline + Duration::from_secs(1)),
+                    Some(Ok(()))
+                ),
+                "late result stays reusable"
+            );
+        }
+    }
+
+    #[test]
+    fn timely_cancel_failure_wins_over_late_terminal_then_reobservation_gets_terminal() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let (mut observation, terminal) = observation_fixture();
+        let cancel = observation.cancellation_request();
+        cancel.observer.resolve_at(Error::NotSupported, deadline);
+        terminal.resolve_at(RuntimeOutcome::Applied, deadline + Duration::from_nanos(1));
+        assert!(matches!(
+            observation.cancellation(deadline),
+            Some(Err(Error::NotSupported))
+        ));
+        assert!(matches!(
+            observation.cancellation(deadline + Duration::from_nanos(1)),
+            Some(Ok(CancellationOutcome::Completed))
+        ));
+        let (mut observation, _) = observation_fixture();
+        observation
+            .cancellation_request()
+            .observer
+            .resolve_at(Error::NotSupported, deadline + Duration::from_nanos(1));
+        assert!(observation.cancellation(deadline).is_none());
+        assert!(matches!(
+            observation.cancellation(deadline + Duration::from_nanos(1)),
+            Some(Err(Error::NotSupported))
+        ));
+    }
+
+    #[test]
+    fn settlement_attribution_is_axis_local_cached_and_profile_completion_is_exact() {
+        use crate::{AffectedAxes, Settlement};
+        let registry = Arc::new(MotionRegistry::default());
+        let (mut observation, _) = observation_fixture();
+        observation.core.motion =
+            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 1));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::ZOOM, 2);
+        registry.establish(CameraId::new(2).unwrap(), AffectedAxes::PAN_TILT, 3);
+        assert!(observation.check_settlement().is_ok());
+        let evidence = Settlement::observed_stable(
+            AffectedAxes::PAN_TILT,
+            ACK,
+            crate::camera::MovementTolerance::default(),
+        );
+        assert_eq!(
+            observation.commit_settlement(Ok(evidence), true).unwrap(),
+            evidence
+        );
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 4);
+        assert_eq!(
+            observation.settled().unwrap().unwrap(),
+            evidence,
+            "established evidence persists"
+        );
+        let (mut superseded, _) = observation_fixture();
+        superseded.core.motion =
+            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 5));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 6);
+        assert!(matches!(
+            superseded.commit_settlement(Ok(evidence), true),
+            Err(Error::SettlementSuperseded { .. })
+        ));
+        let (mut exact, _) = observation_fixture();
+        exact.core.motion = Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 7));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 8);
+        let exact_evidence = Settlement::profile_completion(AffectedAxes::PAN_TILT);
+        assert_eq!(
+            exact.commit_settlement(Ok(exact_evidence), false).unwrap(),
+            exact_evidence
+        );
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn failed_settlement_poll_retains_cause_without_granting_original_move_replay() {
+        let (observation, _) = observation_fixture();
+        let error = settlement_error(
+            Error::timeout(
+                crate::FailureStage::Terminal,
+                crate::Certainty::FailedConclusively,
+            ),
+            observation.id(),
+        );
+        assert_eq!(
+            error.failure_context(),
+            Some(crate::FailureContext::new(
+                crate::FailureStage::Observation,
+                crate::Certainty::Unconfirmed
+            ))
+        );
+        assert!(!error.is_retryable());
+        assert!(
+            matches!(error, Error::SettlementObservationFailed { operation, source } if operation.get() == observation.id().get() && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
+        );
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn halt_reserve_exhaustion_counts_each_axis_and_releases_no_held_permit() {
+        let now = Instant::now();
+        let mut policy = owner_policy(EnvelopeKind::Raw);
+        policy.targets[1].as_mut().unwrap().control_reserve = 2;
+        let mut state = OwnerState::new(policy).unwrap();
+        let held: Vec<_> = (0..4)
+            .map(|_| state.permits.try_acquire_ordinary().unwrap())
+            .collect();
+        let mut stop = command(retrying());
+        stop.context_mut().control.class = ControlClass::Urgent;
+        let reserved: Vec<_> = (0..2)
+            .map(|_| state.permits.try_acquire(stop.context()).unwrap())
+            .collect();
+        assert!(reserved
+            .iter()
+            .all(|permit| permit.slot() == AdmissionSlot::ControlReserve));
+        let stop_context = *stop.context();
+        let receipt = state.accept_halt(
+            crate::prepared::PreparedHalt {
+                target: CameraId::CAMERA_1,
+                axes: Some(crate::AffectedAxes::MOVEMENT),
+                requests: [
+                    Some(Ok(stop.clone())),
+                    Some(Ok(stop.clone())),
+                    Some(Ok(stop)),
+                ],
+                budget: ACK,
+            },
+            now + ACK,
+            1,
+            now,
+        );
+        for slot in receipt.slots {
+            assert!(matches!(
+                slot,
+                Some(Err(Error::ControlReserveExhausted { .. }))
+            ));
+        }
+        assert_eq!(state.metrics.admission_rejected, 3);
+        assert_eq!(state.metrics.control_reserve_rejected, 3);
+        assert_eq!(state.permits.available(), 0);
+        drop(reserved);
+        assert_eq!(
+            state.permits.try_acquire(&stop_context).unwrap().slot(),
+            AdmissionSlot::ControlReserve
+        );
+        assert_eq!(state.permits.available(), 0);
+        drop(held);
+        assert_eq!(state.permits.available(), 4);
+    }
 }
 
 /// Issue #637: the receive-error contract both owners now share. A read error
@@ -866,7 +1219,7 @@ mod lifecycle_trace {
         label: String,
         kind: ObserverKind,
         observer: TerminalObserver,
-        admission: flume::Receiver<Result<RequestId, Error>>,
+        admission: flume::Receiver<Result<Admitted, Error>>,
         permits_before: usize,
         active_before: usize,
     }
@@ -1049,6 +1402,9 @@ mod lifecycle_trace {
         RuntimeRequest::Command {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                motion: None,
+                submission_order: 0,
+                dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
                     ack,
@@ -1079,6 +1435,9 @@ mod lifecycle_trace {
         RuntimeRequest::Inquiry {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                motion: None,
+                submission_order: 0,
+                dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
                     ack: UNREACHABLE,

@@ -558,8 +558,9 @@ every time a production session is built, so the first two have no single
 number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
 the production adapter replaces both values before allocating owner buffers.
 Reach the public configuration with
-`CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
-for a standard transport, with the blocking `NetTransportBuilder`'s
+`CameraConfig::<P>::transport_config(config)` after assigning
+`config.buffer_config` on a `TransportConfig::default()` value for a standard
+transport, with the blocking `NetTransportBuilder`'s
 `recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
 transport's `HasTransportConfig::transport_config()`. The per-transport
 defaults are:

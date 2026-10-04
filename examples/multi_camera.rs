@@ -32,9 +32,10 @@ struct SerialBus {
 impl SerialBus {
     fn new() -> Self {
         Self {
-            config: TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
+            config: {
+                let mut config = TransportConfig::default();
+                config.addressing = AddressingMode::Serial;
+                config
             },
             replies: VecDeque::new(),
         }

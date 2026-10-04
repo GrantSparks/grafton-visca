@@ -261,11 +261,11 @@ mod async_tests {
                 .push(bytes.to_vec());
             self.response_tx
                 .send(response_for(bytes).to_vec())
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             if bytes.get(1) != Some(&0x09) {
                 self.response_tx
                     .send(COMPLETE.to_vec())
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
             }
             Ok(())
         }
@@ -275,7 +275,7 @@ mod async_tests {
                 .responses
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                .map_err(|_| Error::connection_closed(None))?;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }

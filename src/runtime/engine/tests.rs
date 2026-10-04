@@ -80,6 +80,9 @@ fn retrying() -> RetryPolicy {
 
 fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
     RequestContext {
+        motion: None,
+        submission_order: 0,
+        dispatch_deadline: None,
         target: camera(target),
         timeout: TimeoutPolicy {
             ack: Duration::from_millis(20),
@@ -13305,4 +13308,218 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
     )
     .expect("the terminal stop released its reserved slot");
     engine.assert_invariants().unwrap();
+}
+
+fn declared_motion(target: u8, axes: crate::AffectedAxes, order: u64) -> RuntimeRequest {
+    let mut request = command(target, CancellationPolicy::Supported);
+    request.context_mut().motion = Some(MotionEffect { axes, stop: false });
+    request.context_mut().submission_order = order;
+    request
+}
+
+#[test]
+fn halt_fence_suppresses_queued_declared_motion_only_and_preserves_new_work() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let mut ids = Vec::new();
+    for (ticket, request) in [
+        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        declared_motion(1, crate::AffectedAxes::ZOOM, 2),
+        declared_motion(2, crate::AffectedAxes::PAN_TILT, 3),
+        command(1, CancellationPolicy::Supported),
+        declared_motion(1, crate::AffectedAxes::PAN_TILT, 6),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let effects = engine.handle_turn(
+            Input::Admit {
+                ticket: AdmissionTicket(ticket as u64 + 1),
+                request,
+                slot: AdmissionSlot::Ordinary,
+            },
+            now,
+            EngineTurn::INPUT_ONLY,
+        );
+        ids.push(admitted(&effects));
+    }
+    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 5);
+    assert!(matches!(
+        terminal_failure(&halted, ids[0]),
+        Some(Error::MotionSuperseded { .. })
+    ));
+    for id in &ids[1..] {
+        assert!(phase_of(&engine, *id).is_some());
+    }
+    // A submission already in the ingress channel when the owner accepted
+    // halt remains fenced even when admission runs after the halt lane.
+    let old_ingress = engine.handle_turn(
+        Input::Admit {
+            ticket: AdmissionTicket(20),
+            request: declared_motion(1, crate::AffectedAxes::PAN_TILT, 4),
+            slot: AdmissionSlot::Ordinary,
+        },
+        now,
+        EngineTurn::INPUT_ONLY,
+    );
+    assert!(old_ingress.iter().any(|effect| matches!(
+        effect,
+        Effect::AdmissionRejected {
+            error: Error::MotionSuperseded { .. },
+            ..
+        }
+    )));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn halt_during_retry_backoff_suppresses_rewrite_without_claiming_no_prior_effect() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (effects, id) = admit(
+        &mut engine,
+        1,
+        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        now,
+    );
+    let (_, _, retry_at) = ack_timeout_retry(&mut engine, &effects, now);
+    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 2);
+    let error = terminal_failure(&halted, id).expect("retry terminalized by halt");
+    assert_eq!(
+        error.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::Unconfirmed
+        ))
+    );
+    assert!(request_transmit_optional(&engine.advance(retry_at)).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn halt_of_written_motion_preserves_correlation_but_disables_future_retry() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (effects, id) = admit(
+        &mut engine,
+        1,
+        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        now,
+    );
+    send_ok(&mut engine, &effects, Some(sony_sequence(id)), now);
+    assert!(engine
+        .halt(camera(1), crate::AffectedAxes::PAN_TILT, 2)
+        .is_empty());
+    assert!(phase_of(&engine, id).is_some());
+    let timeout = engine.advance(now + Duration::from_millis(20));
+    assert!(matches!(
+        terminal_failure(&timeout, id),
+        Some(Error::MotionSuperseded { .. })
+    ));
+    assert!(retry_scheduled(&timeout).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn halt_stop_write_cutoff_is_strict_and_stale_staged_effect_cannot_write() {
+    for offset in [-1_i64, 0, 1] {
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(10);
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+        let mut stop = urgent_command(1, CancellationPolicy::Supported);
+        stop.context_mut().dispatch_deadline = Some(deadline);
+        stop.context_mut().retry.total_budget = Duration::from_millis(10);
+        let (effects, id) = admit(&mut engine, 1, stop, now);
+        let (transmission, _, _) = request_transmit(&effects);
+        let observed_at = if offset < 0 {
+            deadline - Duration::from_nanos(1)
+        } else {
+            deadline + Duration::from_nanos(offset as u64)
+        };
+        let cutoff = engine.expire_unwritten_halt(transmission, observed_at);
+        if offset < 0 {
+            assert!(cutoff.is_none());
+        } else {
+            assert!(terminal_failure(&cutoff.expect("expired before driver write"), id).is_some());
+            assert!(matches!(
+                engine
+                    .expire_unwritten_halt(transmission, observed_at)
+                    .as_deref(),
+                Some([Effect::Ignored(IgnoreReason::StaleTransmission)])
+            ));
+        }
+        assert_eq!(engine.state(), SessionState::Running);
+        engine.assert_invariants().unwrap();
+    }
+    // A preceding write completion can run deadlines before the effects
+    // drain reaches a STOP staged in the same batch. It must stay unwritten.
+    let now = Instant::now();
+    let deadline = now + Duration::from_millis(10);
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    stop.context_mut().dispatch_deadline = Some(deadline);
+    stop.context_mut().retry.total_budget = Duration::from_millis(10);
+    let (effects, id) = admit(&mut engine, 1, stop, now);
+    let (transmission, _, _) = request_transmit(&effects);
+    assert!(terminal_failure(&engine.advance(deadline), id).is_some());
+    let stale = engine
+        .expire_unwritten_halt(transmission, deadline)
+        .expect("skip stale write");
+    assert!(matches!(
+        stale.as_slice(),
+        [Effect::Ignored(IgnoreReason::StaleTransmission)]
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motion() {
+    let now = Instant::now();
+    let mut stop = urgent_command(1, CancellationPolicy::Supported);
+    stop.context_mut().dispatch_deadline = Some(now + Duration::from_secs(1));
+    stop.context_mut().submission_order = 2;
+    let mut owner = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (first, first_id) = admit(&mut owner, 1, stop.clone(), now);
+    send_ok(&mut owner, &first, None, now);
+    let (second, second_id) = admit(&mut owner, 2, stop.clone(), now);
+    assert!(
+        request_transmit_optional(&second).is_none(),
+        "sibling ACKs must remain attributable"
+    );
+    let ack = owner.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        now,
+    );
+    assert_eq!(
+        request_transmit(&ack).1,
+        second_id,
+        "second STOP starts without first completion"
+    );
+    assert!(matches!(
+        phase_of(&owner, first_id),
+        Some(Phase::Executing { .. })
+    ));
+    owner.assert_invariants().unwrap();
+    let mut owner = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (ordinary, _) = admit(
+        &mut owner,
+        1,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    send_ok(&mut owner, &ordinary, None, now);
+    let (urgent, urgent_id) = admit(&mut owner, 2, stop, now);
+    assert_eq!(
+        request_transmit(&urgent).1,
+        urgent_id,
+        "#714 ordinary pre-ACK bypass remains available"
+    );
+    owner.assert_invariants().unwrap();
 }

@@ -184,7 +184,7 @@ impl AsyncTransport for ScriptedTransport {
             .responses
             .recv_async()
             .await
-            .map_err(|_| Error::ConnectionClosed { reason: None })?;
+            .map_err(|_| Error::connection_closed(None))?;
         dst[..bytes.len()].copy_from_slice(&bytes);
         self.probe.reads.fetch_add(1, Ordering::AcqRel);
         Ok(bytes.len())
@@ -242,7 +242,7 @@ async fn abandoned_waits_keep_the_handle_observing<E: Executor>(executor: E) {
         .applied_with_timeout(SHORT)
         .await
         .expect_err("nothing concluded the zoom");
-    assert!(matches!(expired, Error::ObservationTimeout { operation } if operation == id));
+    assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
     assert!(!expired.is_retryable());
     let lost = future::or(async { Some(moving.applied().await) }, async {
         executor.sleep(SHORT).await;
@@ -307,9 +307,14 @@ async fn application_then_settlement<E: Executor>(executor: E) {
     );
 
     probe.answer_positions();
-    home.settled_with_timeout(LONG)
+    let evidence = home
+        .settled_with_timeout(LONG)
         .await
         .expect("two equal samples settle home");
+    assert!(
+        matches!(evidence, grafton_visca::Settlement::ObservedStable { axes, window, .. }
+        if axes == grafton_visca::AffectedAxes::PAN_TILT && !window.is_zero())
+    );
     let polled = probe.writes().len();
     home.settled_with_timeout(Duration::ZERO)
         .await
@@ -544,14 +549,43 @@ async fn dyn_handles_share_the_contract<E: Executor>(executor: E) {
     probe.push(ACK_SOCKET_ONE);
     probe.push(COMPLETE_SOCKET_ONE);
     home.applied().await.expect("home applied");
-    home.settled().await.expect("home settled");
+    assert!(
+        matches!(home.settled().await.expect("home settled"), grafton_visca::Settlement::ObservedStable { axes, .. } if axes == grafton_visca::AffectedAxes::PAN_TILT)
+    );
     home.settled_with_timeout(Duration::ZERO)
         .await
         .expect("settlement is cached");
     session.shutdown().await.expect("owner shutdown");
 }
 
+async fn later_admission_supersedes_polled_settlement<E: Executor>(executor: E) {
+    let (session, probe) = open(&executor).await;
+    let camera = session.camera::<Raw>().expect("raw camera");
+    let mut first = camera
+        .submit::<Targeted, _>(&PanTiltHome)
+        .await
+        .expect("first home");
+    probe.await_writes(&executor, 1).await;
+    probe.push(ACK_SOCKET_ONE);
+    probe.push(COMPLETE_SOCKET_ONE);
+    first.applied().await.expect("first applied");
+    let later = camera
+        .submit::<Targeted, _>(&PanTiltHome)
+        .await
+        .expect("later admitted");
+    assert!(
+        matches!(first.settled().await, Err(Error::SettlementSuperseded { operation, .. }) if operation == first.id())
+    );
+    first
+        .applied()
+        .await
+        .expect("supersession preserves application");
+    later.detach();
+    session.shutdown().await.expect("shutdown");
+}
+
 async fn contract<E: Executor>(executor: E) {
+    later_admission_supersedes_polled_settlement(executor.clone()).await;
     abandoned_waits_keep_the_handle_observing(executor.clone()).await;
     application_then_settlement(executor.clone()).await;
     a_failed_outcome_is_cached(executor.clone()).await;

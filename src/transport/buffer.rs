@@ -29,6 +29,7 @@ pub(crate) const SERIAL_BUFFER_SIZE: usize = 256;
 
 /// Configuration for buffer management.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct BufferConfig {
     /// Initial buffer capacity for receive operations.
     pub recv_buffer_size: usize,

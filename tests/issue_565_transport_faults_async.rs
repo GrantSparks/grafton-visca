@@ -243,7 +243,7 @@ impl AsyncTransport for FaultTransport {
                 .replies
                 .recv_async()
                 .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })??;
+                .map_err(|_| Error::connection_closed(None))??;
             dst[..bytes.len()].copy_from_slice(&bytes);
             Ok(bytes.len())
         }
@@ -523,7 +523,7 @@ async fn stream_write_failure_poisons_and_names_the_transport_cause<E: Executor>
         .applied()
         .await
         .expect_err("the second write fails on the wire");
-    let Error::StreamPoisoned { reason } = &error else {
+    let Error::StreamPoisoned { reason, .. } = &error else {
         panic!("a stream write failure is terminal for the session, got {error:?}");
     };
     assert!(

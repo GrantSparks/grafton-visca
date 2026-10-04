@@ -296,7 +296,7 @@ mod async_surface {
                     response_tx
                         .send_async(reply)
                         .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                        .map_err(|_| Error::connection_closed(None))?;
                 }
                 Ok(())
             }
@@ -312,7 +312,7 @@ mod async_surface {
                     .responses
                     .recv_async()
                     .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
+                    .map_err(|_| Error::connection_closed(None))?;
                 destination[..response.len()].copy_from_slice(&response);
                 Ok(response.len())
             }

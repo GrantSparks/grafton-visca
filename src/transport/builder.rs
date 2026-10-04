@@ -23,10 +23,7 @@
 //! let transport = runtime
 //!     .connect_tcp(
 //!         "192.168.0.110:5678",
-//!         TransportConfig {
-//!             tcp_keepalive: Some(TcpKeepaliveConfig::default()),
-//!             ..TransportConfig::default()
-//!         },
+//!         { let mut config = TransportConfig::default(); config.tcp_keepalive = Some(TcpKeepaliveConfig::default()); config },
 //!     )
 //!     .await?;
 //! let _session = Session::open(
@@ -65,6 +62,7 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(
 
 /// TCP keepalive policy for long-lived VISCA TCP connections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TcpKeepaliveConfig {
     /// Idle time before the first keepalive probe is sent.
     pub idle: Duration,
@@ -110,6 +108,7 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE: TcpKeepaliveConfig = TcpKeepaliveConfig 
 
 /// Common configuration options for all transport types.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct TransportConfig {
     /// Connection timeout duration.
     pub connect_timeout: Duration,
