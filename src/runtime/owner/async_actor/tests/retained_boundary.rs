@@ -30,7 +30,8 @@ struct RetainedRelease {
     runtime: ManualRuntime,
     sleeps: flume::Receiver<Duration>,
     harness: ScriptedRawHarness,
-    /// A, timed out with its terminal still buffered in its observer.
+    /// A, rejected by the camera with its terminal still buffered in its
+    /// observer.
     predecessor: Option<ReceiptCore>,
     /// Commands admitted before H: the first is on the wire awaiting its ACK
     /// and any others are queued behind it. All are live, cancellable engine
@@ -66,9 +67,16 @@ impl RetainedRelease {
         driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
         // A's completion is left unread: its buffered terminal is what a
-        // cancellation of A observes.
-        let a_request = timed_out_inquiry();
-        let a_timeout = a_request.context().timeout.inquiry;
+        // cancellation of A observes. A is answered by a socketless camera
+        // rejection rather than timed out, because a timed-out stream inquiry
+        // now owes its reply and never releases by time (#795); the
+        // rejection leaves the same releasable inquiry hold at the same
+        // instant (see `raw_inquiry_rejection`).
+        let a_request = inquiry();
+        // The receipt keeps the base fixture's zero observer timeout; only the
+        // engine-side reply deadline is non-zero, so the rejection can answer
+        // A while it is still awaiting its reply.
+        let a_timeout = Duration::ZERO;
         let (a_completion, a_admitted) = handle.core.enqueue_admission(a_request, None).unwrap();
         let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
         actor
@@ -82,6 +90,7 @@ impl RetainedRelease {
             .await;
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+        reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         let predecessor = ReceiptCore::admitted(a, CameraId::CAMERA_1, a_completion, a_timeout);
 
         if let Some(second_hold) = second_hold {
@@ -472,7 +481,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
         a.completion.try_recv(),
-        Some(RuntimeOutcome::Failed(Error::Timeout { .. }))
+        Some(RuntimeOutcome::Failed(Error::CommandNotExecutable))
     ));
     assert!(
         observer.try_recv().is_none(),

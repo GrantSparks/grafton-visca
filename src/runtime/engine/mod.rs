@@ -147,10 +147,35 @@ impl PartialOrd for RawHoldKey {
 /// holds from different requests deliberately collapse it to `None`: the scope
 /// remains unsafe until the later deadline, but no request identity may be
 /// guessed from that overlap.
+///
+/// `owed_reply` is other than [`OwedReply::None`] only on an `InquiryUnkeyed`
+/// hold left by a raw inquiry that ended unanswered after its bytes provably
+/// entered a stream transport (see
+/// [`ProtocolEngine::owe_raw_stream_inquiry_reply`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RawHold {
     until: Instant,
     owner: Option<RequestId>,
+    owed_reply: OwedReply,
+}
+
+/// Whether a raw stream inquiry hold still owes one late reply (#795).
+///
+/// A stream loses nothing it accepted, so an inquiry that timed out after its
+/// bytes were written will still be answered unless the camera never answers
+/// it. Until that one unkeyed reply has been absorbed, no later inquiry reply
+/// on the target is attributable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwedReply {
+    /// Nothing is owed; the hold is an ordinary bounded quarantine.
+    None,
+    /// The reply is owed and `until` is the end of its ambiguity window.
+    /// Same-target inquiries wait in their queue.
+    Window,
+    /// The window ended with the reply still owed. The hold no longer expires
+    /// or wakes the owner: same-target inquiries fail promptly without being
+    /// written until the owed reply arrives and settles it.
+    Latched,
 }
 
 /// Time-bounded retained-input decision for one due raw release (#713).
@@ -807,6 +832,13 @@ impl ProtocolEngine {
             });
             return;
         };
+        if self.blocked_by_latched_raw_inquiry_lane(&request) {
+            effects.push(Effect::AdmissionRejected {
+                ticket,
+                error: Error::inquiry_correlation_lost(context.target),
+            });
+            return;
+        }
         if target_policy.cancellation != context.cancellation {
             effects.push(Effect::AdmissionRejected {
                 ticket,
@@ -1281,7 +1313,14 @@ impl ProtocolEngine {
                 existing.owner = None;
             }
         } else {
-            self.holds.insert(key, RawHold { until, owner });
+            self.holds.insert(
+                key,
+                RawHold {
+                    until,
+                    owner,
+                    owed_reply: OwedReply::None,
+                },
+            );
         }
     }
 
@@ -1560,7 +1599,7 @@ impl ProtocolEngine {
                 self.failed_transmission(owner, error, effects);
             }
             result => {
-                if self.write_result_after_total_budget(owner, now, effects) {
+                if self.write_result_after_total_budget(owner, result.is_ok(), now, effects) {
                     return;
                 }
                 self.transmissions.remove(&transmission);
@@ -1592,6 +1631,7 @@ impl ProtocolEngine {
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
+        written: bool,
         now: Instant,
         effects: &mut Vec<Effect>,
     ) -> bool {
@@ -1627,8 +1667,14 @@ impl ProtocolEngine {
             // A raw single-flight inquiry can be physically uncertain while
             // its write result is still pending too. Retain the same bounded
             // target hold before normal terminal cleanup so a delayed reply
-            // cannot bind to its same-target successor.
-            self.quarantine_raw_inquiry_correlation(owner.request, now);
+            // cannot bind to its same-target successor. A successful stream
+            // write proves the bytes entered the stream, so there the reply
+            // is owed.
+            if written {
+                self.owe_raw_stream_inquiry_reply(owner.request, now);
+            } else {
+                self.quarantine_raw_inquiry_correlation(owner.request, now);
+            }
             // A late Sony result — including a late transport error — cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
@@ -2128,10 +2174,11 @@ impl ProtocolEngine {
         // ordinary raw resolver: letting the resolver see it could otherwise
         // latch an ACK on a successor that is still Sending, advance a
         // successor awaiting its ACK, finish a successor inquiry with stale
-        // payload, or fail/retry either on a socketless error.
+        // payload, or fail/retry either on a socketless error. An owed raw
+        // stream inquiry reply is settled (and discarded) first.
         if self.policy.envelope == EnvelopeKind::Raw
             && frame.sequence.is_none()
-            && self.raw_held_response(&frame)
+            && (self.settle_owed_raw_inquiry_reply(&frame, now) || self.raw_held_response(&frame))
         {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
@@ -2826,6 +2873,167 @@ impl ProtocolEngine {
         );
     }
 
+    /// Whether `entry` is a raw single-flight inquiry on a stream transport.
+    ///
+    /// A stream loses nothing it accepted, so once such an inquiry's bytes
+    /// were written a missed reply deadline means the reply is late — a
+    /// stalled connection or a slow camera — not lost, and the camera will
+    /// answer it unless it never answers that inquiry at all. A resend could
+    /// only multiply late replies, so the inquiry retry policy never resends
+    /// it on a reply timeout. The bounded reply-skew hold of
+    /// [`Self::quarantine_raw_inquiry_correlation`] cannot cover a multi-second
+    /// stall, after which the late, unidentifiable reply would bind to the
+    /// target's next inquiry as silently wrong data; such a reply is owed
+    /// instead ([`Self::owe_raw_stream_inquiry_reply`], #795). A datagram can
+    /// lose the request or its reply, so it keeps the skew hold and retry
+    /// policy.
+    fn raw_stream_single_flight_inquiry(&self, entry: &Entry) -> bool {
+        self.policy.envelope == EnvelopeKind::Raw
+            && self.policy.transport == TransportKind::Stream
+            && self.policy.inquiry_capacity == 1
+            && entry.request.is_inquiry()
+    }
+
+    /// Retains raw inquiry correlation for an inquiry ending *unanswered*
+    /// after its bytes provably entered the transport (an `AwaitingReply`
+    /// deadline or budget, or a successful write sampled after the budget),
+    /// before it is finished.
+    ///
+    /// On a stream ([`Self::raw_stream_single_flight_inquiry`]) the target's
+    /// `InquiryUnkeyed` hold records one owed reply ([`OwedReply::Window`])
+    /// for the request's ambiguity window, during which same-target inquiries
+    /// wait. No same-target inquiry is written while the reply is owed, so the
+    /// next unkeyed inquiry reply (or attributable socketless error) on that
+    /// target can only be the owed one ([`Self::settle_owed_raw_inquiry_reply`]).
+    /// If the window ends first, the hold latches
+    /// ([`Self::latch_overdue_raw_inquiry_replies`]). Otherwise this is exactly
+    /// [`Self::quarantine_raw_inquiry_correlation`].
+    fn owe_raw_stream_inquiry_reply(&mut self, id: RequestId, now: Instant) {
+        let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
+            self.raw_stream_single_flight_inquiry(entry).then(|| {
+                (
+                    entry.request.context().target,
+                    entry.request.context().timeout.ambiguity,
+                )
+            })
+        }) else {
+            self.quarantine_raw_inquiry_correlation(id, now);
+            return;
+        };
+        let window = ambiguity.max(self.policy.raw_inquiry_release_hold);
+        self.extend_raw_hold(
+            target,
+            RawHoldScope::InquiryUnkeyed,
+            add_duration(now, window),
+            Some(id),
+        );
+        if let Some(hold) = self
+            .holds
+            .get_mut(&RawHoldKey::new(target, RawHoldScope::InquiryUnkeyed))
+        {
+            hold.owed_reply = OwedReply::Window;
+        }
+    }
+
+    /// Consumes `frame` when it is a target's owed raw stream inquiry reply,
+    /// within its window or after the lane latched.
+    ///
+    /// Only unkeyed inquiry data qualifies, or a socketless error when no
+    /// command is live on the target and no command correlation is held: a
+    /// camera that omits the socket nibble on an executing or quarantined
+    /// command's error must never pay the debt and let the real reply bind
+    /// later. Once absorbed, the hold keeps the profile's ordinary reply skew
+    /// from now and the lane then reopens normally.
+    fn settle_owed_raw_inquiry_reply(&mut self, frame: &DecodedFrame, now: Instant) -> bool {
+        let target = frame.target;
+        let key = RawHoldKey::new(target, RawHoldScope::InquiryUnkeyed);
+        if self
+            .holds
+            .get(&key)
+            .is_none_or(|hold| hold.owed_reply == OwedReply::None)
+        {
+            return false;
+        }
+        let answers_inquiry = match &frame.response {
+            DecodedResponse::InquiryReply { .. } => true,
+            DecodedResponse::Error { socket: None, .. } => {
+                self.commands_inflight(target) == 0
+                    && self.raw_hold(target, RawHoldScope::PreAck).is_none()
+                    && self.raw_hold(target, RawHoldScope::AllResponses).is_none()
+                    && self.raw_socket_hold_count(target) == 0
+            }
+            _ => false,
+        };
+        if !answers_inquiry {
+            return false;
+        }
+        let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);
+        if let Some(hold) = self.holds.get_mut(&key) {
+            hold.owed_reply = OwedReply::None;
+            hold.until = skew_until;
+        }
+        true
+    }
+
+    /// Latches every owed raw stream inquiry reply whose window has ended.
+    ///
+    /// Input at this instant was already applied and could not settle it. The
+    /// reply may still be in flight behind a stall, or the camera may never
+    /// answer: either way no later unkeyed reply on that target is
+    /// attributable, so the target's inquiry lane stays closed — without
+    /// expiring or waking the owner — until the owed reply arrives. Only that
+    /// target's inquiries and `CompletionOnly` commands fail
+    /// ([`Self::fail_latched_raw_inquiries`]); other targets and the session
+    /// keep running. ACK-bearing commands to the target still dispatch, but the
+    /// still-active inquiry hold keeps filtering socketless errors there, so a
+    /// command the camera rejects with one ends unconfirmed at its ACK deadline.
+    fn latch_overdue_raw_inquiry_replies(&mut self, now: Instant) {
+        for (key, hold) in &mut self.holds {
+            if key.scope == RawHoldScope::InquiryUnkeyed
+                && hold.owed_reply == OwedReply::Window
+                && hold.until <= now
+            {
+                hold.owed_reply = OwedReply::Latched;
+            }
+        }
+    }
+
+    fn raw_inquiry_lane_latched(&self, target: CameraId) -> bool {
+        self.raw_hold(target, RawHoldScope::InquiryUnkeyed)
+            .is_some_and(|hold| hold.owed_reply == OwedReply::Latched)
+    }
+
+    /// Whether `request` can never be written while its target's raw inquiry
+    /// lane is latched: an inquiry, or a `CompletionOnly` command, whose
+    /// unkeyed completion is filtered by any inquiry hold (it would otherwise
+    /// wait with no deadline when its retry budget is unbounded).
+    fn blocked_by_latched_raw_inquiry_lane(&self, request: &RuntimeRequest) -> bool {
+        (request.is_inquiry() || request.context().reply_shape == ReplyShape::CompletionOnly)
+            && self.raw_inquiry_lane_latched(request.context().target)
+    }
+
+    /// Fails every queued (`Ready`/`Backoff`) request that a latched target
+    /// lane blocks ([`Self::blocked_by_latched_raw_inquiry_lane`]) with
+    /// [`Error::InquiryCorrelationLost`]. Such a request was never written.
+    fn fail_latched_raw_inquiries(&mut self, effects: &mut Vec<Effect>) {
+        let failed: SmallVec<[(RequestId, CameraId); 4]> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                matches!(entry.phase, Phase::Ready { .. } | Phase::Backoff { .. })
+                    && self.blocked_by_latched_raw_inquiry_lane(&entry.request)
+            })
+            .map(|(id, entry)| (*id, entry.request.context().target))
+            .collect();
+        for (id, target) in failed {
+            self.finish(
+                id,
+                RuntimeOutcome::Failed(Error::inquiry_correlation_lost(target)),
+                effects,
+            );
+        }
+    }
+
     fn inquiry_reply(
         &mut self,
         id: RequestId,
@@ -3151,6 +3359,8 @@ impl ProtocolEngine {
         // delayed attempt-N reply bind to the requeued attempt or its next
         // same-target inquiry. The target tombstone is the bounded policy; it
         // intentionally cannot make unidentifiable raw traffic safe forever.
+        // A stream never reaches this path on a reply timeout: its reply is
+        // owed instead (`owe_raw_stream_inquiry_reply`).
         self.quarantine_raw_inquiry_correlation(id, now);
         let next_attempt = attempt.saturating_add(1);
         let elapsed = now.saturating_duration_since(submitted_at);
@@ -3228,6 +3438,7 @@ impl ProtocolEngine {
         // the tombstone. Once the turn reaches due work, release every expired
         // fixed slot before dispatching a queued successor.
         self.raw_release_gate = None;
+        self.latch_overdue_raw_inquiry_replies(now);
         self.expire_raw_holds(now);
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
             let valid = self.entries.get(&due.request).is_some_and(|entry| {
@@ -3240,6 +3451,7 @@ impl ProtocolEngine {
             }
             self.apply_due(due, now, effects);
         }
+        self.fail_latched_raw_inquiries(effects);
         if self
             .inquiry_cooldown_until
             .is_some_and(|deadline| deadline <= now)
@@ -3467,7 +3679,16 @@ impl ProtocolEngine {
                 // unacknowledged-command slot); quarantine it and fail this one
                 // request, or poison in strict mode. Issue #671.
                 self.terminate_unconfirmed_raw(due.request, now, effects);
+            } else if matches!(phase, Phase::AwaitingReply { .. }) {
+                // A written inquiry ends unanswered: on a stream its reply
+                // remains owed.
+                self.owe_raw_stream_inquiry_reply(due.request, now);
+                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
             } else {
+                // A `Sending` request here has no write in progress (neither
+                // owner runs the due pass during a write), so its staged
+                // transmission is dropped as stale and nothing reached the
+                // stream: the ordinary skew hold suffices.
                 self.quarantine_raw_inquiry_correlation(due.request, now);
                 self.finish(due.request, RuntimeOutcome::Failed(error), effects);
             }
@@ -3613,9 +3834,14 @@ impl ProtocolEngine {
             }
             Phase::AwaitingReply { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
-                let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout;
+                // A raw stream inquiry is never resent after a reply timeout:
+                // the stream has not lost the first copy, so a resend could
+                // only be written after that copy's owed reply is absorbed and
+                // would add latency and late replies, never an answer.
+                let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout
+                    && !self.raw_stream_single_flight_inquiry(entry);
                 let error = terminal_timeout(entry);
-                self.quarantine_raw_inquiry_correlation(due.request, now);
+                self.owe_raw_stream_inquiry_reply(due.request, now);
                 if retry_inquiry_timeout {
                     self.schedule_retry(due.request, now, error, Backoff::Uncapped, effects);
                 } else {
@@ -3669,7 +3895,8 @@ impl ProtocolEngine {
             return releases;
         }
         for (key, hold) in &self.holds {
-            if hold.until > now {
+            // An owed reply latches rather than releases at its window end.
+            if hold.until > now || hold.owed_reply != OwedReply::None {
                 continue;
             }
             let release = releases.for_target_mut(key.target);
@@ -3855,7 +4082,13 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
         }
-        self.holds.values().map(|hold| hold.until).min()
+        // A latched owed-reply hold has no deadline left: only input settles
+        // it, so it must not wake the owner.
+        self.holds
+            .values()
+            .filter(|hold| hold.owed_reply != OwedReply::Latched)
+            .map(|hold| hold.until)
+            .min()
     }
 
     /// Releases every raw hold whose bounded ambiguity window has elapsed.
@@ -3865,7 +4098,10 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return;
         }
-        self.holds.retain(|_, hold| hold.until > now);
+        // An owed raw stream inquiry reply is never released by time: its
+        // window end latches the lane instead (`latch_overdue_raw_inquiry_replies`).
+        self.holds
+            .retain(|_, hold| hold.until > now || hold.owed_reply != OwedReply::None);
     }
 
     fn capacity_available_for(&self, entry: &Entry) -> bool {
@@ -4119,6 +4355,13 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw && !self.holds.is_empty() {
             return Err("raw correlation hold on a sequenced session".into());
         }
+        if self.holds.iter().any(|(key, hold)| {
+            hold.owed_reply != OwedReply::None
+                && (key.scope != RawHoldScope::InquiryUnkeyed
+                    || self.policy.transport != TransportKind::Stream)
+        }) {
+            return Err("owed raw inquiry reply outside a stream inquiry hold".into());
+        }
         if self.holds.keys().any(|key| {
             !(1..=8).contains(&key.target.id())
                 || (key.target != CameraId::BROADCAST
@@ -4340,7 +4583,11 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
 /// The error for a request whose protocol lifecycle reached a terminal
 /// deadline without correlation ambiguity (D20, #783).
 ///
-/// An inquiry has no effect, so its failure is conclusive. A command that is
+/// An inquiry has no effect, so its failure is conclusive. That holds even for
+/// a raw stream inquiry whose bytes may still reach the camera: its owed reply
+/// can never complete this or any other request (the owed-reply hold absorbs
+/// it, and latches the target's inquiry lane until it does), so resubmitting
+/// the inquiry is safe. A command that is
 /// on the wire, or was, may have reached the camera, so its outcome is
 /// unconfirmed. A command still waiting for its first write was never
 /// accepted.

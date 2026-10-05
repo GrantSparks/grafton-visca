@@ -257,7 +257,8 @@ in both, the request had no effect.
 | `PreAdmission` | `Timeout` | `NotAccepted` | The admission deadline passed before the owner accepted the request. | It never existed: submit it again if it is still wanted. |
 | `Observation` | `ObservationTimeout { operation }` | `StillLive` | Your wait expired; the owner still holds the request, which may yet take effect. Never retryable. | Wait again on the operation handle, or reconcile. Never resubmit. |
 | `Observation` | `Timeout` | `NotAccepted` | A read-only state query (`wait_until_idle`, `is_moving`) ran out of time. | Repeat the query if you still need the answer. |
-| `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. | Retry the inquiry. |
+| `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. On a raw-VISCA stream (TCP) the inquiry is written once and fails at its first reply deadline (about 1 s), and its late reply is still owed (see below). | Retry the inquiry. |
+| `Terminal` | `InquiryCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: a reply owed by an earlier timed-out inquiry to that camera did not arrive within the profile's ambiguity window, so this inquiry (or raw `CompletionOnly` command) was never written. Not retryable; `requires_new_session() == false` because the session is live. | Inquiries to this camera cannot be correlated until the owed reply arrives: close and reopen the session to recover them. |
 | `Terminal` | `Timeout` | `Unconfirmed` | A command was sent but never acknowledged or completed in its lifecycle. It may have reached the camera. | Reconcile the camera's state before resubmitting. |
 | `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
 | `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
@@ -394,7 +395,30 @@ Silence does **not** produce that verdict. A default built-in inquiry retries
 within its bounded policy and ordinarily reports `Error::Timeout` (stage
 `Terminal`, certainty `FailedConclusively`) at the ten-second total
 retry-budget floor (roughly 10.05 seconds when the first backoff is included).
-That error is retryable and
+On a raw-VISCA stream (TCP) the inquiry is instead written once and fails at
+its first reply deadline: a stream cannot lose the request, so a resend would
+only add late replies. Its reply is then owed. Until it arrives, that camera's
+next inquiries wait; once the profile's ambiguity window has passed they fail
+at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
+(`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
+`NotAccepted`, `is_retryable() == false`). A silent camera therefore stops
+answering *inquiries* on that session. The session is still live, so
+`requires_new_session()` is `false`, but the supervisor recipe is explicit:
+inquiries to that camera cannot be correlated until the owed reply arrives, so
+close and reopen the session to recover them. Until then, ACK-bearing commands
+and stops to that camera are still written, but the active hold keeps filtering
+socketless error frames on it (they cannot be told apart from the owed
+inquiry's own error reply). A command the camera rejects with a socketless `90
+60 02`/`90 60 03` therefore ends `UnsequencedCommandUnconfirmed` at its ACK
+deadline, leaving a `PreAck` hold, instead of failing or retrying. Everything
+that needs an inquiry to that camera fails with `InquiryCorrelationLost`:
+`settled()` observed-stable settlement polling (as
+`SettlementObservationFailed` with that source), `is_moving`, and
+`wait_until_idle`. If the owed inquiry's own answer is a socketless error that
+arrives while a command is live on that camera, it is filtered too and cannot
+settle the debt, so the lane stays latched until a new session.
+
+The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no
 answer. A response-bearing command on a raw-VISCA envelope can instead end as
 `UnsequencedCommandUnconfirmed` once its ACK/completion and ambiguity windows

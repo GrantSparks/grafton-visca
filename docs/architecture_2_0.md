@@ -433,6 +433,51 @@ skew deadline complete input is correlated first; the byte-stream ambiguity
 rule above governs retained input before the due pass releases a successor.
 Other targets and all command work remain independently eligible (#712).
 
+A stream transport is the exception for an inquiry that ends *unanswered*
+after its bytes provably entered the stream: its `AwaitingReply` reply deadline
+or total budget, or a successful write result sampled after the budget. (A
+`Sending` request reached by the due pass has no write in progress — neither
+owner runs the due pass during a write — so its staged transmission is dropped
+and it keeps the ordinary skew hold.) A stream loses nothing it accepted, so the
+reply is late, not lost: a multi-second stall (#795, observed on a
+PTZOptics G2 bench on 2026-10-04) delivers it long after any skew hold,
+where it would bind to the next same-target inquiry as silently wrong data. On
+Raw + stream the inquiry is therefore written once — never resent on a reply
+timeout — and fails at that deadline with the usual `Terminal`/
+`FailedConclusively` timeout (it had no effect, and its reply can complete no
+request). Its `InquiryUnkeyed` hold instead owes one reply for the request's
+ambiguity window (the profile's `ambiguity_timeout`, at least the reply skew),
+during which same-target inquiries wait. No same-target inquiry is written
+while the reply is owed, so the next unkeyed inquiry reply — or a socketless
+error while no command is live on the target and no command correlation is
+held — is that reply: it is discarded and the hold falls back to the ordinary
+skew from that moment. Any complete input applied before the due pass that
+reaches the window end settles it. If the window ends with the reply still
+owed (a long stall, a camera that never answers that inquiry, an absent
+daisy-chain address), the hold *latches*: it no longer expires or wakes the
+owner, and every queued or new inquiry to that target — and every user-declared
+raw `CompletionOnly` command, whose unkeyed completion the hold also filters
+(it waits during the window, then fails at the latch even with an unbounded
+retry budget) — fails at once, unwritten, with `Error::InquiryCorrelationLost`
+(`ErrorKind::NotExecutable`, `Terminal`/`NotAccepted`, not retryable,
+`requires_new_session() == false` because the session is live). Only the owed
+reply arriving, or a new session, reopens that target's inquiries. Other
+targets and the session are unaffected. While latched, ACK-bearing commands and
+stops to that camera are still written, but the active hold keeps filtering
+socketless error frames on it (they cannot be told apart from the owed
+inquiry's own error reply). A command the camera rejects with a socketless `90
+60 02`/`90 60 03` therefore ends `UnsequencedCommandUnconfirmed` at its ACK
+deadline, leaving a `PreAck` hold, instead of failing or retrying. Everything
+that needs an inquiry to that camera fails with `InquiryCorrelationLost`:
+`settled()` observed-stable settlement polling (as
+`SettlementObservationFailed` with that source), `is_moving`, and
+`wait_until_idle`. If the owed inquiry's own answer is a socketless error that
+arrives while a command is live on that camera, it is filtered too and cannot
+settle the debt, so the lane stays latched until a new session. Datagram
+behaviour is
+unchanged, and #671's per-request raw deadline verdict holds: no inquiry
+timeout poisons the session.
+
 ### Protocol phases
 
 | `Phase` | Meaning |
@@ -475,8 +520,8 @@ Other targets and all command work remain independently eligible (#712).
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | Compatible failed stream write sampled after the request's total budget | Poison before applying per-request late-result policy: the stream seam cannot prove that no partial frame reached the wire (#724). |
-| Request still `Sending` when its total retry budget expires | Raw active command: immediately fail unconfirmed and install the applicable keyed hold (or strict-poison); raw single-flight inquiry: install its target-only reply-skew hold and fail; Sony: fail without registering late sequence metadata. A write result sampled exactly at the deadline remains input-first. |
-| Request write result sampled strictly after its total retry budget | Apply the same expired-`Sending` policy before the result can register correlation, consume a deferred frame, report `Written`, or replace a retained retry cause. Cancellation writes use their separate ambiguity lifecycle. |
+| Request still `Sending` when its total retry budget expires | Raw active command: immediately fail unconfirmed and install the applicable keyed hold (or strict-poison); raw single-flight inquiry: install its target-only reply-skew hold and fail (nothing is owed even on a stream: no write is in progress during the due pass, so the staged transmission is dropped); Sony: fail without registering late sequence metadata. A write result sampled exactly at the deadline remains input-first. |
+| Request write result sampled strictly after its total retry budget | Apply the same expired-`Sending` policy before the result can register correlation, consume a deferred frame, report `Written`, or replace a retained retry cause; except that a successful write of a raw single-flight inquiry on a stream owes its reply (rows below). Cancellation writes use their separate ambiguity lifecycle. |
 | ACK in `AwaitingAck` with a free socket | Assign the socket and transition to `Executing`; if cancel intent is `Requested` on a supported target, emit one socket cancellation. An ACK covered by an inert `PreAck`/`AllResponses` hold is ignored and cannot resurrect its terminal owner (#723). |
 | Unsequenced ACK/error while two raw positional candidates are open | Ignore it as ambiguous and bind it to neither candidate; never use admission order or recency (#714). |
 | Raw ACK naming a busy or quarantined socket | Treat the camera's named socket as authoritative: immediately fail a stale live owner, or downgrade an inert exact-socket hold, to its original-deadline unkeyed `PreAck` hold; assign the named socket to the uniquely resolved successor (#721/#723/#750). |
@@ -487,6 +532,9 @@ Other targets and all command work remain independently eligible (#712).
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of any socket nibble the vendor frame echoes; the resolver already established it as the sole completion-only candidate on the target. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work starts; a later `NoReply` may only extend that key. |
 | Inquiry reply in `AwaitingReply` | `finish` with the attributed payload. A matched Raw reply installs no hold and releases the single-flight lane immediately (#712). |
 | Uncertain Raw inquiry response-correlation release | A terminal error/timeout or retry release/requeue retains the profile's short `raw_inquiry_reply_skew` before another same-target inquiry may send. ACK-bearing commands, including `Urgent`, are never gated by this inquiry-only hold. It filters stale unkeyed inquiry data/reply and socketless-error evidence, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible (#712). |
+| Raw inquiry reply deadline or total budget in `AwaitingReply`, or a successful write sampled after the budget; stream transport | Never resend. Fail the inquiry with `Timeout` (`Terminal`, `FailedConclusively`) and mark the target's `InquiryUnkeyed` hold as owing one reply (`OwedReply::Window`) for the request's ambiguity window (at least the reply skew). Same-target inquiries wait; ACK-bearing commands are not gated beyond the ordinary inquiry hold. Datagram keeps the skew hold and the inquiry retry policy (#795). |
+| Unkeyed inquiry reply, or socketless error while no command is live (`Sending` through `AwaitingCancellationResolution`) and no `PreAck`/`AllResponses`/socket hold exists on the target, while a reply is owed (window or latched) | Settle the debt: ignore the frame (`Ignored(UnmatchedFrame)`), clear the owed mark, and set the hold to the ordinary reply skew from now. Any complete input applied before the due pass that reaches the window end settles it. Any other frame follows the ordinary inquiry-hold filtering. |
+| Owed raw stream inquiry reply still unsettled when the due pass reaches its window end | Latch the hold (`OwedReply::Latched`): it no longer expires, projects a release, or wakes the owner. Fail every queued `Ready`/`Backoff` inquiry or `CompletionOnly` command to that target, and reject every new one at admission, with `Error::InquiryCorrelationLost { camera }` (`Terminal`/`NotAccepted`, not retryable, `requires_new_session() == false`). Other targets and the session are unaffected. ACK-bearing commands and stops to the target still dispatch, but socketless errors there stay filtered: a socketless rejection ends the command `UnsequencedCommandUnconfirmed` at its ACK deadline. Inquiry-based observation of that target (settlement polling, `is_moving`, `wait_until_idle`) fails. Only the owed reply's arrival (the settle row) or a new session reopens the lane; an owed socketless error that arrives while a command is live cannot settle it. |
 | Raw inquiry frame at exact reply-skew expiry | Complete input wins over the due pass. Stale unkeyed inquiry data/reply and socketless-error evidence remain filtered, while live attributable ACK/completion (including a uniquely attributable socketless completion) and exact named socket terminals remain eligible. Retained partial-byte ambiguity follows the engine-owned time grace before an orphan is discarded (#713). |
 | Retryable conclusive rejection (buffer-full `0x03`/`0x05`, movement `0x41`), no cancel intent | Increment the bounded attempt and enter `Backoff`. |
 | Retryable rejection with cancel intent | Suppress retry and `finish` with `Cancelled`, because no executing attempt exists. |
@@ -495,7 +543,7 @@ Other targets and all command work remain independently eligible (#712).
 | Transient receive fault while a Sony command is `AwaitingAck` | Retry every such eligible command independently using uncapped backoff and the retained sequence; unrelated requests and the session remain live. |
 | Transient raw receive fault in `AwaitingAck` with no recorded cancel intent | Default: leave the unacknowledged command in `AwaitingAck`; it is neither replayed nor failed on the fault, and a later ACK may still assign its socket. If its ACK deadline subsequently expires without an ACK, apply the raw unconfirmed-recovery row below. A command with recorded cancel intent instead remains live through its cancellation-resolution bound. |
 | Raw ACK deadline expiry without an ACK, completion loss, a completion-only command's completion deadline in `AwaitingCompletion` (issue #700), or retry-budget expiry in an active raw phase | Default: immediately `finish` with `Error::UnsequencedCommandUnconfirmed`, remove the request, and install a keyed `PreAck`, `Socket`, or `AllResponses` hold through the ambiguity interval. Late frames covered by that hold are inert (#671/#723/#724). |
-| Keyed raw hold expiry | Release only the target/scope key whose deadline elapsed and reconsider queued work. No terminal event occurs here because the request was already resolved; independent simultaneous holds remain in force. |
+| Keyed raw hold expiry | Release only the target/scope key whose deadline elapsed and reconsider queued work. No terminal event occurs here because the request was already resolved; independent simultaneous holds remain in force. The one exception is an `InquiryUnkeyed` hold still owing a raw stream inquiry reply, which latches instead of releasing (row above). |
 | Cancellation-resolution deadline expiry | `finish` with `Error::UnsequencedCommandUnconfirmed` for a raw session or `Error::CancellationUnconfirmed` for a Sony session. This is the end of a still-live cancellation lifecycle, not release of a `CancelState::None` quarantine marker. |
 | A transient raw receive fault in `AwaitingAck` with no recorded cancel intent, or any raw unconfirmed-recovery trigger above, under the `strict_unconfirmed_poison` opt-in | Poison the session and report `Error::StreamPoisoned`, restoring the pre-#671 behavior. A recorded cancel instead follows its live cancellation-resolution path and poisons only if that deadline remains unconfirmed. |
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |

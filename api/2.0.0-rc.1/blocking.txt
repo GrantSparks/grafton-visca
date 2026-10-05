@@ -11872,6 +11872,8 @@ pub grafton_visca::prelude::blocking::Error::DecoderNotFound::inquiry_kind: graf
 pub grafton_visca::prelude::blocking::Error::DecoderNotFound::payload_hex: alloc::boxed::Box<str>
 #[non_exhaustive] pub grafton_visca::prelude::blocking::Error::FeatureNotSupported
 pub grafton_visca::prelude::blocking::Error::FeatureNotSupported::feature: &'static str
+#[non_exhaustive] pub grafton_visca::prelude::blocking::Error::InquiryCorrelationLost
+pub grafton_visca::prelude::blocking::Error::InquiryCorrelationLost::camera: grafton_visca::CameraId
 pub grafton_visca::prelude::blocking::Error::InquiryNotCancelable
 #[non_exhaustive] pub grafton_visca::prelude::blocking::Error::InvalidAddress
 pub grafton_visca::prelude::blocking::Error::InvalidAddress::reason: alloc::borrow::Cow<'static, str>
@@ -11947,6 +11949,7 @@ pub fn grafton_visca::Error::decoder_not_found(grafton_visca::command::InquiryKi
 pub fn grafton_visca::Error::failure_context(&self) -> core::option::Option<grafton_visca::FailureContext>
 pub const fn grafton_visca::Error::feature_not_supported(&'static str) -> Self
 pub const fn grafton_visca::Error::from_code(u8) -> Self
+pub const fn grafton_visca::Error::inquiry_correlation_lost(grafton_visca::CameraId) -> Self
 pub fn grafton_visca::Error::invalid_address(impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
 pub const fn grafton_visca::Error::invalid_camera_id(u8) -> Self
 pub fn grafton_visca::Error::invalid_parameter(&'static str, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
@@ -20578,6 +20581,8 @@ pub grafton_visca::Error::DecoderNotFound::inquiry_kind: grafton_visca::command:
 pub grafton_visca::Error::DecoderNotFound::payload_hex: alloc::boxed::Box<str>
 #[non_exhaustive] pub grafton_visca::Error::FeatureNotSupported
 pub grafton_visca::Error::FeatureNotSupported::feature: &'static str
+#[non_exhaustive] pub grafton_visca::Error::InquiryCorrelationLost
+pub grafton_visca::Error::InquiryCorrelationLost::camera: grafton_visca::CameraId
 pub grafton_visca::Error::InquiryNotCancelable
 #[non_exhaustive] pub grafton_visca::Error::InvalidAddress
 pub grafton_visca::Error::InvalidAddress::reason: alloc::borrow::Cow<'static, str>
@@ -20653,6 +20658,7 @@ pub fn grafton_visca::Error::decoder_not_found(grafton_visca::command::InquiryKi
 pub fn grafton_visca::Error::failure_context(&self) -> core::option::Option<grafton_visca::FailureContext>
 pub const fn grafton_visca::Error::feature_not_supported(&'static str) -> Self
 pub const fn grafton_visca::Error::from_code(u8) -> Self
+pub const fn grafton_visca::Error::inquiry_correlation_lost(grafton_visca::CameraId) -> Self
 pub fn grafton_visca::Error::invalid_address(impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
 pub const fn grafton_visca::Error::invalid_camera_id(u8) -> Self
 pub fn grafton_visca::Error::invalid_parameter(&'static str, impl core::convert::Into<alloc::borrow::Cow<'static, str>>, impl core::convert::Into<alloc::borrow::Cow<'static, str>>) -> Self
