@@ -24,8 +24,8 @@ use crate::{
 };
 
 /// Sony VISCA-over-IP carries a complete VISCA payload in one 8-byte-header
-/// envelope. The protocol permits one through sixteen payload bytes. Non-empty
-/// VISCA command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
+/// envelope. The protocol permits one through sixteen payload bytes. VISCA
+/// command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
 const MIN_SONY_VISCA_PAYLOAD_LENGTH: usize = 1;
 const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 16;
 
@@ -118,7 +118,8 @@ pub trait Envelope: private::Sealed + Send + Sync + 'static {
     ///
     /// This method writes the framed bytes directly into the provided buffer,
     /// avoiding per-send allocations. On success, the buffer is cleared before
-    /// the new frame is written. On failure, it is left unchanged.
+    /// the new frame is written. On failure, it is left unchanged and no Sony
+    /// sequence number is consumed.
     ///
     /// # Arguments
     ///
@@ -129,9 +130,9 @@ pub trait Envelope: private::Sealed + Send + Sync + 'static {
     /// # Returns
     ///
     /// Metadata about the framing operation (sequence number for Sony, None for Raw),
-    /// or a protocol validation error. A non-empty [`SonyEncapsulated`] VISCA
-    /// command or inquiry must be a complete frame ending in `0xFF`; its empty
-    /// input remains the legacy no-op sentinel.
+    /// or a protocol validation error. Empty `visca_bytes` is rejected with
+    /// [`Error::InvalidRequest`] by both envelopes. A [`SonyEncapsulated`] VISCA
+    /// command or inquiry must additionally be a complete frame ending in `0xFF`.
     fn frame_into(
         &self,
         visca_bytes: &[u8],
@@ -188,17 +189,18 @@ impl Envelope for RawVisca {
     fn frame_into(
         &self,
         visca_bytes: &[u8],
-        kind: CommandKind,
+        _kind: CommandKind,
         out: &mut bytes::BytesMut,
     ) -> Result<FrameMeta, Error> {
-        out.clear();
-
+        // Reject before touching `out` so a failure leaves it unchanged.
         if visca_bytes.is_empty() {
-            return Ok(FrameMeta { sequence: None });
+            return Err(empty_visca_message());
         }
 
+        out.clear();
+
         // Normalize the address byte if needed
-        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
+        let normalized_addr = normalize_address(visca_bytes[0], self.addressing);
 
         if normalized_addr == visca_bytes[0] {
             // No normalization needed - copy as-is
@@ -283,21 +285,12 @@ impl SonyEncapsulated {
         requested_sequence: Option<u32>,
         out: &mut bytes::BytesMut,
     ) -> Result<FrameMeta, Error> {
-        if visca_bytes.is_empty() {
-            if requested_sequence.is_some() {
-                return Err(Error::InvalidRequest(
-                    "an explicit Sony sequence requires a non-empty VISCA message".into(),
-                ));
-            }
-            // Empty input is the legacy no-op sentinel, not a Sony wire
-            // payload. Preserve its existing buffer-clearing behavior.
-            out.clear();
-            return Ok(FrameMeta { sequence: None });
-        }
-
         // Validate before either advancing the allocator or touching `out` so
         // a rejected raw request cannot consume a sequence or leave a partial
         // Sony frame behind.
+        if visca_bytes.is_empty() {
+            return Err(empty_visca_message());
+        }
         validate_sony_payload_length(visca_bytes.len(), Error::InvalidRequest)?;
         validate_sony_payload_terminator(visca_bytes, Error::InvalidRequest)?;
 
@@ -307,7 +300,7 @@ impl SonyEncapsulated {
             .unwrap_or_else(|| self.sequence_counter.fetch_add(1, Ordering::Relaxed));
 
         // Normalize the address byte
-        let normalized_addr = normalize_address(visca_bytes[0], kind, self.addressing);
+        let normalized_addr = normalize_address(visca_bytes[0], self.addressing);
 
         // Build Sony header
         let header = match kind {
@@ -384,29 +377,27 @@ impl SonyEncapsulated {
     }
 }
 
+/// The error for an outgoing empty VISCA message.
+///
+/// An empty message is not a VISCA frame, so both envelopes reject it rather
+/// than treating it as a no-op.
+fn empty_visca_message() -> Error {
+    Error::InvalidRequest("VISCA message must not be empty".into())
+}
+
 /// Normalize the device address byte based on addressing mode.
 ///
-/// Per VISCA-over-IP spec, the device address is always 0x81.
-/// Exception: broadcast inquiries (0x88) are preserved for compatibility.
-fn normalize_address(original_addr: u8, kind: CommandKind, addressing: AddressingMode) -> u8 {
-    match addressing {
-        AddressingMode::Serial => {
-            // Serial mode: preserve the original address
-            original_addr
-        }
-        AddressingMode::Ip => {
-            // IP mode: normalize to 0x81, except for broadcast inquiries
-            const BROADCAST_ADDR: u8 = 0x88;
-            const NORMALIZED_ADDR: u8 = 0x81;
+/// Serial mode preserves the caller's address byte. In Sony VISCA-over-IP the
+/// VISCA device address is fixed as camera 1, so every address, broadcast
+/// (`0x88`) included, becomes `0x81` (`docs/visca_reference.md` section 5.2,
+/// "In Sony VISCA-over-IP, the VISCA device address is fixed as camera 1", and
+/// section 9.1, "Camera address fixed to 1 for VISCA-over-IP").
+fn normalize_address(original_addr: u8, addressing: AddressingMode) -> u8 {
+    const IP_DEVICE_ADDR: u8 = 0x81;
 
-            if original_addr == BROADCAST_ADDR && kind == CommandKind::Inquiry {
-                // Allow broadcast inquiries in IP mode
-                BROADCAST_ADDR
-            } else {
-                // All other cases: normalize to 0x81
-                NORMALIZED_ADDR
-            }
-        }
+    match addressing {
+        AddressingMode::Serial => original_addr,
+        AddressingMode::Ip => IP_DEVICE_ADDR,
     }
 }
 
@@ -466,10 +457,9 @@ fn validate_sony_payload_length(
 
 /// Validate that a Sony VISCA payload is a complete VISCA frame.
 ///
-/// An outgoing empty input is handled by the caller as a legacy envelope
-/// no-op, and a reply reaches this only after its header established a VISCA
-/// payload. `error` selects the variant as for
-/// [`validate_sony_payload_length`].
+/// An outgoing empty input is rejected by the caller before this runs, and a
+/// reply reaches this only after its header established a VISCA payload.
+/// `error` selects the variant as for [`validate_sony_payload_length`].
 fn validate_sony_payload_terminator(
     payload: &[u8],
     error: fn(Cow<'static, str>) -> Error,
@@ -539,7 +529,7 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_visca_frame_into_preserves_broadcast_inquiry() {
+    fn test_raw_visca_frame_into_normalizes_broadcast_inquiry() {
         let envelope = RawVisca::new(AddressingMode::Ip);
         let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
@@ -548,8 +538,8 @@ mod tests {
             .frame_into(&visca_cmd, CommandKind::Inquiry, &mut out)
             .expect("raw framing is infallible for valid test input");
 
-        // Broadcast inquiry (0x88) should be preserved even in IP mode
-        assert_eq!(out[0], 0x88);
+        // IP mode fixes the device address to camera 1, broadcast included
+        assert_eq!(out[0], 0x81);
         assert_eq!(&out[1..], &visca_cmd[1..]);
         assert_eq!(meta.sequence, None);
     }
@@ -571,16 +561,21 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_visca_frame_into_empty_input() {
-        let envelope = RawVisca::new(AddressingMode::Ip);
-        let mut out = bytes::BytesMut::new();
+    fn raw_frame_into_rejects_empty_input_and_leaves_output_unchanged() {
+        for addressing in [AddressingMode::Ip, AddressingMode::Serial] {
+            let envelope = RawVisca::new(addressing);
+            for kind in [CommandKind::Command, CommandKind::Inquiry] {
+                let mut out = bytes::BytesMut::from(&b"old frame"[..]);
 
-        let meta = envelope
-            .frame_into(&[], CommandKind::Command, &mut out)
-            .expect("raw framing is infallible for empty test input");
+                let result = envelope.frame_into(&[], kind, &mut out);
 
-        assert_eq!(out.len(), 0);
-        assert_eq!(meta.sequence, None);
+                assert!(
+                    matches!(&result, Err(Error::InvalidRequest(message)) if message.contains("must not be empty")),
+                    "expected InvalidRequest for empty input, got {result:?}"
+                );
+                assert_eq!(out.as_ref(), b"old frame");
+            }
+        }
     }
 
     #[test]
@@ -833,7 +828,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sony_frame_into_preserves_broadcast_inquiry() {
+    fn test_sony_frame_into_normalizes_broadcast_inquiry() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let visca_cmd = vec![0x88, 0x09, 0x00, 0x02, VISCA_TERMINATOR];
         let mut out = bytes::BytesMut::new();
@@ -842,34 +837,37 @@ mod tests {
             .frame_into(&visca_cmd, CommandKind::Inquiry, &mut out)
             .expect("Sony framing accepts this payload");
 
-        // Broadcast inquiry (0x88) should be preserved
-        assert_eq!(out[SonyHeader::SIZE], 0x88);
+        // IP mode fixes the device address to camera 1, broadcast included
+        assert_eq!(out[SonyHeader::SIZE], 0x81);
     }
 
     #[test]
-    fn sony_outbound_empty_input_is_legacy_noop_without_sequence_allocation() {
+    fn sony_outbound_empty_input_is_rejected_without_sequence_allocation() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let mut out = bytes::BytesMut::from(&b"old frame"[..]);
 
-        let meta = envelope
-            .frame_into(&[], CommandKind::Command, &mut out)
-            .expect("empty input remains an explicit no-op");
+        for kind in [CommandKind::Command, CommandKind::Inquiry] {
+            for requested_sequence in [None, Some(7)] {
+                let result =
+                    envelope.frame_into_with_sequence(&[], kind, requested_sequence, &mut out);
+                assert!(
+                    matches!(&result, Err(Error::InvalidRequest(message)) if message.contains("must not be empty")),
+                    "expected InvalidRequest for empty input, got {result:?}"
+                );
+                assert_eq!(out.as_ref(), b"old frame");
+            }
+        }
 
-        assert_eq!(out.len(), 0);
-        assert_eq!(meta.sequence, None);
+        let result = envelope.frame_into(&[], CommandKind::Command, &mut out);
+        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert_eq!(out.as_ref(), b"old frame");
 
+        // None of the rejections consumed a sequence number.
         let valid_payload = [0x81, VISCA_TERMINATOR];
         let next = envelope
             .frame_into_with_sequence(&valid_payload, CommandKind::Command, None, &mut out)
-            .expect("empty no-op must not consume a sequence");
+            .expect("a rejected empty input must not consume a sequence");
         assert_eq!(next.sequence, Some(FrameSequence::Full32(0)));
-
-        let original_out = out.clone();
-        assert!(matches!(
-            envelope.frame_into_with_sequence(&[], CommandKind::Command, Some(7), &mut out),
-            Err(Error::InvalidRequest(_))
-        ));
-        assert_eq!(out.as_ref(), original_out.as_ref());
     }
 
     #[test]
@@ -920,66 +918,24 @@ mod tests {
     #[test]
     fn test_normalize_address_serial_mode_preserves_all() {
         // Serial mode should preserve any address
-        assert_eq!(
-            normalize_address(0x81, CommandKind::Command, AddressingMode::Serial),
-            0x81
-        );
-        assert_eq!(
-            normalize_address(0x82, CommandKind::Command, AddressingMode::Serial),
-            0x82
-        );
-        assert_eq!(
-            normalize_address(0x88, CommandKind::Inquiry, AddressingMode::Serial),
-            0x88
-        );
+        for addr in [0x81, 0x82, 0x88] {
+            assert_eq!(normalize_address(addr, AddressingMode::Serial), addr);
+        }
     }
 
     #[test]
-    fn test_normalize_address_ip_mode_normalizes_commands() {
-        // IP mode commands should normalize to 0x81
-        assert_eq!(
-            normalize_address(0x81, CommandKind::Command, AddressingMode::Ip),
-            0x81
-        );
-        assert_eq!(
-            normalize_address(0x82, CommandKind::Command, AddressingMode::Ip),
-            0x81
-        );
-        assert_eq!(
-            normalize_address(0x87, CommandKind::Command, AddressingMode::Ip),
-            0x81
-        );
+    fn test_normalize_address_ip_mode_normalizes_device_addresses() {
+        // IP mode fixes the device address to camera 1 (0x81)
+        for addr in [0x81, 0x82, 0x87] {
+            assert_eq!(normalize_address(addr, AddressingMode::Ip), 0x81);
+        }
     }
 
     #[test]
-    fn test_normalize_address_ip_mode_normalizes_inquiries() {
-        // IP mode non-broadcast inquiries should normalize to 0x81
-        assert_eq!(
-            normalize_address(0x81, CommandKind::Inquiry, AddressingMode::Ip),
-            0x81
-        );
-        assert_eq!(
-            normalize_address(0x82, CommandKind::Inquiry, AddressingMode::Ip),
-            0x81
-        );
-    }
-
-    #[test]
-    fn test_normalize_address_ip_mode_preserves_broadcast_inquiry() {
-        // IP mode broadcast inquiry (0x88) should be preserved
-        assert_eq!(
-            normalize_address(0x88, CommandKind::Inquiry, AddressingMode::Ip),
-            0x88
-        );
-    }
-
-    #[test]
-    fn test_normalize_address_ip_mode_normalizes_broadcast_command() {
-        // IP mode broadcast command (0x88) should be normalized
-        assert_eq!(
-            normalize_address(0x88, CommandKind::Command, AddressingMode::Ip),
-            0x81
-        );
+    fn test_normalize_address_ip_mode_normalizes_broadcast_address() {
+        // The reference documents no broadcast exception for VISCA-over-IP, so a
+        // 0x88 address (as used by a broadcast inquiry) is normalized as well.
+        assert_eq!(normalize_address(0x88, AddressingMode::Ip), 0x81);
     }
 
     // Extraction tests (existing)

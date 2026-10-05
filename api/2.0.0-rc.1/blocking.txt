@@ -5532,12 +5532,17 @@ pub grafton_visca::command::AutoWhiteBalanceSensitivity::High = 0
 pub grafton_visca::command::AutoWhiteBalanceSensitivity::Low = 2
 pub grafton_visca::command::AutoWhiteBalanceSensitivity::Normal = 1
 impl grafton_visca::command::AutoWhiteBalanceSensitivity
-pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::to_command_byte(self) -> u8
+pub const fn grafton_visca::command::AutoWhiteBalanceSensitivity::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::clone(&self) -> grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::Eq for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::PartialEq for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::eq(&self, &grafton_visca::command::AutoWhiteBalanceSensitivity) -> bool
+impl core::convert::From<grafton_visca::command::AutoWhiteBalanceSensitivity> for u8
+pub fn u8::from(grafton_visca::command::AutoWhiteBalanceSensitivity) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::AutoWhiteBalanceSensitivity
+pub type grafton_visca::command::AutoWhiteBalanceSensitivity::Error = grafton_visca::Error
+pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::try_from(u8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::AutoWhiteBalanceSensitivity
@@ -5745,11 +5750,18 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::ExposureMo
 pub enum grafton_visca::command::Flip
 pub grafton_visca::command::Flip::Off = 3
 pub grafton_visca::command::Flip::On = 2
+impl grafton_visca::command::Flip
+pub const fn grafton_visca::command::Flip::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::Flip
 pub fn grafton_visca::command::Flip::clone(&self) -> grafton_visca::command::Flip
 impl core::cmp::Eq for grafton_visca::command::Flip
 impl core::cmp::PartialEq for grafton_visca::command::Flip
 pub fn grafton_visca::command::Flip::eq(&self, &grafton_visca::command::Flip) -> bool
+impl core::convert::From<grafton_visca::command::Flip> for u8
+pub fn u8::from(grafton_visca::command::Flip) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::Flip
+pub type grafton_visca::command::Flip::Error = grafton_visca::Error
+pub fn grafton_visca::command::Flip::try_from(u8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::command::Flip
 pub fn grafton_visca::command::Flip::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::Flip
@@ -5931,15 +5943,28 @@ impl core::marker::UnsafeUnpin for grafton_visca::command::Gain
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::Gain
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::Gain
 pub enum grafton_visca::command::ImageFlipMode
-pub grafton_visca::command::ImageFlipMode::Both
-pub grafton_visca::command::ImageFlipMode::Horizontal
-pub grafton_visca::command::ImageFlipMode::Off
-pub grafton_visca::command::ImageFlipMode::Vertical
+pub grafton_visca::command::ImageFlipMode::Both = 3
+pub grafton_visca::command::ImageFlipMode::Horizontal = 1
+pub grafton_visca::command::ImageFlipMode::Off = 0
+pub grafton_visca::command::ImageFlipMode::Vertical = 2
+impl grafton_visca::command::ImageFlipMode
+pub const fn grafton_visca::command::ImageFlipMode::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::ImageFlipMode
 pub fn grafton_visca::command::ImageFlipMode::clone(&self) -> grafton_visca::command::ImageFlipMode
+impl core::cmp::Eq for grafton_visca::command::ImageFlipMode
+impl core::cmp::PartialEq for grafton_visca::command::ImageFlipMode
+pub fn grafton_visca::command::ImageFlipMode::eq(&self, &grafton_visca::command::ImageFlipMode) -> bool
+impl core::convert::From<grafton_visca::command::ImageFlipMode> for grafton_visca::command::FlipState
+pub fn grafton_visca::command::FlipState::from(grafton_visca::command::ImageFlipMode) -> Self
+impl core::convert::From<grafton_visca::command::ImageFlipMode> for u8
+pub fn u8::from(grafton_visca::command::ImageFlipMode) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::ImageFlipMode
+pub type grafton_visca::command::ImageFlipMode::Error = grafton_visca::Error
+pub fn grafton_visca::command::ImageFlipMode::try_from(u8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::command::ImageFlipMode
 pub fn grafton_visca::command::ImageFlipMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::ImageFlipMode
+impl core::marker::StructuralPartialEq for grafton_visca::command::ImageFlipMode
 impl core::marker::Freeze for grafton_visca::command::ImageFlipMode
 impl core::marker::Send for grafton_visca::command::ImageFlipMode
 impl core::marker::Sync for grafton_visca::command::ImageFlipMode
@@ -5963,7 +5988,7 @@ pub grafton_visca::command::InquiryData::BlueChannel::gain: u8
 pub grafton_visca::command::InquiryData::BlueTuning
 pub grafton_visca::command::InquiryData::BlueTuning::level: i8
 pub grafton_visca::command::InquiryData::Brightness
-pub grafton_visca::command::InquiryData::Brightness::position: u16
+pub grafton_visca::command::InquiryData::Brightness::position: u8
 pub grafton_visca::command::InquiryData::BroadcastDomain(grafton_visca::types::BroadcastDomain)
 pub grafton_visca::command::InquiryData::ColorTemperature
 pub grafton_visca::command::InquiryData::ColorTemperature::temperature: u16
@@ -5990,8 +6015,7 @@ pub grafton_visca::command::InquiryData::ExposureMode::mode: grafton_visca::comm
 pub grafton_visca::command::InquiryData::FlickerMode
 pub grafton_visca::command::InquiryData::FlickerMode::mode: grafton_visca::command::AntiFlickerMode
 pub grafton_visca::command::InquiryData::FlipState
-pub grafton_visca::command::InquiryData::FlipState::horizontal: bool
-pub grafton_visca::command::InquiryData::FlipState::vertical: bool
+pub grafton_visca::command::InquiryData::FlipState::state: grafton_visca::command::FlipState
 pub grafton_visca::command::InquiryData::FocusMode
 pub grafton_visca::command::InquiryData::FocusMode::mode: grafton_visca::command::FocusMode
 pub grafton_visca::command::InquiryData::FocusNearFar
@@ -6066,7 +6090,7 @@ pub grafton_visca::command::InquiryData::Sharpness::value: u8
 pub grafton_visca::command::InquiryData::SharpnessMode
 pub grafton_visca::command::InquiryData::SharpnessMode::mode: grafton_visca::command::SharpnessMode
 pub grafton_visca::command::InquiryData::SharpnessPosition
-pub grafton_visca::command::InquiryData::SharpnessPosition::position: u16
+pub grafton_visca::command::InquiryData::SharpnessPosition::position: u8
 pub grafton_visca::command::InquiryData::Shutter
 pub grafton_visca::command::InquiryData::Shutter::position: u8
 pub grafton_visca::command::InquiryData::Standby
@@ -7020,11 +7044,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::AutoNdC
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AutoNdCommand
 pub struct grafton_visca::command::AutoSlowShutterOff
 impl grafton_visca::command::AutoSlowShutterOff
-pub fn grafton_visca::command::AutoSlowShutterOff::new() -> Self
+pub const fn grafton_visca::command::AutoSlowShutterOff::new() -> Self
 impl core::clone::Clone for grafton_visca::command::AutoSlowShutterOff
 pub fn grafton_visca::command::AutoSlowShutterOff::clone(&self) -> grafton_visca::command::AutoSlowShutterOff
 impl core::default::Default for grafton_visca::command::AutoSlowShutterOff
-pub fn grafton_visca::command::AutoSlowShutterOff::default() -> Self
+pub fn grafton_visca::command::AutoSlowShutterOff::default() -> grafton_visca::command::AutoSlowShutterOff
 impl core::fmt::Debug for grafton_visca::command::AutoSlowShutterOff
 pub fn grafton_visca::command::AutoSlowShutterOff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::AutoSlowShutterOff
@@ -7051,11 +7075,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::AutoSlo
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::AutoSlowShutterOff
 pub struct grafton_visca::command::AutoSlowShutterOn
 impl grafton_visca::command::AutoSlowShutterOn
-pub fn grafton_visca::command::AutoSlowShutterOn::new() -> Self
+pub const fn grafton_visca::command::AutoSlowShutterOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::AutoSlowShutterOn
 pub fn grafton_visca::command::AutoSlowShutterOn::clone(&self) -> grafton_visca::command::AutoSlowShutterOn
 impl core::default::Default for grafton_visca::command::AutoSlowShutterOn
-pub fn grafton_visca::command::AutoSlowShutterOn::default() -> Self
+pub fn grafton_visca::command::AutoSlowShutterOn::default() -> grafton_visca::command::AutoSlowShutterOn
 impl core::fmt::Debug for grafton_visca::command::AutoSlowShutterOn
 pub fn grafton_visca::command::AutoSlowShutterOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::AutoSlowShutterOn
@@ -7985,6 +8009,8 @@ pub fn grafton_visca::command::FlipState::clone(&self) -> grafton_visca::command
 impl core::cmp::Eq for grafton_visca::command::FlipState
 impl core::cmp::PartialEq for grafton_visca::command::FlipState
 pub fn grafton_visca::command::FlipState::eq(&self, &grafton_visca::command::FlipState) -> bool
+impl core::convert::From<grafton_visca::command::ImageFlipMode> for grafton_visca::command::FlipState
+pub fn grafton_visca::command::FlipState::from(grafton_visca::command::ImageFlipMode) -> Self
 impl core::fmt::Debug for grafton_visca::command::FlipState
 pub fn grafton_visca::command::FlipState::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::FlipState
@@ -9060,9 +9086,9 @@ pub fn grafton_visca::command::Nibbles<'a, N>::as_array(&self) -> &'a [u8; N]
 pub fn grafton_visca::command::Nibbles<'a, N>::byte(&self, usize) -> u8
 pub fn grafton_visca::command::Nibbles<'a, N>::from_array(&'a [u8; N]) -> Self
 pub fn grafton_visca::command::Nibbles<'a, N>::i16_quad(&self, usize) -> i16
-pub fn grafton_visca::command::Nibbles<'a, N>::last_nibble(&self) -> u8
 pub fn grafton_visca::command::Nibbles<'a, N>::u16_quad(&self, usize) -> u16
-pub fn grafton_visca::command::Nibbles<'a, N>::u8_pair(&self, usize) -> u8
+pub fn grafton_visca::command::Nibbles<'a, N>::zero_extended_nibble(&self) -> core::result::Result<u8, grafton_visca::Error>
+pub fn grafton_visca::command::Nibbles<'a, N>::zero_extended_u8(&self) -> core::result::Result<u8, grafton_visca::Error>
 impl<'a, const N: usize> core::clone::Clone for grafton_visca::command::Nibbles<'a, N>
 pub fn grafton_visca::command::Nibbles<'a, N>::clone(&self) -> grafton_visca::command::Nibbles<'a, N>
 impl<'a, const N: usize> core::cmp::Eq for grafton_visca::command::Nibbles<'a, N>
@@ -9320,11 +9346,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::NoiseRe
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::NoiseReduction3DInquiry
 pub struct grafton_visca::command::OnePushTriggerCommand
 impl grafton_visca::command::OnePushTriggerCommand
-pub fn grafton_visca::command::OnePushTriggerCommand::new() -> Self
+pub const fn grafton_visca::command::OnePushTriggerCommand::new() -> Self
 impl core::clone::Clone for grafton_visca::command::OnePushTriggerCommand
 pub fn grafton_visca::command::OnePushTriggerCommand::clone(&self) -> grafton_visca::command::OnePushTriggerCommand
 impl core::default::Default for grafton_visca::command::OnePushTriggerCommand
-pub fn grafton_visca::command::OnePushTriggerCommand::default() -> Self
+pub fn grafton_visca::command::OnePushTriggerCommand::default() -> grafton_visca::command::OnePushTriggerCommand
 impl core::fmt::Debug for grafton_visca::command::OnePushTriggerCommand
 pub fn grafton_visca::command::OnePushTriggerCommand::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::OnePushTriggerCommand
@@ -9373,7 +9399,7 @@ pub fn grafton_visca::command::PanTiltPositionInquiry::motion_axes(&self) -> cor
 pub fn grafton_visca::command::PanTiltPositionInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub fn grafton_visca::command::PanTiltPositionInquiry::retry_class(&self) -> grafton_visca::RetryClass
 pub fn grafton_visca::command::PanTiltPositionInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::PanTiltPositionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::command::PanTiltPositionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::PanTiltPositionInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::command::ResponseParser for grafton_visca::command::PanTiltPositionInquiry
 pub type grafton_visca::command::PanTiltPositionInquiry::Response = grafton_visca::camera::PanTiltPosition
@@ -9549,11 +9575,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PowerIn
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PowerInquiry
 pub struct grafton_visca::command::PowerOn
 impl grafton_visca::command::PowerOn
-pub fn grafton_visca::command::PowerOn::new() -> Self
+pub const fn grafton_visca::command::PowerOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::PowerOn
 pub fn grafton_visca::command::PowerOn::clone(&self) -> grafton_visca::command::PowerOn
 impl core::default::Default for grafton_visca::command::PowerOn
-pub fn grafton_visca::command::PowerOn::default() -> Self
+pub fn grafton_visca::command::PowerOn::default() -> grafton_visca::command::PowerOn
 impl core::fmt::Debug for grafton_visca::command::PowerOn
 pub fn grafton_visca::command::PowerOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::PowerOn
@@ -9580,11 +9606,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PowerOn
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PowerOn
 pub struct grafton_visca::command::PowerStandby
 impl grafton_visca::command::PowerStandby
-pub fn grafton_visca::command::PowerStandby::new() -> Self
+pub const fn grafton_visca::command::PowerStandby::new() -> Self
 impl core::clone::Clone for grafton_visca::command::PowerStandby
 pub fn grafton_visca::command::PowerStandby::clone(&self) -> grafton_visca::command::PowerStandby
 impl core::default::Default for grafton_visca::command::PowerStandby
-pub fn grafton_visca::command::PowerStandby::default() -> Self
+pub fn grafton_visca::command::PowerStandby::default() -> grafton_visca::command::PowerStandby
 impl core::fmt::Debug for grafton_visca::command::PowerStandby
 pub fn grafton_visca::command::PowerStandby::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::PowerStandby
@@ -10056,7 +10082,7 @@ pub const fn grafton_visca::command::SettingsSaveCommand::new() -> Self
 impl core::clone::Clone for grafton_visca::command::SettingsSaveCommand
 pub fn grafton_visca::command::SettingsSaveCommand::clone(&self) -> grafton_visca::command::SettingsSaveCommand
 impl core::default::Default for grafton_visca::command::SettingsSaveCommand
-pub fn grafton_visca::command::SettingsSaveCommand::default() -> Self
+pub fn grafton_visca::command::SettingsSaveCommand::default() -> grafton_visca::command::SettingsSaveCommand
 impl core::fmt::Debug for grafton_visca::command::SettingsSaveCommand
 pub fn grafton_visca::command::SettingsSaveCommand::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::SettingsSaveCommand
@@ -10191,11 +10217,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::Shutter
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::ShutterInquiry
 pub struct grafton_visca::command::SpotlightOff
 impl grafton_visca::command::SpotlightOff
-pub fn grafton_visca::command::SpotlightOff::new() -> Self
+pub const fn grafton_visca::command::SpotlightOff::new() -> Self
 impl core::clone::Clone for grafton_visca::command::SpotlightOff
 pub fn grafton_visca::command::SpotlightOff::clone(&self) -> grafton_visca::command::SpotlightOff
 impl core::default::Default for grafton_visca::command::SpotlightOff
-pub fn grafton_visca::command::SpotlightOff::default() -> Self
+pub fn grafton_visca::command::SpotlightOff::default() -> grafton_visca::command::SpotlightOff
 impl core::fmt::Debug for grafton_visca::command::SpotlightOff
 pub fn grafton_visca::command::SpotlightOff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::SpotlightOff
@@ -10222,11 +10248,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::Spotlig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::SpotlightOff
 pub struct grafton_visca::command::SpotlightOn
 impl grafton_visca::command::SpotlightOn
-pub fn grafton_visca::command::SpotlightOn::new() -> Self
+pub const fn grafton_visca::command::SpotlightOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::SpotlightOn
 pub fn grafton_visca::command::SpotlightOn::clone(&self) -> grafton_visca::command::SpotlightOn
 impl core::default::Default for grafton_visca::command::SpotlightOn
-pub fn grafton_visca::command::SpotlightOn::default() -> Self
+pub fn grafton_visca::command::SpotlightOn::default() -> grafton_visca::command::SpotlightOn
 impl core::fmt::Debug for grafton_visca::command::SpotlightOn
 pub fn grafton_visca::command::SpotlightOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::SpotlightOn
@@ -10325,11 +10351,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyAu
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyAutoAdjustInquiry
 pub struct grafton_visca::command::TallyBrightHi
 impl grafton_visca::command::TallyBrightHi
-pub fn grafton_visca::command::TallyBrightHi::new() -> Self
+pub const fn grafton_visca::command::TallyBrightHi::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyBrightHi
 pub fn grafton_visca::command::TallyBrightHi::clone(&self) -> grafton_visca::command::TallyBrightHi
 impl core::default::Default for grafton_visca::command::TallyBrightHi
-pub fn grafton_visca::command::TallyBrightHi::default() -> Self
+pub fn grafton_visca::command::TallyBrightHi::default() -> grafton_visca::command::TallyBrightHi
 impl core::fmt::Debug for grafton_visca::command::TallyBrightHi
 pub fn grafton_visca::command::TallyBrightHi::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyBrightHi
@@ -10356,11 +10382,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyBr
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyBrightHi
 pub struct grafton_visca::command::TallyBrightLo
 impl grafton_visca::command::TallyBrightLo
-pub fn grafton_visca::command::TallyBrightLo::new() -> Self
+pub const fn grafton_visca::command::TallyBrightLo::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyBrightLo
 pub fn grafton_visca::command::TallyBrightLo::clone(&self) -> grafton_visca::command::TallyBrightLo
 impl core::default::Default for grafton_visca::command::TallyBrightLo
-pub fn grafton_visca::command::TallyBrightLo::default() -> Self
+pub fn grafton_visca::command::TallyBrightLo::default() -> grafton_visca::command::TallyBrightLo
 impl core::fmt::Debug for grafton_visca::command::TallyBrightLo
 pub fn grafton_visca::command::TallyBrightLo::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyBrightLo
@@ -10387,11 +10413,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyBr
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyBrightLo
 pub struct grafton_visca::command::TallyFlash
 impl grafton_visca::command::TallyFlash
-pub fn grafton_visca::command::TallyFlash::new() -> Self
+pub const fn grafton_visca::command::TallyFlash::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyFlash
 pub fn grafton_visca::command::TallyFlash::clone(&self) -> grafton_visca::command::TallyFlash
 impl core::default::Default for grafton_visca::command::TallyFlash
-pub fn grafton_visca::command::TallyFlash::default() -> Self
+pub fn grafton_visca::command::TallyFlash::default() -> grafton_visca::command::TallyFlash
 impl core::fmt::Debug for grafton_visca::command::TallyFlash
 pub fn grafton_visca::command::TallyFlash::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyFlash
@@ -10454,11 +10480,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyGr
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyGreenInquiry
 pub struct grafton_visca::command::TallyGreenOff
 impl grafton_visca::command::TallyGreenOff
-pub fn grafton_visca::command::TallyGreenOff::new() -> Self
+pub const fn grafton_visca::command::TallyGreenOff::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyGreenOff
 pub fn grafton_visca::command::TallyGreenOff::clone(&self) -> grafton_visca::command::TallyGreenOff
 impl core::default::Default for grafton_visca::command::TallyGreenOff
-pub fn grafton_visca::command::TallyGreenOff::default() -> Self
+pub fn grafton_visca::command::TallyGreenOff::default() -> grafton_visca::command::TallyGreenOff
 impl core::fmt::Debug for grafton_visca::command::TallyGreenOff
 pub fn grafton_visca::command::TallyGreenOff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyGreenOff
@@ -10485,11 +10511,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyGr
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyGreenOff
 pub struct grafton_visca::command::TallyGreenOn
 impl grafton_visca::command::TallyGreenOn
-pub fn grafton_visca::command::TallyGreenOn::new() -> Self
+pub const fn grafton_visca::command::TallyGreenOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyGreenOn
 pub fn grafton_visca::command::TallyGreenOn::clone(&self) -> grafton_visca::command::TallyGreenOn
 impl core::default::Default for grafton_visca::command::TallyGreenOn
-pub fn grafton_visca::command::TallyGreenOn::default() -> Self
+pub fn grafton_visca::command::TallyGreenOn::default() -> grafton_visca::command::TallyGreenOn
 impl core::fmt::Debug for grafton_visca::command::TallyGreenOn
 pub fn grafton_visca::command::TallyGreenOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyGreenOn
@@ -10516,11 +10542,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyGr
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyGreenOn
 pub struct grafton_visca::command::TallyOff
 impl grafton_visca::command::TallyOff
-pub fn grafton_visca::command::TallyOff::new() -> Self
+pub const fn grafton_visca::command::TallyOff::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyOff
 pub fn grafton_visca::command::TallyOff::clone(&self) -> grafton_visca::command::TallyOff
 impl core::default::Default for grafton_visca::command::TallyOff
-pub fn grafton_visca::command::TallyOff::default() -> Self
+pub fn grafton_visca::command::TallyOff::default() -> grafton_visca::command::TallyOff
 impl core::fmt::Debug for grafton_visca::command::TallyOff
 pub fn grafton_visca::command::TallyOff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyOff
@@ -10547,11 +10573,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyOf
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyOff
 pub struct grafton_visca::command::TallyOn
 impl grafton_visca::command::TallyOn
-pub fn grafton_visca::command::TallyOn::new() -> Self
+pub const fn grafton_visca::command::TallyOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyOn
 pub fn grafton_visca::command::TallyOn::clone(&self) -> grafton_visca::command::TallyOn
 impl core::default::Default for grafton_visca::command::TallyOn
-pub fn grafton_visca::command::TallyOn::default() -> Self
+pub fn grafton_visca::command::TallyOn::default() -> grafton_visca::command::TallyOn
 impl core::fmt::Debug for grafton_visca::command::TallyOn
 pub fn grafton_visca::command::TallyOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyOn
@@ -10614,11 +10640,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyRe
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyRedInquiry
 pub struct grafton_visca::command::TallyRedOff
 impl grafton_visca::command::TallyRedOff
-pub fn grafton_visca::command::TallyRedOff::new() -> Self
+pub const fn grafton_visca::command::TallyRedOff::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyRedOff
 pub fn grafton_visca::command::TallyRedOff::clone(&self) -> grafton_visca::command::TallyRedOff
 impl core::default::Default for grafton_visca::command::TallyRedOff
-pub fn grafton_visca::command::TallyRedOff::default() -> Self
+pub fn grafton_visca::command::TallyRedOff::default() -> grafton_visca::command::TallyRedOff
 impl core::fmt::Debug for grafton_visca::command::TallyRedOff
 pub fn grafton_visca::command::TallyRedOff::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyRedOff
@@ -10645,11 +10671,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::TallyRe
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::TallyRedOff
 pub struct grafton_visca::command::TallyRedOn
 impl grafton_visca::command::TallyRedOn
-pub fn grafton_visca::command::TallyRedOn::new() -> Self
+pub const fn grafton_visca::command::TallyRedOn::new() -> Self
 impl core::clone::Clone for grafton_visca::command::TallyRedOn
 pub fn grafton_visca::command::TallyRedOn::clone(&self) -> grafton_visca::command::TallyRedOn
 impl core::default::Default for grafton_visca::command::TallyRedOn
-pub fn grafton_visca::command::TallyRedOn::default() -> Self
+pub fn grafton_visca::command::TallyRedOn::default() -> grafton_visca::command::TallyRedOn
 impl core::fmt::Debug for grafton_visca::command::TallyRedOn
 pub fn grafton_visca::command::TallyRedOn::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::TallyRedOn
@@ -11643,12 +11669,17 @@ pub grafton_visca::prelude::blocking::AutoWhiteBalanceSensitivity::High = 0
 pub grafton_visca::prelude::blocking::AutoWhiteBalanceSensitivity::Low = 2
 pub grafton_visca::prelude::blocking::AutoWhiteBalanceSensitivity::Normal = 1
 impl grafton_visca::command::AutoWhiteBalanceSensitivity
-pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::to_command_byte(self) -> u8
+pub const fn grafton_visca::command::AutoWhiteBalanceSensitivity::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::clone(&self) -> grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::Eq for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::PartialEq for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::eq(&self, &grafton_visca::command::AutoWhiteBalanceSensitivity) -> bool
+impl core::convert::From<grafton_visca::command::AutoWhiteBalanceSensitivity> for u8
+pub fn u8::from(grafton_visca::command::AutoWhiteBalanceSensitivity) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::AutoWhiteBalanceSensitivity
+pub type grafton_visca::command::AutoWhiteBalanceSensitivity::Error = grafton_visca::Error
+pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::try_from(u8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::AutoWhiteBalanceSensitivity
@@ -18836,6 +18867,9 @@ pub const fn grafton_visca::types::BlueTuning::new(i8) -> core::result::Result<S
 pub const fn grafton_visca::types::BlueTuning::value(self) -> i8
 impl grafton_visca::types::BlueTuning
 pub const grafton_visca::types::BlueTuning::NEUTRAL: Self
+impl grafton_visca::types::BlueTuning
+pub const grafton_visca::types::BlueTuning::WIRE_CENTER: u8
+pub const fn grafton_visca::types::BlueTuning::to_protocol_value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::BlueTuning
 pub fn grafton_visca::types::BlueTuning::clone(&self) -> grafton_visca::types::BlueTuning
 impl core::cmp::Eq for grafton_visca::types::BlueTuning
@@ -19061,6 +19095,7 @@ pub const grafton_visca::types::ExposureCompensationLevel::MIN: Self
 pub const fn grafton_visca::types::ExposureCompensationLevel::new(i8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ExposureCompensationLevel::value(self) -> i8
 impl grafton_visca::types::ExposureCompensationLevel
+pub const grafton_visca::types::ExposureCompensationLevel::WIRE_CENTER: u8
 pub const fn grafton_visca::types::ExposureCompensationLevel::to_protocol_value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::ExposureCompensationLevel
 pub fn grafton_visca::types::ExposureCompensationLevel::clone(&self) -> grafton_visca::types::ExposureCompensationLevel
@@ -19578,6 +19613,9 @@ pub const fn grafton_visca::types::RedTuning::new(i8) -> core::result::Result<Se
 pub const fn grafton_visca::types::RedTuning::value(self) -> i8
 impl grafton_visca::types::RedTuning
 pub const grafton_visca::types::RedTuning::NEUTRAL: Self
+impl grafton_visca::types::RedTuning
+pub const grafton_visca::types::RedTuning::WIRE_CENTER: u8
+pub const fn grafton_visca::types::RedTuning::to_protocol_value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::RedTuning
 pub fn grafton_visca::types::RedTuning::clone(&self) -> grafton_visca::types::RedTuning
 impl core::cmp::Eq for grafton_visca::types::RedTuning
@@ -20114,12 +20152,17 @@ pub grafton_visca::AutoWhiteBalanceSensitivity::High = 0
 pub grafton_visca::AutoWhiteBalanceSensitivity::Low = 2
 pub grafton_visca::AutoWhiteBalanceSensitivity::Normal = 1
 impl grafton_visca::command::AutoWhiteBalanceSensitivity
-pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::to_command_byte(self) -> u8
+pub const fn grafton_visca::command::AutoWhiteBalanceSensitivity::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::clone(&self) -> grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::Eq for grafton_visca::command::AutoWhiteBalanceSensitivity
 impl core::cmp::PartialEq for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::eq(&self, &grafton_visca::command::AutoWhiteBalanceSensitivity) -> bool
+impl core::convert::From<grafton_visca::command::AutoWhiteBalanceSensitivity> for u8
+pub fn u8::from(grafton_visca::command::AutoWhiteBalanceSensitivity) -> Self
+impl core::convert::TryFrom<u8> for grafton_visca::command::AutoWhiteBalanceSensitivity
+pub type grafton_visca::command::AutoWhiteBalanceSensitivity::Error = grafton_visca::Error
+pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::try_from(u8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::command::AutoWhiteBalanceSensitivity
 pub fn grafton_visca::command::AutoWhiteBalanceSensitivity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::command::AutoWhiteBalanceSensitivity
@@ -23609,7 +23652,7 @@ pub fn grafton_visca::command::PanTiltPositionInquiry::motion_axes(&self) -> cor
 pub fn grafton_visca::command::PanTiltPositionInquiry::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub fn grafton_visca::command::PanTiltPositionInquiry::retry_class(&self) -> grafton_visca::RetryClass
 pub fn grafton_visca::command::PanTiltPositionInquiry::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::command::PanTiltPositionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::command::PanTiltPositionInquiry::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
 pub fn grafton_visca::command::PanTiltPositionInquiry::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> core::result::Result<usize, grafton_visca::Error>
 impl grafton_visca::Request for grafton_visca::command::PerformMenuAction
 pub type grafton_visca::command::PerformMenuAction::Class = grafton_visca::request::Plain

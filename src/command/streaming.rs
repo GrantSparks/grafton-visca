@@ -3,12 +3,16 @@
 //! This module contains vendor-specific commands for controlling network and streaming features
 //! on PtzOptics Ndi cameras. These are not part of the baseline VISCA standard.
 
-use crate::{types::NdiQuality, visca_command};
+use crate::{
+    command::bytes::{constants::streaming, FrameWriter},
+    types::NdiQuality,
+    visca_command,
+};
 
 visca_command! {
         /// Internal multicast streaming command
     pub struct MulticastStreamingInternal { enabled: bool };
-    prefix = [0x0B, 0x01, 0x23];
+    prefix = streaming::MULTICAST;
     param = if *enabled { 0x01 } else { 0x02 };
     max_param_size = 1;
 }
@@ -51,7 +55,7 @@ impl crate::command::encode::WireEncode for MulticastStreaming {
 visca_command! {
         /// Internal Ndi quality command
     pub struct NdiQualityCommandInternal { quality: NdiQuality };
-    prefix = [0x0B, 0x01, 0x01];
+    prefix = streaming::NDI_QUALITY;
     param = match *quality {
         NdiQuality::High => 0x01,
         NdiQuality::Medium => 0x02,
@@ -112,16 +116,13 @@ impl crate::command::encode::WireEncode for UsbAudio {
         camera_id: crate::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, crate::Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        let builder = ConstCommandBuilder::<7>::from_prefix(constants::streaming::USB_AUDIO_PREFIX)
-            .with_camera_id(camera_id)
-            .push(match self {
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&streaming::USB_AUDIO)
+            .byte(match self {
                 Self::On => 0x02,
                 Self::Off => 0x03,
             })
-            .terminate();
-        builder.build_into(buffer)
+            .finish()
     }
 }
 

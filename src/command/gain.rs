@@ -4,8 +4,7 @@
 //! including manual gain adjustment, gain limit control, and anti-flicker settings.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
-    error::Error,
+    command::bytes::{constants::gain, step_command_encoder},
     types::{GainLevel, GainLimit},
     visca_command,
 };
@@ -32,52 +31,18 @@ pub enum Gain {
     SetValue(GainLevel),
 }
 
-// Manual implementation to add model validation
-impl WireEncode for Gain {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        match self {
-            Self::Reset | Self::Up | Self::Down => {
-                let control_byte = match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                };
-
-                ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::gain::CONTROL_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(control_byte)
-                .terminate()
-                .build_into(buffer)
-            }
-            Self::SetValue(level) => {
-                let value = level.value();
-                let high = (value >> 4) & 0x0F;
-                let low = value & 0x0F;
-
-                ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::bytes::constants::gain::DIRECT_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(high)
-                .push(low)
-                .terminate()
-                .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Gain {
+        control: gain::STEP,
+        direct: gain::DIRECT,
+        SetValue(level) => nibbles::<2>(level.value()),
     }
 }
 
 visca_command! {
-        /// Command to set the automatic gain control limit.
+    /// Command to set the automatic gain control limit.
     pub struct GainLimitCommand { limit: GainLimit };
-    prefix = [0x01, 0x04, 0x2C];
+    prefix = gain::LIMIT;
     param = limit.value();
     max_param_size = 1;
 }

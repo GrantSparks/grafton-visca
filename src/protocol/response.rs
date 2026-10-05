@@ -215,6 +215,7 @@ mod tests {
     use super::*;
 
     use crate::command::{
+        pan_tilt::PanTiltFraming,
         response::{lift_inquiry, InquiryKind, Response},
         InquiryData,
     };
@@ -446,7 +447,8 @@ mod tests {
             socket: Some(ViscaSocket::S1),
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift ACK");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift ACK");
         assert!(matches!(lifted, Response::CmdAck { socket } if socket == Some(ViscaSocket::S1)));
 
         // Test Completion lifting
@@ -456,7 +458,8 @@ mod tests {
             socket: Some(ViscaSocket::S2),
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift Completion");
+        let lifted = lift_inquiry(&basic, None, PanTiltFraming::STANDARD)
+            .expect("Failed to lift Completion");
         assert!(
             matches!(lifted, Response::Completion { socket } if socket == Some(ViscaSocket::S2))
         );
@@ -468,7 +471,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift Error");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift Error");
         assert!(matches!(lifted, Response::Error(_)));
 
         // Test DataReply without expected type
@@ -478,7 +482,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[0x02]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift DataReply");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift DataReply");
         assert!(matches!(
             lifted,
             Response::Unknown { data, .. } if data == vec![0x02]
@@ -491,8 +496,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[0x02]),
         };
-        let lifted =
-            lift_inquiry(&basic, Some(&InquiryKind::Power)).expect("Failed to lift Power inquiry");
+        let lifted = lift_inquiry(&basic, Some(&InquiryKind::Power), PanTiltFraming::STANDARD)
+            .expect("Failed to lift Power inquiry");
         match lifted {
             Response::Inquiry(InquiryData::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),

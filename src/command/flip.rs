@@ -2,10 +2,12 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use crate::visca_command;
+use grafton_visca_macros::ViscaEnum;
+
+use crate::{command::bytes::constants::flip, visca_command};
 
 /// Image flip state.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -18,31 +20,31 @@ pub enum Flip {
 }
 
 visca_command! {
-        /// Command to control image flip.
+    /// Command to control image flip.
     ///
     /// This command flips the image vertically (upside down).
     pub struct ImageFlip { flip: Flip };
-    prefix = [0x01, 0x04, 0x66];
-    param = match flip { Flip::On => 0x02, Flip::Off => 0x03 };
+    prefix = flip::VERTICAL;
+    param = u8::from(*flip);
     max_param_size = 1;
 }
 
 visca_command! {
-        /// Command to control horizontal flip (mirror).
+    /// Command to control horizontal flip (mirror).
     ///
     /// This command flips the image horizontally (left-right mirror).
     pub struct HorizontalFlip { on: bool };
-    prefix = [0x01, 0x04, 0x61];
+    prefix = flip::HORIZONTAL;
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
 }
 
 visca_command! {
-        /// Command to control image freeze.
+    /// Command to control image freeze.
     ///
     /// This command freezes the current image frame.
     pub struct ImageFreeze { on: bool };
-    prefix = [0x01, 0x04, 0x62];
+    prefix = flip::FREEZE;
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
 }

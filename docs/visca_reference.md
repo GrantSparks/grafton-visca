@@ -553,6 +553,7 @@ out of G3 scope.
 | Focus AF mode | `81 09 04 38 FF` | `90 50 02 FF` auto; `90 50 03 FF` manual. |
 | Focus position | `81 09 04 48 FF` | `90 50 0p 0q 0r 0s FF`; `pqrs = Focus Position`. |
 | WB mode | `81 09 04 35 FF` | `00` auto, `01` indoor, `02` outdoor, `03` one-push, `05` manual, `20` color-temperature mode. |
+| Color temperature | `81 09 04 20 FF` | Not in the vendor tables. The PTZOptics G2 bench (hardware inquiry test, #498) replies with one data byte, `90 50 pq FF`, where `pq` is the `04 20` direct code (`0x00` = 2500K … `0x37` = 8000K). No Sony source documents this reply, so the decoded layout is source-backed only for the PTZOptics G2 family (`PtzOpticsG2` and the legacy G2 `PtzOptics30X`). |
 | Red gain | `81 09 04 43 FF` | `90 50 00 00 0p 0q FF`; `pq = R Gain`. |
 | Blue gain | `81 09 04 44 FF` | `90 50 00 00 0p 0q FF`; `pq = B Gain`. |
 | AE mode | `81 09 04 39 FF` | `00` full auto, `03` manual, `0A` shutter priority, `0B` iris priority, `0D` bright. R10/R14 independently document this row for G3. |

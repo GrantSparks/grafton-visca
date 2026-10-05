@@ -79,8 +79,8 @@ record_construction TransportError src/runtime/owner/mod.rs \
   'Error::TransportError(format!("datagram send failed: {error}").into())'
 record_construction InvalidParameter src/units.rs \
   'return Err(Error::InvalidParameter {'
-record_construction BufferTooSmall src/raw.rs \
-  'return Err(Error::BufferTooSmall {'
+record_construction BufferTooSmall src/command/bytes/frame.rs \
+  'Err(Error::buffer_too_small(frame.len, frame.buffer.len()))'
 record_construction InvalidPreset src/camera/profiles.rs \
   'Err(Error::InvalidPreset {'
 record_construction ParameterOutOfRange src/units.rs \
@@ -121,8 +121,6 @@ record_construction RuntimeQueueFull src/runtime/engine/mod.rs \
   'return Err(Error::RuntimeQueueFull {'
 record_construction StreamPoisoned src/runtime/engine/mod.rs \
   'Error::StreamPoisoned {'
-record_construction DecoderNotFound src/command/inquiry_structs.rs \
-  'return Err(Error::DecoderNotFound {'
 record_construction InvalidCameraId src/camera_id.rs \
   '_ => Err(Error::InvalidCameraId { id }),'
 record_construction ResponseTooLarge src/raw.rs \

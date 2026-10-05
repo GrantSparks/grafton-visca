@@ -247,27 +247,6 @@ mod tests {
         );
     }
 
-    /// Only the positive half lives here: that a terminated builder yields a
-    /// terminated frame. The negative half — that the *unterminated* state has
-    /// no `as_bytes` at all — is a compile-time assertion in
-    /// `bytes::builder::tests::the_incomplete_state_has_no_inherent_as_bytes`,
-    /// because a commented-out line asserts nothing.
-    #[test]
-    fn test_terminated_builder_yields_a_terminated_frame() {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = ConstCommandBuilder::<8>::new()
-            .push(0x81)
-            .push(0x01)
-            .push(0x04)
-            .push(0x00)
-            .push(0x02)
-            .terminate();
-
-        let bytes = builder.as_bytes();
-        assert_eq!(bytes, &[0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR]);
-    }
-
     #[test]
     #[allow(clippy::expect_used, clippy::unwrap_used)]
     fn test_all_command_categories_terminate() {
@@ -436,6 +415,139 @@ mod tests {
                 frame.starts_with(&prefix),
                 "{label}: encoder emits {frame:02X?}, which does not start with the documented `{documented}` in docs/visca_reference.md"
             );
+        }
+    }
+
+    /// Every encoder takes its address byte from the frame writer, so framing
+    /// one command for camera addresses 1–7 must differ only in byte 0
+    /// (`0x8n`). Covers every step-encoder family (each step and its direct
+    /// value), the drive encoders, and the macro-generated unit and parameter
+    /// commands (#810, #811).
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn every_encoder_family_varies_only_in_the_address_byte() {
+        use crate::command::{
+            BlueGain, Brightness, ColorTemperature, ExposureCompensation, Focus, Gain, Iris,
+            OnePushTriggerCommand, PowerOn, RedGain, SettingsSaveCommand, Sharpness, SharpnessMode,
+            Shutter, SpotlightOn, TallyFlash, TallyRedOn, WhiteBalanceCommand, WhiteBalanceMode,
+            Zoom,
+        };
+        use crate::types::{
+            BlueChannel, BrightnessLevel, ColorTemp, ExposureCompensationLevel, GainLevel,
+            IrisLevel, RedChannel, SharpnessLevel, ShutterSpeed, ZoomSpeed,
+        };
+
+        fn frames_differ_only_in_address(command: &dyn WireEncode, name: &str) {
+            let encode = |camera: u8| {
+                let camera_id = CameraId::new(camera).expect("valid camera");
+                let mut buffer = [0u8; 32];
+                let len = command
+                    .write_into(camera_id, &mut buffer)
+                    .expect("encoder must frame");
+                buffer[..len].to_vec()
+            };
+            let first = encode(1);
+            for camera in 1..=7 {
+                let frame = encode(camera);
+                assert_eq!(frame[0], 0x80 | camera, "{name} at camera {camera}");
+                assert_eq!(frame[1..], first[1..], "{name} body at camera {camera}");
+            }
+        }
+
+        let commands: Vec<(&str, Box<dyn WireEncode>)> = vec![
+            (
+                "ExposureCompensation::Reset",
+                Box::new(ExposureCompensation::Reset),
+            ),
+            (
+                "ExposureCompensation::Up",
+                Box::new(ExposureCompensation::Up),
+            ),
+            (
+                "ExposureCompensation::Down",
+                Box::new(ExposureCompensation::Down),
+            ),
+            (
+                "ExposureCompensation::On",
+                Box::new(ExposureCompensation::On),
+            ),
+            (
+                "ExposureCompensation::SetLevel",
+                Box::new(ExposureCompensation::SetLevel(
+                    ExposureCompensationLevel::new(-3).expect("level"),
+                )),
+            ),
+            ("Iris::Up", Box::new(Iris::Up)),
+            (
+                "Iris::SetAperture",
+                Box::new(Iris::SetAperture(IrisLevel::new(0x0A).expect("iris"))),
+            ),
+            ("Shutter::Down", Box::new(Shutter::Down)),
+            (
+                "Shutter::SetSpeed",
+                Box::new(Shutter::SetSpeed(ShutterSpeed::new(0x11))),
+            ),
+            ("Brightness::Reset", Box::new(Brightness::Reset)),
+            (
+                "Brightness::SetLevel",
+                Box::new(Brightness::SetLevel(
+                    BrightnessLevel::new(0x11).expect("bright"),
+                )),
+            ),
+            ("Gain::Up", Box::new(Gain::Up)),
+            (
+                "Gain::SetValue",
+                Box::new(Gain::SetValue(GainLevel::new(0x0C).expect("gain"))),
+            ),
+            ("ColorTemperature::Down", Box::new(ColorTemperature::Down)),
+            (
+                "ColorTemperature::SetTemperature",
+                Box::new(ColorTemperature::SetTemperature(
+                    ColorTemp::new(0x37).expect("temp"),
+                )),
+            ),
+            ("RedGain::Reset", Box::new(RedGain::Reset)),
+            (
+                "RedGain::SetValue",
+                Box::new(RedGain::SetValue(RedChannel::new(0xA5).expect("red"))),
+            ),
+            ("BlueGain::Up", Box::new(BlueGain::Up)),
+            (
+                "BlueGain::SetValue",
+                Box::new(BlueGain::SetValue(BlueChannel::new(0x5A).expect("blue"))),
+            ),
+            ("Sharpness::Down", Box::new(Sharpness::Down)),
+            (
+                "Sharpness::Mode",
+                Box::new(Sharpness::Mode(SharpnessMode::Manual)),
+            ),
+            (
+                "Sharpness::SetLevel",
+                Box::new(Sharpness::SetLevel {
+                    value: SharpnessLevel::new(0x0F).expect("sharpness"),
+                }),
+            ),
+            (
+                "Zoom::TeleVariable",
+                Box::new(Zoom::TeleVariable(ZoomSpeed::new(7).expect("zoom"))),
+            ),
+            ("Focus::Near", Box::new(Focus::Near)),
+            ("PowerOn", Box::new(PowerOn::new())),
+            ("SpotlightOn", Box::new(SpotlightOn::new())),
+            ("TallyRedOn", Box::new(TallyRedOn::new())),
+            ("TallyFlash", Box::new(TallyFlash::new())),
+            (
+                "OnePushTriggerCommand",
+                Box::new(OnePushTriggerCommand::new()),
+            ),
+            ("SettingsSaveCommand", Box::new(SettingsSaveCommand::new())),
+            (
+                "WhiteBalanceCommand",
+                Box::new(WhiteBalanceCommand::new(WhiteBalanceMode::ColorTemperature)),
+            ),
+        ];
+        for (name, command) in &commands {
+            frames_differ_only_in_address(command.as_ref(), name);
         }
     }
 }

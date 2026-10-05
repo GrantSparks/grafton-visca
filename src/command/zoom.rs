@@ -19,7 +19,10 @@
 //! ```
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::WireEncode},
+    command::{
+        bytes::{constants::zoom, FrameWriter, Step},
+        encode::WireEncode,
+    },
     error::Error,
     types::{ZoomPosition, ZoomSpeed},
 };
@@ -59,52 +62,20 @@ impl WireEncode for Zoom {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants::zoom;
-
+        let frame = FrameWriter::new(camera_id, buffer);
         match self {
-            Self::Stop => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::STOP)
-                    .with_camera_id(camera_id)
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::TeleStd => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::TELE_STD)
-                    .with_camera_id(camera_id)
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::WideStd => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::WIDE_STD)
-                    .with_camera_id(camera_id)
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::TeleVariable(speed) => {
-                // Tele variable: 81 01 04 07 2p FF where p is speed
-                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(0x20 | (speed.value() & 0x0F))
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::WideVariable(speed) => {
-                // Wide variable: 81 01 04 07 3p FF where p is speed
-                let builder = ConstCommandBuilder::<6>::from_prefix(zoom::VARIABLE_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push(0x30 | (speed.value() & 0x0F))
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::Position(position) => {
-                // Direct position: 81 01 04 47 0p 0q 0r 0s FF
-                let builder = ConstCommandBuilder::<9>::from_prefix(zoom::POSITION_PREFIX)
-                    .with_camera_id(camera_id)
-                    .push_visca_u16(position.value())
-                    .terminate();
-                builder.build_into(buffer)
-            }
+            Self::Stop => frame.bytes(&zoom::DRIVE).byte(Step::Reset.byte()),
+            Self::TeleStd => frame.bytes(&zoom::DRIVE).byte(Step::Up.byte()),
+            Self::WideStd => frame.bytes(&zoom::DRIVE).byte(Step::Down.byte()),
+            Self::TeleVariable(speed) => frame
+                .bytes(&zoom::DRIVE)
+                .byte(Step::Up.at_speed(speed.value())),
+            Self::WideVariable(speed) => frame
+                .bytes(&zoom::DRIVE)
+                .byte(Step::Down.at_speed(speed.value())),
+            Self::Position(position) => frame.bytes(&zoom::DIRECT).nibbles::<4>(position.value()),
         }
+        .finish()
     }
 }
 
@@ -136,13 +107,10 @@ impl WireEncode for DigitalZoom {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants::zoom::DIGITAL_ZOOM_PREFIX;
-
-        let builder = ConstCommandBuilder::<6>::from_prefix(DIGITAL_ZOOM_PREFIX)
-            .with_camera_id(camera_id)
-            .push(if self.enabled { 0x02 } else { 0x03 })
-            .terminate();
-        builder.build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&zoom::DIGITAL)
+            .byte(if self.enabled { 0x02 } else { 0x03 })
+            .finish()
     }
 }
 
