@@ -90,6 +90,10 @@ fn no_reply_plain_command_returns_after_one_write() {
         vec![wire.to_vec()],
         "the no-reply command is locally written exactly once"
     );
+    // The diagnostic stream is not ordered against the command's return;
+    // once `close` returns, every event the owner published is queued.
+    drop(camera);
+    session.close().expect("owner close");
     assert!(
         std::iter::from_fn(|| diagnostics.try_recv()).any(|event| matches!(
             event,
@@ -100,6 +104,4 @@ fn no_reply_plain_command_returns_after_one_write() {
         )),
         "the public diagnostic reports a local write, never Applied"
     );
-
-    session.shutdown().expect("owner shutdown");
 }

@@ -548,6 +548,11 @@ impl Session {
     /// `capacity` must be in `1..=128`; at most four live subscriptions are
     /// retained by one owner. A slow subscriber never stalls command or
     /// transport processing; its dropped events are visible in [`Self::metrics`].
+    ///
+    /// Delivery is not ordered against receipt resolution: a wait on an
+    /// operation can return before that operation's terminal event is queued
+    /// here. Once [`Self::close`] returns, every event the owner published is
+    /// queued.
     pub fn subscribe_diagnostics(&self, capacity: usize) -> Result<DiagnosticSubscription, Error> {
         self.owner
             .subscribe_diagnostics(capacity)
