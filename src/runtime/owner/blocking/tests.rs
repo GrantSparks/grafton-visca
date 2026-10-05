@@ -399,9 +399,13 @@ fn blocking_owner_matches_canonical_lifecycle_trace() {
     peer.reply(COMPLETION);
     receipt.wait().unwrap();
 
+    // The worker resolves the receipt before it publishes the `Terminal`
+    // diagnostic for the same effect, and the stream is best-effort, so a
+    // returned wait does not mean the trace is complete. `close` joins the
+    // worker; every event it published is queued once that returns.
+    owner.close().unwrap();
     let events = std::iter::from_fn(|| diagnostics.try_recv());
     assert_eq!(canonical_owner_trace(events), CANONICAL_OWNER_TRACE);
-    owner.close().unwrap();
 }
 
 /// Out-of-order peer-receipt retention on the Sony sequence-bearing envelope

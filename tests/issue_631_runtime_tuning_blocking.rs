@@ -18,7 +18,7 @@
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     time::{Duration, Instant},
 };
 
@@ -101,6 +101,40 @@ impl Inquiry for SilentInquiry {
     }
 }
 
+/// The frames a [`SilentTransport`] has sent, shared with the test thread.
+///
+/// Submission returns at admission, before the owner worker necessarily
+/// writes the frame, so a test that needs the write waits for it here.
+#[derive(Debug, Default)]
+struct WriteLog {
+    frames: Mutex<Vec<Vec<u8>>>,
+    written: Condvar,
+}
+
+impl WriteLog {
+    fn len(&self) -> usize {
+        self.frames.lock().expect("writes lock").len()
+    }
+
+    /// Waits until at least `count` frames are written; a bounded wait, so a
+    /// worker that never writes fails the test instead of hanging it.
+    fn await_writes(&self, count: usize) -> usize {
+        let frames = self.frames.lock().expect("writes lock");
+        let (frames, timeout) = self
+            .written
+            .wait_timeout_while(frames, Duration::from_secs(5), |frames| {
+                frames.len() < count
+            })
+            .expect("writes lock");
+        assert!(
+            !timeout.timed_out(),
+            "the owner worker wrote {} of {count} frames",
+            frames.len()
+        );
+        frames.len()
+    }
+}
+
 /// A camera that accepts every frame and answers none of them.
 ///
 /// Deliberate silence is what makes the deadline itself observable: nothing
@@ -109,7 +143,7 @@ impl Inquiry for SilentInquiry {
 #[derive(Debug)]
 struct SilentTransport {
     config: TransportConfig,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
+    writes: Arc<WriteLog>,
     replies: VecDeque<Vec<u8>>,
 }
 
@@ -117,12 +151,12 @@ impl SilentTransport {
     fn new() -> Self {
         Self {
             config: TransportConfig::default(),
-            writes: Arc::new(Mutex::new(Vec::new())),
+            writes: Arc::default(),
             replies: VecDeque::new(),
         }
     }
 
-    fn probe(&self) -> Arc<Mutex<Vec<Vec<u8>>>> {
+    fn probe(&self) -> Arc<WriteLog> {
         Arc::clone(&self.writes)
     }
 }
@@ -141,9 +175,11 @@ impl BlockingTransport for SilentTransport {
         _timeout: Duration,
     ) -> Result<(), Error> {
         self.writes
+            .frames
             .lock()
             .expect("writes lock")
             .push(bytes.to_vec());
+        self.writes.written.notify_all();
         Ok(())
     }
 
@@ -217,7 +253,7 @@ fn a_widened_ack_timeout_governs_the_next_submission() {
     );
 
     assert_eq!(
-        writes.lock().expect("writes lock").len(),
+        writes.len(),
         2,
         "neither submission was retried, so each measures exactly one deadline"
     );
@@ -440,10 +476,10 @@ fn an_invalid_update_is_rejected_and_changes_nothing() {
 /// An update taken while a receipt is outstanding applies to the next prepared
 /// request and never disturbs the receipt already being observed.
 ///
-/// The blocking owner runs on the caller's thread, so this is the only ordering
-/// an update can take: it occupies one owner turn between the turns that a
-/// receipt's own wait drives. The receipt must resume on its unchanged
-/// deadline, and the caller's next preparation must use the new one.
+/// The owner worker writes the admitted frame and stamps its acknowledgement
+/// deadline; the update is a later worker turn while that deadline runs. The
+/// receipt must resolve on its unchanged deadline, and the caller's next
+/// preparation must use the new one.
 #[test]
 fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
     let transport = SilentTransport::new();
@@ -454,11 +490,13 @@ fn an_update_while_a_receipt_is_outstanding_leaves_it_alone() {
     let mut operation = camera
         .submit::<AppliedOnly, _>(&SilentOperation)
         .expect("submission");
+    // Submission returns at admission; the worker writes afterwards. Once the
+    // frame is on the wire its acknowledgement deadline is stamped as an
+    // absolute instant.
     assert_eq!(
-        writes.lock().expect("writes lock").len(),
+        writes.await_writes(1),
         1,
-        "the frame is already on the wire, so its acknowledgement deadline is \
-         already stamped as an absolute instant"
+        "exactly the admitted frame is on the wire"
     );
 
     // The request is admitted under the profile's 500 ms deadline. Widening to
