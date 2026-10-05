@@ -482,6 +482,11 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::PtzOpticsTally,
         )
     };
+    (HasVersionInquiry) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::VersionInquiry,
+        )
+    };
     (HasDirectMenuControl) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::DirectMenu,

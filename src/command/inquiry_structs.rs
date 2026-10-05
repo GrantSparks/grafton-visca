@@ -2102,6 +2102,7 @@ macro_rules! builtin_inquiry_table {
                     0x00 => FocusZone::Top,
                     0x01 => FocusZone::Center,
                     0x02 => FocusZone::Bottom,
+                    0x03 => FocusZone::Zone03,
                     v => {
                         return Err(Error::InvalidParameter {
                             parameter: "focus_zone",
@@ -3051,9 +3052,12 @@ macro_rules! builtin_inquiry_table {
         // that same gate for the erased surface at runtime (#684), so a runtime
         // `ProfileSpec` missing the domain cannot reach `dyn <noun>().<inquiry>()`
         // any more than the static `<noun>()` accessor can be named without the
-        // marker. Truly ungated inquiries — the `System` and `Advanced` nouns
-        // (`noun_marker!` = `None`) and the universally-reachable `Menu` noun —
-        // stay in `InquiryControl` with `gate: none`.
+        // marker. Inquiries on the `System` and `Advanced` nouns
+        // (`noun_marker!` = `None`) and the universally-reachable `Menu` noun
+        // have no base-domain gate. Those with no typed gate either stay in
+        // `InquiryControl` with `gate: none`; `VersionInquiry` has its own
+        // `HasVersionInquiry` typed gate (#795) because it decodes only the
+        // Sony reply layout.
         PowerInquiryControl {
             base_gate: crate::capabilities::HasPower;
             PowerInquiry => power_state: bool;
@@ -3090,9 +3094,12 @@ macro_rules! builtin_inquiry_table {
             gate: crate::capabilities::HasDefogLevel;
             DefogLevelInquiry => defog_level: crate::types::DefogLevel;
         }
+        VersionInquiryControl {
+            gate: crate::capabilities::HasVersionInquiry;
+            VersionInquiry => version: crate::command::VersionInfo;
+        }
         InquiryControl {
             gate: none;
-            VersionInquiry => version: crate::command::VersionInfo;
             MenuOpenCloseInquiry => menu_status: bool;
             NightDayModeInquiry => night_day_mode: bool;
             StandbyInquiry => standby_enabled: bool;

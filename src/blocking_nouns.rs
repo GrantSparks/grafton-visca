@@ -32,7 +32,7 @@ use crate::{
         HasPtzOpticsSettingsSave, HasPtzOpticsSnapFocus, HasPtzOpticsTally, HasPushAutoFocus,
         HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
         HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasTallyBrightness, HasUsbAudio,
-        HasVariableSpeed, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasVariableSpeed, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command,
     completion::{self, AppliedOnly, Targeted},

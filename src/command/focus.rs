@@ -188,21 +188,46 @@ impl WireEncode for Focus {
     }
 }
 
-/// Focus Zone selection (baseline VISCA).
+/// Focus Zone selection (`CAM_AFZone`, `8x 01 04 AA 0p FF`).
 ///
-/// Determines which area of the image the camera uses for auto focus.
+/// Determines which area of the image the camera weights for auto focus. The
+/// focus-zone inquiry (`8x 09 04 AA FF`) replies `y0 50 0p FF` with the same
+/// values, so every variant read back from a camera can be set again unchanged.
+///
+/// The variant set is evidence-driven rather than fixed by one specification:
+/// `Top`, `Center` and `Bottom` are the documented `AF Zone weight select`
+/// values, and [`FocusZone::Zone03`] is a value from the PTZOptics G2 bench
+/// (#795) that no vendor source names yet. The enum is `#[non_exhaustive]` so
+/// further evidenced values can be added without a breaking change; match it
+/// with a wildcard arm.
+///
+/// Decoding accepts every variant from any camera. Sending is gated per
+/// profile: the typed setter refuses a value outside
+/// [`Capabilities::focus_zones`](crate::capabilities::Capabilities::focus_zones)
+/// before any I/O.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
 pub enum FocusZone {
-    /// Focus on the top area of the image.
+    /// Weight auto focus toward the top area of the image (`p = 0`).
     Top = 0x00,
-    /// Focus on the center area of the image (default).
+    /// Weight auto focus toward the center area of the image (`p = 1`, default).
     Center = 0x01,
-    /// Focus on the bottom area of the image.
+    /// Weight auto focus toward the bottom area of the image (`p = 2`).
     Bottom = 0x02,
+    /// Focus-zone value `p = 3`, not named by any vendor source.
+    ///
+    /// On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM
+    /// 6.3.51THI, 6.3.76THI and 6.4.18SHI; 2026-10-04; #795) the cameras report
+    /// it from the focus-zone inquiry, accept `8x 01 04 AA 03 FF` with ACK and
+    /// completion, and read it back afterwards. Which image area it weights is
+    /// not documented, so the library makes no claim about it beyond
+    /// preserving the value: read it, store it, and set it back. Only the
+    /// `PtzOpticsG2` and `PtzOptics30X` profiles admit it for sending.
+    Zone03 = 0x03,
 }
 
 visca_command! {
@@ -215,6 +240,7 @@ visca_command! {
         FocusZone::Top => 0x00u8,
         FocusZone::Center => 0x01u8,
         FocusZone::Bottom => 0x02u8,
+        FocusZone::Zone03 => 0x03u8,
     };
     max_param_size = 1;
 }

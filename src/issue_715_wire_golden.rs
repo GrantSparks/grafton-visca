@@ -1,7 +1,9 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
 //! The fixture is the 484-row phase-4 mechanical comparison against the pinned
-//! 1.2 oracle, plus three v2-only 2D-NR mode rows. The original audit's 31
+//! 1.2 oracle, plus three v2-only 2D-NR mode rows and the
+//! `FocusZone[Zone03]` row (`81 01 04 AA 03 FF`, PTZOptics G2 bench,
+//! 2026-10-04, #795), which has no 1.2 oracle counterpart. The original audit's 31
 //! changed output rows included two valid `Brightness::Direct` rows removed
 //! with the duplicate public surface in #727; the current fixture retains the
 //! other 29 source-backed 2.0 deltas ratified in D5. Expectations are literal
@@ -352,6 +354,11 @@ pub(crate) fn rows() -> Vec<String> {
         o,
         "FocusZone[Bottom]",
         FocusZoneCommand::new(FocusZone::Bottom)
+    );
+    row!(
+        o,
+        "FocusZone[Zone03]",
+        FocusZoneCommand::new(FocusZone::Zone03)
     );
     row!(
         o,

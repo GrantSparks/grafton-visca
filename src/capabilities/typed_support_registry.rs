@@ -615,6 +615,17 @@ macro_rules! typed_support_registry {
                     marker_doc: "Marker trait indicating hardware-validated PTZOptics tally-extension support.",
                     diagnostic: "profile `{Self}` does not declare validated PTZOptics tally-extension support",
                 },
+                {
+                    surface: VersionInquiry,
+                    marker: HasVersionInquiry,
+                    bit: 55,
+                    wire: "version-inquiry",
+                    area: "System",
+                    api: "`camera.system().version()` (`09 00 02` Sony-format `CAM_VersionInq` decode)",
+                    surface_doc: "Sony-format `09 00 02` version inquiry, decoded as vendor, model, ROM revision and maximum socket.",
+                    marker_doc: "Marker trait indicating that the profile's `09 00 02` version reply has the source-backed Sony layout decoded by `camera.system().version()`.",
+                    diagnostic: "profile `{Self}` does not declare a Sony-format version-inquiry reply",
+                },
             ]
         }
     };

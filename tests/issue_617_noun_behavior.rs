@@ -95,10 +95,11 @@ mod blocking_surface {
         blocking::{Session, SessionConfig},
         camera::TransportKind,
         command::{
-            CommandKind, ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry,
+            CommandKind, ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone,
+            IrisControlInquiry,
         },
         profile::ProfileSpec,
-        profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
+        profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, UnitInterval},
@@ -407,6 +408,87 @@ mod blocking_surface {
             "rejected direct exposure-mode inquiry must not reach the transport"
         );
 
+        session.shutdown().expect("shutdown");
+    }
+
+    /// `FocusZone::Zone03` is evidenced only for the G2 family (G2 and the
+    /// legacy 30X). G3 supports focus-zone selection, so the static
+    /// `set_zone` compiles, but the value is refused before any write.
+    #[test]
+    fn blocking_focus_zone_03_is_refused_on_g3_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+            ),
+        )
+        .expect("session");
+        let camera = session.camera::<PtzOpticsG3>().expect("camera");
+
+        let error = camera
+            .focus()
+            .set_zone(FocusZone::Zone03)
+            .expect_err("G3 has no evidence for focus-zone value 03");
+        assert!(
+            matches!(
+                &error,
+                Error::InvalidParameter {
+                    parameter: "focus_zone",
+                    value,
+                    ..
+                } if value == "03"
+            ),
+            "unexpected error: {error:?}"
+        );
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "a refused focus-zone value must not reach the transport"
+        );
+
+        camera
+            .focus()
+            .set_zone(FocusZone::Center)
+            .expect("G3 accepts the documented center zone");
+        assert_eq!(one_frame(&writes), [0x81, 0x01, 0x04, 0xAA, 0x01, 0xFF]);
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn blocking_focus_zone_03_reaches_the_wire_on_the_g2_family() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+            ),
+        )
+        .expect("session");
+        session
+            .camera::<PtzOpticsG2>()
+            .expect("camera")
+            .focus()
+            .set_zone(FocusZone::Zone03)
+            .expect("G2 accepts focus-zone value 03 (PTZOptics G2 bench, #795)");
+        assert_eq!(one_frame(&writes), [0x81, 0x01, 0x04, 0xAA, 0x03, 0xFF]);
+        session.shutdown().expect("shutdown");
+
+        let (transport, writes) = ProbeTransport::new();
+        let session = Session::open(
+            transport,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile"),
+            ),
+        )
+        .expect("session");
+        session
+            .camera::<PtzOptics30X>()
+            .expect("camera")
+            .focus()
+            .set_zone(FocusZone::Zone03)
+            .expect("legacy 30X G2 accepts focus-zone value 03 (PTZOptics G2 bench, #795)");
+        assert_eq!(one_frame(&writes), [0x81, 0x01, 0x04, 0xAA, 0x03, 0xFF]);
         session.shutdown().expect("shutdown");
     }
 
@@ -880,6 +962,73 @@ mod async_surface {
             }
         ));
         assert!(writes.lock().expect("writes lock").is_empty());
+        session.shutdown().await.expect("shutdown");
+    }
+
+    /// PTZOptics G2 answers `81 09 00 02 FF` with an unsourced 2-byte payload,
+    /// so the erased surface refuses the Sony-format version inquiry before
+    /// anything is written (PTZOptics G2 bench, 2026-10-04, #795).
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_version_inquiry_on_g2_fails_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        let error = camera
+            .system()
+            .version()
+            .await
+            .expect_err("G2 does not reply in the Sony version layout");
+        assert!(matches!(
+            error,
+            Error::FeatureNotSupported {
+                feature: "typed inquiry VersionInquiry",
+                ..
+            }
+        ));
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "a refused version inquiry must not reach the transport"
+        );
+        session.shutdown().await.expect("shutdown");
+    }
+
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_focus_zone_03_on_g3_fails_before_any_write() {
+        let (transport, writes) = ProbeTransport::new();
+        let session = open_session(
+            transport,
+            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+        )
+        .await;
+        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+
+        let error = camera
+            .focus()
+            .set_zone(grafton_visca::command::FocusZone::Zone03)
+            .await
+            .expect_err("G3 has no evidence for focus-zone value 03");
+        assert!(
+            matches!(
+                &error,
+                Error::InvalidParameter {
+                    parameter: "focus_zone",
+                    value,
+                    ..
+                } if value == "03"
+            ),
+            "unexpected error: {error:?}"
+        );
+        assert!(
+            writes.lock().expect("writes lock").is_empty(),
+            "a refused focus-zone value must not reach the transport"
+        );
         session.shutdown().await.expect("shutdown");
     }
 

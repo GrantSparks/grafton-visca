@@ -6,9 +6,10 @@
 //! variable is set (e.g., `VISCA_CAMERA_IP=192.168.0.110`).
 //!
 //! This test validates that PTZOptics G2 cameras respond to the standard VISCA inquiry
-//! command set. Five inquiries have known parser mismatches between Sony VISCA format and
+//! command set. Three inquiries have known parser mismatches between Sony VISCA format and
 //! the PTZOptics response format — these are tracked as library parser bugs, not camera
-//! limitations.
+//! limitations. The Sony-format version inquiry is not issued: the G2 profile does not
+//! implement `HasVersionInquiry`.
 //!
 //! Run with:
 //! ```sh
@@ -54,6 +55,7 @@ inquiry_test!(test_focus_position, focus, position);
 
 // === Focus inquiries ===
 inquiry_test!(test_focus_mode, focus, mode);
+inquiry_test!(test_focus_zone, focus, zone);
 
 // === Exposure inquiries ===
 inquiry_test!(test_exposure_mode, exposure, mode);
@@ -154,6 +156,9 @@ fn test_all_inquiries_succeed() {
 
     // Focus
     check!("focus_mode", camera.focus().mode());
+    // The PTZOptics G2 bench reports `FocusZone::Zone03` (#795) as well as the
+    // documented top/center/bottom zones.
+    check!("focus_zone", camera.focus().zone());
 
     // Exposure
     check!("exposure_mode", camera.exposure().mode());
@@ -210,12 +215,10 @@ fn test_all_inquiries_succeed() {
 
     // System
     check!("power_state", camera.power().state());
-    // PTZOptics returns a shorter version response (2 bytes) than Sony format (7 bytes)
-    check_known_mismatch!(
-        "version",
-        camera.system().version(),
-        "PTZOptics returns 2-byte version, parser expects 7-byte Sony format"
-    );
+    // `system().version()` is not issued: PTZOptics G2 replies to
+    // `81 09 00 02 FF` with an unsourced 2-byte payload (`00 52`), so the
+    // profile does not implement `HasVersionInquiry` and the typed Sony-format
+    // version inquiry does not compile for it.
     check!("menu_status", camera.menu().status());
 
     eprintln!(

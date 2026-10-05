@@ -17,13 +17,14 @@ use grafton_visca::{
         HasPower, HasPresets, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
         HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
         HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
-        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasWhiteBalance,
-        HasWideDynamicRange, HasZoom,
+        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasVersionInquiry,
+        HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::MotionSyncMode,
     completion::{AppliedOnly, Targeted},
     profiles::{
-        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
     },
     CompileTimeProfile, Result,
 };
@@ -88,7 +89,6 @@ where
 fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
     let _ = camera.power().state();
     let _ = camera.zoom().position();
-    let _ = camera.system().version();
     let _ = camera.pan_tilt().position();
     let _ = camera.focus().position();
     let _ = camera.focus().mode();
@@ -218,6 +218,14 @@ fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: 
     let _ = camera.focus().zone();
 }
 
+/// `system().version()` decodes the Sony 7-byte `CAM_VersionInq` layout, so it
+/// is reachable only on profiles whose replies have that layout. PTZOptics G2
+/// replies with an unsourced 2-byte payload and does not implement the marker.
+#[allow(dead_code)]
+fn version_inquiry_gate<P: CompileTimeProfile + HasVersionInquiry>(camera: &Camera<P>) {
+    let _ = camera.system().version();
+}
+
 #[allow(dead_code)]
 fn usb_audio_gate<P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<P>) {
     let _ = camera.advanced().usb_audio_enabled();
@@ -295,6 +303,12 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOptics30X>) = focus_zone_inquiry_gate::<PtzOptics30X>;
     let _: fn(&Camera<PtzOpticsG3>) = focus_zone_command_gate::<PtzOpticsG3>;
+    let _: fn(&Camera<SonyFR7>) = version_inquiry_gate::<SonyFR7>;
+    let _: fn(&Camera<SonyBRCH900>) = version_inquiry_gate::<SonyBRCH900>;
+    let _: fn(&Camera<SonyEVIH100>) = version_inquiry_gate::<SonyEVIH100>;
+    let _: fn(&Camera<SonyBRC300>) = version_inquiry_gate::<SonyBRC300>;
+    let _: fn(&Camera<NearusBRC300>) = version_inquiry_gate::<NearusBRC300>;
+    let _: fn(&Camera<GenericVisca>) = version_inquiry_gate::<GenericVisca>;
     let _: fn(&Camera<SonyFR7>) = sony_optional;
     let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) = non_default;
 }

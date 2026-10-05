@@ -331,7 +331,7 @@ mod tests {
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass by merely
         // agreeing with the aggregate fixtures below.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 55] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 56] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -444,6 +444,7 @@ mod tests {
             ("defog-level", TypedSupportSurface::DefogLevel),
             ("tally-brightness", TypedSupportSurface::TallyBrightness),
             ("ptz-optics-tally", TypedSupportSurface::PtzOpticsTally),
+            ("version-inquiry", TypedSupportSurface::VersionInquiry),
         ];
 
         // These wire fixtures deliberately do not derive from the surface list
@@ -456,9 +457,13 @@ mod tests {
         const CONTROL_JSON: &str = r#"["noise-reduction2-d-control","noise-reduction3-d-control"]"#;
         const ROW_SCOPED_JSON: &str =
             r#"["image-freeze","defog-level","tally-brightness","ptz-optics-tally"]"#;
+        // Appended after 2.0.0-rc.3: the Sony-format version inquiry became an
+        // explicit typed surface once the PTZOptics G2 bench (#795) showed its reply
+        // is not that layout.
+        const VERSION_JSON: &str = r#"["version-inquiry"]"#;
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 55);
-        assert_eq!(WIRE_SURFACES.len(), 55);
+        assert_eq!(TypedSupportSurface::ALL.len(), 56);
+        assert_eq!(WIRE_SURFACES.len(), 56);
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);
             let singleton_json = serde_json::to_string(&[wire_name])?;
@@ -561,8 +566,13 @@ mod tests {
         assert!(row_scoped.contains(TypedSupportSurface::PtzOpticsTally));
         assert_eq!(serde_json::to_string(&row_scoped)?, ROW_SCOPED_JSON);
 
-        let final_current = current.union(controls).union(row_scoped);
-        assert_eq!(final_current.iter().count(), 55);
+        let version: TypedSupportSet = serde_json::from_str(VERSION_JSON)?;
+        assert!(version.contains(TypedSupportSurface::VersionInquiry));
+        assert_eq!(version.iter().count(), 1);
+        assert_eq!(serde_json::to_string(&version)?, VERSION_JSON);
+
+        let final_current = current.union(controls).union(row_scoped).union(version);
+        assert_eq!(final_current.iter().count(), 56);
         assert_eq!(
             final_current,
             TypedSupportSet::from_surfaces(
@@ -575,7 +585,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&final_current)?,
             format!(
-                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control","image-freeze","defog-level","tally-brightness","ptz-optics-tally"]"#,
+                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control","image-freeze","defog-level","tally-brightness","ptz-optics-tally","version-inquiry"]"#,
                 &CURRENT_JSON[..CURRENT_JSON.len() - 1]
             )
         );

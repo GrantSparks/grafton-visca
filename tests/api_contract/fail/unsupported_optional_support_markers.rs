@@ -4,7 +4,7 @@ use grafton_visca::{
         HasFocusZone, HasFocusZoneInquiry, HasIrisControl, HasIrisControlInquiry, HasMotionSync,
         HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl, HasNoiseReduction3D,
         HasNoiseReduction3DControl, HasPictureEffect, HasSharpnessControl, HasSonyAutoSlowShutter,
-        HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed,
+        HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed, HasVersionInquiry,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -33,6 +33,7 @@ fn requires_picture_effect<P: HasPictureEffect>() {}
 fn requires_usb_audio<P: HasUsbAudio>() {}
 fn requires_spotlight<P: HasSonySpotlight>() {}
 fn requires_auto_slow_shutter<P: HasSonyAutoSlowShutter>() {}
+fn requires_version_inquiry<P: HasVersionInquiry>() {}
 
 fn main() {
     requires_color_temperature::<SonyFR7>();
@@ -77,6 +78,10 @@ fn main() {
     requires_spotlight::<SonyBRC300>();
     requires_spotlight::<NearusBRC300>();
     requires_auto_slow_shutter::<NearusBRC300>();
+    // PTZOptics replies to `09 00 02` are not the decoded Sony layout.
+    requires_version_inquiry::<PtzOpticsG2>();
+    requires_version_inquiry::<PtzOpticsG3>();
+    requires_version_inquiry::<PtzOptics30X>();
 }
 
 // Keep every profile named below imported. This fixture pins unsatisfied
@@ -107,3 +112,6 @@ fn main() {
 //~ "profile `SonyBRC300` does not declare Sony spotlight support"
 //~ "profile `NearusBRC300` does not declare Sony spotlight support"
 //~ "profile `NearusBRC300` does not declare Sony auto slow-shutter support"
+//~ "profile `grafton_visca::profiles::PtzOpticsG2` does not declare a Sony-format version-inquiry reply"
+//~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare a Sony-format version-inquiry reply"
+//~ "profile `grafton_visca::profiles::PtzOptics30X` does not declare a Sony-format version-inquiry reply"

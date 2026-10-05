@@ -1071,7 +1071,18 @@ impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
             capabilities.has_focus_zone
                 && capabilities.supports_typed(TypedSupportSurface::FocusZone),
             "focus zone",
-        )
+        )?;
+        if capabilities.supports_focus_zone(self.zone) {
+            Ok(())
+        } else {
+            Err(Error::InvalidParameter {
+                parameter: "focus_zone",
+                value: Cow::Owned(format!("{:02X}", u8::from(self.zone))),
+                reason: Cow::Borrowed(
+                    "the profile has no evidence that the camera accepts this focus-zone value",
+                ),
+            })
+        }
     }
 }
 

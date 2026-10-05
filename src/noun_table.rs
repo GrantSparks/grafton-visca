@@ -168,8 +168,14 @@ macro_rules! noun_table {
         noun_table! { @collect $consumer; [
             $($acc)*
             @noun System;
-            /// Returns the camera firmware/version information.
+            /// Returns the camera's Sony-format `CAM_VersionInq` reply: vendor,
+            /// model, ROM revision and maximum socket.
+            ///
+            /// Gated by `HasVersionInquiry`: profiles whose cameras reply in
+            /// another, unsourced layout (PTZOptics) do not expose it. Send the
+            /// raw `81 09 00 02 FF` inquiry there instead.
             inquiry command::VersionInquiry version() -> command::VersionInfo
+                where HasVersionInquiry
                 = command::VersionInquiry;
             /// Saves the camera's current settings to non-volatile storage.
             plain [SettingsSave] save_settings() -> command::SettingsSaveCommand

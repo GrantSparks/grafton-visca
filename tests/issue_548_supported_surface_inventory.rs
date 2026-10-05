@@ -102,6 +102,7 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "DefogLevel",
     "TallyBrightness",
     "PtzOpticsTally",
+    "VersionInquiry",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[

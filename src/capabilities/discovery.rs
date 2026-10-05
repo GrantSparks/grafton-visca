@@ -179,6 +179,17 @@ pub struct Capabilities {
     /// [`TypedSupportSurface::FocusZoneInquiry`] as well.
     pub has_focus_zone_inquiry: bool,
 
+    /// Focus-zone values the typed focus-zone setter may send.
+    ///
+    /// Empty exactly when [`has_focus_zone`](Self::has_focus_zone) is false,
+    /// and duplicate-free. A value outside this list is rejected before any
+    /// I/O even when the focus-zone surface is supported, so evidence for one
+    /// camera's extra value never reaches another camera. A persisted profile
+    /// that predates this field deserializes with the documented Top, Center
+    /// and Bottom set when it reports focus-zone support.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub focus_zones: Vec<crate::command::FocusZone>,
+
     /// Whether profile metadata reports auto focus sensitivity adjustment.
     ///
     /// This is not permission to call typed AF sensitivity APIs; use
@@ -474,6 +485,7 @@ impl Capabilities {
             focus_speed: 0..=0,
             has_focus_zone: false,
             has_focus_zone_inquiry: false,
+            focus_zones: Vec::new(),
             has_af_sensitivity: false,
             has_focus_near_limit_inquiry: false,
             has_exposure: false,
@@ -673,6 +685,11 @@ impl Capabilities {
             focus_speed,
             has_focus_zone: P::SUPPORTS_FOCUS_ZONE,
             has_focus_zone_inquiry: P::SUPPORTS_FOCUS_ZONE_INQUIRY,
+            focus_zones: if P::SUPPORTS_FOCUS_ZONE {
+                P::FOCUS_ZONES.to_vec()
+            } else {
+                Vec::new()
+            },
             has_af_sensitivity: P::SUPPORTS_AF_SENSITIVITY,
             has_focus_near_limit_inquiry: P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY,
 
@@ -805,6 +822,13 @@ impl Capabilities {
             || self.supports_preset_tour
             || self.has_nd_filter
             || self.has_motion_sync
+    }
+
+    /// Returns true if the typed focus-zone setter may send `zone` to this
+    /// camera.
+    #[must_use]
+    pub fn supports_focus_zone(&self, zone: crate::command::FocusZone) -> bool {
+        self.has_focus_zone && self.focus_zones.contains(&zone)
     }
 
     /// Returns true if the camera supports the requested exposure mode.

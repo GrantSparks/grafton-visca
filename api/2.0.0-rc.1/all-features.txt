@@ -533,7 +533,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SessionConfig
 pub struct grafton_visca::blocking::SystemAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::SystemAccessor<'view, P>
 pub fn grafton_visca::blocking::SystemAccessor<'view, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
-pub fn grafton_visca::blocking::SystemAccessor<'view, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
+pub fn grafton_visca::blocking::SystemAccessor<'view, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo> where P: grafton_visca::capabilities::HasVersionInquiry
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::SystemAccessor<'_, P>
 pub fn grafton_visca::blocking::SystemAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, P> core::marker::Freeze for grafton_visca::blocking::SystemAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
@@ -851,6 +851,7 @@ impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
@@ -886,6 +887,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -998,6 +1000,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
@@ -1033,6 +1036,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -1209,6 +1213,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -1385,6 +1390,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -1559,6 +1565,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -1671,6 +1678,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -1706,6 +1714,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -1829,6 +1838,7 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -1862,6 +1872,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -1980,6 +1991,7 @@ impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -2015,6 +2027,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -2143,6 +2156,7 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyFR7
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -2176,6 +2190,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -2690,6 +2705,7 @@ pub mod grafton_visca::capabilities::focus
 pub trait grafton_visca::capabilities::focus::Focus
 pub const grafton_visca::capabilities::focus::Focus::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::capabilities::focus::Focus::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::capabilities::focus::Focus::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::capabilities::focus::Focus::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_AUTO_FOCUS: bool
@@ -2700,6 +2716,7 @@ pub const grafton_visca::capabilities::focus::Focus::SUPPORTS_ONE_PUSH_FOCUS: bo
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -2710,6 +2727,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -2720,6 +2738,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -2730,6 +2749,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -2740,6 +2760,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -2750,6 +2771,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -2760,6 +2782,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: 
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -2770,6 +2793,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -2780,6 +2804,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -3961,9 +3986,10 @@ pub grafton_visca::capabilities::TypedSupportSurface::Tally
 pub grafton_visca::capabilities::TypedSupportSurface::TallyBrightness
 pub grafton_visca::capabilities::TypedSupportSurface::UsbAudio
 pub grafton_visca::capabilities::TypedSupportSurface::VariableSpeed
+pub grafton_visca::capabilities::TypedSupportSurface::VersionInquiry
 pub grafton_visca::capabilities::TypedSupportSurface::WideDynamicRange
 impl grafton_visca::capabilities::TypedSupportSurface
-pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 55]
+pub const grafton_visca::capabilities::TypedSupportSurface::ALL: [Self; 56]
 impl core::clone::Clone for grafton_visca::capabilities::TypedSupportSurface
 pub fn grafton_visca::capabilities::TypedSupportSurface::clone(&self) -> grafton_visca::capabilities::TypedSupportSurface
 impl core::cmp::Eq for grafton_visca::capabilities::TypedSupportSurface
@@ -4035,6 +4061,7 @@ pub grafton_visca::capabilities::Capabilities::exposure_comp_range: core::option
 pub grafton_visca::capabilities::Capabilities::exposure_modes: alloc::vec::Vec<grafton_visca::command::ExposureMode>
 pub grafton_visca::capabilities::Capabilities::focus_range: core::ops::range::RangeInclusive<u16>
 pub grafton_visca::capabilities::Capabilities::focus_speed: core::ops::range::RangeInclusive<u8>
+pub grafton_visca::capabilities::Capabilities::focus_zones: alloc::vec::Vec<grafton_visca::command::FocusZone>
 pub grafton_visca::capabilities::Capabilities::gain_range: core::ops::range::RangeInclusive<u8>
 pub grafton_visca::capabilities::Capabilities::gamma_range: core::option::Option<core::ops::range::RangeInclusive<u8>>
 pub grafton_visca::capabilities::Capabilities::has_2d_nr: bool
@@ -4132,6 +4159,7 @@ pub fn grafton_visca::capabilities::Capabilities::max_optical_zoom(&self) -> f32
 pub fn grafton_visca::capabilities::Capabilities::runtime_baseline(impl core::convert::Into<alloc::string::String>, u8) -> core::result::Result<Self, grafton_visca::Error>
 pub fn grafton_visca::capabilities::Capabilities::summary(&self) -> alloc::string::String
 pub fn grafton_visca::capabilities::Capabilities::supports_exposure_mode(&self, grafton_visca::command::ExposureMode) -> bool
+pub fn grafton_visca::capabilities::Capabilities::supports_focus_zone(&self, grafton_visca::command::FocusZone) -> bool
 pub const fn grafton_visca::capabilities::Capabilities::supports_typed(&self, grafton_visca::capabilities::TypedSupportSurface) -> bool
 pub fn grafton_visca::capabilities::Capabilities::zoom_units_to_magnification(&self, u16) -> f32
 impl core::clone::Clone for grafton_visca::capabilities::Capabilities
@@ -4407,6 +4435,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_WDR: bool
 pub trait grafton_visca::capabilities::Focus
 pub const grafton_visca::capabilities::Focus::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::capabilities::Focus::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::capabilities::Focus::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::capabilities::Focus::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::capabilities::Focus::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::capabilities::Focus::SUPPORTS_AUTO_FOCUS: bool
@@ -4417,6 +4446,7 @@ pub const grafton_visca::capabilities::Focus::SUPPORTS_ONE_PUSH_FOCUS: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -4427,6 +4457,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -4437,6 +4468,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -4447,6 +4479,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_ONE_PUSH_FOCUS
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -4457,6 +4490,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -4467,6 +4501,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -4477,6 +4512,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_ONE_PUSH_FOCUS: 
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -4487,6 +4523,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -4497,6 +4534,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_ONE_PUSH_FOCUS:
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -4747,6 +4785,13 @@ impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profile
 impl grafton_visca::capabilities::HasUsbAudio for grafton_visca::camera::profiles::PtzOpticsG2
 pub trait grafton_visca::capabilities::HasVariableSpeed
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
+pub trait grafton_visca::capabilities::HasVersionInquiry
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyFR7
 pub trait grafton_visca::capabilities::HasWhiteBalance
 impl<T: grafton_visca::capabilities::ProfileMetadata + grafton_visca::capabilities::white_balance::WhiteBalance> grafton_visca::capabilities::HasWhiteBalance for T
 pub trait grafton_visca::capabilities::HasWideDynamicRange
@@ -6342,10 +6387,11 @@ impl core::marker::Unpin for grafton_visca::command::FocusRange
 impl core::marker::UnsafeUnpin for grafton_visca::command::FocusRange
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::FocusRange
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::FocusRange
-pub enum grafton_visca::command::FocusZone
+#[non_exhaustive] pub enum grafton_visca::command::FocusZone
 pub grafton_visca::command::FocusZone::Bottom = 2
 pub grafton_visca::command::FocusZone::Center = 1
 pub grafton_visca::command::FocusZone::Top = 0
+pub grafton_visca::command::FocusZone::Zone03 = 3
 impl grafton_visca::command::FocusZone
 pub const fn grafton_visca::command::FocusZone::is_valid_discriminant(u8) -> bool
 impl core::clone::Clone for grafton_visca::command::FocusZone
@@ -15077,6 +15123,7 @@ impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
@@ -15112,6 +15159,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -15466,6 +15514,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
@@ -15501,6 +15550,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -15963,6 +16013,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -16139,6 +16190,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -16313,6 +16365,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -16611,6 +16664,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -16646,6 +16700,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -16769,6 +16824,7 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -16802,6 +16858,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -16920,6 +16977,7 @@ impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -16955,6 +17013,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -17083,6 +17142,7 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyFR7
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -17116,6 +17176,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -17271,7 +17332,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateV
 pub struct grafton_visca::prelude::async::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
 pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
-pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
+pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo> where P: grafton_visca::capabilities::HasVersionInquiry
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::SystemAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -19086,6 +19147,7 @@ impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
@@ -19121,6 +19183,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -19520,6 +19583,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
@@ -19555,6 +19619,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -20017,6 +20082,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -20193,6 +20259,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -20367,6 +20434,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -20631,6 +20699,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -20666,6 +20735,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -20789,6 +20859,7 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -20822,6 +20893,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -20940,6 +21012,7 @@ impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -20975,6 +21048,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -21103,6 +21177,7 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyFR7
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -21136,6 +21211,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -21291,7 +21367,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateV
 pub struct grafton_visca::prelude::blocking::SystemAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::SystemAccessor<'view, P>
 pub fn grafton_visca::blocking::SystemAccessor<'view, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
-pub fn grafton_visca::blocking::SystemAccessor<'view, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
+pub fn grafton_visca::blocking::SystemAccessor<'view, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo> where P: grafton_visca::capabilities::HasVersionInquiry
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::SystemAccessor<'_, P>
 pub fn grafton_visca::blocking::SystemAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, P> core::marker::Freeze for grafton_visca::blocking::SystemAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
@@ -23030,6 +23106,7 @@ impl grafton_visca::capabilities::HasExposureMode for grafton_visca::camera::pro
 impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::GenericVisca
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::GenericVisca
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::GenericVisca
 pub type grafton_visca::camera::profiles::GenericVisca::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::GenericVisca::ACK_TIMEOUT: core::time::Duration
@@ -23065,6 +23142,7 @@ pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::GenericVisca
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::GenericVisca::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::GenericVisca::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::GenericVisca::SUPPORTS_AUTO_FOCUS: bool
@@ -23177,6 +23255,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::NearusBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::NearusBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::NearusBRC300
 pub type grafton_visca::camera::profiles::NearusBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::NearusBRC300::ACK_TIMEOUT: core::time::Duration
@@ -23212,6 +23291,7 @@ pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::NearusBRC300
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::NearusBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::NearusBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::NearusBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -23388,6 +23468,7 @@ pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOptics30X
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOptics30X::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOptics30X::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOptics30X::SUPPORTS_AUTO_FOCUS: bool
@@ -23564,6 +23645,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG2
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG2::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG2::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG2::SUPPORTS_AUTO_FOCUS: bool
@@ -23738,6 +23820,7 @@ pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::PtzOpticsG3
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::PtzOpticsG3::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::PtzOpticsG3::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::PtzOpticsG3::SUPPORTS_AUTO_FOCUS: bool
@@ -23850,6 +23933,7 @@ impl grafton_visca::capabilities::HasFocusNearLimitInquiry for grafton_visca::ca
 impl grafton_visca::capabilities::HasImageProcessing for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyBRC300
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRC300
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRC300
 pub type grafton_visca::camera::profiles::SonyBRC300::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyBRC300::ACK_TIMEOUT: core::time::Duration
@@ -23885,6 +23969,7 @@ pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRC300
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRC300::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRC300::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRC300::SUPPORTS_AUTO_FOCUS: bool
@@ -24008,6 +24093,7 @@ impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profil
 impl grafton_visca::capabilities::HasSaturationControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyBRCH900
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyBRCH900
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyBRCH900
 pub type grafton_visca::camera::profiles::SonyBRCH900::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -24041,6 +24127,7 @@ pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyBRCH900
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyBRCH900::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyBRCH900::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyBRCH900::SUPPORTS_AUTO_FOCUS: bool
@@ -24159,6 +24246,7 @@ impl grafton_visca::capabilities::HasIrisControl for grafton_visca::camera::prof
 impl grafton_visca::capabilities::HasOnePushWhiteBalance for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasRgbTuning for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::HasSonyAutoSlowShutter for grafton_visca::camera::profiles::SonyEVIH100
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyEVIH100
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyEVIH100
 pub type grafton_visca::camera::profiles::SonyEVIH100::Envelope = grafton_visca::transport::RawVisca
 pub const grafton_visca::camera::profiles::SonyEVIH100::ACK_TIMEOUT: core::time::Duration
@@ -24194,6 +24282,7 @@ pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyEVIH100
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyEVIH100::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyEVIH100::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyEVIH100::SUPPORTS_AUTO_FOCUS: bool
@@ -24322,6 +24411,7 @@ impl grafton_visca::capabilities::HasSharpnessControl for grafton_visca::camera:
 impl grafton_visca::capabilities::HasSonySpotlight for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasTally for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasVariableSpeed for grafton_visca::camera::profiles::SonyFR7
+impl grafton_visca::capabilities::HasVersionInquiry for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::HasWideDynamicRange for grafton_visca::camera::profiles::SonyFR7
 impl grafton_visca::capabilities::ProfileMetadata for grafton_visca::camera::profiles::SonyFR7
 pub type grafton_visca::camera::profiles::SonyFR7::Envelope = grafton_visca::transport::SonyEncapsulated
@@ -24355,6 +24445,7 @@ pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_WDR: bool
 impl grafton_visca::capabilities::focus::Focus for grafton_visca::camera::profiles::SonyFR7
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_FAR_LIMIT: u16
 pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_NEAR_LIMIT: u16
+pub const grafton_visca::camera::profiles::SonyFR7::FOCUS_ZONES: &'static [grafton_visca::command::FocusZone]
 pub const grafton_visca::camera::profiles::SonyFR7::MAX_FOCUS_SPEED: u8
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AF_SENSITIVITY: bool
 pub const grafton_visca::camera::profiles::SonyFR7::SUPPORTS_AUTO_FOCUS: bool
@@ -26756,7 +26847,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SessionConfig
 pub struct grafton_visca::session::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
 pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
-pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
+pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo> where P: grafton_visca::capabilities::HasVersionInquiry
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::SystemAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
@@ -33720,7 +33811,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::state_cache::StateV
 pub struct grafton_visca::SystemAccessor<'a, P: grafton_visca::profile::CompileTimeProfile>
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::SystemAccessor<'a, P>
 pub async fn grafton_visca::SystemAccessor<'a, P>::save_settings(&self) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasPtzOpticsSettingsSave
-pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo>
+pub async fn grafton_visca::SystemAccessor<'a, P>::version(&self) -> grafton_visca::Result<grafton_visca::command::VersionInfo> where P: grafton_visca::capabilities::HasVersionInquiry
 impl<'a, P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::SystemAccessor<'a, P>
 pub fn grafton_visca::SystemAccessor<'a, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'a, P> core::marker::Freeze for grafton_visca::SystemAccessor<'a, P> where &'a grafton_visca::Camera<P>: core::marker::Freeze
