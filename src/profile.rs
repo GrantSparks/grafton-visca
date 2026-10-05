@@ -805,11 +805,27 @@ pub struct ProfileSpec {
     position_inquiries: PositionInquirySupport,
 }
 
+/// Persisted capabilities plus whether `focus_zones` was present.
+///
+/// `Capabilities::focus_zones` defaults to empty when the key is absent, which
+/// on its own cannot tell a pre-#795 spec (no key: backfill the zones) from an
+/// explicit `"focus_zones": []` (validated as written). This wrapper consumes
+/// the key first, so `focus_zones` is `None` exactly when it was absent.
+#[cfg(feature = "serde")]
+#[derive(serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct PersistedCapabilities {
+    #[serde(flatten)]
+    capabilities: capabilities::Capabilities,
+    #[serde(default, skip_serializing)]
+    focus_zones: Option<Vec<crate::command::FocusZone>>,
+}
+
 #[cfg(feature = "serde")]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct ProfileSpecSerde {
-    capabilities: capabilities::Capabilities,
+    capabilities: PersistedCapabilities,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
     envelope: ProfileEnvelope,
@@ -825,7 +841,10 @@ struct ProfileSpecSerde {
 impl From<ProfileSpec> for ProfileSpecSerde {
     fn from(spec: ProfileSpec) -> Self {
         Self {
-            capabilities: spec.capabilities,
+            capabilities: PersistedCapabilities {
+                capabilities: spec.capabilities,
+                focus_zones: None,
+            },
             pan_tilt_coordinates: spec.pan_tilt_coordinates,
             transports: spec.transports,
             envelope: spec.envelope,
@@ -844,8 +863,29 @@ impl TryFrom<ProfileSpecSerde> for ProfileSpec {
     type Error = Error;
 
     fn try_from(spec: ProfileSpecSerde) -> Result<Self> {
+        let PersistedCapabilities {
+            mut capabilities,
+            focus_zones,
+        } = spec.capabilities;
+        match focus_zones {
+            // An explicit list, even an empty one, is validated as written.
+            Some(zones) => capabilities.focus_zones = zones,
+            // Profiles persisted before `focus_zones` existed (2.0.0-rc.3)
+            // omit it. A built-in identity restores its registry list; a
+            // custom profile restores the documented zones, which is all it
+            // could send then.
+            None if capabilities.has_focus_zone => {
+                capabilities.focus_zones = capabilities
+                    .profile_id
+                    .map_or(capabilities::focus::DOCUMENTED_FOCUS_ZONES, |id| {
+                        id.focus_zones()
+                    })
+                    .to_vec();
+            }
+            None => capabilities.focus_zones.clear(),
+        }
         Self {
-            capabilities: spec.capabilities,
+            capabilities,
             pan_tilt_coordinates: spec.pan_tilt_coordinates,
             transports: spec.transports,
             envelope: spec.envelope,
@@ -1263,6 +1303,40 @@ impl ProfileSpec {
         }
         if let Some(profile_id) = self.capabilities.profile_id {
             if !profile_id.matches_profile_spec(&self) {
+                let stored = self.capabilities.typed_support;
+                let registry = profile_id.registry_typed_support();
+                if stored != registry {
+                    // The common case is a spec persisted by an earlier
+                    // release whose registry granted a different typed
+                    // surface set (#795). Name the difference and the fix.
+                    let list =
+                        |set: capabilities::TypedSupportSet,
+                         other: capabilities::TypedSupportSet| {
+                            let names = set
+                                .iter()
+                                .filter(|surface| !other.contains(*surface))
+                                .map(|surface| format!("{surface:?}"))
+                                .collect::<Vec<_>>();
+                            if names.is_empty() {
+                                "none".to_owned()
+                            } else {
+                                names.join(", ")
+                            }
+                        };
+                    let type_name = profile_id.compile_time_type_name();
+                    return Err(invalid_profile_fields(
+                        &["capabilities.profile_id", "capabilities.typed_support"],
+                        format_args!(
+                            "built-in profile `{type_name}`: the stored typed-support set differs \
+                             from the current built-in registry (missing: {}; not in registry: {}); \
+                             the spec was saved by another release, so regenerate it with \
+                             `ProfileSpec::from_compile_time::<grafton_visca::profiles::{type_name}>()` \
+                             and persist the result",
+                            list(registry, stored),
+                            list(stored, registry),
+                        ),
+                    ));
+                }
                 return Err(invalid_profile_fields(
                     &[
                         "capabilities.profile_id",
@@ -1742,6 +1816,7 @@ impl ProfileSpec {
             || (capabilities.requires_settings_save_for_flip && !capabilities.supports_flip)
             || ((capabilities.has_2d_nr || capabilities.has_3d_nr)
                 && !capabilities.has_noise_reduction)
+            || (capabilities.has_focus_zone == capabilities.focus_zones.is_empty())
         {
             return Err(invalid_profile_fields(
                 &["capabilities"],
@@ -1796,12 +1871,18 @@ impl ProfileSpec {
                 .iter()
                 .enumerate()
                 .any(|(index, mode)| capabilities.white_balance_modes[..index].contains(mode))
+            || capabilities
+                .focus_zones
+                .iter()
+                .enumerate()
+                .any(|(index, zone)| capabilities.focus_zones[..index].contains(zone))
         {
             return Err(invalid_profile_fields(
                 &[
                     "capabilities.shutter_speeds",
                     "capabilities.exposure_modes",
                     "capabilities.white_balance_modes",
+                    "capabilities.focus_zones",
                 ],
                 "shutter labels must be non-empty and inventories must be duplicate-free",
             ));
@@ -1974,6 +2055,9 @@ impl ProfileSpec {
                     capabilities.has_pan_tilt && capabilities.has_motion_sync
                 }
                 capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
+                // The version inquiry needs no physical domain; the surface
+                // records only that the reply has the decoded Sony layout.
+                capabilities::TypedSupportSurface::VersionInquiry => true,
             };
             if !physically_supported {
                 return Err(invalid_profile_fields(
@@ -3805,5 +3889,228 @@ mod tests {
         let mut value = serde_json::to_value(profile).expect("serialize profile");
         value["maximum_command_sockets"] = serde_json::json!(9);
         assert!(serde_json::from_value::<ProfileSpec>(value).is_err());
+    }
+
+    /// A profile persisted before `focus_zones` existed (2.0.0-rc.3) omits the
+    /// field. A built-in identity restores its registry list; a custom profile
+    /// restores the documented zones only, never the G2-family `Zone03`
+    /// extension, which needs explicit evidence (#795).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn profile_without_focus_zones_field_restores_the_documented_zones() {
+        use crate::command::FocusZone;
+
+        let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        assert!(g2.capabilities().supports_focus_zone(FocusZone::Zone03));
+        let mut value = serde_json::to_value(&g2).expect("serialize profile");
+        value["capabilities"]
+            .as_object_mut()
+            .expect("capabilities object")
+            .remove("focus_zones");
+        let restored: ProfileSpec =
+            serde_json::from_value(value).expect("rc.3 built-in profile shape");
+        assert_eq!(
+            restored, g2,
+            "a built-in identity restores its registry zones"
+        );
+
+        let mut custom = g2.capabilities().clone();
+        custom.profile_id = None;
+        let custom = ProfileSpec::builder(custom)
+            .pan_tilt_coordinates(
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .coordinate_system(),
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .pan_degrees_to_units(),
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .wire_codec(),
+            )
+            .transports(g2.transports())
+            .envelope(g2.envelope())
+            .timing(g2.timing())
+            .maximum_command_sockets(g2.maximum_command_sockets())
+            .supports_operation_complete(g2.supports_operation_complete())
+            .supports_command_cancel(g2.supports_command_cancel())
+            .preset_recall_axes(g2.preset_recall_axes())
+            .position_inquiries(g2.position_inquiries())
+            .build()
+            .expect("custom copy of G2");
+        let mut value = serde_json::to_value(&custom).expect("serialize profile");
+        value["capabilities"]
+            .as_object_mut()
+            .expect("capabilities object")
+            .remove("focus_zones");
+        let restored: ProfileSpec = serde_json::from_value(value).expect("rc.3 profile shape");
+        assert_eq!(
+            restored.capabilities().focus_zones,
+            [FocusZone::Top, FocusZone::Center, FocusZone::Bottom]
+        );
+        assert!(!restored
+            .capabilities()
+            .supports_focus_zone(FocusZone::Zone03));
+
+        let fr7 = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
+        let mut value = serde_json::to_value(&fr7).expect("serialize profile");
+        value["capabilities"]
+            .as_object_mut()
+            .expect("capabilities object")
+            .remove("focus_zones");
+        let restored: ProfileSpec = serde_json::from_value(value).expect("rc.3 profile shape");
+        assert!(restored.capabilities().focus_zones.is_empty());
+    }
+
+    /// A present `focus_zones` key is never backfilled: an explicit empty list
+    /// is rejected when focus-zone selection is supported and accepted when it
+    /// is not (#795).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn explicit_focus_zones_are_validated_as_written() {
+        let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut custom = g2.capabilities().clone();
+        custom.profile_id = None;
+        let custom = ProfileSpec::builder(custom)
+            .pan_tilt_coordinates(
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .coordinate_system(),
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .pan_degrees_to_units(),
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(
+                g2.pan_tilt_coordinates()
+                    .expect("G2 coordinates")
+                    .wire_codec(),
+            )
+            .transports(g2.transports())
+            .envelope(g2.envelope())
+            .timing(g2.timing())
+            .maximum_command_sockets(g2.maximum_command_sockets())
+            .supports_operation_complete(g2.supports_operation_complete())
+            .supports_command_cancel(g2.supports_command_cancel())
+            .preset_recall_axes(g2.preset_recall_axes())
+            .position_inquiries(g2.position_inquiries())
+            .build()
+            .expect("custom copy of G2");
+        let value = serde_json::to_value(&custom).expect("serialize profile");
+        assert_eq!(
+            value["capabilities"]["focus_zones"],
+            serde_json::json!(["top", "center", "bottom", "zone03"]),
+            "serialization writes the list once, from the capabilities"
+        );
+
+        // Missing: backfilled with the documented zones.
+        let mut missing = value.clone();
+        missing["capabilities"]
+            .as_object_mut()
+            .expect("capabilities object")
+            .remove("focus_zones");
+        let restored: ProfileSpec = serde_json::from_value(missing).expect("legacy shape");
+        assert_eq!(
+            restored.capabilities().focus_zones,
+            capabilities::focus::DOCUMENTED_FOCUS_ZONES
+        );
+
+        // Explicit `[]` with focus-zone support: rejected, not backfilled.
+        let mut empty = value.clone();
+        empty["capabilities"]["focus_zones"] = serde_json::json!([]);
+        let error = serde_json::from_value::<ProfileSpec>(empty)
+            .expect_err("an explicit empty list with focus-zone support is invalid");
+        assert!(
+            error
+                .to_string()
+                .contains("aggregate capability facts disagree with their parent domains"),
+            "unexpected error: {error}"
+        );
+
+        // Explicit `[]` without focus-zone support: accepted.
+        let mut unsupported = value.clone();
+        unsupported["capabilities"]["focus_zones"] = serde_json::json!([]);
+        unsupported["capabilities"]["has_focus_zone"] = serde_json::json!(false);
+        let tags = unsupported["capabilities"]["typed_support"]
+            .as_array_mut()
+            .expect("typed_support list");
+        tags.retain(|tag| tag != "focus-zone");
+        let restored: ProfileSpec =
+            serde_json::from_value(unsupported).expect("no zones without support is valid");
+        assert!(restored.capabilities().focus_zones.is_empty());
+        assert!(!restored.capabilities().has_focus_zone);
+
+        // Explicit list: kept exactly.
+        let restored: ProfileSpec = serde_json::from_value(value).expect("current shape");
+        assert_eq!(restored, custom);
+    }
+
+    #[test]
+    fn focus_zone_inventory_must_match_support_and_be_duplicate_free() {
+        use crate::command::FocusZone;
+
+        let g3 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().expect("G3");
+        let rebuild = |capabilities: capabilities::Capabilities| {
+            ProfileSpec::builder(capabilities)
+                .pan_tilt_coordinates(
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .coordinate_system(),
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .pan_degrees_to_units(),
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .tilt_degrees_to_units(),
+                )
+                .pan_tilt_wire_codec(
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .wire_codec(),
+                )
+                .transports(g3.transports())
+                .envelope(g3.envelope())
+                .timing(g3.timing())
+                .maximum_command_sockets(g3.maximum_command_sockets())
+                .supports_operation_complete(g3.supports_operation_complete())
+                .supports_command_cancel(g3.supports_command_cancel())
+                .preset_recall_axes(g3.preset_recall_axes())
+                .position_inquiries(g3.position_inquiries())
+                .build()
+        };
+        let mut base = g3.capabilities().clone();
+        base.profile_id = None;
+
+        let mut extended = base.clone();
+        extended.focus_zones.push(FocusZone::Zone03);
+        let extended = rebuild(extended).expect("a runtime profile may opt in to Zone03");
+        assert!(extended
+            .capabilities()
+            .supports_focus_zone(FocusZone::Zone03));
+
+        let mut empty = base.clone();
+        empty.focus_zones.clear();
+        assert!(rebuild(empty).is_err(), "focus-zone support needs a zone");
+
+        let mut duplicate = base.clone();
+        duplicate.focus_zones.push(FocusZone::Top);
+        assert!(rebuild(duplicate).is_err(), "zones must be duplicate-free");
+
+        let mut stray = base;
+        stray.has_focus_zone = false;
+        stray.typed_support = stray
+            .typed_support
+            .without(capabilities::TypedSupportSurface::FocusZone);
+        assert!(
+            rebuild(stray).is_err(),
+            "zones without support are inconsistent"
+        );
     }
 }

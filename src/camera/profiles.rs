@@ -10,7 +10,11 @@ use std::fmt;
 use crate::error::Error;
 
 mod profile_constants {
-    use crate::{capabilities::ShutterSpeed, command::exposure::ExposureMode, WhiteBalanceMode};
+    use crate::{
+        capabilities::ShutterSpeed,
+        command::{exposure::ExposureMode, FocusZone},
+        WhiteBalanceMode,
+    };
 
     pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
         ShutterSpeed::new("1/30", 0x01),
@@ -64,6 +68,22 @@ mod profile_constants {
     /// Profiles with no source-backed support for the shared `04 39` AE-mode
     /// command and inquiry family.
     pub const NO_SHARED_EXPOSURE_MODES: &[ExposureMode] = &[];
+
+    /// Documented `CAM_AFZone` values plus `Zone03`, which the PTZOptics G2
+    /// bench accepts and reads back (2026-10-04, #795).
+    pub const PTZ_OPTICS_G2_FOCUS_ZONES: &[FocusZone] = &[
+        FocusZone::Top,
+        FocusZone::Center,
+        FocusZone::Bottom,
+        FocusZone::Zone03,
+    ];
+
+    /// The documented `CAM_AFZone` values only (R14/R20).
+    pub const DOCUMENTED_FOCUS_ZONES: &[FocusZone] =
+        crate::capabilities::focus::DOCUMENTED_FOCUS_ZONES;
+
+    /// Profiles without focus-zone selection.
+    pub const NO_FOCUS_ZONES: &[FocusZone] = &[];
 
     pub const PTZ_OPTICS_EXPOSURE_MODES: &[ExposureMode] = &[
         ExposureMode::Auto,

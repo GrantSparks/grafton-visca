@@ -133,6 +133,7 @@ Focus::Snap	81 01 04 38 04 FF
 FocusZone[Top]	81 01 04 AA 00 FF
 FocusZone[Center]	81 01 04 AA 01 FF
 FocusZone[Bottom]	81 01 04 AA 02 FF
+FocusZone[Zone03]	81 01 04 AA 03 FF
 AFSensitivity[High]	81 01 04 58 01 FF
 AFSensitivity[Normal]	81 01 04 58 02 FF
 AFSensitivity[Low]	81 01 04 58 03 FF

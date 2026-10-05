@@ -359,6 +359,7 @@ macro_rules! __define_builtin_profiles {
                         one_push: $supports_one_push_focus:expr,
                         focus_zone: $supports_focus_zone:expr,
                         focus_zone_inquiry: $supports_focus_zone_inquiry:expr,
+                        zones: $focus_zones:expr,
                         max_speed: $max_focus_speed:expr,
                         af_sensitivity: $supports_af_sensitivity:expr,
                         near_limit_inquiry: $supports_focus_near_limit_inquiry:expr,
@@ -523,6 +524,7 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_ONE_PUSH_FOCUS: bool = $supports_one_push_focus;
                 const SUPPORTS_FOCUS_ZONE: bool = $supports_focus_zone;
                 const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = $supports_focus_zone_inquiry;
+                const FOCUS_ZONES: &'static [$crate::command::FocusZone] = $focus_zones;
                 const MAX_FOCUS_SPEED: u8 = $max_focus_speed;
                 const SUPPORTS_AF_SENSITIVITY: bool = $supports_af_sensitivity;
                 const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool =
@@ -734,6 +736,40 @@ macro_rules! __define_builtin_profiles {
             ) -> bool {
                 match self {
                     $(ProfileId::$id => profile.matches_compile_time_profile::<$profile>(),)*
+                }
+            }
+
+            /// Returns the public compile-time type name for this profile.
+            pub(crate) const fn compile_time_type_name(&self) -> &'static str {
+                match self {
+                    $(ProfileId::$id => stringify!($profile),)*
+                }
+            }
+
+            /// Returns the typed-support set the current registry grants.
+            pub(crate) const fn registry_typed_support(
+                &self,
+            ) -> $crate::capabilities::TypedSupportSet {
+                match self {
+                    $(ProfileId::$id => {
+                        <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                    })*
+                }
+            }
+
+            /// Returns the focus-zone values this built-in profile admits.
+            ///
+            /// Used to backfill persisted specs that predate the field.
+            #[cfg(any(feature = "serde", test))]
+            pub(crate) fn focus_zones(&self) -> &'static [$crate::command::FocusZone] {
+                match self {
+                    $(ProfileId::$id => {
+                        if <$profile as $crate::capabilities::Focus>::SUPPORTS_FOCUS_ZONE {
+                            <$profile as $crate::capabilities::Focus>::FOCUS_ZONES
+                        } else {
+                            &[]
+                        }
+                    })*
                 }
             }
 
@@ -2078,6 +2114,40 @@ macro_rules! __define_builtin_profiles {
             }
 
             #[test]
+            fn camera_profile_support_focus_zone_table_matches_registry() {
+                const BEGIN: &str = "<!-- BEGIN GENERATED FOCUS ZONES -->";
+                const END: &str = "<!-- END GENERATED FOCUS ZONES -->";
+
+                let guide = include_str!("../../docs/camera_profile_support.md");
+                let mut expected = String::from(BEGIN);
+                expected.push_str("\n| Profile | `focus_zones` |\n| ------- | ------------- |");
+                for facts in BUILTIN_PROFILE_FACTS {
+                    let zones = facts.id.focus_zones();
+                    let zones = if zones.is_empty() {
+                        "none".to_owned()
+                    } else {
+                        zones
+                            .iter()
+                            .map(|zone| format!("`{zone:?}`"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    expected.push_str(&format!("\n| `{}` | {zones} |", facts.type_name));
+                }
+                expected.push('\n');
+                expected.push_str(END);
+
+                let start = guide.find(BEGIN).expect("focus-zone table start marker");
+                let relative_end = guide[start..].find(END).expect("focus-zone table end marker");
+                let end = start + relative_end + END.len();
+                let actual = guide[start..end].replace("\r\n", "\n");
+                assert_eq!(
+                    actual, expected,
+                    "regenerate the focus-zone table from the profile registry"
+                );
+            }
+
+            #[test]
             fn camera_profile_support_marker_matrix_matches_registry() {
                 let guide = include_str!("../../docs/camera_profile_support.md");
 
@@ -2232,6 +2302,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: true,
                         focus_zone_inquiry: true,
+                        zones: profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2339,10 +2410,12 @@ macro_rules! define_builtin_profiles {
                         PictureEffect,
                     ],
                     evidence: [
+                        ("version_inquiry", "On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795), `81 09 00 02 FF` returns the 2-byte payload `00 52`, not the 7-byte Sony layout, and neither R1 nor R14 documents the reply. Keep the typed version inquiry absent; send the raw inquiry instead."),
                         ("command_cancel", "No model- and firmware-identified source-backed evidence establishes standard VISCA socket-cancel support for G2; keep it unavailable pending documented validation."),
                         ("digital_zoom", "No model- and firmware-identified source-backed evidence establishes VISCA digital-zoom control for G2; keep it unavailable pending documented validation."),
                         ("iris", "R1 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) document G2 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
                         ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the G2 family."),
+                        ("focus_zones", "R14/R20 document `CAM_AFZone` Top `00`, Center `01` and Bottom `02`. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795) the cameras also report `03`, accept `81 01 04 AA 03 FF` with ACK and completion, and read `03` back, so `FocusZone::Zone03` is admitted for this family."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the 81 2A 02 A0 04 USB-audio command and matching inquiry for G2 models."),
                         ("noise_reduction", "R14 documents G2/G3 04 50 Auto/Manual control plus 04 53 0/off and 1..5 and 04 54 0/off and 1..8 controls; its separate query page lists 09 04 50 and 09 04 53/54 replies. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by the query output domain."),
                     ],
@@ -2422,6 +2495,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: true,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::DOCUMENTED_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2527,6 +2601,8 @@ macro_rules! define_builtin_profiles {
                         PictureEffect,
                     ],
                     evidence: [
+                        ("version_inquiry", "R10 and R14 do not document a G3 `09 00 02` reply layout, and the G2 family replies with an unsourced 2-byte payload. G3 was not bench-tested; the typed Sony-format version inquiry stays absent under the source-evidence rule until a source or G3 hardware evidence establishes the reply."),
+                        ("focus_zones", "The R14 Focus page (R20), which PTZOptics describes as the full G2/G3 VISCA list, documents only the `CAM_AFZone` values Top `00`, Center `01` and Bottom `02`. `FocusZone::Zone03` was observed only on the PTZOptics G2 bench (#795); G3 was not bench-tested, so the typed setter refuses it before any I/O."),
                         ("digital_zoom", "PTZOptics built-ins keep VISCA digital zoom unavailable until model-specific evidence exists."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                         ("iris", "R10 and the current PTZOptics G2/G3 Developer Portal (R14 in docs/visca_reference.md) independently document G3 `04 39`, iris reset/up/down, direct `04 4B`, and `09 04 4B` position inquiry. They omit the distinct `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
@@ -2612,6 +2688,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: true,
                         focus_zone_inquiry: true,
+                        zones: profile_constants::PTZ_OPTICS_G2_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: false,
@@ -2719,10 +2796,12 @@ macro_rules! define_builtin_profiles {
                         PictureEffect,
                     ],
                     evidence: [
+                        ("version_inquiry", "On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795), the legacy G2 models return the 2-byte payload `00 52` for `81 09 00 02 FF`, not the 7-byte Sony layout, and no PTZOptics source documents the reply. Keep the typed version inquiry absent."),
                         ("digital_zoom", "The Axis 0x7AC0 digital endpoint is not applied to PTZOptics; the 30X raw VISCA profile keeps the standard 0x4000 optical endpoint and no typed digital zoom."),
                         ("preset_limit", "Raw PTZOptics VISCA preset commands are limited to the documented 0-127 range until values above 0x7F are target-tested."),
                         ("iris", "The shared PTZOptics Gen-2 source documents iris priority, relative controls, direct `04 4B`, and matching `09 04 4B` position inquiry for the raw 30X profile. It does not establish a model-specific `09 04 2B` iris auto/manual status inquiry, so `IrisControlInquiry` remains absent."),
                         ("focus_zone_inquiry", "The PTZOptics Gen-2 table documents the 81 09 04 AA focus-zone inquiry and its status response for the raw 30X model."),
+                        ("focus_zones", "R14/R20 document `CAM_AFZone` Top `00`, Center `01` and Bottom `02`. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI; 2026-10-04; #795) the cameras also report `03`, accept `81 01 04 AA 03 FF` with ACK and completion, and read `03` back, so `FocusZone::Zone03` is admitted for this family."),
                         ("usb_audio", "The PTZOptics Gen-2 UAC table documents the USB-audio command and matching inquiry for the raw 30X model."),
                         ("noise_reduction", "R1 supplies legacy PT30X SDI/NDI G2 09 04 50/53/54 inquiries, including 3D 0..8, but no setters. R14 supplies 04 50/53/54 controls only because R15 explicitly narrows this profile to that legacy PT30X SDI/NDI G2 raw-VISCA family. Encode domains are independently 2D 0..5 and 3D 0..8, not constrained by query output domains; do not generalize this evidence to newer 30X products."),
                     ],
@@ -2806,6 +2885,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -2875,6 +2955,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable, steps: None },
                     variable_speed: { supported: true },
                     typed_support: [
+                        VersionInquiry,
                         SonySpotlight,
                         ExposureCompensation,
                         PushAutoFocus,
@@ -2901,6 +2982,7 @@ macro_rules! define_builtin_profiles {
                         VariableSpeed,
                     ],
                     evidence: [
+                        ("version_inquiry", "The FR7 VISCA command list (R7) documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (051E ILME-FR7/FR7K), ROM revision and maximum socket (02)."),
                         ("sony_spotlight", "The FR7 command list (R7 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
@@ -2993,6 +3075,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3062,6 +3145,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        VersionInquiry,
                         SonySpotlight,
                         ExposureMode,
                         DirectZoom,
@@ -3082,6 +3166,7 @@ macro_rules! define_builtin_profiles {
                         GammaControl,
                     ],
                     evidence: [
+                        ("version_inquiry", "The BRC-H900 command list (R11) documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (050B BRC-H900), ROM revision and maximum socket (02)."),
                         ("sony_spotlight", "The BRC-H900 command list (R11 in docs/visca_reference.md) documents the fixed 04 3A spotlight commands, but not the fixed 04 5A auto slow-shutter commands."),
                         ("tally", "The BRC-H900 source-backed command list does not establish the FR7 red/green tally family; typed tally remains unavailable."),
                         ("exposure_mode", "The BRC-H900 command list R11 lines 706-717 and 1003 documents the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri commands and `09 04 39` inquiry. Bright mode is not listed and is therefore absent from this profile's inventory."),
@@ -3166,6 +3251,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3235,6 +3321,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        VersionInquiry,
                         SonyAutoSlowShutter,
                         ExposureMode,
                         DirectZoom,
@@ -3249,6 +3336,7 @@ macro_rules! define_builtin_profiles {
                         GammaControl,
                     ],
                     evidence: [
+                        ("version_inquiry", "The EVI-H100S/H100V technical manual (R8) documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (050E EVI-H100V, 050F EVI-H100S), ROM revision and maximum socket (02)."),
                         ("sony_auto_slow_shutter", "The EVI-H100 technical manual (R8 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("exposure_mode", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for the standard `04 39` family pending a direct line-item audit of the model authority R8; do not remove it without a contradictory model-specific citation."),
                         ("iris", "Decision D4 in #716 retains the EVI-H100 1.2 compatibility breadth for standard iris reset/up/down, direct `04 4B`, and the position inquiry pending a direct R8 line-item audit. The distinct `09 04 2B` status inquiry remains unavailable."),
@@ -3341,6 +3429,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3418,6 +3507,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        VersionInquiry,
                         SonyAutoSlowShutter,
                         ExposureMode,
                         DirectZoom,
@@ -3426,6 +3516,7 @@ macro_rules! define_builtin_profiles {
                         BacklightCompensation,
                     ],
                     evidence: [
+                        ("version_inquiry", "The BRC-300 technical manual R12 documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (040F BRC-300), ROM revision and maximum socket (02)."),
                         ("sony_auto_slow_shutter", "The BRC-300 technical manual (R12 in docs/visca_reference.md) documents the fixed 04 5A auto slow-shutter commands, but not the fixed 04 3A spotlight commands."),
                         ("exposure_mode", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document the shared `04 39` Full Auto/Manual/Shutter Pri/Iris Pri/Bright commands and `09 04 39` inquiry."),
                         ("iris", "The BRC-300 technical manual R12 lines 440-454 and 609-617 document standard iris reset/up/down, direct `04 4B`, and the `09 04 4B` position inquiry. The distinct `09 04 2B` status inquiry remains unavailable."),
@@ -3507,6 +3598,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3576,6 +3668,7 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        VersionInquiry,
                         ExposureMode,
                         DirectZoom,
                         IrisControl,
@@ -3584,6 +3677,7 @@ macro_rules! define_builtin_profiles {
                         SaturationControl,
                     ],
                     evidence: [
+                        ("version_inquiry", "The Nearus \"VISCA Protocol via Sony\" document (R21) documents `CAM_VersionInq` `8X 09 00 02 FF` -> `Y0 50 GG GG HH HH JJ JJ KK FF`: vendor ID (0001 Sony), model ID (040F BRC-300/P, 0410 BRU-300/P), ROM revision and maximum socket (02); its command list repeats the row as `y0 50 00 01 mn pq rs tu vw FF` (model code 04xx, socket 02)."),
                         ("pan_tilt_wire", "No independent Nearus model source establishes Sony BRC-300's one-speed, five-pan-nibble position frame. The profile therefore exposes conservative standard 4+4 VISCA pan/tilt framing pending model-specific validation."),
                         ("sony_vendor_exposure", "No independent Nearus BRC-300 source establishes the fixed 04 3A spotlight or 04 5A auto slow-shutter command family, so both typed markers remain unavailable."),
                         ("exposure_mode", "As the BRC-300 compatibility profile, Nearus BRC-300 follows the standard shared `04 39` family documented by Sony R12 while model-specific vendor exposure extensions remain withheld."),
@@ -3666,6 +3760,7 @@ macro_rules! define_builtin_profiles {
                         one_push: false,
                         focus_zone: false,
                         focus_zone_inquiry: false,
+                        zones: profile_constants::NO_FOCUS_ZONES,
                         max_speed: 7,
                         af_sensitivity: false,
                         near_limit_inquiry: true,
@@ -3735,12 +3830,14 @@ macro_rules! define_builtin_profiles {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        VersionInquiry,
                         ExposureMode,
                         IrisControl,
                         FocusNearLimitInquiry,
                         OnePushWhiteBalance,
                     ],
                     evidence: [
+                        ("version_inquiry", "The generic profile models the Sony VISCA baseline, whose `CAM_VersionInq` reply is the 7-byte vendor/model/ROM/socket layout documented in R12; cameras that reply in another layout fail decode with an invalid-length error rather than a mislabelled value."),
                         ("direct_zoom", "Generic profile keeps absolute zoom positioning unavailable despite baseline zoom movement."),
                         ("exposure_mode", "Generic VISCA deliberately assumes the standard Sony `04 39` exposure-mode family documented by R11/R12, matching its 1.2 compatibility contract."),
                         ("iris", "Generic VISCA deliberately assumes the standard Sony `04 0B`/`04 4B` iris controls and `09 04 4B` position inquiry documented by R11/R12, matching its 1.2 compatibility contract."),

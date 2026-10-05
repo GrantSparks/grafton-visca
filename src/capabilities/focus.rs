@@ -1,6 +1,11 @@
 //! Focus capability trait and associated types.
 
-use crate::{capabilities::ValidationError, UnitInterval};
+use crate::{capabilities::ValidationError, command::FocusZone, UnitInterval};
+
+/// The `CAM_AFZone` values every focus-zone source documents: Top, Center and
+/// Bottom (`8x 01 04 AA 00/01/02 FF`).
+pub(crate) const DOCUMENTED_FOCUS_ZONES: &[FocusZone] =
+    &[FocusZone::Top, FocusZone::Center, FocusZone::Bottom];
 
 /// Trait for cameras that support focus control.
 ///
@@ -29,6 +34,15 @@ pub trait Focus {
     /// This is distinct from [`Self::SUPPORTS_FOCUS_ZONE`]: some model
     /// references document selection but not a reliable status response.
     const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = false;
+
+    /// Focus-zone values the typed setter may send to this camera.
+    ///
+    /// Used only when [`Self::SUPPORTS_FOCUS_ZONE`] is true. The default is the
+    /// documented Top, Center and Bottom set. Add a value such as
+    /// [`FocusZone::Zone03`] only for a camera whose evidence shows it accepts
+    /// that value. The focus-zone inquiry decodes every known value whatever
+    /// this list says, because decoding a reply sends nothing.
+    const FOCUS_ZONES: &'static [FocusZone] = DOCUMENTED_FOCUS_ZONES;
 
     /// Maximum focus speed for manual focus operations.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.

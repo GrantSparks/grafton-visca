@@ -1,0 +1,393 @@
+{
+  "capabilities": {
+    "profile_id": "ptz-optics-g2",
+    "model_name": "PtzOptics G2",
+    "default_camera_id": 1,
+    "default_tcp_port": 5678,
+    "default_udp_port": 1259,
+    "has_pan_tilt": true,
+    "pan_speed": {
+      "start": 1,
+      "end": 24
+    },
+    "tilt_speed": {
+      "start": 1,
+      "end": 20
+    },
+    "pan_range": {
+      "start": -2448,
+      "end": 2448
+    },
+    "tilt_range": {
+      "start": -432,
+      "end": 1296
+    },
+    "pan_range_degrees": {
+      "start": -170.0,
+      "end": 170.0
+    },
+    "tilt_range_degrees": {
+      "start": -30.0,
+      "end": 90.0
+    },
+    "pan_tilt_simultaneous": true,
+    "preset_recovery_time": {
+      "secs": 0,
+      "nanos": 0
+    },
+    "has_zoom": true,
+    "has_digital_zoom": false,
+    "zoom_range_optical": {
+      "start": 0,
+      "end": 16384
+    },
+    "zoom_range_digital": null,
+    "zoom_speed": {
+      "start": 0,
+      "end": 7
+    },
+    "supports_direct_zoom": true,
+    "supports_variable_zoom": true,
+    "zoom_magnification_to_units": 862.3,
+    "has_focus": true,
+    "has_auto_focus": true,
+    "has_one_push_focus": false,
+    "focus_range": {
+      "start": 4096,
+      "end": 61440
+    },
+    "focus_speed": {
+      "start": 0,
+      "end": 7
+    },
+    "has_focus_zone": true,
+    "has_focus_zone_inquiry": true,
+    "has_af_sensitivity": false,
+    "has_focus_near_limit_inquiry": false,
+    "has_exposure": true,
+    "has_iris_control": true,
+    "exposure_modes": [
+      "auto",
+      "manual",
+      "shutter",
+      "iris",
+      "bright"
+    ],
+    "has_backlight_comp": true,
+    "has_wdr": true,
+    "has_exposure_comp": true,
+    "exposure_comp_range": {
+      "start": -7,
+      "end": 7
+    },
+    "exposure_comp_profile_range": {
+      "start": -7,
+      "end": 7
+    },
+    "iris_range": {
+      "start": 0,
+      "end": 12
+    },
+    "gain_range": {
+      "start": 0,
+      "end": 7
+    },
+    "shutter_speeds": [
+      {
+        "label": "1/30",
+        "value": 1
+      },
+      {
+        "label": "1/60",
+        "value": 2
+      },
+      {
+        "label": "1/90",
+        "value": 3
+      },
+      {
+        "label": "1/100",
+        "value": 4
+      },
+      {
+        "label": "1/125",
+        "value": 5
+      },
+      {
+        "label": "1/180",
+        "value": 6
+      },
+      {
+        "label": "1/250",
+        "value": 7
+      },
+      {
+        "label": "1/350",
+        "value": 8
+      },
+      {
+        "label": "1/500",
+        "value": 9
+      },
+      {
+        "label": "1/725",
+        "value": 10
+      },
+      {
+        "label": "1/1000",
+        "value": 11
+      },
+      {
+        "label": "1/1500",
+        "value": 12
+      },
+      {
+        "label": "1/2000",
+        "value": 13
+      },
+      {
+        "label": "1/3000",
+        "value": 14
+      },
+      {
+        "label": "1/4000",
+        "value": 15
+      },
+      {
+        "label": "1/6000",
+        "value": 16
+      },
+      {
+        "label": "1/10000",
+        "value": 17
+      }
+    ],
+    "exposure_brightness_range": {
+      "start": 0,
+      "end": 17
+    },
+    "has_white_balance": true,
+    "has_one_push_wb": true,
+    "has_color_temp": true,
+    "color_temp_range": {
+      "start": 2500,
+      "end": 8000
+    },
+    "rg_tuning_range": {
+      "start": -10,
+      "end": 10
+    },
+    "bg_tuning_range": {
+      "start": -10,
+      "end": 10
+    },
+    "has_rgb_gain": true,
+    "red_gain_range": {
+      "start": 0,
+      "end": 255
+    },
+    "blue_gain_range": {
+      "start": 0,
+      "end": 255
+    },
+    "white_balance_modes": [
+      "auto",
+      "indoor",
+      "outdoor",
+      "one_push",
+      "manual",
+      "color_temperature"
+    ],
+    "has_image_processing": true,
+    "contrast_range": {
+      "start": 0,
+      "end": 14
+    },
+    "sharpness_range": {
+      "start": 0,
+      "end": 15
+    },
+    "saturation_range": {
+      "start": 0,
+      "end": 14
+    },
+    "hue_range": {
+      "start": 0,
+      "end": 14
+    },
+    "luminance_range": {
+      "start": 0,
+      "end": 14
+    },
+    "gamma_range": {
+      "start": 0,
+      "end": 4
+    },
+    "supports_flip": true,
+    "supports_mirror": true,
+    "supports_hue": true,
+    "uses_combined_flip_command": true,
+    "requires_settings_save_for_flip": true,
+    "has_noise_reduction": true,
+    "has_2d_nr": true,
+    "has_3d_nr": true,
+    "has_picture_effect": true,
+    "has_gamma": true,
+    "has_luminance": true,
+    "has_tally": false,
+    "has_presets": true,
+    "max_presets": 127,
+    "preset_speed_range": {
+      "start": 1,
+      "end": 24
+    },
+    "supports_preset_tour": false,
+    "supports_preset_thumbnail": false,
+    "preset_recall_delay": {
+      "secs": 0,
+      "nanos": 0
+    },
+    "supports_preset_names": false,
+    "max_preset_name_length": 0,
+    "has_power": true,
+    "supports_standby": true,
+    "supports_wake_on_lan": false,
+    "power_on_time": {
+      "secs": 10,
+      "nanos": 0
+    },
+    "standby_time": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "retains_settings_on_power_off": true,
+    "home_on_power_up": false,
+    "has_nd_filter": false,
+    "nd_filter_mode": "None",
+    "nd_filter_steps": null,
+    "has_motion_sync": false,
+    "max_motion_sync_speed": null,
+    "max_motion_sync_speed_profile": 24,
+    "has_direct_menu_control": false,
+    "has_variable_speed": false,
+    "has_usb_audio": true,
+    "inquiry_support": "Full",
+    "supports_operation_complete": true,
+    "typed_support": [
+      "direct-zoom",
+      "iris-control",
+      "focus-lock",
+      "focus-zone",
+      "backlight-compensation",
+      "wide-dynamic-range",
+      "exposure-compensation",
+      "brightness-control",
+      "one-push-white-balance",
+      "auto-white-balance-sensitivity",
+      "color-temperature",
+      "rgb-gain",
+      "rgb-tuning",
+      "image-flip",
+      "image-mirror",
+      "combined-image-flip",
+      "contrast-control",
+      "sharpness-control",
+      "saturation-control",
+      "hue-control",
+      "luminance-control",
+      "gamma-control",
+      "noise-reduction2-d",
+      "noise-reduction3-d",
+      "picture-effect",
+      "focus-zone-inquiry",
+      "usb-audio",
+      "ptz-optics-anti-flicker",
+      "ptz-optics-settings-save",
+      "ptz-optics-preset-recall-speed",
+      "ptz-optics-multicast-streaming",
+      "ptz-optics-ndi-quality",
+      "exposure-mode",
+      "noise-reduction2-d-control",
+      "noise-reduction3-d-control"
+    ]
+  },
+  "pan_tilt_coordinates": {
+    "coordinate_system": "SignedCentered",
+    "wire_codec": "StandardVisca",
+    "pan_degrees_to_units": 14.4,
+    "tilt_degrees_to_units": 14.4
+  },
+  "transports": {
+    "tcp_port": 5678,
+    "udp_port": 1259,
+    "serial": true
+  },
+  "envelope": "RawVisca",
+  "timing": {
+    "ack_timeout": {
+      "secs": 0,
+      "nanos": 500000000
+    },
+    "command_timeouts": {
+      "quick_timeout": {
+        "secs": 5,
+        "nanos": 0
+      },
+      "movement_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "preset_timeout": {
+        "secs": 60,
+        "nanos": 0
+      },
+      "long_running_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "network_timeout": {
+        "secs": 5,
+        "nanos": 0
+      }
+    },
+    "inquiry_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "cancellation_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "ambiguity_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "busy_timeout": {
+      "secs": 0,
+      "nanos": 0
+    },
+    "raw_inquiry_reply_skew": {
+      "secs": 0,
+      "nanos": 150000000
+    },
+    "minimum_inquiry_spacing": {
+      "secs": 0,
+      "nanos": 150000000
+    },
+    "minimum_command_spacing": {
+      "secs": 0,
+      "nanos": 100000000
+    }
+  },
+  "maximum_command_sockets": 2,
+  "supports_operation_complete": true,
+  "supports_command_cancel": false,
+  "preset_recall_axes": 7,
+  "position_inquiries": {
+    "pan_tilt": true,
+    "zoom": true,
+    "focus": true,
+    "iris": true,
+    "nd_filter": false
+  }
+}

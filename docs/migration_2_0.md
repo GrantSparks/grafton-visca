@@ -234,7 +234,7 @@ root trait:
 | `WhiteBalanceControl` and its color-temperature/gain controls | `camera.white_balance()`; saturation, hue, and general image controls belong to `camera.image()` |
 | `PresetsControl`, `PowerControl`, `MenuControl` | `camera.presets()`, `camera.power()`, and `camera.menu()` respectively; vendor streaming-quality controls live under the profile-gated `camera.advanced()` noun. |
 | `InquiryControl` | The inquiry on the noun that owns the value; there is no aggregate replacement trait. |
-| `SystemControl` | `camera.system().version()` for firmware information and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::serial::Config::{address_set_on_connect, if_clear_on_connect}` (Address Set runs first when both are selected). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
+| `SystemControl` | `camera.system().version()` for the Sony-format version reply on profiles that implement `HasVersionInquiry` (Sony and `GenericVisca`; not the PTZOptics profiles, whose reply layout is unsourced, so send a `raw::Inquiry` there; custom profiles must implement `HasVersionInquiry`, include `TypedSupportSurface::VersionInquiry` in `TYPED_SUPPORT`, and list `"version-inquiry"` in persisted runtime `typed_support`, as described in the next section's gate table) and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::serial::Config::{address_set_on_connect, if_clear_on_connect}` (Address Set runs first when both are selected). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
 
 ### Layered async trait adapters
 
@@ -310,6 +310,7 @@ Optional typed controls now name the exact evidence boundary:
 | PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
 | Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
 | USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
+| `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to every persisted runtime `capabilities.typed_support` list; a runtime profile saved by 2.0.0-rc.3 still loads but its `version()` fails with `FeatureNotSupported` until the tag is added (#795). |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
 | `SonyBRC300` in 2.0.0-rc.1 advertised typed backlight support but could not construct `image()` | Upgrade to rc.2, which restores `camera.image().backlight()` and `camera.image().set_backlight(...)` while keeping every other image row independently capability-gated. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
@@ -327,6 +328,7 @@ caller can observe directly are:
 | Bright Direct used `04 0D`, and the 2.0 preview exposed byte-identical `Brightness::SetLevel` / `Brightness::Direct` variants | Use only `Brightness::SetLevel` or the noun method `brightness_set`. They encode the sourced direct register `04 4D`; `Brightness::Direct` and `brightness_direct` are removed, while `04 0D` remains only the reset/up/down family. |
 | UpRight limit corner was `03` | It is `01` in limit set and clear frames. |
 | Focus-zone inquiry was `09 04 3C` | It now matches the focus-zone register at `09 04 AA`. |
+| `FocusZone` had exactly Top/Center/Bottom (`00/01/02`), and the inquiry rejected any other reply | `FocusZone` is `#[non_exhaustive]` and adds `Zone03` (`03`), which PTZOptics G2 firmware reports, accepts and reads back, though no vendor source names it. Add a wildcard arm to exhaustive matches. Sending is gated per profile by `Capabilities::focus_zones` (`Focus::FOCUS_ZONES`): `PtzOpticsG2` and `PtzOptics30X` admit `Zone03`, `PtzOpticsG3` and custom profiles default to Top/Center/Bottom, and an unlisted value fails with `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O. Decoding `03` is never gated (#795). |
 | Picture-effect inquiry was `09 04 32` | It is `09 04 63`. |
 | USB-audio inquiry was `09 04 7A`, and on was decoded as `03` | It is the vendor frame `2A 02 A0 04`; `02` means on and `03` means off. |
 | A final data byte of `FF` doubled as the terminator | Preset 255 and Direct Menu values ending in `FF` now contain both the data byte and a separate terminating `FF`. Direct Menu rejects `FF` followed by an address byte because that sequence would begin a second frame. |
@@ -837,6 +839,37 @@ With `serde`, checked data stays checked across the wire boundary:
 declared by `visca_range_type!` deserialize through their checked `TryFrom`/
 `new` paths, so an out-of-range scalar is rejected rather than constructing an
 invalid wrapper.
+
+#### Persisted `ProfileSpec` values with a built-in identity (#795)
+
+A serialized `ProfileSpec` whose `capabilities.profile_id` names a built-in
+profile must match the current built-in registry exactly; it is never
+silently upgraded, because a stale spec could misdescribe what the camera
+supports. Specs saved by 2.0.0-rc.3 or earlier for `SonyFR7`, `SonyBRCH900`,
+`SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and `GenericVisca` lack the
+`"version-inquiry"` typed-support tag and therefore fail to deserialize with
+`Error::InvalidRequest` (wrapped in the `serde_json` error). The message names
+the profile, the surfaces that differ, and the fix, for example:
+
+```text
+Invalid request: profile fields `capabilities.profile_id`, `capabilities.typed_support`: built-in profile `SonyFR7`: the stored typed-support set differs from the current built-in registry (missing: VersionInquiry; not in registry: none); the spec was saved by another release, so regenerate it with `ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()` and persist the result
+```
+
+Regenerate each stored built-in spec from the current registry and persist the
+new value:
+
+```rust,ignore
+use grafton_visca::{profiles::SonyFR7, ProfileSpec};
+
+let spec = ProfileSpec::from_compile_time::<SonyFR7>()?;
+let json = serde_json::to_string(&spec)?; // replace the stored rc.3 value
+```
+
+Specs saved for `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` still load:
+their typed-support sets did not change, and the missing `focus_zones` field
+is restored from the registry. Custom runtime profiles (no `profile_id`) are
+not affected by this check; see the `HasVersionInquiry` row above for the tag
+they need to keep `version()`.
 
 ### Reconfiguring timeouts at runtime
 

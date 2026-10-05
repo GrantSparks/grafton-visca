@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (#795): `system().version()` is now gated by the
+  `HasVersionInquiry` marker and the `VersionInquiry` typed-support surface;
+  the PTZOptics profiles (`PtzOpticsG2`, `PtzOptics30X`, `PtzOpticsG3`) no
+  longer expose it.** Previously the typed version inquiry compiled for every
+  profile. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, ARM firmware
+  6.3.51THI, 6.3.76THI and 6.4.18SHI, 2026-10-04) `81 09 00 02 FF` returns
+  the two-byte payload `00 52`, which no cited source defines, so the 7-byte
+  Sony decoder always failed. G3 is gated under the same source-evidence rule
+  but was not bench-tested. `raw::Inquiry` remains available on those
+  profiles. Sony, Nearus and `GenericVisca` profiles keep `version()`, each
+  citing its model's `CAM_VersionInq` row. Custom compile-time profiles must
+  implement `HasVersionInquiry` and list `TypedSupportSurface::VersionInquiry`
+  in `TYPED_SUPPORT`; persisted runtime profiles must add `"version-inquiry"`
+  to `typed_support` (see `docs/migration_2_0.md`).
+- **BREAKING (#795): `FocusZone` is now `#[non_exhaustive]` and gains
+  `FocusZone::Zone03`.** Every camera on the G2 bench reports focus zone
+  `03` and accepts `81 01 04 AA 03 FF`, a value no vendor source documents;
+  rc.3 rejected it, so `focus().zone()` failed on all of them. The variant is
+  named by its value because its meaning is unsourced. Setting a zone is now
+  checked against the profile's zone list before any I/O: `PtzOpticsG2` and
+  `PtzOptics30X` allow `Zone03`, `PtzOpticsG3` allows only the documented
+  Top/Center/Bottom, and decoding an inquiry reply of `03` is accepted
+  everywhere so a read value can always be set back where it is supported.
+- **BREAKING (#795): built-in Sony and `GenericVisca` `ProfileSpec`s saved by
+  an earlier 2.0 prerelease are refused on load**, because their stored
+  typed-support set lacks `VersionInquiry` and built-in identities must match
+  the current registry exactly. The `InvalidRequest` message names the
+  profile, the missing surfaces, and the regeneration call
+  (`ProfileSpec::from_compile_time::<P>()`). Saved PTZOptics specs still load
+  and gain their focus-zone list.
+
+### Added
+
+- `Focus::FOCUS_ZONES`, `Capabilities::focus_zones` and
+  `Capabilities::supports_focus_zone()` (#795) expose each profile's settable
+  focus zones; the list is empty exactly when focus-zone control is
+  unsupported.
+
 ## [2.0.0-rc.3] - 2026-10-04
 
 This candidate completes the adopted 2.0 decisions for software review.

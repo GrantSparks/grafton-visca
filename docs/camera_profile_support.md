@@ -123,6 +123,7 @@ declarative vocabulary rather than this marked region.
 | Image | `HasDefogLevel` | vendor defog-level inquiry |
 | Tally | `HasTallyBrightness` | extended tally-brightness commands |
 | Tally | `HasPtzOpticsTally` | PTZOptics packed status, mode, and auto-adjust tally family |
+| System | `HasVersionInquiry` | `camera.system().version()` (`09 00 02` Sony-format `CAM_VersionInq` decode) |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 ## Built-In Transport Matrix
@@ -169,12 +170,12 @@ optional typed operations when a capability is not universal.
 | `PtzOpticsG2` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `PtzOpticsG3` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
 | `PtzOptics30X` | `HasPtzOpticsAntiFlicker`<br>`HasPtzOpticsSettingsSave`<br>`HasPtzOpticsPresetRecallSpeed`<br>`HasPtzOpticsMulticastStreaming`<br>`HasPtzOpticsNdiQuality`<br>`HasExposureMode`<br>`HasExposureCompensation`<br>`HasBrightnessControl`<br>`HasFocusLock`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusZone`<br>`HasFocusZoneInquiry`<br>`HasUsbAudio`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoWhiteBalanceSensitivity`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasCombinedImageFlip`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasLuminanceControl`<br>`HasGammaControl`<br>`HasNoiseReduction2D`<br>`HasNoiseReduction3D`<br>`HasNoiseReduction2DControl`<br>`HasNoiseReduction3DControl`<br>`HasPictureEffect` |
-| `SonyFR7` | `HasSonySpotlight`<br>`HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed` |
-| `SonyBRCH900` | `HasSonySpotlight`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl` |
-| `SonyEVIH100` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl` |
-| `SonyBRC300` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation` |
-| `NearusBRC300` | `HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl` |
-| `GenericVisca` | `HasExposureMode`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance` |
+| `SonyFR7` | `HasSonySpotlight`<br>`HasExposureCompensation`<br>`HasPushAutoFocus`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasRgbGain`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasAutoTrackingWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasHueControl`<br>`HasGammaControl`<br>`HasTally`<br>`HasDirectMenuControl`<br>`HasNdFilter`<br>`HasVariableSpeed`<br>`HasVersionInquiry` |
+| `SonyBRCH900` | `HasSonySpotlight`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasDigitalZoomToggle`<br>`HasDigitalZoomRange`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasWideDynamicRange`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasContrastControl`<br>`HasSharpnessControl`<br>`HasSaturationControl`<br>`HasGammaControl`<br>`HasVersionInquiry` |
+| `SonyEVIH100` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasColorTemperature`<br>`HasRgbTuning`<br>`HasOnePushWhiteBalance`<br>`HasImageFlip`<br>`HasImageMirror`<br>`HasGammaControl`<br>`HasVersionInquiry` |
+| `SonyBRC300` | `HasSonyAutoSlowShutter`<br>`HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasVersionInquiry` |
+| `NearusBRC300` | `HasExposureMode`<br>`HasDirectZoom`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasBacklightCompensation`<br>`HasSaturationControl`<br>`HasVersionInquiry` |
+| `GenericVisca` | `HasExposureMode`<br>`HasIrisControl`<br>`HasFocusNearLimitInquiry`<br>`HasOnePushWhiteBalance`<br>`HasVersionInquiry` |
 
 Focus-zone selection is source-backed for PtzOptics G2, G3, and 30X, while the
 matching inquiry is enabled only for G2 and 30X because the G3 query response
@@ -183,6 +184,83 @@ likewise remain limited to the G2 and raw 30X UAC table entries. Picture effect
 is retained for all three PTZOptics profiles from the G2/G3 references and the
 raw 30X Gen-2 table; it is not inferred for Sony FR7 or BRC-H900. The Sony
 model lists also do not establish the removed brightness controls.
+
+### Focus zone value `03` and per-profile zone lists (#795)
+
+The PTZOptics sources (the R14/R20 `CAM_AFZone` rows and the G2 user-manual
+OSD and web `AF-Zone` options) and the OEM command lists checked for the same
+firmware family document only Top (`00`), Center (`01`) and Bottom (`02`). On
+the PTZOptics G2 bench (PT30X-NDI, PT20X-NDI and PT12X-NDI G2; firmware ARM
+6.3.51THI, 6.3.76THI and 6.4.18SHI; 2026-10-04) every camera answered the
+`81 09 04 AA FF` inquiry with `90 50 03 FF`, accepted `81 01 04 AA 03 FF` with
+ACK `90 42` and completion `90 52`, and read `03` back; `01` round-trips the
+same way. The value therefore behaves as a peer of the documented zones.
+`FocusZone::Zone03` represents it with a value-based name because no source
+says which image area it weights; it is not focus lock, which is the separate
+`81 0A 04 68 02/03 FF` command. `FocusZone` is `#[non_exhaustive]` because its
+values are evidence-driven vendor values rather than one fixed protocol table.
+
+Sending a zone is gated per value, following the `exposure_modes` precedent.
+`Focus::FOCUS_ZONES` lists the values a profile may send (default: the
+documented three) and `Capabilities::focus_zones` mirrors it at runtime; it is
+empty exactly when focus-zone selection is unsupported and must be
+duplicate-free. `FocusZoneCommand` refuses a value outside the list with
+`Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O, on
+the static, dynamic and runtime-profile paths alike.
+
+The table below is checked against the registry by
+`camera_profile_support_focus_zone_table_matches_registry`. `Zone03` is
+admitted for `PtzOpticsG2` and `PtzOptics30X` from bench evidence; G3 was not
+bench-tested.
+
+<!-- BEGIN GENERATED FOCUS ZONES -->
+| Profile | `focus_zones` |
+| ------- | ------------- |
+| `PtzOpticsG2` | `Top`, `Center`, `Bottom`, `Zone03` |
+| `PtzOpticsG3` | `Top`, `Center`, `Bottom` |
+| `PtzOptics30X` | `Top`, `Center`, `Bottom`, `Zone03` |
+| `SonyFR7` | none |
+| `SonyBRCH900` | none |
+| `SonyEVIH100` | none |
+| `SonyBRC300` | none |
+| `NearusBRC300` | none |
+| `GenericVisca` | none |
+<!-- END GENERATED FOCUS ZONES -->
+
+Decoding is not gated: the focus-zone inquiry decodes `03` from any camera,
+because reading a reply sends nothing. A runtime profile may add `Zone03` to
+its own list when its camera has evidence for it. A profile persisted before
+the field existed (2.0.0-rc.3) deserializes with its built-in list when it
+carries a built-in identity, and with the documented three otherwise. See
+[VISCA reference §7.13](visca_reference.md) for the source search.
+
+### Version inquiry (`HasVersionInquiry`)
+
+`camera.system().version()` decodes the Sony `CAM_VersionInq` reply,
+`y0 50 GG GG HH HH JJ JJ KK FF` (vendor, model, ROM revision, maximum socket).
+Each Sony profile's registry evidence cites its model's row: R7 (FR7, model
+`051E`), R11 (BRC-H900, `050B`), R8 (EVI-H100, `050E`/`050F`), R12 (BRC-300,
+`040F`) and R21 (Nearus BRC-300); `GenericVisca` follows the Sony baseline.
+These profiles implement `HasVersionInquiry`. The PTZOptics profiles do not:
+on the PTZOptics G2 bench (2026-10-04) the cameras answered `81 09 00 02 FF`
+with the 2-byte payload `90 50 00 52 FF`, and no PTZOptics source documents
+that reply or its fields. G3 was not bench-tested and is gated under the same
+source-evidence rule. Rather than guess at field meanings, the typed inquiry
+does not compile for those profiles and the dyn/runtime path refuses it with
+`FeatureNotSupported` before any I/O; send `raw::Inquiry` with
+`81 09 00 02 FF` to read the bytes.
+
+A custom profile keeps the typed version inquiry only if all three of these
+hold:
+
+1. its compile-time profile type implements `HasVersionInquiry`;
+2. its `ProfileTypedSupport::TYPED_SUPPORT` includes
+   `TypedSupportSurface::VersionInquiry`;
+3. every persisted runtime profile lists `"version-inquiry"` in
+   `capabilities.typed_support`. A runtime profile saved by 2.0.0-rc.3 lacks
+   the tag and loads successfully, but `version()` then fails with
+   `FeatureNotSupported`; add the tag to the stored JSON (or to the
+   `TypedSupportSet` before building the `ProfileSpec`).
 
 The row-specific surfaces `HasImageFreeze`, `HasDefogLevel`,
 `HasTallyBrightness`, and `HasPtzOpticsTally` currently have no built-in profile

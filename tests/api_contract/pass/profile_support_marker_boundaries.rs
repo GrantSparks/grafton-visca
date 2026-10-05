@@ -3,7 +3,7 @@ use grafton_visca::{
         HasBrightnessControl, HasExposureMode, HasFocusZone, HasFocusZoneInquiry, HasIrisControl,
         HasNoiseReduction2D, HasNoiseReduction2DControl, HasNoiseReduction3D,
         HasNoiseReduction3DControl, HasPictureEffect, HasSonyAutoSlowShutter, HasSonySpotlight,
-        HasUsbAudio,
+        HasUsbAudio, HasVersionInquiry,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -24,8 +24,16 @@ fn requires_picture_effect<P: HasPictureEffect>() {}
 fn requires_usb_audio<P: HasUsbAudio>() {}
 fn requires_spotlight<P: HasSonySpotlight>() {}
 fn requires_auto_slow_shutter<P: HasSonyAutoSlowShutter>() {}
+fn requires_version_inquiry<P: HasVersionInquiry>() {}
 
 fn main() {
+    requires_version_inquiry::<SonyFR7>();
+    requires_version_inquiry::<SonyBRCH900>();
+    requires_version_inquiry::<SonyEVIH100>();
+    requires_version_inquiry::<SonyBRC300>();
+    requires_version_inquiry::<NearusBRC300>();
+    requires_version_inquiry::<GenericVisca>();
+
     requires_brightness::<PtzOpticsG2>();
     requires_brightness::<PtzOpticsG3>();
     requires_brightness::<PtzOptics30X>();

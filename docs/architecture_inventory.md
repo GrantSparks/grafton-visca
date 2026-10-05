@@ -48,10 +48,10 @@ The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
 `PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
 `PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
 `PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
-`IrisControlInquiry`, `NoiseReduction2DControl`, and
-`NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`, and
-`PtzOpticsTally`. The generated profile registry remains the single source for
-marker implementations and runtime discovery facts.
+`IrisControlInquiry`, `NoiseReduction2DControl`,
+`NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`,
+`PtzOpticsTally`, and `VersionInquiry`. The generated profile registry remains
+the single source for marker implementations and runtime discovery facts.
 
 ## Static nouns and controls
 

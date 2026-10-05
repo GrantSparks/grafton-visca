@@ -1861,8 +1861,16 @@ mod tests {
         assert!(!admits(&PowerInquiry, &bare));
         assert!(!admits(&ZoomPositionInquiry, &bare));
         // `VersionInquiry` sits on the `System` noun (`noun_marker!` = `None`),
-        // so it stays reachable regardless of the base domains.
-        assert!(admits(&VersionInquiry, &bare));
+        // so no base domain gates it; only its own `HasVersionInquiry` typed
+        // surface does, because its decoder accepts only the Sony reply layout.
+        assert!(!admits(&VersionInquiry, &bare));
+        let version_only = minimal_profile(|capabilities| {
+            capabilities.typed_support = crate::capabilities::TypedSupportSet::from_surface(
+                crate::capabilities::TypedSupportSurface::VersionInquiry,
+            );
+        });
+        assert!(admits(&VersionInquiry, &version_only));
+        assert!(!admits(&PowerInquiry, &version_only));
 
         // Opting the power domain in flips the power inquiry to admitted while
         // the still-absent zoom domain keeps its inquiry refused: the erased
@@ -1873,7 +1881,7 @@ mod tests {
         });
         assert!(admits(&PowerInquiry, &power_only));
         assert!(!admits(&ZoomPositionInquiry, &power_only));
-        assert!(admits(&VersionInquiry, &power_only));
+        assert!(!admits(&VersionInquiry, &power_only));
     }
 
     #[test]
