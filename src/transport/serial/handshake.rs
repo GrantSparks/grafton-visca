@@ -19,7 +19,7 @@ use crate::transport::serial::Startup;
 use crate::{
     camera_id::CameraId,
     command::{
-        bytes::VISCA_TERMINATOR,
+        bytes::{constants::system, VISCA_TERMINATOR},
         encode::WireEncode,
         system::{AddressSetCommand, InterfaceClearCommand},
     },
@@ -67,7 +67,12 @@ impl StartupTiming {
 /// one. Network Change (`z0 38 FF`) and every other frame is not a reply.
 fn address_set_reply(frame: &[u8]) -> Option<u8> {
     match frame {
-        [0x88, 0x30, next_address @ 0x02..=0x08, VISCA_TERMINATOR] => Some(next_address - 1),
+        [address, register, next_address @ 0x02..=0x08, VISCA_TERMINATOR]
+            if *address == CameraId::BROADCAST.to_address_byte()
+                && *register == system::ADDRESS_SET_REGISTER =>
+        {
+            Some(next_address - 1)
+        }
         _ => None,
     }
 }

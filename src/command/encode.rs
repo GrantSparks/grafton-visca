@@ -36,21 +36,7 @@ mod tests {
         struct Dummy;
         impl WireEncode for Dummy {
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [
-                    camera_id.to_address_byte(),
-                    0x01,
-                    0x04,
-                    0x00,
-                    crate::command::bytes::VISCA_TERMINATOR,
-                ];
-                if buffer.len() < bytes.len() {
-                    return Err(Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                crate::command::bytes::write_frame(camera_id, &[&[0x01, 0x04, 0x00]], buffer)
             }
         }
 

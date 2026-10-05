@@ -1,22 +1,15 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
-//! The fixture holds one row per generated case: 476 rows. They are the
-//! phase-4 mechanical comparison against the pinned 1.2 oracle, plus three
-//! v2-only 2D-NR mode rows and the `FocusZone[Zone03]` row
-//! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795), which has no
-//! 1.2 oracle counterpart. Two 2.0 changes reshaped oracle rows (#808, #819):
-//! the profile-less `PanTilt` position frame carries any 16-bit word, so its
-//! former range-error rows and the duplicate `*Raw` variants' rows became 36
-//! position rows; and `ShutterSpeed` is the `0p 0q` field's byte, so every
-//! `Shutter::SetSpeed` row encodes (`0x0000` → `81 01 04 4A 00 00 00 00 FF`)
-//! and the former out-of-domain rows, now unrepresentable, are gone.
-//! The original audit's 31 changed output rows included two valid
-//! `Brightness::Direct` rows removed with the duplicate public surface in
-//! #727; the fixture retains the other 29 source-backed 2.0 deltas ratified
-//! in D5. The semantic-ledger assertion below makes a newly added built-in
-//! command fail until it is deliberately represented by this generator and
-//! reviewed in the fixture; generated inquiry metadata is checked the same
-//! way.
+//! The fixture is the reviewed current wire inventory: one row per generated
+//! case, 476 rows, covering every built-in command encoder, every generated
+//! inquiry and the camera-address variants. Each row was reviewed against the
+//! source register in `docs/visca_reference.md` when it entered the fixture,
+//! including the source-backed 2.0 corrections ratified in D5 (#808, #819),
+//! the three 2D-NR mode rows, and the `FocusZone[Zone03]` row
+//! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795). The
+//! semantic-ledger assertion below makes a newly added built-in command fail
+//! until it is deliberately represented by this generator and reviewed in the
+//! fixture; generated inquiry metadata is checked the same way.
 //!
 //! The fixture is literal text and every change to it is reviewed as a diff.
 //! After a deliberate encoder change, regenerate it from [`rows`] with
@@ -25,13 +18,7 @@
 //! report green; it is refused when `CI` is set. Review the diff and rerun
 //! without the variable.
 
-#![allow(
-    clippy::redundant_closure_call,
-    unused_imports,
-    dead_code,
-    unused_qualifications,
-    deprecated
-)]
+#![allow(clippy::redundant_closure_call)]
 
 use std::collections::HashSet;
 
@@ -282,12 +269,12 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("Focus::FarWithSpeed[{s}]"),
-            Ok(Focus::FarWithSpeed(crate::types::FocusSpeed::new(s)?))
+            Ok(Focus::FarWithSpeed(FocusSpeed::new(s)?))
         );
         rowr!(
             o,
             format!("Focus::NearWithSpeed[{s}]"),
-            Ok(Focus::NearWithSpeed(crate::types::FocusSpeed::new(s)?))
+            Ok(Focus::NearWithSpeed(FocusSpeed::new(s)?))
         );
     }
     for p in [0u16, 0x1234, 0xF000, 0xFFFF] {
@@ -732,26 +719,10 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::Unknown(0x02)
         }
     );
-    row!(
-        o,
-        "ImageFlip[On]",
-        crate::command::flip::ImageFlip { flip: Flip::On }
-    );
-    row!(
-        o,
-        "ImageFlip[Off]",
-        crate::command::flip::ImageFlip { flip: Flip::Off }
-    );
-    row!(
-        o,
-        "HorizontalFlip[on]",
-        crate::command::flip::HorizontalFlip { on: true }
-    );
-    row!(
-        o,
-        "HorizontalFlip[off]",
-        crate::command::flip::HorizontalFlip { on: false }
-    );
+    row!(o, "ImageFlip[On]", flip::ImageFlip { flip: Flip::On });
+    row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: Flip::Off });
+    row!(o, "HorizontalFlip[on]", flip::HorizontalFlip { on: true });
+    row!(o, "HorizontalFlip[off]", flip::HorizontalFlip { on: false });
     row!(o, "ImageFreeze[on]", ImageFreeze { on: true });
     row!(o, "ImageFreeze[off]", ImageFreeze { on: false });
     // nd
@@ -938,7 +909,7 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("MotionSyncPreset[{s}]"),
-            crate::types::MotionSyncSpeed::new(s).map(SetMotionSyncPreset::new)
+            MotionSyncSpeed::new(s).map(SetMotionSyncPreset::new)
         );
     }
     row!(
@@ -1087,7 +1058,7 @@ fn assert_inquiry_coverage(rows: &[String]) {
     }
 }
 
-// ---- HEAD-specific prelude ----
+// ---- Shared row helpers ----
 use crate::command::encode::WireEncode as Enc;
 fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
     DirectMenuControl::new(a, b)

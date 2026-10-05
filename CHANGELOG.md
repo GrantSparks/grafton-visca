@@ -254,6 +254,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   older custom specs fail with an `InvalidRequest` naming the profile and the
   regeneration call (`ProfileSpec::from_compile_time::<P>()` for a built-in,
   `ProfileSpec::builder` for a custom profile). No older shape is backfilled.
+- **BREAKING (#809): an unknown code byte in any inquiry reply is
+  `Error::InvalidResponse { expected, actual }`.** Enum and on/off (`02`/`03`)
+  replies all decode through one table; several decoders returned the caller
+  error `InvalidParameter` before. `#[derive(ViscaInquiry)]` `parser = Mode`
+  passes the enum's own error through. Numeric values outside a value type
+  stay `ParameterOutOfRange`.
+- **BREAKING (#809, #828): `InquiryData::FlipState { state: FlipState }`**
+  replaces the `horizontal`/`vertical` fields.
+  `FlipState::from(ImageFlipMode)` is the one combined-flip mapping; `Flip`
+  and `ImageFlipMode` derive `ViscaEnum`.
+- **BREAKING (#809): `AutoWhiteBalanceSensitivity::to_command_byte` is
+  removed;** use `u8::from(..)` (the enum derives `ViscaEnum`).
+- **BREAKING (#828 L1): padded replies must have zero padding.** A `00 00 0p
+  0q` or `00 00 00 0p` reply with a nonzero leading nibble is
+  `InvalidResponseFormat` instead of having the nibbles dropped.
+  `Nibbles::u8_pair`/`last_nibble` are replaced by
+  `zero_extended_u8`/`zero_extended_nibble`; derived `parser =
+  Nibble`/`LastNibble` inquiries use them.
+- **BREAKING (#828 L1): `InquiryData::SharpnessPosition::position` and
+  `InquiryData::Brightness::position` are `u8`;** gain, contrast and luminance
+  replies keep both `0p 0q` digits (gain previously decoded only the last
+  nibble).
+- **BREAKING (#828 L2):** a malformed Sony BRC-300 pan/tilt reply is
+  `InvalidResponseLength`, as for every profile (was `DecoderNotFound`).
+- **BREAKING (#811): `visca_command!` unit commands derive `Default` and get
+  `const fn new()`;** a downstream unit command that defines its own
+  `new`/`Default` must delete them. `bytes`/`prefix` accept any `[u8; N]`
+  expression; bodies never include the address byte.
+- **BREAKING (#810): `Envelope::frame_into` rejects an empty message with
+  `InvalidRequest`** (it cleared the output and succeeded), and with IP
+  addressing every address, `0x88` included, is sent as `0x81`: VISCA over IP
+  fixes the camera address at 1.
+- `RedTuning`/`BlueTuning` gain `to_protocol_value`; the three centred levels
+  expose `WIRE_CENTER` (#809).
 
 ### Removed
 
@@ -387,6 +421,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accessors and `Request` forwarding are written once.
 - (#803) One `Lane` enum is shared by the engine, the stream ledger and the
   owner.
+- One frame writer, one step encoder, one nibble encoder and one address-free
+  byte catalogue whose shared command/inquiry registers are declared once; raw
+  admission and serial startup recognise Address Set / I/F Clear from it
+  (#810, #811).
+- The built-in inquiry table has one row grammar and one generator; response
+  lifting has one body (#812).
+- The test-only auto-detect framing mode and its constructors are removed.
 
 ## [2.0.0-rc.3] - 2026-10-04
 

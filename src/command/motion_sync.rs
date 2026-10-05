@@ -5,7 +5,11 @@
 //! This provides smoother and more synchronized arrival on preset positions.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode, MotionSyncMode},
+    command::{
+        bytes::{constants::motion_sync, FrameWriter},
+        encode::WireEncode,
+        MotionSyncMode,
+    },
     error::Error,
     types::MotionSyncSpeed,
 };
@@ -32,15 +36,10 @@ impl WireEncode for SetMotionSyncMode {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants;
-
-        let mode_byte = self.mode as u8;
-
-        ConstCommandBuilder::<6>::from_prefix(constants::motion_sync::MODE_PREFIX)
-            .with_camera_id(camera_id)
-            .push(mode_byte)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&motion_sync::MODE)
+            .byte(u8::from(self.mode))
+            .finish()
     }
 }
 
@@ -75,13 +74,10 @@ impl WireEncode for SetMotionSyncPreset {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants;
-
-        ConstCommandBuilder::<6>::from_prefix(constants::motion_sync::SPEED_PREFIX)
-            .with_camera_id(camera_id)
-            .push(self.speed.value())
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&motion_sync::SPEED)
+            .byte(self.speed.value())
+            .finish()
     }
 }
 

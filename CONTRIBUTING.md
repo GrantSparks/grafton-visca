@@ -114,16 +114,16 @@ We maintain high code quality standards:
 
 All VISCA commands MUST be properly terminated with the `VISCA_TERMINATOR` byte (0xFF). This is critical for protocol compliance and camera communication safety.
 
-**Important**: Always use the `ConstCommandBuilder` or similar safe abstractions that automatically handle termination:
+**Important**: Build every frame through the crate's frame writer, which adds the camera address byte and the terminator. Command and inquiry bodies are address-free byte sequences from `command::bytes::constants` (or the built-in inquiry table):
 
 ```rust
-use crate::command::bytes::{ConstCommandBuilder, VISCA_TERMINATOR};
+use crate::command::bytes::{constants::zoom, FrameWriter, Step};
 
-// GOOD: Using CommandBuilder ensures proper termination
-let builder = ConstCommandBuilder::<7>::new()
-    .append(command_bytes)
-    .with_camera_id(camera_id)
-    .terminate();  // Automatically adds VISCA_TERMINATOR
+// GOOD: the frame writer adds the address byte and the terminator
+FrameWriter::new(camera_id, buffer)
+    .bytes(&zoom::DRIVE)
+    .byte(Step::Up.byte())
+    .finish()
 
 // BAD: Manual byte construction without terminator
 let command = [0x81, 0x01, 0x04, 0x00]; // Missing 0xFF terminator!
@@ -488,7 +488,7 @@ When adding features that require new dependencies:
 ## Performance Considerations
 
 - Prefer const functions where possible
-- Use zero-allocation patterns (see `ConstCommandBuilder`)
+- Use zero-allocation patterns (see `FrameWriter`, which writes straight into the caller's buffer)
 - Avoid unnecessary heap allocations
 - Profile performance-critical code paths
 

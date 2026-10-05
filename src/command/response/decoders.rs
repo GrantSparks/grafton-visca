@@ -2,10 +2,9 @@
 //!
 //! Dispatch logic is generated from the built-in inquiry table in
 //! [`crate::command::inquiry_structs`]. This module re-exports the generated
-//! profile-independent and profile-aware dispatcher entry points.
+//! profile-independent dispatcher and its pan/tilt-framing variant.
 
-// Re-export the generated dispatchers as the canonical decoder entry points.
-pub(crate) use crate::command::inquiry_structs::{dispatch, dispatch_for};
+pub(crate) use crate::command::inquiry_structs::{dispatch, dispatch_with_framing};
 
 #[cfg(test)]
 #[allow(clippy::panic)]

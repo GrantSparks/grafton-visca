@@ -879,7 +879,7 @@ Retained public protocol values also changed shape:
 | 1.x/earlier RC call | 2.0 call |
 | --- | --- |
 | `DirectMenuControl::new(control1, control2)` returning the value directly | `DirectMenuControl::new(control1, control2)?`; the constructor rejects a data `FF` followed by an address byte because that would begin a second VISCA frame. |
-| `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. |
+| `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. An empty message is rejected with `Error::InvalidRequest` (it used to clear `out` and succeed), and with IP addressing every address byte, including the `88` broadcast address, is sent as camera 1 (`81`), because VISCA over IP fixes the camera address at 1. |
 | Earlier 2.0 RC matching on `FrameSequence::Lower16(value)` | Match `FrameSequence::MaybeTruncated(value)`. A zero upper half does not prove truncation; the new name preserves that uncertainty while `value()` still returns the numeric value. |
 | Tuple construction or one-field matching of `ZoomTarget(position)` | `ZoomTarget::new(position)` for a raw target, or `ZoomTarget::from_normalized(value, domain, profile)?` when normalization provenance must survive until profile validation. |
 | `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
@@ -962,6 +962,25 @@ current shape whose `capabilities.profile_id` names a built-in profile must
 still match the current registry exactly; a stale typed-support set is refused
 with `Error::InvalidRequest` naming the profile, the differing surfaces, and
 the `from_compile_time` constructor that regenerates it.
+
+#### Command encoding and inquiry decoding (#809–#812, #828)
+
+Every built-in command and inquiry writes its frame through one frame writer,
+and every inquiry reply decodes through the generated table, so the same
+malformed reply now fails the same way on every inquiry and profile:
+
+| Earlier RC | 2.0 |
+| --- | --- |
+| An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. Numeric values outside a value type's range are still `ParameterOutOfRange`. |
+| A padded reply (`00 00 0p 0q`, `00 00 00 0p`) with nonzero padding decoded after silently dropping the leading nibbles (a sharpness position of `00 01 00 05` read as `5`) | `Error::InvalidResponseFormat`. Contrast and luminance replies now keep both `0p 0q` digits, as the reference documents. |
+| `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` and `Nibbles::zero_extended_nibble()`, which reject nonzero padding. `#[derive(ViscaInquiry)]` with `parser = LastNibble` or `parser = Nibble` uses them, so a derived inquiry now rejects a reply with nonzero padding as `InvalidResponseFormat`, and `parser = Mode` reports an unknown code as the enum's own `InvalidResponse`. |
+| `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState` as `Version` and `TallyStatus` do. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
+| `InquiryData::SharpnessPosition { position: u16 }` and `InquiryData::Brightness { position: u16 }` | `position: u8`: both replies are `00 00 0p 0q`. `BrightnessLevel` is unchanged; the typed accessor still returns it. |
+| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `ParameterOutOfRange` instead of being truncated. |
+| A malformed Sony BRC-300 pan/tilt reply returned `Error::DecoderNotFound`, and a profile pairing BRC-300 framing with unsigned-centered coordinates failed each decode with `InvalidRequest` | The wrong length is `Error::InvalidResponseLength`, as for every other framing. The coordinate mismatch is reported as the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`: a pan/tilt position or limit command fails when its frame is encoded, before any I/O; the position inquiry fails when its reply is decoded, whatever the reply bytes; `Response::parse_with_profile` fails before reading the frame. |
+| `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
+| Unit commands (`PowerOn`, `TallyRedOn`, `SpotlightOn`, ...) had hand-written `new()`/`Default` | `visca_command!` generates `#[derive(Default)]` and a `const fn new()` for every unit command, including commands a downstream crate declares with it; delete a downstream unit command's own `new`/`Default`. |
+| `visca_command!` took `bytes = [..]` / `prefix = [..]` literal lists only | Either form takes any `[u8; N]` expression, so a body can be a named constant. Bodies never include the camera address byte. |
 
 ### Transport defaults, connect errors and serial startup (#797–#800, #828)
 

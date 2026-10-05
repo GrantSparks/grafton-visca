@@ -194,14 +194,49 @@ crate::__grafton_visca_newtype! {
     pub struct ExposureCompensationLevel(i8);
 }
 
-impl ExposureCompensationLevel {
-    /// Convert to protocol value (0x0 to 0xE).
-    #[allow(clippy::cast_sign_loss)]
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        (self.0 + 7) as u8
-    }
+/// Implements the wire codec of a signed level whose VISCA code is the level
+/// offset by a fixed centre: code `CENTER` is level zero and the code range is
+/// `0..=2 * CENTER`.
+///
+/// Command encoders and inquiry decoders both use the generated pair, so each
+/// centre is written once.
+macro_rules! centered_level_wire {
+    ($ty:ident, center = $center:literal, parameter = $parameter:literal) => {
+        impl $ty {
+            /// The wire code of level zero.
+            pub const WIRE_CENTER: u8 = $center;
+
+            /// Converts the level to its wire code (`level + WIRE_CENTER`).
+            #[allow(clippy::cast_sign_loss)]
+            #[must_use]
+            pub const fn to_protocol_value(self) -> u8 {
+                (self.0 + $center) as u8
+            }
+
+            /// Decodes a wire code, which must lie in `0..=2 * WIRE_CENTER`.
+            pub(crate) fn from_protocol_value(code: u8) -> Result<Self, Error> {
+                const MAXIMUM: u8 = 2 * $center;
+                if code > MAXIMUM {
+                    return Err(Error::parameter_out_of_range(
+                        $parameter,
+                        i32::from(code),
+                        0,
+                        i32::from(MAXIMUM),
+                    ));
+                }
+                // `code <= 2 * CENTER` keeps the level inside the type's
+                // `-CENTER..=CENTER` range, so this never fails.
+                Self::new(code as i8 - $center)
+            }
+        }
+    };
 }
+
+centered_level_wire!(
+    ExposureCompensationLevel,
+    center = 7,
+    parameter = "exposure_compensation"
+);
 
 macro_rules! speed_enum {
     (
@@ -600,6 +635,8 @@ impl RedTuning {
     pub const NEUTRAL: Self = Self(0);
 }
 
+centered_level_wire!(RedTuning, center = 10, parameter = "red_tuning");
+
 crate::__grafton_visca_newtype! {
     /// Blue tuning value for fine white balance adjustment.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -611,6 +648,8 @@ impl BlueTuning {
     /// Neutral blue tuning value (no adjustment).
     pub const NEUTRAL: Self = Self(0);
 }
+
+centered_level_wire!(BlueTuning, center = 10, parameter = "blue_tuning");
 
 crate::__grafton_visca_newtype! {
     /// Pan speed value for horizontal camera movement speed.

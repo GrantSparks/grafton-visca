@@ -7,7 +7,12 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{encode::WireEncode, resolution::PictureEffectMode},
+    command::{
+        bytes::{constants::image, nibbles, step_command_encoder, FrameWriter},
+        encode::WireEncode,
+        inquiry_types::FlipState,
+        resolution::PictureEffectMode,
+    },
     error::Error,
     types::{
         ContrastLevel, GammaLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
@@ -63,74 +68,21 @@ pub enum Sharpness {
     },
 }
 
-impl WireEncode for Sharpness {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::Mode(mode) => {
-                let mode_byte = match mode {
-                    SharpnessMode::Auto => 0x02,
-                    SharpnessMode::Manual => 0x03,
-                };
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_MODE_PREFIX);
-                builder.push_mut(mode_byte);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Reset => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x00);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Up => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x02);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x03);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetLevel { value } => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::image::SHARPNESS_LEVEL_PREFIX);
-                builder.push_nibble_pair_mut(u16::from(value.value()));
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Sharpness {
+        control: image::SHARPNESS_STEP,
+        direct: image::SHARPNESS_DIRECT,
+        SetLevel { value } => nibbles::<2>(value.value()),
+        Self::Mode(mode) => |frame| frame.bytes(&image::SHARPNESS_MODE).byte(u8::from(*mode)),
     }
 }
 
 visca_command! {
         /// Command to set the luminance (brightness) level.
     pub struct Luminance { value: LuminanceLevel };
-    prefix = [0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
-    param = value.value();
-    max_param_size = 1;
+    prefix = image::LUMINANCE;
+    param = nibbles::<2>(value.value().into());
+    max_param_size = 2;
 }
 
 impl Luminance {
@@ -143,9 +95,9 @@ impl Luminance {
 visca_command! {
         /// Command to set the contrast level.
     pub struct Contrast { value: ContrastLevel };
-    prefix = [0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
-    param = value.value();
-    max_param_size = 1;
+    prefix = image::CONTRAST;
+    param = nibbles::<2>(value.value().into());
+    max_param_size = 2;
 }
 
 impl Contrast {
@@ -165,7 +117,7 @@ visca_command! {
     ///
     /// Use the image accessor's `gamma` inquiry to query the current value.
     pub struct GammaCommand { level: GammaLevel };
-    prefix = [0x01, 0x04, 0x5B];
+    prefix = image::GAMMA;
     param = level.value();
     max_param_size = 1;
 }
@@ -183,7 +135,7 @@ visca_command! {
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
     pub struct BacklightCommand { enabled: bool };
-    prefix = [0x01, 0x04, 0x33];
+    prefix = image::BACKLIGHT;
     param = if *enabled { 0x02 } else { 0x03 };
     max_param_size = 1;
 }
@@ -198,8 +150,8 @@ impl BacklightCommand {
 visca_command! {
     /// Command to select the 2D noise-reduction mode.
     pub struct NoiseReduction2DModeCommand { mode: NoiseReduction2DMode };
-    prefix = [0x01, 0x04, 0x50];
-    param = *mode as u8;
+    prefix = image::NOISE_REDUCTION_2D_MODE;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -214,7 +166,7 @@ impl NoiseReduction2DModeCommand {
 visca_command! {
     /// Command to set or disable 2D noise reduction.
     pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
-    prefix = [0x01, 0x04, 0x53];
+    prefix = image::NOISE_REDUCTION_2D;
     param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
@@ -238,7 +190,7 @@ impl NoiseReduction2D {
 visca_command! {
     /// Command to set or disable 3D noise reduction.
     pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
-    prefix = [0x01, 0x04, 0x54];
+    prefix = image::NOISE_REDUCTION_3D;
     param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
@@ -263,32 +215,38 @@ impl NoiseReduction3D {
 ///
 /// Allows flipping the image horizontally, vertically, or both.
 /// Useful for when cameras are mounted upside down or need mirror effects.
-#[derive(Debug, Copy, Clone)]
+/// The discriminants are the PTZOptics `04 A4` combined flip codes that the
+/// command sends and the combined flip inquiry reports.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum ImageFlipMode {
     /// No image flipping.
-    Off,
+    Off = 0x00,
     /// Flip image horizontally (mirror).
-    Horizontal,
+    Horizontal = 0x01,
     /// Flip image vertically (upside down).
-    Vertical,
+    Vertical = 0x02,
     /// Flip image both horizontally and vertically (180° rotation).
-    Both,
+    Both = 0x03,
+}
+
+impl From<ImageFlipMode> for FlipState {
+    fn from(mode: ImageFlipMode) -> Self {
+        Self {
+            horizontal: matches!(mode, ImageFlipMode::Horizontal | ImageFlipMode::Both),
+            vertical: matches!(mode, ImageFlipMode::Vertical | ImageFlipMode::Both),
+        }
+    }
 }
 
 visca_command! {
         /// Command to set the combined image flip mode.
     pub struct ImageFlipCombinedCommand { mode: ImageFlipMode };
-    prefix = [0x01, 0x04, 0xA4];
-    param = match mode {
-        ImageFlipMode::Off => 0x00,
-        ImageFlipMode::Horizontal => 0x01,
-        ImageFlipMode::Vertical => 0x02,
-        ImageFlipMode::Both => 0x03,
-    };
+    prefix = image::FLIP_COMBINED;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -323,15 +281,10 @@ impl WireEncode for PictureEffectCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let effect = self.mode.as_byte();
-
-        let mut builder = ConstCommandBuilder::<6>::new();
-        builder.push_mut(camera_id.to_address_byte());
-        builder.append_mut(&[0x01, 0x04, 0x63]);
-        builder.push_mut(effect);
-        builder.terminate().build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&image::PICTURE_EFFECT)
+            .byte(self.mode.as_byte())
+            .finish()
     }
 }
 

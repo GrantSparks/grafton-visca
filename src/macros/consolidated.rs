@@ -5,6 +5,14 @@
 
 /// Create a VISCA command that expects ACK/Completion responses.
 ///
+/// `bytes` and `prefix` take the command's address-free body as an array
+/// expression — a literal list or a `[u8; N]` constant. The generated
+/// encoder writes the camera address byte, the body (and, for a parameter
+/// command, the encoded parameter) and the terminator through the crate's one
+/// frame writer.
+///
+/// A unit command also gets `Default` and a `const fn new()`.
+///
 /// # Examples
 ///
 /// Simple command without parameters:
@@ -19,9 +27,10 @@
 /// Command with parameters:
 /// ```ignore
 /// visca_command! {
-///     pub struct ImageFlip { mode: Flip };
-///     prefix = [0x01, 0x06, 0x61];
-///     param = match mode { Flip::On => 0x02, Flip::Off => 0x03 };
+///     pub struct BacklightCommand { enabled: bool };
+///     prefix = [0x01, 0x04, 0x33];
+///     param = if *enabled { 0x02 } else { 0x03 };
+///     max_param_size = 1;
 /// }
 /// ```
 #[macro_export]
@@ -30,35 +39,37 @@ macro_rules! visca_command {
     (
         $(#[$meta:meta])*
         pub struct $name:ident;
-        bytes = [$($byte:expr),* $(,)?];
+        bytes = $bytes:expr;
     ) => {
         $(#[$meta])*
-        #[derive(Debug, Copy, Clone)]
+        #[derive(Debug, Copy, Clone, Default)]
         pub struct $name;
 
-        impl $crate::__macro_support::WireEncode for $name {
-            fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                const BYTES: &[u8] = &[$($byte),*];
-                let len = BYTES.len() + 2;
-
-                if buffer.len() < len {
-                    return Err($crate::Error::buffer_too_small(len, buffer.len()));
-                }
-
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1..1+BYTES.len()].copy_from_slice(BYTES);
-                buffer[len-1] = $crate::command::VISCA_TERMINATOR;
-                Ok(len)
+        impl $name {
+            /// Creates the command.
+            #[must_use]
+            pub const fn new() -> Self {
+                Self
             }
+        }
 
+        impl $crate::__macro_support::WireEncode for $name {
+            fn write_into(
+                &self,
+                camera_id: $crate::CameraId,
+                buffer: &mut [u8],
+            ) -> ::core::result::Result<usize, $crate::Error> {
+                $crate::__macro_support::write_frame(camera_id, &[&$bytes], buffer)
+            }
         }
     };
 
-    // Command with parameters and explicit max_param_size.
+    // Command with parameters; `max_param_size` makes the encoding capacity
+    // explicit.
     (
         $(#[$meta:meta])*
         pub struct $name:ident { $($field:ident : $ftype:ty),* $(,)? };
-        prefix = [$($byte:expr),* $(,)?];
+        prefix = $prefix:expr;
         param = $param_expr:expr;
         max_param_size = $max_param_size:expr;
     ) => {
@@ -70,41 +81,22 @@ macro_rules! visca_command {
         }
 
         impl $crate::__macro_support::WireEncode for $name {
-            fn write_into(&self, camera_id: $crate::CameraId, buffer: &mut [u8]) -> Result<usize, $crate::Error> {
-                const PREFIX: &[u8] = &[$($byte),*];
-
-                // Destructure self for use in param expression
+            fn write_into(
+                &self,
+                camera_id: $crate::CameraId,
+                buffer: &mut [u8],
+            ) -> ::core::result::Result<usize, $crate::Error> {
                 let Self { $($field),* } = self;
-
-                // Encode parameters without heap allocation
                 let params: $crate::__macro_support::ParamBuf<$max_param_size> =
                     $crate::__macro_support::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
-
-                let total_len = 1 + PREFIX.len() + params.len() + 1; // camera_id + prefix + params + terminator
-
-                if buffer.len() < total_len {
-                    return Err($crate::Error::buffer_too_small(total_len, buffer.len()));
-                }
-
-                let mut pos = 0;
-                buffer[pos] = camera_id.to_address_byte();
-                pos += 1;
-
-                buffer[pos..pos+PREFIX.len()].copy_from_slice(PREFIX);
-                pos += PREFIX.len();
-
-                buffer[pos..pos+params.len()].copy_from_slice(params.as_slice());
-                pos += params.len();
-
-                buffer[pos] = $crate::command::VISCA_TERMINATOR;
-                Ok(pos + 1)
+                $crate::__macro_support::write_frame(
+                    camera_id,
+                    &[&$prefix, params.as_slice()],
+                    buffer,
+                )
             }
-
         }
     };
-
-    // Command parameters must declare max_param_size so encoding capacity is explicit.
-    // All commands with parameters MUST specify max_param_size.
 }
 
 #[cfg(test)]

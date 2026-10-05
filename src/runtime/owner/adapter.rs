@@ -1462,7 +1462,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(32, 32, 32);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
 
         buffers.receive_mut()[..2].copy_from_slice(&[0x90, 0x41]);
@@ -1502,7 +1503,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(32, 32, 32);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
         buffers.receive_mut()[..6].copy_from_slice(&[0x90, 0x41, 0xff, 0x90, 0x51, 0xff]);
         assert!(matches!(
@@ -1545,7 +1547,7 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(8, 32, 5);
+        let mut framer = ProtocolFramer::new_with_limits_and_mode(8, 32, 5, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
 
         buffers.receive_mut()[..4].copy_from_slice(&[0x90, 0x41, 0x00, 0x00]);
@@ -1587,7 +1589,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
 
         // A padded ACK (four bytes where an ACK is exactly three) followed by a
@@ -1628,7 +1631,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
         let bytes = [0x90, 0x41, 0x00, 0xff, 0x90, 0x51, 0xff];
         buffers.receive_mut()[..bytes.len()].copy_from_slice(&bytes);
@@ -1658,7 +1662,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
 
         // Three well-formed frames in one read, with a per-receive limit of two.
@@ -1707,7 +1712,8 @@ mod tests {
             AddressingMode::Ip,
             TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
         );
-        let mut framer = ProtocolFramer::new_with_limits(64, 64, 64);
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
 
         let bytes = [0x90, 0x41, 0xff, 0x90, 0x51, 0xff];

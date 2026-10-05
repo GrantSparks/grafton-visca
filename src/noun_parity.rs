@@ -1295,17 +1295,12 @@ fn no_noun_method_is_handwritten_and_capabilities_are_real() {
 /// accessor gate recorded in [`BUILTIN_INQUIRY_ACCESSORS`].
 #[test]
 fn erased_inquiry_gates_match_the_static_noun_surface() {
-    // Two inquiries carry a static base marker that the shared accessor gate
-    // deliberately leaves `Always`, for reasons unrelated to drift:
-    //   * `PanTiltPositionInquiry` enforces `has_pan_tilt` inside its own
-    //     coordinate-decoder `validate_for_profile`, so its behavioral gate
-    //     still matches `HasPanTilt` — it is just not expressed as the shared
-    //     accessor gate.
-    //   * `MenuOpenCloseInquiry` has no runtime menu capability to gate on: a
-    //     runtime `ProfileSpec` cannot express "no menu", so basic OSD menu
-    //     stays universally reachable, exactly like the menu commands.
-    const ACCESSOR_UNGATED_EXCEPTIONS: &[&str] =
-        &["PanTiltPositionInquiry", "MenuOpenCloseInquiry"];
+    // One inquiry carries a static base marker that the shared accessor gate
+    // deliberately leaves `Always`, for a reason unrelated to drift:
+    // `MenuOpenCloseInquiry` has no runtime menu capability to gate on: a
+    // runtime `ProfileSpec` cannot express "no menu", so basic OSD menu
+    // stays universally reachable, exactly like the menu commands.
+    const ACCESSOR_UNGATED_EXCEPTIONS: &[&str] = &["MenuOpenCloseInquiry"];
 
     let static_gates = inquiry_static_gates();
 

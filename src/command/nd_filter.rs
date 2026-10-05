@@ -12,7 +12,7 @@
 
 use crate::{
     command::{
-        bytes::{constants, ConstCommandBuilder},
+        bytes::{constants::nd_filter, FrameWriter, Step},
         encode::WireEncode,
     },
     error::Error,
@@ -57,12 +57,10 @@ impl WireEncode for NdFilterModeCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::CONTROL_PREFIX)
-            .push(u8::from(self.mode))
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::MODE)
+            .byte(u8::from(self.mode))
+            .finish()
     }
 }
 
@@ -97,12 +95,10 @@ impl WireEncode for NdFilterValue {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<9>::new()
-            .append(constants::nd_filter::DIRECT_PREFIX)
-            .push_nibble_pair(self.value)
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::DIRECT)
+            .nibbles::<2>(self.value)
+            .finish()
     }
 }
 
@@ -165,9 +161,10 @@ pub enum NdFilterStep {
 impl From<NdFilterStep> for u8 {
     fn from(step: NdFilterStep) -> u8 {
         match step {
-            NdFilterStep::Up => 0x02,
-            NdFilterStep::Down => 0x03,
+            NdFilterStep::Up => Step::Up,
+            NdFilterStep::Down => Step::Down,
         }
+        .byte()
     }
 }
 
@@ -189,12 +186,10 @@ impl WireEncode for NdFilterStepCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::MODE_PREFIX)
-            .push(u8::from(self.direction))
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::STEP)
+            .byte(u8::from(self.direction))
+            .finish()
     }
 }
 
@@ -237,12 +232,10 @@ impl WireEncode for AutoNdCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::LEVEL_PREFIX)
-            .push(if self.enabled { 0x02 } else { 0x03 })
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::AUTO)
+            .byte(if self.enabled { 0x02 } else { 0x03 })
+            .finish()
     }
 }
 

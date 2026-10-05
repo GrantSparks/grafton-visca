@@ -6,7 +6,6 @@
 //! ## Module Organization
 //!
 //! - `public` - Macros that form part of the stable public API
-//! - `support` - Internal helper macros not intended for external use
 //! - `consolidated` - Main command implementation macros
 //! - `test_utils` - Test-specific utilities
 //!
@@ -22,14 +21,10 @@
 //! of the public API. They may change without notice:
 //!
 //! - Consolidated command generator: `visca_command!`
-//! - Const utilities: `visca_bytes!`, `visca_prefix!`
 //! - Test utilities: `visca_test!`
 
 // Public API macros - these are exported at crate root
 pub mod public;
-
-// Internal helper macros - not exported
-pub(crate) mod support;
 
 // Consolidated macros module
 pub(crate) mod consolidated;

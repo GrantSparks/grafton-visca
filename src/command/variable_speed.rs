@@ -4,7 +4,10 @@
 //! pan/tilt speed ranges.
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
+    command::{
+        bytes::{constants::variable_speed, FrameWriter},
+        encode::WireEncode,
+    },
     error::Error,
 };
 
@@ -46,18 +49,13 @@ impl WireEncode for SetVariableSpeedMode {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants;
-
-        let mode_byte = match self.mode {
-            VariableSpeedMode::Standard24 => 0x08,
-            VariableSpeedMode::Fine50 => 0x18,
-        };
-
-        ConstCommandBuilder::<7>::from_prefix(constants::variable_speed::CONTROL_PREFIX)
-            .with_camera_id(camera_id)
-            .push(mode_byte)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&variable_speed::STEP_RANGE)
+            .byte(match self.mode {
+                VariableSpeedMode::Standard24 => 0x08,
+                VariableSpeedMode::Fine50 => 0x18,
+            })
+            .finish()
     }
 }
 

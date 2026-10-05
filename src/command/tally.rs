@@ -10,177 +10,60 @@
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
-use crate::visca_command;
+use crate::{command::bytes::constants::tally, visca_command};
 
 visca_command! {
-        /// Turn red tally light on.
+    /// Turn red tally light on.
     pub struct TallyRedOn;
-    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x02];
+    bytes = tally::RED_ON;
 }
 
 visca_command! {
-        /// Turn red tally light off.
+    /// Turn red tally light off.
     pub struct TallyRedOff;
-    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x00, 0x03];
+    bytes = tally::RED_OFF;
 }
 
 visca_command! {
-        /// Set tally brightness to low.
+    /// Set tally brightness to low.
     pub struct TallyBrightLo;
-    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x04];
+    bytes = tally::BRIGHT_LOW;
 }
 
 visca_command! {
-        /// Set tally brightness to high.
+    /// Set tally brightness to high.
     pub struct TallyBrightHi;
-    bytes = [0x01, 0x7E, 0x01, 0x0A, 0x01, 0x05];
+    bytes = tally::BRIGHT_HIGH;
 }
 
 visca_command! {
-        /// Turn green tally light on (FR7 specific).
+    /// Turn green tally light on (FR7 specific).
     pub struct TallyGreenOn;
-    bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x02];
+    bytes = tally::GREEN_ON;
 }
 
 visca_command! {
-        /// Turn green tally light off (FR7 specific).
+    /// Turn green tally light off (FR7 specific).
     pub struct TallyGreenOff;
-    bytes = [0x01, 0x7E, 0x04, 0x1A, 0x00, 0x03];
+    bytes = tally::GREEN_OFF;
 }
 
 visca_command! {
-        /// Set tally to flash mode (PtzOptics specific).
+    /// Set tally to flash mode (PtzOptics specific).
     pub struct TallyFlash;
-    bytes = [0x0A, 0x02, 0x02, 0x01];
+    bytes = tally::PTZOPTICS_FLASH;
 }
 
 visca_command! {
-        /// Set tally to solid on (PtzOptics specific).
+    /// Set tally to solid on (PtzOptics specific).
     pub struct TallyOn;
-    bytes = [0x0A, 0x02, 0x02, 0x02];
+    bytes = tally::PTZOPTICS_ON;
 }
 
 visca_command! {
-        /// Turn tally off (PtzOptics specific).
+    /// Turn tally off (PtzOptics specific).
     pub struct TallyOff;
-    bytes = [0x0A, 0x02, 0x02, 0x03];
-}
-
-impl Default for TallyRedOn {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyRedOn {
-    /// Create a new red tally on command.
-    pub fn new() -> Self {
-        TallyRedOn
-    }
-}
-
-impl Default for TallyRedOff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyRedOff {
-    /// Create a new red tally off command.
-    pub fn new() -> Self {
-        TallyRedOff
-    }
-}
-
-impl Default for TallyBrightLo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyBrightLo {
-    /// Create a new tally low brightness command.
-    pub fn new() -> Self {
-        TallyBrightLo
-    }
-}
-
-impl Default for TallyBrightHi {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyBrightHi {
-    /// Create a new tally high brightness command.
-    pub fn new() -> Self {
-        TallyBrightHi
-    }
-}
-
-impl Default for TallyGreenOn {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyGreenOn {
-    /// Create a new green tally on command.
-    pub fn new() -> Self {
-        TallyGreenOn
-    }
-}
-
-impl Default for TallyGreenOff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyGreenOff {
-    /// Create a new green tally off command.
-    pub fn new() -> Self {
-        TallyGreenOff
-    }
-}
-
-impl Default for TallyFlash {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyFlash {
-    /// Create a new tally flash command.
-    pub fn new() -> Self {
-        TallyFlash
-    }
-}
-
-impl Default for TallyOn {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyOn {
-    /// Create a new tally on command.
-    pub fn new() -> Self {
-        TallyOn
-    }
-}
-
-impl Default for TallyOff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl TallyOff {
-    /// Create a new tally off command.
-    pub fn new() -> Self {
-        TallyOff
-    }
+    bytes = tally::PTZOPTICS_OFF;
 }
 
 #[cfg(test)]

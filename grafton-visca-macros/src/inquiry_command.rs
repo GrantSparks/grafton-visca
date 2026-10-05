@@ -634,10 +634,17 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
 
         #typed_impl
 
+        impl #struct_name {
+            #[doc(hidden)]
+            const __GRAFTON_VISCA_INQUIRY_BODY: [u8; 3] =
+                [#crate_path::__macro_support::INQUIRY, #subcode, #opcode];
+        }
+
         impl #crate_path::Request for #struct_name {
             type Class = #crate_path::request::Inquiry;
 
-            const MAX_SIZE: usize = 5;
+            const MAX_SIZE: usize =
+                #crate_path::__macro_support::frame_len(&Self::__GRAFTON_VISCA_INQUIRY_BODY);
             const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
             const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
             const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
@@ -647,16 +654,11 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 camera_id: #crate_path::CameraId,
                 buffer: &mut [u8],
             ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
-                const LEN: usize = 5;
-                if buffer.len() < LEN {
-                    return ::core::result::Result::Err(#crate_path::Error::buffer_too_small(LEN, buffer.len()));
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x09;
-                buffer[2] = #subcode;
-                buffer[3] = #opcode;
-                buffer[4] = #crate_path::command::VISCA_TERMINATOR;
-                ::core::result::Result::Ok(LEN)
+                #crate_path::__macro_support::write_frame(
+                    camera_id,
+                    &[&Self::__GRAFTON_VISCA_INQUIRY_BODY],
+                    buffer,
+                )
             }
         }
 
@@ -728,7 +730,7 @@ fn selector_decode_body(
                     ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
                 ::core::result::Result::Ok(
                     #crate_path::command::InquiryData::#response {
-                        #field: nibbles.u8_pair(0),
+                        #field: nibbles.zero_extended_u8()?,
                     }
                 )
             }
@@ -743,11 +745,10 @@ fn selector_decode_body(
             quote! {
                 {
                     #single_byte
-                    let value = <#value_type as ::core::convert::TryFrom<u8>>::try_from(byte)
-                        .map_err(|_| #crate_path::Error::invalid_response(::std::borrow::Cow::Owned(::std::format!(
-                                "Valid {} value",
-                                ::core::stringify!(#value_type)
-                            )), ::std::vec![byte]))?;
+                    // The enum's own `TryFrom` error is the crate's one
+                    // unknown-code error (`InvalidResponse`), so it passes
+                    // through unchanged.
+                    let value = <#value_type as ::core::convert::TryFrom<u8>>::try_from(byte)?;
                     ::core::result::Result::Ok(
                         #crate_path::command::InquiryData::#response { #field: value }
                     )
@@ -760,7 +761,7 @@ fn selector_decode_body(
                 let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
                 ::core::result::Result::Ok(
                     #crate_path::command::InquiryData::#variant {
-                        #field: nibbles.last_nibble(),
+                        #field: nibbles.zero_extended_nibble()?,
                     }
                 )
             }
@@ -938,7 +939,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn downstream_inquiry_encoding_uses_stack_buffer_and_public_terminator() {
+    fn downstream_inquiry_encoding_uses_the_shared_frame_writer() {
         let input: DeriveInput = syn::parse_quote! {
             #[visca(opcode = 0x47, response = ZoomPosition)]
             struct CustomZoomInquiry;
@@ -955,12 +956,13 @@ mod tests {
             "generated inquiry encoder must not allocate with to_vec(): {tokens}"
         );
         assert!(
-            !tokens.contains("0xFF"),
-            "generated downstream inquiry encoder must use VISCA_TERMINATOR: {tokens}"
+            !tokens.contains("0xFF") && !tokens.contains("VISCA_TERMINATOR"),
+            "generated downstream inquiry encoder must not write its own terminator: {tokens}"
         );
         assert!(
-            tokens.contains("command :: VISCA_TERMINATOR"),
-            "generated downstream inquiry encoder must use the public terminator path: {tokens}"
+            tokens.contains("__macro_support :: write_frame")
+                && tokens.contains("__macro_support :: INQUIRY"),
+            "generated downstream inquiry encoder must use the crate's frame writer and inquiry category: {tokens}"
         );
     }
 
@@ -1048,7 +1050,7 @@ mod tests {
         ] {
             let tokens = expanded(input);
             assert!(
-                tokens.contains("buffer [2] = 4u8 ;") && tokens.contains("buffer [3] = 71u8 ;"),
+                tokens.contains(":: INQUIRY , 4u8 , 71u8]"),
                 "every radix must encode the same bytes: {tokens}"
             );
         }

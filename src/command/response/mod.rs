@@ -339,16 +339,25 @@ mod tests {
             _ => panic!("Expected SharpnessPosition inquiry response"),
         }
 
-        // Test SharpnessPosition response with larger value (e.g., 0x1234)
-        let sharpness_pos_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
+        // The reply is `00 00 0p 0q` (reference section 7.10): both digits
+        // are kept, and nonzero padding is a malformed reply (#828 L1).
+        let sharpness_pos_bytes = &[0x90, 0x50, 0x00, 0x00, 0x01, 0x02, VISCA_TERMINATOR];
         let response =
             Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
         match response {
             Ok(Response::Inquiry(InquiryData::SharpnessPosition { position })) => {
-                assert_eq!(position, 0x1234);
+                assert_eq!(position, 0x12);
             }
             _ => panic!("Expected SharpnessPosition inquiry response"),
         }
+
+        let sharpness_pos_bytes = &[0x90, 0x50, 0x01, 0x02, 0x03, 0x04, VISCA_TERMINATOR];
+        let response =
+            Response::parse_with_type(sharpness_pos_bytes, &InquiryKind::SharpnessPosition);
+        assert!(
+            matches!(response, Err(Error::InvalidResponseFormat)),
+            "{response:?}"
+        );
     }
 
     #[test]
@@ -485,8 +494,11 @@ mod tests {
         let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
         match response {
             Ok(Response::Inquiry(InquiryData::FlipState {
-                vertical,
-                horizontal,
+                state:
+                    crate::command::FlipState {
+                        vertical,
+                        horizontal,
+                    },
             })) => {
                 assert!(!vertical);
                 assert!(!horizontal);
@@ -499,8 +511,11 @@ mod tests {
         let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
         match response {
             Ok(Response::Inquiry(InquiryData::FlipState {
-                vertical,
-                horizontal,
+                state:
+                    crate::command::FlipState {
+                        vertical,
+                        horizontal,
+                    },
             })) => {
                 assert!(!vertical);
                 assert!(horizontal);
@@ -513,8 +528,11 @@ mod tests {
         let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
         match response {
             Ok(Response::Inquiry(InquiryData::FlipState {
-                vertical,
-                horizontal,
+                state:
+                    crate::command::FlipState {
+                        vertical,
+                        horizontal,
+                    },
             })) => {
                 assert!(vertical);
                 assert!(!horizontal);
@@ -527,8 +545,11 @@ mod tests {
         let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
         match response {
             Ok(Response::Inquiry(InquiryData::FlipState {
-                vertical,
-                horizontal,
+                state:
+                    crate::command::FlipState {
+                        vertical,
+                        horizontal,
+                    },
             })) => {
                 assert!(vertical);
                 assert!(horizontal);

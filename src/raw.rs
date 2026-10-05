@@ -60,6 +60,7 @@ pub use crate::{
 };
 
 use crate::{
+    command::bytes::{constants::system, VISCA_TERMINATOR},
     completion, request, CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request,
     Result,
 };
@@ -75,8 +76,6 @@ pub(crate) const INLINE_BYTES: usize = 32;
 /// than ordinary VISCA messages so vendor extensions remain possible while
 /// still making construction and admission memory-bounded.
 pub const MAX_BYTES: usize = 1_024;
-
-const VISCA_TERMINATOR: u8 = 0xff;
 
 /// The reply protocol a raw command declares the camera will use.
 ///
@@ -287,10 +286,7 @@ impl Wire {
 
     fn write_into(&self, buffer: &mut [u8]) -> Result<usize> {
         if buffer.len() < self.len() {
-            return Err(Error::BufferTooSmall {
-                required: self.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(self.len(), buffer.len()));
         }
         buffer[..self.len()].copy_from_slice(self.as_bytes());
         Ok(self.len())
@@ -391,9 +387,7 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     }
     if remaining.len() >= 5
         && (remaining[0] & 0xf0) == 0x80
-        && remaining[1] == 0x01
-        && remaining[2] == 0x00
-        && remaining[3] == 0x01
+        && remaining[1..4] == system::INTERFACE_CLEAR
         && remaining[4] == VISCA_TERMINATOR
     {
         return Err(Error::InvalidRequest(
@@ -404,8 +398,8 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     // checked against the prepared target, and this rejects the broadcast
     // setup primitive before a target-scoped request can emit it.
     if remaining.len() >= 4
-        && remaining[0] == 0x88
-        && remaining[1] == 0x30
+        && remaining[0] == CameraId::BROADCAST.to_address_byte()
+        && remaining[1] == system::ADDRESS_SET_REGISTER
         && (remaining[2] & 0xf0) == 0x00
         && remaining[3] == VISCA_TERMINATOR
     {

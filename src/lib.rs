@@ -960,6 +960,10 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 #[doc(hidden)]
 pub mod __macro_support {
     #[doc(hidden)]
+    pub use crate::command::bytes::constants::INQUIRY;
+    #[doc(hidden)]
+    pub use crate::command::bytes::{frame_len, write_frame};
+    #[doc(hidden)]
     pub use crate::command::encode::WireEncode;
     #[doc(hidden)]
     pub use crate::macros::param::{IntoParamBuf, ParamBuf};

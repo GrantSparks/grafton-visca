@@ -7,9 +7,8 @@
 //! capability bound, return class and rustdoc — so the type system relates
 //! the copies.
 //!
-//! [`noun_table!`] is a continuation-passing macro in the same style as
-//! [`crate::command::inquiry_structs::builtin_inquiry_table`]: it takes the
-//! name of a consumer macro and hands that consumer the rows of one noun.
+//! [`noun_table!`] is a continuation-passing macro: it takes the name of a
+//! consumer macro and hands that consumer the rows of one noun.
 //! Each facade defines its own consumer, so the *differences* between the
 //! facades (async `fn` plus `.await`, blocking `fn`, object-safe `dyn`
 //! variants, different receiver and session plumbing, different cfg features)

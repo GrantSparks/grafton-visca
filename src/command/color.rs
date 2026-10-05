@@ -4,8 +4,7 @@
 //! including white balance tuning, saturation, and hue adjustments.
 
 use crate::{
-    command::{bytes::ConstCommandBuilder, encode::WireEncode},
-    error::Error,
+    command::bytes::{constants::color, constants::white_balance, step_command_encoder},
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
     visca_command,
 };
@@ -17,20 +16,7 @@ visca_command! {
     /// the current scene. The camera will analyze the image and set the
     /// white balance to achieve neutral colors.
     pub struct OnePushTriggerCommand;
-    bytes = [0x01, 0x04, 0x10, 0x05];
-}
-
-impl Default for OnePushTriggerCommand {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl OnePushTriggerCommand {
-    /// Create a new one-push trigger command.
-    pub fn new() -> Self {
-        OnePushTriggerCommand
-    }
+    bytes = white_balance::ONE_PUSH_TRIGGER;
 }
 
 visca_command! {
@@ -40,16 +26,9 @@ visca_command! {
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
     pub struct RedTuningCommand { level: RedTuning };
-    prefix = [0x01, 0x04, 0x43, 0x00, 0x00];
-    param = {
-        // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
-        // RedTuning is already validated at construction via visca_range_type!,
-        // so level_offset is guaranteed to be in 0..=20.
-        #[allow(clippy::cast_sign_loss)]
-        let encoded = (level.value() + 10) as u8;
-        [0x00, encoded]
-    };
-    max_param_size = 2;
+    prefix = color::RED_TUNING_DIRECT;
+    param = level.to_protocol_value();
+    max_param_size = 1;
 }
 
 impl RedTuningCommand {
@@ -66,16 +45,9 @@ visca_command! {
     /// This is typically used after setting a base white balance mode
     /// to make small corrections.
     pub struct BlueTuningCommand { level: BlueTuning };
-    prefix = [0x01, 0x04, 0x44, 0x00, 0x00];
-    param = {
-        // Convert -10..+10 to 0x00..0x14 (0x00 = -10, 0x0A = 0, 0x14 = +10)
-        // BlueTuning is already validated at construction via visca_range_type!,
-        // so level_offset is guaranteed to be in 0..=20.
-        #[allow(clippy::cast_sign_loss)]
-        let encoded = (level.value() + 10) as u8;
-        [0x00, encoded]
-    };
-    max_param_size = 2;
+    prefix = color::BLUE_TUNING_DIRECT;
+    param = level.to_protocol_value();
+    max_param_size = 1;
 }
 
 impl BlueTuningCommand {
@@ -94,7 +66,7 @@ visca_command! {
     pub struct SaturationCommand {
         level: SaturationLevel
     };
-    prefix = [0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
+    prefix = color::SATURATION;
     param = level.value();
     max_param_size = 1;
 }
@@ -115,7 +87,7 @@ visca_command! {
     pub struct HueCommand {
         level: HueLevel
     };
-    prefix = [0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
+    prefix = color::HUE;
     param = level.value();
     max_param_size = 1;
 }
@@ -150,46 +122,11 @@ pub enum ColorTemperature {
     SetTemperature(crate::types::ColorTemp),
 }
 
-impl WireEncode for ColorTemperature {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        match self {
-            ColorTemperature::Reset => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x00);
-                builder.terminate().build_into(buffer)
-            }
-            ColorTemperature::Up => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x02);
-                builder.terminate().build_into(buffer)
-            }
-            ColorTemperature::Down => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x03);
-                builder.terminate().build_into(buffer)
-            }
-            ColorTemperature::SetTemperature(temp) => {
-                let builder = ConstCommandBuilder::<7>::from_prefix(
-                    crate::command::bytes::constants::color::TEMPERATURE_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push_nibble_pair(temp.value());
-                builder.terminate().build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    ColorTemperature {
+        control: color::TEMPERATURE,
+        direct: color::TEMPERATURE,
+        SetTemperature(temperature) => nibbles::<2>(temperature.value()),
     }
 }
 
@@ -215,44 +152,11 @@ pub enum RedGain {
     SetValue(crate::types::RedChannel),
 }
 
-impl WireEncode for RedGain {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        match self {
-            RedGain::Reset => {
-                let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
-                );
-                builder = builder.with_camera_id(camera_id).push(0x00);
-                builder.terminate().build_into(buffer)
-            }
-            RedGain::Up => {
-                let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
-                );
-                builder = builder.with_camera_id(camera_id).push(0x02);
-                builder.terminate().build_into(buffer)
-            }
-            RedGain::Down => {
-                let mut builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::RED_GAIN_CONTROL_PREFIX,
-                );
-                builder = builder.with_camera_id(camera_id).push(0x03);
-                builder.terminate().build_into(buffer)
-            }
-            RedGain::SetValue(value) => {
-                // Note: different command byte 0x43 for direct setting
-                let builder = ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::bytes::constants::color::RED_GAIN_DIRECT_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push_nibble_pair(u16::from(value.value()));
-                builder.terminate().build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    RedGain {
+        control: color::RED_GAIN_STEP,
+        direct: color::RED_GAIN_DIRECT,
+        SetValue(value) => nibbles::<2>(value.value()),
     }
 }
 
@@ -278,47 +182,11 @@ pub enum BlueGain {
     SetValue(crate::types::BlueChannel),
 }
 
-impl WireEncode for BlueGain {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        match self {
-            BlueGain::Reset => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x00);
-                builder.terminate().build_into(buffer)
-            }
-            BlueGain::Up => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x02);
-                builder.terminate().build_into(buffer)
-            }
-            BlueGain::Down => {
-                let builder = ConstCommandBuilder::<6>::from_prefix(
-                    crate::command::bytes::constants::color::BLUE_GAIN_CONTROL_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push(0x03);
-                builder.terminate().build_into(buffer)
-            }
-            BlueGain::SetValue(value) => {
-                // Note: different command byte 0x44 for direct setting
-                let builder = ConstCommandBuilder::<9>::from_prefix(
-                    crate::command::bytes::constants::color::BLUE_GAIN_DIRECT_PREFIX,
-                )
-                .with_camera_id(camera_id)
-                .push_nibble_pair(u16::from(value.value()));
-                builder.terminate().build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    BlueGain {
+        control: color::BLUE_GAIN_STEP,
+        direct: color::BLUE_GAIN_DIRECT,
+        SetValue(value) => nibbles::<2>(value.value()),
     }
 }
 

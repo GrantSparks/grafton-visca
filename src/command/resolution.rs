@@ -18,7 +18,12 @@ pub enum PictureEffectMode {
 }
 
 impl PictureEffectMode {
-    /// Convert a raw picture effect byte to a PictureEffectMode enum.
+    /// Convert a raw picture effect byte from the picture-effect inquiry to a
+    /// `PictureEffectMode`.
+    ///
+    /// The inquiry reports Off as `02`, while the command selects Off with
+    /// `00` (`docs/visca_reference.md` §7.8 and §7.10), so this is
+    /// deliberately not the inverse of [`Self::as_byte`] for `Off`.
     ///
     /// # Arguments
     /// * `effect` - The raw effect byte from the camera
@@ -42,7 +47,8 @@ impl PictureEffectMode {
         }
     }
 
-    /// Get the raw byte value for this picture effect mode.
+    /// Get the picture-effect command byte for this mode (Off is `00`; see
+    /// [`Self::from_byte`]).
     pub fn as_byte(&self) -> u8 {
         match self {
             PictureEffectMode::Off => 0x00,
@@ -74,7 +80,19 @@ pub enum NdFilterPosition {
 }
 
 impl NdFilterPosition {
+    /// Every named position; [`Self::as_byte`] holds their wire codes.
+    const KNOWN: [Self; 6] = [
+        Self::Clear,
+        Self::OneQuarter,
+        Self::OneEighth,
+        Self::OneSixteenth,
+        Self::OneThirtySecond,
+        Self::OneSixtyFourth,
+    ];
+
     /// Convert a raw ND filter position byte to an NdFilterPosition enum.
+    ///
+    /// This is the inverse of [`Self::as_byte`], which owns the code table.
     ///
     /// # Arguments
     /// * `position` - The raw position byte from the camera
@@ -82,15 +100,10 @@ impl NdFilterPosition {
     /// # Returns
     /// The corresponding NdFilterPosition variant
     pub fn from_byte(position: u8) -> Self {
-        match position {
-            0x00 => NdFilterPosition::Clear,
-            0x01 => NdFilterPosition::OneQuarter,
-            0x02 => NdFilterPosition::OneEighth,
-            0x03 => NdFilterPosition::OneSixteenth,
-            0x04 => NdFilterPosition::OneThirtySecond,
-            0x05 => NdFilterPosition::OneSixtyFourth,
-            _ => NdFilterPosition::Unknown(position),
-        }
+        Self::KNOWN
+            .into_iter()
+            .find(|known| known.as_byte() == position)
+            .unwrap_or(Self::Unknown(position))
     }
 
     /// Get a human-readable description of the ND filter position.
@@ -161,6 +174,16 @@ mod tests {
             NdFilterPosition::Unknown(0xFF).description(),
             "Unknown ND filter position"
         );
+    }
+
+    #[test]
+    fn nd_filter_codes_round_trip_through_one_table() {
+        for code in 0..=u8::MAX {
+            assert_eq!(NdFilterPosition::from_byte(code).as_byte(), code);
+        }
+        for known in NdFilterPosition::KNOWN {
+            assert_eq!(NdFilterPosition::from_byte(known.as_byte()), known);
+        }
     }
 
     #[test]

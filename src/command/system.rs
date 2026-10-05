@@ -13,9 +13,12 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::{bytes::VISCA_TERMINATOR, encode::WireEncode},
+    command::{
+        bytes::{constants::system, write_frame},
+        encode::WireEncode,
+    },
     error::Error,
-    ViscaSocket,
+    visca_command, CameraId, ViscaSocket,
 };
 
 /// Command to set camera address (broadcast, serial only).
@@ -38,22 +41,8 @@ impl AddressSetCommand {
 }
 
 impl WireEncode for AddressSetCommand {
-    fn write_into(
-        &self,
-        _camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 4 {
-            return Err(Error::BufferTooSmall {
-                required: 4,
-                actual: buffer.len(),
-            });
-        }
-        buffer[0] = 0x88;
-        buffer[1] = 0x30;
-        buffer[2] = 0x01;
-        buffer[3] = VISCA_TERMINATOR;
-        Ok(4)
+    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        write_frame(CameraId::BROADCAST, &[&system::ADDRESS_SET], buffer)
     }
 }
 
@@ -77,23 +66,8 @@ impl InterfaceClearCommand {
 }
 
 impl WireEncode for InterfaceClearCommand {
-    fn write_into(
-        &self,
-        _camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 5 {
-            return Err(Error::BufferTooSmall {
-                required: 5,
-                actual: buffer.len(),
-            });
-        }
-        buffer[0] = 0x88;
-        buffer[1] = 0x01;
-        buffer[2] = 0x00;
-        buffer[3] = 0x01;
-        buffer[4] = VISCA_TERMINATOR;
-        Ok(5)
+    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        write_frame(CameraId::BROADCAST, &[&system::INTERFACE_CLEAR], buffer)
     }
 }
 
@@ -134,21 +108,8 @@ pub(crate) struct CommandCancelCommand {
 }
 
 impl WireEncode for CommandCancelCommand {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 3 {
-            return Err(Error::BufferTooSmall {
-                required: 3,
-                actual: buffer.len(),
-            });
-        }
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = self.socket.as_cancel_byte();
-        buffer[2] = VISCA_TERMINATOR;
-        Ok(3)
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        write_frame(camera_id, &[&[self.socket.as_cancel_byte()]], buffer)
     }
 }
 
@@ -159,62 +120,28 @@ impl CommandCancelCommand {
     }
 }
 
-/// Command to save current camera settings to non-volatile memory.
-///
-/// This command persists the current camera configuration. PTZOptics cameras
-/// may require this after certain setting changes (like flip mode) to ensure
-/// the changes persist across power cycles.
-///
-/// # VISCA Command
-/// `81 01 04 A5 10 FF`
-///
-/// # Vendor Support
-/// - PTZOptics G2/G3/30X: Supported
-/// - Sony: Not applicable
-#[derive(Debug, Copy, Clone)]
-pub struct SettingsSaveCommand;
-
-impl SettingsSaveCommand {
-    /// Create a new settings save command.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
-    }
-}
-
-impl Default for SettingsSaveCommand {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl WireEncode for SettingsSaveCommand {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buffer.len() < 6 {
-            return Err(Error::BufferTooSmall {
-                required: 6,
-                actual: buffer.len(),
-            });
-        }
-        buffer[0] = camera_id.to_address_byte();
-        buffer[1] = 0x01;
-        buffer[2] = 0x04;
-        buffer[3] = 0xA5;
-        buffer[4] = 0x10;
-        buffer[5] = VISCA_TERMINATOR;
-        Ok(6)
-    }
+visca_command! {
+    /// Command to save current camera settings to non-volatile memory.
+    ///
+    /// This command persists the current camera configuration. PTZOptics cameras
+    /// may require this after certain setting changes (like flip mode) to ensure
+    /// the changes persist across power cycles.
+    ///
+    /// # VISCA Command
+    /// `81 01 04 A5 10 FF`
+    ///
+    /// # Vendor Support
+    /// - PTZOptics G2/G3/30X: Supported
+    /// - Sony: Not applicable
+    pub struct SettingsSaveCommand;
+    bytes = system::SETTINGS_SAVE;
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
-    use crate::macros::test_utils::visca_test;
+    use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
 
     visca_test!(
         AddressSetCommand,
