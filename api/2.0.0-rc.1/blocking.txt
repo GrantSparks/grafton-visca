@@ -6675,7 +6675,7 @@ pub grafton_visca::command::Sharpness::Down
 pub grafton_visca::command::Sharpness::Mode(grafton_visca::command::SharpnessMode)
 pub grafton_visca::command::Sharpness::Reset
 pub grafton_visca::command::Sharpness::SetLevel
-pub grafton_visca::command::Sharpness::SetLevel::value: u8
+pub grafton_visca::command::Sharpness::SetLevel::value: grafton_visca::types::SharpnessLevel
 pub grafton_visca::command::Sharpness::Up
 impl core::clone::Clone for grafton_visca::command::Sharpness
 pub fn grafton_visca::command::Sharpness::clone(&self) -> grafton_visca::command::Sharpness
@@ -9611,10 +9611,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PowerSt
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PowerStandby
 pub struct grafton_visca::command::PresetNumber(_)
 impl grafton_visca::command::PresetNumber
-pub const grafton_visca::command::PresetNumber::MAX: u8
-pub const grafton_visca::command::PresetNumber::MIN: u8
-pub fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
-pub fn grafton_visca::command::PresetNumber::value(&self) -> u8
+pub const grafton_visca::command::PresetNumber::MAX: Self
+pub const grafton_visca::command::PresetNumber::MIN: Self
+pub const fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::command::PresetNumber::value(self) -> u8
 impl core::clone::Clone for grafton_visca::command::PresetNumber
 pub fn grafton_visca::command::PresetNumber::clone(&self) -> grafton_visca::command::PresetNumber
 impl core::cmp::Eq for grafton_visca::command::PresetNumber
@@ -9642,10 +9642,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::command::PresetN
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::command::PresetNumber
 pub struct grafton_visca::command::PresetRecallSpeed(_)
 impl grafton_visca::command::PresetRecallSpeed
-pub const grafton_visca::command::PresetRecallSpeed::MAX: u8
-pub const grafton_visca::command::PresetRecallSpeed::MIN: u8
-pub fn grafton_visca::command::PresetRecallSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
-pub fn grafton_visca::command::PresetRecallSpeed::value(&self) -> u8
+pub const grafton_visca::command::PresetRecallSpeed::MAX: Self
+pub const grafton_visca::command::PresetRecallSpeed::MIN: Self
+pub const fn grafton_visca::command::PresetRecallSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::command::PresetRecallSpeed::value(self) -> u8
 impl core::clone::Clone for grafton_visca::command::PresetRecallSpeed
 pub fn grafton_visca::command::PresetRecallSpeed::clone(&self) -> grafton_visca::command::PresetRecallSpeed
 impl core::cmp::Eq for grafton_visca::command::PresetRecallSpeed
@@ -12637,7 +12637,7 @@ pub struct grafton_visca::prelude::blocking::IrisLevel(_)
 impl grafton_visca::types::IrisLevel
 pub const grafton_visca::types::IrisLevel::MAX: Self
 pub const grafton_visca::types::IrisLevel::MIN: Self
-pub fn grafton_visca::types::IrisLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::IrisLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::IrisLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::IrisLevel
 pub fn grafton_visca::types::IrisLevel::clone(&self) -> grafton_visca::types::IrisLevel
@@ -13015,7 +13015,7 @@ pub struct grafton_visca::prelude::blocking::PanSpeed(_)
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::MAX: Self
 pub const grafton_visca::types::PanSpeed::MIN: Self
-pub fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::PanSpeed::value(self) -> u8
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::ZERO: Self
@@ -13162,10 +13162,10 @@ impl<'view, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocki
 impl<'view, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::PowerAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::prelude::blocking::PresetNumber(_)
 impl grafton_visca::command::PresetNumber
-pub const grafton_visca::command::PresetNumber::MAX: u8
-pub const grafton_visca::command::PresetNumber::MIN: u8
-pub fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
-pub fn grafton_visca::command::PresetNumber::value(&self) -> u8
+pub const grafton_visca::command::PresetNumber::MAX: Self
+pub const grafton_visca::command::PresetNumber::MIN: Self
+pub const fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::command::PresetNumber::value(self) -> u8
 impl core::clone::Clone for grafton_visca::command::PresetNumber
 pub fn grafton_visca::command::PresetNumber::clone(&self) -> grafton_visca::command::PresetNumber
 impl core::cmp::Eq for grafton_visca::command::PresetNumber
@@ -14591,7 +14591,7 @@ pub struct grafton_visca::prelude::blocking::TiltSpeed(_)
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::MAX: Self
 pub const grafton_visca::types::TiltSpeed::MIN: Self
-pub fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::TiltSpeed::value(self) -> u8
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::ZERO: Self
@@ -18772,7 +18772,7 @@ pub struct grafton_visca::types::BlueChannel(_)
 impl grafton_visca::types::BlueChannel
 pub const grafton_visca::types::BlueChannel::MAX: Self
 pub const grafton_visca::types::BlueChannel::MIN: Self
-pub fn grafton_visca::types::BlueChannel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::BlueChannel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::BlueChannel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::BlueChannel
 pub fn grafton_visca::types::BlueChannel::clone(&self) -> grafton_visca::types::BlueChannel
@@ -18801,7 +18801,7 @@ pub struct grafton_visca::types::BlueTuning(_)
 impl grafton_visca::types::BlueTuning
 pub const grafton_visca::types::BlueTuning::MAX: Self
 pub const grafton_visca::types::BlueTuning::MIN: Self
-pub fn grafton_visca::types::BlueTuning::new(i8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::BlueTuning::new(i8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::BlueTuning::value(self) -> i8
 impl grafton_visca::types::BlueTuning
 pub const grafton_visca::types::BlueTuning::NEUTRAL: Self
@@ -18832,7 +18832,7 @@ pub struct grafton_visca::types::BrightnessLevel(_)
 impl grafton_visca::types::BrightnessLevel
 pub const grafton_visca::types::BrightnessLevel::MAX: Self
 pub const grafton_visca::types::BrightnessLevel::MIN: Self
-pub fn grafton_visca::types::BrightnessLevel::new(u16) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::BrightnessLevel::new(u16) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::BrightnessLevel::value(self) -> u16
 impl core::clone::Clone for grafton_visca::types::BrightnessLevel
 pub fn grafton_visca::types::BrightnessLevel::clone(&self) -> grafton_visca::types::BrightnessLevel
@@ -18867,7 +18867,7 @@ pub struct grafton_visca::types::BroadcastDomain(_)
 impl grafton_visca::types::BroadcastDomain
 pub const grafton_visca::types::BroadcastDomain::MAX: Self
 pub const grafton_visca::types::BroadcastDomain::MIN: Self
-pub fn grafton_visca::types::BroadcastDomain::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::BroadcastDomain::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::BroadcastDomain::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::BroadcastDomain
 pub fn grafton_visca::types::BroadcastDomain::clone(&self) -> grafton_visca::types::BroadcastDomain
@@ -18902,7 +18902,7 @@ pub const fn grafton_visca::types::ColorTemp::to_kelvin(self) -> u16
 impl grafton_visca::types::ColorTemp
 pub const grafton_visca::types::ColorTemp::MAX: Self
 pub const grafton_visca::types::ColorTemp::MIN: Self
-pub fn grafton_visca::types::ColorTemp::new(u16) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ColorTemp::new(u16) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ColorTemp::value(self) -> u16
 impl core::clone::Clone for grafton_visca::types::ColorTemp
 pub fn grafton_visca::types::ColorTemp::clone(&self) -> grafton_visca::types::ColorTemp
@@ -18934,7 +18934,7 @@ pub struct grafton_visca::types::ContrastLevel(_)
 impl grafton_visca::types::ContrastLevel
 pub const grafton_visca::types::ContrastLevel::MAX: Self
 pub const grafton_visca::types::ContrastLevel::MIN: Self
-pub fn grafton_visca::types::ContrastLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ContrastLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ContrastLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::ContrastLevel
 pub fn grafton_visca::types::ContrastLevel::clone(&self) -> grafton_visca::types::ContrastLevel
@@ -18969,7 +18969,7 @@ pub struct grafton_visca::types::DefogLevel(_)
 impl grafton_visca::types::DefogLevel
 pub const grafton_visca::types::DefogLevel::MAX: Self
 pub const grafton_visca::types::DefogLevel::MIN: Self
-pub fn grafton_visca::types::DefogLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::DefogLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::DefogLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::DefogLevel
 pub fn grafton_visca::types::DefogLevel::clone(&self) -> grafton_visca::types::DefogLevel
@@ -18998,7 +18998,7 @@ pub struct grafton_visca::types::DynamicRangeLevel(_)
 impl grafton_visca::types::DynamicRangeLevel
 pub const grafton_visca::types::DynamicRangeLevel::MAX: Self
 pub const grafton_visca::types::DynamicRangeLevel::MIN: Self
-pub fn grafton_visca::types::DynamicRangeLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::DynamicRangeLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::DynamicRangeLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::DynamicRangeLevel
 pub fn grafton_visca::types::DynamicRangeLevel::clone(&self) -> grafton_visca::types::DynamicRangeLevel
@@ -19025,9 +19025,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::DynamicRa
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::DynamicRangeLevel
 pub struct grafton_visca::types::ExposureCompensationLevel(_)
 impl grafton_visca::types::ExposureCompensationLevel
-pub const grafton_visca::types::ExposureCompensationLevel::MAX: i8
-pub const grafton_visca::types::ExposureCompensationLevel::MIN: i8
-pub fn grafton_visca::types::ExposureCompensationLevel::new(i8) -> core::result::Result<Self, grafton_visca::Error>
+pub const grafton_visca::types::ExposureCompensationLevel::MAX: Self
+pub const grafton_visca::types::ExposureCompensationLevel::MIN: Self
+pub const fn grafton_visca::types::ExposureCompensationLevel::new(i8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ExposureCompensationLevel::value(self) -> i8
+impl grafton_visca::types::ExposureCompensationLevel
 pub const fn grafton_visca::types::ExposureCompensationLevel::to_protocol_value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::ExposureCompensationLevel
 pub fn grafton_visca::types::ExposureCompensationLevel::clone(&self) -> grafton_visca::types::ExposureCompensationLevel
@@ -19044,6 +19046,8 @@ impl core::convert::TryFrom<i8> for grafton_visca::types::ExposureCompensationLe
 pub type grafton_visca::types::ExposureCompensationLevel::Error = grafton_visca::Error
 pub fn grafton_visca::types::ExposureCompensationLevel::try_from(i8) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for grafton_visca::types::ExposureCompensationLevel
+pub fn grafton_visca::types::ExposureCompensationLevel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::fmt::Display for grafton_visca::types::ExposureCompensationLevel
 pub fn grafton_visca::types::ExposureCompensationLevel::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::types::ExposureCompensationLevel
 impl core::marker::StructuralPartialEq for grafton_visca::types::ExposureCompensationLevel
@@ -19116,7 +19120,7 @@ pub struct grafton_visca::types::FocusSpeed(_)
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::MAX: Self
 pub const grafton_visca::types::FocusSpeed::MIN: Self
-pub fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::FocusSpeed::value(self) -> u8
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::ZERO: Self
@@ -19151,7 +19155,7 @@ pub struct grafton_visca::types::GainLevel(_)
 impl grafton_visca::types::GainLevel
 pub const grafton_visca::types::GainLevel::MAX: Self
 pub const grafton_visca::types::GainLevel::MIN: Self
-pub fn grafton_visca::types::GainLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::GainLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::GainLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::GainLevel
 pub fn grafton_visca::types::GainLevel::clone(&self) -> grafton_visca::types::GainLevel
@@ -19186,7 +19190,7 @@ pub struct grafton_visca::types::GainLimit(_)
 impl grafton_visca::types::GainLimit
 pub const grafton_visca::types::GainLimit::MAX: Self
 pub const grafton_visca::types::GainLimit::MIN: Self
-pub fn grafton_visca::types::GainLimit::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::GainLimit::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::GainLimit::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::GainLimit
 pub fn grafton_visca::types::GainLimit::clone(&self) -> grafton_visca::types::GainLimit
@@ -19215,7 +19219,7 @@ pub struct grafton_visca::types::GammaLevel(_)
 impl grafton_visca::types::GammaLevel
 pub const grafton_visca::types::GammaLevel::MAX: Self
 pub const grafton_visca::types::GammaLevel::MIN: Self
-pub fn grafton_visca::types::GammaLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::GammaLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::GammaLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::GammaLevel
 pub fn grafton_visca::types::GammaLevel::clone(&self) -> grafton_visca::types::GammaLevel
@@ -19244,7 +19248,7 @@ pub struct grafton_visca::types::HueLevel(_)
 impl grafton_visca::types::HueLevel
 pub const grafton_visca::types::HueLevel::MAX: Self
 pub const grafton_visca::types::HueLevel::MIN: Self
-pub fn grafton_visca::types::HueLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::HueLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::HueLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::HueLevel
 pub fn grafton_visca::types::HueLevel::clone(&self) -> grafton_visca::types::HueLevel
@@ -19279,7 +19283,7 @@ pub struct grafton_visca::types::IrisLevel(_)
 impl grafton_visca::types::IrisLevel
 pub const grafton_visca::types::IrisLevel::MAX: Self
 pub const grafton_visca::types::IrisLevel::MIN: Self
-pub fn grafton_visca::types::IrisLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::IrisLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::IrisLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::IrisLevel
 pub fn grafton_visca::types::IrisLevel::clone(&self) -> grafton_visca::types::IrisLevel
@@ -19318,7 +19322,7 @@ pub struct grafton_visca::types::LuminanceLevel(_)
 impl grafton_visca::types::LuminanceLevel
 pub const grafton_visca::types::LuminanceLevel::MAX: Self
 pub const grafton_visca::types::LuminanceLevel::MIN: Self
-pub fn grafton_visca::types::LuminanceLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::LuminanceLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::LuminanceLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::LuminanceLevel
 pub fn grafton_visca::types::LuminanceLevel::clone(&self) -> grafton_visca::types::LuminanceLevel
@@ -19351,7 +19355,7 @@ pub const grafton_visca::types::MotionSyncSpeed::SLOW: Self
 impl grafton_visca::types::MotionSyncSpeed
 pub const grafton_visca::types::MotionSyncSpeed::MAX: Self
 pub const grafton_visca::types::MotionSyncSpeed::MIN: Self
-pub fn grafton_visca::types::MotionSyncSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::MotionSyncSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::MotionSyncSpeed::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::MotionSyncSpeed
 pub fn grafton_visca::types::MotionSyncSpeed::clone(&self) -> grafton_visca::types::MotionSyncSpeed
@@ -19382,7 +19386,7 @@ pub struct grafton_visca::types::NdFilterPreset(_)
 impl grafton_visca::types::NdFilterPreset
 pub const grafton_visca::types::NdFilterPreset::MAX: Self
 pub const grafton_visca::types::NdFilterPreset::MIN: Self
-pub fn grafton_visca::types::NdFilterPreset::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::NdFilterPreset::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::NdFilterPreset::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::NdFilterPreset
 pub fn grafton_visca::types::NdFilterPreset::clone(&self) -> grafton_visca::types::NdFilterPreset
@@ -19411,7 +19415,7 @@ pub struct grafton_visca::types::NoiseReduction2DLevel(_)
 impl grafton_visca::types::NoiseReduction2DLevel
 pub const grafton_visca::types::NoiseReduction2DLevel::MAX: Self
 pub const grafton_visca::types::NoiseReduction2DLevel::MIN: Self
-pub fn grafton_visca::types::NoiseReduction2DLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::NoiseReduction2DLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::NoiseReduction2DLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::NoiseReduction2DLevel
 pub fn grafton_visca::types::NoiseReduction2DLevel::clone(&self) -> grafton_visca::types::NoiseReduction2DLevel
@@ -19440,7 +19444,7 @@ pub struct grafton_visca::types::NoiseReduction3DLevel(_)
 impl grafton_visca::types::NoiseReduction3DLevel
 pub const grafton_visca::types::NoiseReduction3DLevel::MAX: Self
 pub const grafton_visca::types::NoiseReduction3DLevel::MIN: Self
-pub fn grafton_visca::types::NoiseReduction3DLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::NoiseReduction3DLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::NoiseReduction3DLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::NoiseReduction3DLevel
 pub fn grafton_visca::types::NoiseReduction3DLevel::clone(&self) -> grafton_visca::types::NoiseReduction3DLevel
@@ -19469,7 +19473,7 @@ pub struct grafton_visca::types::PanSpeed(_)
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::MAX: Self
 pub const grafton_visca::types::PanSpeed::MIN: Self
-pub fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::PanSpeed::value(self) -> u8
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::ZERO: Self
@@ -19510,7 +19514,7 @@ pub struct grafton_visca::types::RedChannel(_)
 impl grafton_visca::types::RedChannel
 pub const grafton_visca::types::RedChannel::MAX: Self
 pub const grafton_visca::types::RedChannel::MIN: Self
-pub fn grafton_visca::types::RedChannel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::RedChannel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::RedChannel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::RedChannel
 pub fn grafton_visca::types::RedChannel::clone(&self) -> grafton_visca::types::RedChannel
@@ -19539,7 +19543,7 @@ pub struct grafton_visca::types::RedTuning(_)
 impl grafton_visca::types::RedTuning
 pub const grafton_visca::types::RedTuning::MAX: Self
 pub const grafton_visca::types::RedTuning::MIN: Self
-pub fn grafton_visca::types::RedTuning::new(i8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::RedTuning::new(i8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::RedTuning::value(self) -> i8
 impl grafton_visca::types::RedTuning
 pub const grafton_visca::types::RedTuning::NEUTRAL: Self
@@ -19570,7 +19574,7 @@ pub struct grafton_visca::types::SaturationLevel(_)
 impl grafton_visca::types::SaturationLevel
 pub const grafton_visca::types::SaturationLevel::MAX: Self
 pub const grafton_visca::types::SaturationLevel::MIN: Self
-pub fn grafton_visca::types::SaturationLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::SaturationLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::SaturationLevel::value(self) -> u8
 impl grafton_visca::types::SaturationLevel
 pub fn grafton_visca::types::SaturationLevel::to_percentage(self) -> u8
@@ -19607,7 +19611,7 @@ pub struct grafton_visca::types::SharpnessLevel(_)
 impl grafton_visca::types::SharpnessLevel
 pub const grafton_visca::types::SharpnessLevel::MAX: Self
 pub const grafton_visca::types::SharpnessLevel::MIN: Self
-pub fn grafton_visca::types::SharpnessLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::SharpnessLevel::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::SharpnessLevel::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::SharpnessLevel
 pub fn grafton_visca::types::SharpnessLevel::clone(&self) -> grafton_visca::types::SharpnessLevel
@@ -19670,7 +19674,7 @@ pub struct grafton_visca::types::TiltSpeed(_)
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::MAX: Self
 pub const grafton_visca::types::TiltSpeed::MIN: Self
-pub fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::TiltSpeed::value(self) -> u8
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::ZERO: Self
@@ -19711,7 +19715,7 @@ pub struct grafton_visca::types::ZoomPosition(_)
 impl grafton_visca::types::ZoomPosition
 pub const grafton_visca::types::ZoomPosition::MAX: Self
 pub const grafton_visca::types::ZoomPosition::MIN: Self
-pub fn grafton_visca::types::ZoomPosition::new(u16) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ZoomPosition::new(u16) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ZoomPosition::value(self) -> u16
 impl grafton_visca::types::ZoomPosition
 pub fn grafton_visca::types::ZoomPosition::normalize_with_max(&self, grafton_visca::inquiry_conversions::ZoomDomain, u16, core::option::Option<u16>) -> core::result::Result<grafton_visca::units::UnitInterval, grafton_visca::Error>
@@ -19745,7 +19749,7 @@ pub struct grafton_visca::types::ZoomSpeed(_)
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::MAX: Self
 pub const grafton_visca::types::ZoomSpeed::MIN: Self
-pub fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ZoomSpeed::value(self) -> u8
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::ZERO: Self
@@ -21386,7 +21390,7 @@ pub struct grafton_visca::FocusSpeed(_)
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::MAX: Self
 pub const grafton_visca::types::FocusSpeed::MIN: Self
-pub fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::FocusSpeed::value(self) -> u8
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::ZERO: Self
@@ -21517,7 +21521,7 @@ pub const grafton_visca::types::MotionSyncSpeed::SLOW: Self
 impl grafton_visca::types::MotionSyncSpeed
 pub const grafton_visca::types::MotionSyncSpeed::MAX: Self
 pub const grafton_visca::types::MotionSyncSpeed::MIN: Self
-pub fn grafton_visca::types::MotionSyncSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::MotionSyncSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::MotionSyncSpeed::value(self) -> u8
 impl core::clone::Clone for grafton_visca::types::MotionSyncSpeed
 pub fn grafton_visca::types::MotionSyncSpeed::clone(&self) -> grafton_visca::types::MotionSyncSpeed
@@ -21710,10 +21714,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::profile::Positio
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::profile::PositionInquirySupport
 pub struct grafton_visca::PresetNumber(_)
 impl grafton_visca::command::PresetNumber
-pub const grafton_visca::command::PresetNumber::MAX: u8
-pub const grafton_visca::command::PresetNumber::MIN: u8
-pub fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
-pub fn grafton_visca::command::PresetNumber::value(&self) -> u8
+pub const grafton_visca::command::PresetNumber::MAX: Self
+pub const grafton_visca::command::PresetNumber::MIN: Self
+pub const fn grafton_visca::command::PresetNumber::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::command::PresetNumber::value(self) -> u8
 impl core::clone::Clone for grafton_visca::command::PresetNumber
 pub fn grafton_visca::command::PresetNumber::clone(&self) -> grafton_visca::command::PresetNumber
 impl core::cmp::Eq for grafton_visca::command::PresetNumber
@@ -22018,7 +22022,7 @@ pub struct grafton_visca::ZoomSpeed(_)
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::MAX: Self
 pub const grafton_visca::types::ZoomSpeed::MIN: Self
-pub fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
+pub const fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Self, grafton_visca::Error>
 pub const fn grafton_visca::types::ZoomSpeed::value(self) -> u8
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::ZERO: Self

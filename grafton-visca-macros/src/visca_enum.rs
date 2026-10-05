@@ -9,19 +9,17 @@
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{
-    parse::{Parse, ParseStream},
-    punctuated::Punctuated,
-    Attribute, Data, DeriveInput, Error, Expr, Fields, Ident, Lit, LitStr, Token, Variant,
-};
+use syn::{Attribute, Data, DeriveInput, Error, Expr, Fields, Lit, LitStr, Variant};
+
+use crate::attr::{invalid_u8_literal, parse_u8_literal, unknown_key, AttrSlot};
+
+const ATTRIBUTE: &str = "visca_enum";
 
 /// Attributes that can be applied to the enum itself
 #[derive(Default)]
 struct EnumAttributes {
     /// Custom error type to use instead of crate::error::Error
     error_type: Option<syn::Path>,
-    /// Whether to generate exhaustive match (default: true)
-    exhaustive: Option<bool>,
 }
 
 /// Attributes that can be applied to individual variants
@@ -31,70 +29,6 @@ struct VariantAttributes {
     name: Option<String>,
     /// Skip this variant in conversion implementations
     skip: bool,
-}
-
-/// Parser for #[visca_enum(...)] attributes on the enum
-impl Parse for EnumAttributes {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut attrs = EnumAttributes::default();
-
-        let punctuated = Punctuated::<MetaNameValue, Token![,]>::parse_terminated(input)?;
-
-        for meta in punctuated {
-            let name_str = meta.name.to_string();
-            match name_str.as_str() {
-                "error_type" => {
-                    if let syn::Expr::Path(expr_path) = &meta.value {
-                        attrs.error_type = Some(expr_path.path.clone());
-                    } else {
-                        return Err(Error::new_spanned(&meta.value, "error_type must be a path"));
-                    }
-                }
-                "exhaustive" => {
-                    if let syn::Expr::Lit(expr_lit) = &meta.value {
-                        if let syn::Lit::Bool(lit_bool) = &expr_lit.lit {
-                            attrs.exhaustive = Some(lit_bool.value);
-                        } else {
-                            return Err(Error::new_spanned(
-                                &meta.value,
-                                "exhaustive must be a boolean",
-                            ));
-                        }
-                    } else {
-                        return Err(Error::new_spanned(
-                            &meta.value,
-                            "exhaustive must be a boolean literal",
-                        ));
-                    }
-                }
-                _ => {
-                    return Err(Error::new_spanned(
-                        meta.name,
-                        format!("Unknown attribute: {name_str}"),
-                    ));
-                }
-            }
-        }
-
-        Ok(attrs)
-    }
-}
-
-/// Helper struct for parsing name = value attributes
-struct MetaNameValue {
-    name: Ident,
-    _eq: Token![=],
-    value: syn::Expr,
-}
-
-impl Parse for MetaNameValue {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(MetaNameValue {
-            name: input.parse()?,
-            _eq: input.parse()?,
-            value: input.parse()?,
-        })
-    }
 }
 
 /// Implementation of the ViscaEnum derive macro
@@ -184,47 +118,46 @@ fn generate_visca_enum(input: &DeriveInput) -> Result<TokenStream, Error> {
 
 /// Parse enum-level attributes
 fn parse_enum_attributes(attrs: &[Attribute]) -> Result<EnumAttributes, Error> {
-    let mut enum_attrs = EnumAttributes::default();
+    let mut error_type = AttrSlot::<syn::Path>::default();
 
-    for attr in attrs {
-        if attr.path().is_ident("visca_enum") {
-            let parsed: EnumAttributes = attr.parse_args()?;
-            // Merge attributes (last one wins for each field)
-            if parsed.error_type.is_some() {
-                enum_attrs.error_type = parsed.error_type;
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident(ATTRIBUTE)) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("error_type") {
+                let path = meta.value()?.parse::<syn::Path>()?;
+                error_type.set(ATTRIBUTE, &meta, path)
+            } else {
+                Err(unknown_key(&meta, ATTRIBUTE, "`error_type`"))
             }
-            if parsed.exhaustive.is_some() {
-                enum_attrs.exhaustive = parsed.exhaustive;
-            }
-        }
+        })?;
     }
 
-    Ok(enum_attrs)
+    Ok(EnumAttributes {
+        error_type: error_type.into_value(),
+    })
 }
 
 /// Parse variant-level attributes
 fn parse_variant_attributes(attrs: &[Attribute]) -> Result<VariantAttributes, Error> {
-    let mut variant_attrs = VariantAttributes::default();
+    let mut name = AttrSlot::<String>::default();
+    let mut skip = AttrSlot::<()>::default();
 
-    for attr in attrs {
-        if attr.path().is_ident("visca_enum") {
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("name") {
-                    let value = meta.value()?;
-                    let lit: LitStr = value.parse()?;
-                    variant_attrs.name = Some(lit.value());
-                    Ok(())
-                } else if meta.path.is_ident("skip") {
-                    variant_attrs.skip = true;
-                    Ok(())
-                } else {
-                    Err(meta.error("Unknown attribute"))
-                }
-            })?;
-        }
+    for attr in attrs.iter().filter(|attr| attr.path().is_ident(ATTRIBUTE)) {
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("name") {
+                let value = meta.value()?.parse::<LitStr>()?;
+                name.set(ATTRIBUTE, &meta, value.value())
+            } else if meta.path.is_ident("skip") {
+                skip.set(ATTRIBUTE, &meta, ())
+            } else {
+                Err(unknown_key(&meta, ATTRIBUTE, "`name` or `skip`"))
+            }
+        })?;
     }
 
-    Ok(variant_attrs)
+    Ok(VariantAttributes {
+        name: name.into_value(),
+        skip: skip.get().is_some(),
+    })
 }
 
 /// Extract variants with their discriminant values and attributes
@@ -269,20 +202,11 @@ fn extract_variants_with_attributes(
 /// Parse a discriminant expression as u8
 fn parse_discriminant_as_u8(expr: &Expr) -> Result<u8, Error> {
     match expr {
-        Expr::Lit(expr_lit) => match &expr_lit.lit {
-            Lit::Int(lit_int) => lit_int
-                .base10_parse::<u8>()
-                .map_err(|_| Error::new_spanned(lit_int, "Discriminant must be a valid u8 value")),
-            Lit::Byte(lit_byte) => Ok(lit_byte.value()),
-            _ => Err(Error::new_spanned(
-                expr,
-                "Discriminant must be an integer literal",
-            )),
-        },
-        _ => Err(Error::new_spanned(
-            expr,
-            "Discriminant must be a literal value",
-        )),
+        Expr::Lit(syn::ExprLit {
+            lit: Lit::Int(literal),
+            ..
+        }) => parse_u8_literal(literal, "discriminant"),
+        _ => Err(invalid_u8_literal(expr, "discriminant")),
     }
 }
 

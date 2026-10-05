@@ -3,7 +3,7 @@
 use grafton_visca::ViscaEnum;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[visca_enum(exhaustive = true, error_type = grafton_visca::Error)]
+#[visca_enum(error_type = grafton_visca::Error)]
 pub enum AdvancedMode {
     #[visca_enum(name = "Automatic Mode")]
     Auto = 0x00,

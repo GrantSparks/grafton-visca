@@ -458,7 +458,7 @@ mod tests {
                 parameter: "FocusSpeed",
                 value: 8,
                 min: 0,
-                max: 7
+                max: 7,
             })
         ));
     }

@@ -74,7 +74,7 @@ mod visca_value_hygiene {
         let value = HygienicValue::new(0x05)?;
         assert_eq!(value, HygienicValue(0x05));
         assert!(HygienicValue::new(0x04).is_err());
-        assert_eq!(::std::format!("{value}"), "hygienic 0x5");
+        assert_eq!(::std::format!("{value}"), "hygienic 0x05");
         assert_eq!(
             <HygienicValue as ::core::convert::TryFrom<u8>>::try_from(0x03)?,
             HygienicValue(0x03)
@@ -165,30 +165,6 @@ mod visca_range_type_hygiene {
         }
     }
 
-    #[derive(
-        ::core::fmt::Debug,
-        ::core::marker::Copy,
-        ::core::clone::Clone,
-        ::core::cmp::PartialEq,
-        ::core::cmp::Eq,
-        ::core::cmp::PartialOrd,
-        ::core::cmp::Ord,
-    )]
-    struct CoreOnlyInner(u8);
-
-    impl ::core::fmt::Display for CoreOnlyInner {
-        fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-            ::core::write!(formatter, "{}", self.0)
-        }
-    }
-
-    visca_range_type! {
-        CoreOnlyRange: CoreOnlyInner {
-            min: CoreOnlyInner(1),
-            max: CoreOnlyInner(2)
-        }
-    }
-
     fn clone_via_trait<T: ::core::clone::Clone>(value: &T) -> T {
         value.clone()
     }
@@ -211,8 +187,8 @@ mod visca_range_type_hygiene {
 
     pub(super) fn assert_base_contract() -> ::core::result::Result<(), visca_renamed::Error> {
         assert_derive_traits::<HygienicRange>();
-        assert_eq!(HygienicRange::MIN, 2);
-        assert_eq!(HygienicRange::MAX, 4);
+        assert_eq!(HygienicRange::MIN.value(), 2);
+        assert_eq!(HygienicRange::MAX.value(), 4);
         let value = HygienicRange::new(3)?;
         let upper = HygienicRange::new(4)?;
         let copied = copy_via_trait(&value);
@@ -229,7 +205,7 @@ mod visca_range_type_hygiene {
         assert_eq!(value.cmp(&upper), ::core::cmp::Ordering::Less);
         assert_eq!(
             ::std::format!("{}", HygienicRange::new(1).expect_err("below range")),
-            "Invalid parameter 'HygienicRange': must be between 2 and 4 (value: 1)"
+            "Parameter out of range: HygienicRange = 1 (valid range: 2..=4)"
         );
         assert_eq!(
             <HygienicRange as ::core::convert::TryFrom<u8>>::try_from(4)?,
@@ -237,7 +213,6 @@ mod visca_range_type_hygiene {
         );
         assert_eq!(<u8 as ::core::convert::From<HygienicRange>>::from(value), 3);
         assert_eq!(SecondHygienicRange::new(8)?.value(), 8);
-        assert_eq!(CoreOnlyRange::new(CoreOnlyInner(2))?.value().0, 2);
         ::core::result::Result::Ok(())
     }
 }
@@ -290,40 +265,6 @@ mod visca_range_type_helpers {
         InlineMetadataRange: u8 {
             min: 12,
             max: 13
-        }
-    }
-
-    /// Distinct non-inline inner schema documentation.
-    #[derive(
-        ::core::fmt::Debug,
-        ::core::marker::Copy,
-        ::core::clone::Clone,
-        ::core::cmp::PartialEq,
-        ::core::cmp::Eq,
-        ::core::cmp::PartialOrd,
-        ::core::cmp::Ord,
-        visca_renamed::__macro_support::serde::Serialize,
-        visca_renamed::__macro_support::serde::Deserialize,
-        visca_renamed::__macro_support::schemars::JsonSchema,
-        visca_renamed::__macro_support::ts_rs::TS,
-    )]
-    #[serde(crate = "visca_renamed::__macro_support::serde")]
-    #[schemars(crate = "visca_renamed::__macro_support::schemars")]
-    #[ts(crate = "visca_renamed::__macro_support::ts_rs")]
-    struct NonInlineInner(u8);
-
-    impl ::core::fmt::Display for NonInlineInner {
-        fn fmt(&self, formatter: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
-            ::core::write!(formatter, "{}", self.0)
-        }
-    }
-
-    visca_range_type! {
-        /// Wrapper metadata around a non-inline inner schema.
-        #[schemars(rename = "NonInlineRangeSchema")]
-        NonInlineRange: NonInlineInner {
-            min: NonInlineInner(1),
-            max: NonInlineInner(3)
         }
     }
 
@@ -408,27 +349,6 @@ mod visca_range_type_helpers {
             Some(&::serde_json::json!("Explicit schema description"))
         );
         assert!(nested.pointer("/$defs/InlineSchemaRange").is_none());
-
-        let non_inline = visca_renamed::__macro_support::schemars::schema_for!(NonInlineRange);
-        let non_inline = ::serde_json::to_value(non_inline).expect("serialize non-inline schema");
-        assert_eq!(
-            non_inline.pointer("/description"),
-            Some(&::serde_json::json!(
-                "Wrapper metadata around a non-inline inner schema."
-            ))
-        );
-        assert_eq!(
-            non_inline.pointer("/$ref"),
-            Some(&::serde_json::json!("#/$defs/NonInlineInner")),
-            "non-inline inner schema was not referenced: {non_inline}"
-        );
-        assert!(non_inline.pointer("/$defs/NonInlineInner").is_some());
-        assert_eq!(
-            non_inline.pointer("/$defs/NonInlineInner/description"),
-            Some(&::serde_json::json!(
-                "Distinct non-inline inner schema documentation."
-            ))
-        );
     }
 
     fn assert_ts_contract() {
@@ -489,7 +409,7 @@ mod visca_range_type_helpers {
         assert_eq!(invalid.classify(), ::serde_json::error::Category::Data);
         assert_eq!(
             invalid.to_string(),
-            "Invalid parameter 'HygienicRange': must be between 2 and 4 (value: 5)"
+            "Parameter out of range: HygienicRange = 5 (valid range: 2..=4)"
         );
 
         assert_eq!(r#type::new(8).expect("raw range").value(), 8);

@@ -673,10 +673,12 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "Sharpness::Up", Sharpness::Up);
     row!(o, "Sharpness::Down", Sharpness::Down);
     for v in [0u8, 5, 15, 16, 0xFF] {
-        row!(
+        rowr!(
             o,
             format!("Sharpness::SetLevel[{v:02X}]"),
-            Sharpness::SetLevel { value: v }
+            Ok(Sharpness::SetLevel {
+                value: SharpnessLevel::new(v)?
+            })
         );
     }
     row!(o, "Backlight[on]", BacklightCommand::new(true));

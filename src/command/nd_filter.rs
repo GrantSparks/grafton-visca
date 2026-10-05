@@ -107,18 +107,21 @@ impl WireEncode for NdFilterValue {
 }
 
 impl NdFilterValue {
+    /// The densest variable-ND position.
+    pub(crate) const MAX_VALUE: u16 = 0x0014;
+
     /// Create a new ND filter value command.
     ///
     /// # Arguments
     /// * `value` - ND filter value (0x0000 to 0x0014)
     pub fn new(value: u16) -> Result<Self, Error> {
-        if value > 0x0014 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "ND filter value",
-                value: value as i32,
-                min: 0,
-                max: 20,
-            });
+        if value > Self::MAX_VALUE {
+            return Err(Error::parameter_out_of_range(
+                "ND filter value",
+                i32::from(value),
+                0,
+                i32::from(Self::MAX_VALUE),
+            ));
         }
         Ok(Self { value })
     }

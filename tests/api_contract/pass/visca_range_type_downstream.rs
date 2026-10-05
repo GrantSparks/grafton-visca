@@ -119,7 +119,7 @@ mod visca_range_hygiene {
     }
 
     #[allow(non_snake_case)]
-    mod __grafton_visca_range_type_support_DisabledRange {}
+    mod __grafton_visca_newtype_support_DisabledRange {}
 
     #[allow(dead_code)]
     struct DisabledRange;
@@ -184,14 +184,14 @@ fn main() {
     use visca_range_hygiene::HygienicRange;
 
     visca_range_hygiene::assert_derive_contract();
-    assert_eq!(HygienicRange::MIN, 2);
-    assert_eq!(HygienicRange::MAX, 4);
+    assert_eq!(HygienicRange::MIN.value(), 2);
+    assert_eq!(HygienicRange::MAX.value(), 4);
 
     let value = HygienicRange::new(3).expect("in-range value");
     assert_eq!(value.value(), 3);
     assert_eq!(
         ::std::format!("{}", HygienicRange::new(1).expect_err("below range")),
-        "Invalid parameter 'HygienicRange': must be between 2 and 4 (value: 1)"
+        "Parameter out of range: HygienicRange = 1 (valid range: 2..=4)"
     );
     assert_eq!(
         <HygienicRange as ::core::convert::TryFrom<u8>>::try_from(4)

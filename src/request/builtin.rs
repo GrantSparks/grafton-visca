@@ -226,11 +226,25 @@ fn require(supported: bool, feature: &'static str) -> Result<(), Error> {
     }
 }
 
-fn invalid_value(parameter: &'static str, value: impl ToString) -> Error {
-    Error::InvalidParameter {
-        parameter,
-        value: Cow::Owned(value.to_string()),
-        reason: Cow::Borrowed("value is outside the validated runtime profile"),
+/// Rejects `value` outside the profile's contiguous `range`, reporting the
+/// range's bounds through the crate's single out-of-range error.
+fn require_in_range<T>(
+    parameter: &'static str,
+    value: T,
+    range: &std::ops::RangeInclusive<T>,
+) -> Result<(), Error>
+where
+    T: Copy + PartialOrd + Into<i32>,
+{
+    if range.contains(&value) {
+        Ok(())
+    } else {
+        Err(Error::parameter_out_of_range(
+            parameter,
+            value.into(),
+            (*range.start()).into(),
+            (*range.end()).into(),
+        ))
     }
 }
 
@@ -245,12 +259,8 @@ fn validate_pan_tilt_speed(
 ) -> Result<(), Error> {
     validate_pan_tilt(profile)?;
     let capabilities = profile.capabilities();
-    if !capabilities.pan_speed.contains(&pan.value()) {
-        return Err(invalid_value("pan speed", pan.value()));
-    }
-    if !capabilities.tilt_speed.contains(&tilt.value()) {
-        return Err(invalid_value("tilt speed", tilt.value()));
-    }
+    require_in_range("pan speed", pan.value(), &capabilities.pan_speed)?;
+    require_in_range("tilt speed", tilt.value(), &capabilities.tilt_speed)?;
     Ok(())
 }
 
@@ -325,12 +335,8 @@ fn validate_pan_tilt_position(
             "pan/tilt request was converted for a different profile".into(),
         ));
     }
-    if !capabilities.pan_range.contains(&pan) {
-        return Err(invalid_value("pan position", pan));
-    }
-    if !capabilities.tilt_range.contains(&tilt) {
-        return Err(invalid_value("tilt position", tilt));
-    }
+    require_in_range("pan position", pan, &capabilities.pan_range)?;
+    require_in_range("tilt position", tilt, &capabilities.tilt_range)?;
     Ok(())
 }
 
@@ -482,9 +488,7 @@ fn validate_exposure_compensation(
                 .ok_or(Error::FeatureNotSupported {
                     feature: "exposure compensation range",
                 })?;
-        if !range.contains(&value) {
-            return Err(invalid_value("exposure compensation", value));
-        }
+        require_in_range("exposure compensation", value, range)?;
     }
     Ok(())
 }
@@ -502,7 +506,12 @@ fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(
             .iter()
             .any(|speed| speed.value == value)
         {
-            return Err(invalid_value("shutter speed", value));
+            // The shutter table is a set of codes, not a range.
+            return Err(Error::invalid_parameter(
+                "shutter speed",
+                Cow::Owned(value.to_string()),
+                Cow::Borrowed("code is not in the profile's shutter table"),
+            ));
         }
     }
     Ok(())
@@ -524,9 +533,7 @@ fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u16>) -> Resu
                 .ok_or(Error::FeatureNotSupported {
                     feature: "brightness range",
                 })?;
-        if !range.contains(&value) {
-            return Err(invalid_value("brightness level", value));
-        }
+        require_in_range("brightness level", value, range)?;
     }
     Ok(())
 }
@@ -534,9 +541,7 @@ fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u16>) -> Resu
 fn validate_gain(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
     validate_numeric_exposure(profile)?;
     if let Some(value) = value {
-        if !profile.capabilities().gain_range.contains(&value) {
-            return Err(invalid_value("gain level", value));
-        }
+        require_in_range("gain level", value, &profile.capabilities().gain_range)?;
     }
     Ok(())
 }
@@ -594,9 +599,7 @@ fn validate_tuning(profile: &crate::ProfileSpec, value: i8, red: bool) -> Result
     .ok_or(Error::FeatureNotSupported {
         feature: "RGB tuning range",
     })?;
-    if !range.contains(&value) {
-        return Err(invalid_value("RGB tuning", value));
-    }
+    require_in_range("RGB tuning", value, range)?;
     Ok(())
 }
 
@@ -620,9 +623,7 @@ fn validate_color_temperature(
             })?;
         // Profile metadata is expressed in Kelvin.
         let kelvin = value.to_kelvin();
-        if !range.contains(&kelvin) {
-            return Err(invalid_value("color temperature", kelvin));
-        }
+        require_in_range("color temperature", kelvin, range)?;
     }
     Ok(())
 }
@@ -647,9 +648,7 @@ fn validate_rgb_gain(
         .ok_or(Error::FeatureNotSupported {
             feature: "RGB gain range",
         })?;
-        if !range.contains(&value) {
-            return Err(invalid_value("RGB gain", value));
-        }
+        require_in_range("RGB gain", value, range)?;
     }
     Ok(())
 }
@@ -673,9 +672,7 @@ fn validate_image_range(
 ) -> Result<(), Error> {
     validate_image_control(profile, surface, feature)?;
     let range = range.ok_or(Error::FeatureNotSupported { feature })?;
-    if !range.contains(&value) {
-        return Err(invalid_value(feature, value));
-    }
+    require_in_range(feature, value, range)?;
     Ok(())
 }
 
@@ -942,7 +939,7 @@ impl BuiltinValidation for crate::command::image::Sharpness {
                 TypedSupportSurface::SharpnessControl,
                 "sharpness control",
                 profile.capabilities().sharpness_range.as_ref(),
-                *value,
+                value.value(),
             ),
             _ => validate_image_control(
                 profile,
@@ -1111,11 +1108,7 @@ impl BuiltinValidation for crate::command::focus::FocusNearLimitCommand {
             "focus near limit",
         )?;
         let value = self.position.value();
-        if capabilities.focus_range.contains(&value) {
-            Ok(())
-        } else {
-            Err(invalid_value("focus near limit", value))
-        }
+        require_in_range("focus near limit", value, &capabilities.focus_range)
     }
 }
 
@@ -4176,20 +4169,16 @@ impl BuiltinValidation for ZoomTarget {
                 "optical-plus-digital zoom positioning",
             )?;
         }
-        let position = self.0.value();
-        if capabilities.zoom_range_optical.contains(&position) {
-            return Ok(());
-        }
-        if capabilities
-            .zoom_range_digital
-            .as_ref()
-            .is_some_and(|range| range.contains(&position))
-            && capabilities.supports_typed(TypedSupportSurface::DigitalZoomRange)
-        {
-            Ok(())
-        } else {
-            Err(invalid_value("zoom position", position))
-        }
+        // A validated profile's digital range starts where the optical range
+        // ends, so the accepted positions are one contiguous range.
+        let optical = &capabilities.zoom_range_optical;
+        let accepted = match capabilities.zoom_range_digital.as_ref() {
+            Some(digital) if capabilities.supports_typed(TypedSupportSurface::DigitalZoomRange) => {
+                *optical.start()..=*digital.end()
+            }
+            _ => optical.clone(),
+        };
+        require_in_range("zoom position", self.0.value(), &accepted)
     }
 }
 
@@ -4202,11 +4191,7 @@ impl BuiltinValidation for ZoomDrive {
             Self::TeleVariable(speed) | Self::WideVariable(speed) => speed.value(),
         };
         require(capabilities.supports_variable_zoom, "variable zoom drive")?;
-        if capabilities.zoom_speed.contains(&speed) {
-            Ok(())
-        } else {
-            Err(invalid_value("zoom speed", speed))
-        }
+        require_in_range("zoom speed", speed, &capabilities.zoom_speed)
     }
 }
 
@@ -4220,11 +4205,7 @@ impl BuiltinValidation for FocusTarget {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
-        if capabilities.focus_range.contains(&self.0.value()) {
-            Ok(())
-        } else {
-            Err(invalid_value("focus position", self.0.value()))
-        }
+        require_in_range("focus position", self.0.value(), &capabilities.focus_range)
     }
 }
 
@@ -4242,11 +4223,7 @@ impl BuiltinValidation for FocusDrive {
             Self::Far | Self::Near => return Ok(()),
             Self::FarVariable(speed) | Self::NearVariable(speed) => speed.value(),
         };
-        if capabilities.focus_speed.contains(&speed) {
-            Ok(())
-        } else {
-            Err(invalid_value("focus speed", speed))
-        }
+        require_in_range("focus speed", speed, &capabilities.focus_speed)
     }
 }
 
@@ -4315,11 +4292,7 @@ impl BuiltinValidation for IrisDirect {
                 .ok_or(Error::FeatureNotSupported {
                     feature: "iris range",
                 })?;
-        if range.contains(&u16::from(self.0.value())) {
-            Ok(())
-        } else {
-            Err(invalid_value("iris level", self.0.value()))
-        }
+        require_in_range("iris level", u16::from(self.0.value()), range)
     }
 }
 
@@ -4338,11 +4311,11 @@ impl BuiltinValidation for NdFilterDirect {
         // construction.  Keep the value extraction here explicit so profile
         // admission cannot silently turn a future wider value into a
         // valid typed request without a corresponding profile fact.
-        if self.0.value() <= 0x0014 {
-            Ok(())
-        } else {
-            Err(invalid_value("ND filter value", self.0.value()))
-        }
+        require_in_range(
+            "ND filter value",
+            self.0.value(),
+            &(0..=NdFilterValue::MAX_VALUE),
+        )
     }
 }
 
@@ -4383,11 +4356,11 @@ impl BuiltinValidation for PushAfRelease {
 fn validate_preset(profile: &crate::ProfileSpec, preset: PresetNumber) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_presets, "preset control")?;
-    if preset.value() <= capabilities.max_presets {
-        Ok(())
-    } else {
-        Err(invalid_value("preset number", preset.value()))
-    }
+    require_in_range(
+        "preset number",
+        preset.value(),
+        &(0..=capabilities.max_presets),
+    )
 }
 
 impl BuiltinValidation for PresetRecall {
@@ -4425,11 +4398,11 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_presets, "preset control")?;
         let speed = self.speed.value();
-        if capabilities.preset_speed_range.contains(&speed) {
-            Ok(())
-        } else {
-            Err(invalid_value("preset recall speed", speed))
-        }
+        require_in_range(
+            "preset recall speed",
+            speed,
+            &capabilities.preset_speed_range,
+        )
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4724,6 +4697,64 @@ mod tests {
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("command must encode");
         buffer[..length].to_vec()
+    }
+
+    fn assert_profile_range_error(
+        result: Result<(), Error>,
+        parameter: &str,
+        value: i32,
+        range: (i32, i32),
+    ) {
+        match result {
+            Err(Error::ParameterOutOfRange {
+                parameter: reported,
+                value: reported_value,
+                min,
+                max,
+            }) => {
+                assert_eq!(reported, parameter);
+                assert_eq!((reported_value, min, max), (value, range.0, range.1));
+            }
+            other => panic!("expected ParameterOutOfRange for {parameter}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn profile_range_checks_report_the_profiles_inclusive_bounds() {
+        let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let capabilities = g2.capabilities();
+
+        let gain = capabilities.gain_range.clone();
+        let above_gain = *gain.end() + 1;
+        assert_profile_range_error(
+            validate_gain(&g2, Some(above_gain)),
+            "gain level",
+            i32::from(above_gain),
+            (i32::from(*gain.start()), i32::from(*gain.end())),
+        );
+
+        let above_presets = capabilities.max_presets + 1;
+        assert_profile_range_error(
+            validate_preset(&g2, PresetNumber::new(above_presets).expect("preset")),
+            "preset number",
+            i32::from(above_presets),
+            (0, i32::from(capabilities.max_presets)),
+        );
+
+        // The G2 tilt speed range is narrower than the syntactic `TiltSpeed`
+        // domain, so the profile check is the one that rejects.
+        let tilt = capabilities.tilt_speed.clone();
+        let above_tilt = *tilt.end() + 1;
+        assert_profile_range_error(
+            validate_pan_tilt_speed(
+                &g2,
+                PanSpeed::new(*capabilities.pan_speed.start()).expect("pan speed"),
+                TiltSpeed::new(above_tilt).expect("syntactic tilt speed"),
+            ),
+            "tilt speed",
+            i32::from(above_tilt),
+            (i32::from(*tilt.start()), i32::from(*tilt.end())),
+        );
     }
 
     #[test]
@@ -5833,7 +5864,9 @@ mod tests {
             crate::types::BlueChannel::new(1).expect("valid blue gain"),
         ));
         assert_exact_request_size(&crate::command::Sharpness::Reset);
-        assert_exact_request_size(&crate::command::Sharpness::SetLevel { value: 1 });
+        assert_exact_request_size(&crate::command::Sharpness::SetLevel {
+            value: crate::types::SharpnessLevel::new(1).expect("valid sharpness"),
+        });
     }
 
     #[test]

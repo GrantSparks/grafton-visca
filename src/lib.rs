@@ -964,7 +964,9 @@ pub mod __macro_support {
     #[doc(hidden)]
     pub use crate::macros::param::{IntoParamBuf, ParamBuf};
     #[doc(hidden)]
-    pub use grafton_visca_macros::__grafton_visca_range_type_decl;
+    pub use crate::macros::public::RangeInner;
+    #[doc(hidden)]
+    pub use grafton_visca_macros::__grafton_visca_newtype;
     #[cfg(feature = "schemars")]
     pub use schemars;
     #[cfg(feature = "serde")]

@@ -597,7 +597,15 @@ mod tests {
         // Test DefogLevel out of range (6) - should fail
         let response_bytes = &[0x90, 0x50, 0x06, VISCA_TERMINATOR];
         let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogLevel);
-        assert!(matches!(response, Err(Error::InvalidParameter { .. })));
+        assert!(matches!(
+            response,
+            Err(Error::ParameterOutOfRange {
+                parameter: "DefogLevel",
+                value: 6,
+                min: 0,
+                max: 5,
+            })
+        ));
     }
 
     #[test]
@@ -644,7 +652,15 @@ mod tests {
         // Test BroadcastDomain out of range (4) - should fail
         let response_bytes = &[0x90, 0x50, 0x04, VISCA_TERMINATOR];
         let response = Response::parse_with_type(response_bytes, &InquiryKind::BroadcastDomain);
-        assert!(matches!(response, Err(Error::InvalidParameter { .. })));
+        assert!(matches!(
+            response,
+            Err(Error::ParameterOutOfRange {
+                parameter: "BroadcastDomain",
+                value: 4,
+                min: 0,
+                max: 3,
+            })
+        ));
     }
 
     #[test]

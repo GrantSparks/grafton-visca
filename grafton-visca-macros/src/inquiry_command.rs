@@ -3,324 +3,55 @@
 // Copyright (c) 2024 Grafton Machine Shed <team@grafton.ai>
 
 //! ViscaInquiry derive macro implementation with parser generation support
+//!
+//! Attributes are parsed into [`RawAttributes`] under the crate-wide policy
+//! (each key once, numeric bytes through one literal parser) and then
+//! validated once into an [`InquirySpec`]. Code generation consumes only the
+//! validated spec, so no generator restates a validation rule.
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{
-    parenthesized, parse::ParseStream, punctuated::Punctuated, spanned::Spanned, DeriveInput,
-    Ident, LitInt, Path, Token, Type,
+    meta::ParseNestedMeta, parenthesized, parse::ParseStream, punctuated::Punctuated,
+    spanned::Spanned, DeriveInput, Ident, LitInt, Path, Token, Type,
 };
 
+use crate::attr::{parse_u8_literal, unknown_key, AttrSlot};
+
+const ATTRIBUTE: &str = "visca";
+const ATTRIBUTE_KEYS: &str = "one of `opcode`, `subcode`, `response`, `parser`, `field`, \
+                              `value_type`, `parse_with`, `convention`, `data_variant`, \
+                              `typed_response`, `typed_field`, `typed_constructor`, or \
+                              `typed_is_tuple`";
+
 pub fn derive_visca_inquiry_impl(input: DeriveInput) -> TokenStream {
-    match &input.data {
-        syn::Data::Struct(_) => {
-            let struct_name = &input.ident;
-
-            // Parse visca attributes from the struct
-            let attrs = match parse_visca_attributes_from_struct(&input) {
-                Ok(attrs) => attrs,
-                Err(error) => return error.to_compile_error(),
-            };
-
-            let mut validation_error = None;
-            let response_kind = match attrs.response_kind.clone() {
-                Some(response_kind) => response_kind,
-                None => {
-                    push_error(
-                        &mut validation_error,
-                        syn::Error::new_spanned(
-                            struct_name,
-                            "visca attribute must have a response value",
-                        ),
-                    );
-                    format_ident!("MissingResponse")
-                }
-            };
-
-            // Determine the actual dependency name once for all generated paths.
-            let crate_path = crate::crate_path::grafton_visca();
-
-            let byte_value = match attrs.byte_value {
-                Some(byte_value) => byte_value,
-                None => {
-                    push_error(
-                        &mut validation_error,
-                        syn::Error::new_spanned(
-                            struct_name,
-                            "visca attribute must have an opcode value",
-                        ),
-                    );
-                    0
-                }
-            };
-            let subcategory = attrs.subcategory.unwrap_or(0x04);
-            if let Err(error) = validate_attrs(&attrs, struct_name) {
-                push_error(&mut validation_error, error);
-            }
-            if let Some(error) = validation_error {
-                return error.to_compile_error();
-            }
-
-            let write_into_body = quote! {
-                const LEN: usize = 5;
-                if buffer.len() < LEN {
-                    return ::core::result::Result::Err(#crate_path::Error::buffer_too_small(LEN, buffer.len()));
-                }
-                buffer[0] = camera_id.to_address_byte();
-                buffer[1] = 0x09;
-                buffer[2] = #subcategory;
-                buffer[3] = #byte_value;
-                buffer[4] = #crate_path::command::VISCA_TERMINATOR;
-                ::core::result::Result::Ok(LEN)
-            };
-
-            let parser_info = attrs.parser_info();
-            let raw_response = response_kind == "Raw";
-            if raw_response && (parser_info.is_some() || attrs.typed_response.is_some()) {
-                return syn::Error::new_spanned(
-                    struct_name,
-                    "response = Raw does not support generated built-in parsers; implement ResponseParser manually",
-                )
-                .to_compile_error();
-            }
-
-            // A parser selector generates one payload decoder. Both the
-            // inherent convenience method and Inquiry::decoder use it, so
-            // selector-specific overrides cannot drift from runtime decoding.
-            let parse_response_impl = if let Some(parser_info) = &parser_info {
-                let decode_body =
-                    generate_shared_decode_body(&response_kind, parser_info, &crate_path);
-                quote! {
-                    impl #struct_name {
-                        #[doc(hidden)]
-                        fn __grafton_visca_decode_payload(
-                            payload: &[u8],
-                        ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
-                            #decode_body
-                        }
-
-                        /// Parses this inquiry's payload with the shared decoder.
-                        ///
-                        /// This is the exact decoder used by `Inquiry::decoder()`.
-                        /// Built-in selector forms use the canonical `InquiryKind`
-                        /// table; explicit selector overrides use their declared
-                        /// parser on both public paths.
-                        pub fn parse_response(&self, data: &[u8]) -> ::core::result::Result<#crate_path::command::InquiryData, #crate_path::Error> {
-                            match Self::__grafton_visca_decode_payload(data)? {
-                                #crate_path::command::Response::Inquiry(response) => {
-                                    ::core::result::Result::Ok(response)
-                                }
-                                #crate_path::command::Response::Error(error) => {
-                                    ::core::result::Result::Err(error)
-                                }
-                                _ => ::core::result::Result::Err(
-                                    #crate_path::Error::UnexpectedResponseType
-                                ),
-                            }
-                        }
-                    }
-                }
-            } else {
-                quote! {}
-            };
-
-            // Optionally generate a typed ResponseParser impl
-            let typed_impl = generate_typed_impl(
-                struct_name,
-                &response_kind,
-                &crate_path,
-                &attrs,
-                &parser_info,
-            );
-
-            let decode_response = if parser_info.is_some() {
-                quote! { #struct_name::__grafton_visca_decode_payload(payload)? }
-            } else {
-                quote! {
-                    #crate_path::command::parse_inquiry_payload(
-                        payload,
-                        &#crate_path::command::InquiryKind::#response_kind,
-                    )?
-                }
-            };
-
-            let response_decoder = if parser_info.is_some() {
-                quote! {
-                    #crate_path::ResponseDecoder::from_fn(
-                        #struct_name::__grafton_visca_decode_payload
-                    )
-                }
-            } else {
-                quote! {
-                    fn decode(
-                        payload: &[u8],
-                    ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
-                        #crate_path::command::parse_inquiry_payload(
-                            payload,
-                            &#crate_path::command::InquiryKind::#response_kind,
-                        )
-                    }
-                    #crate_path::ResponseDecoder::from_fn(decode)
-                }
-            };
-
-            let final_inquiry_impl = if raw_response {
-                quote! {
-                    impl #crate_path::Request for #struct_name {
-                        type Class = #crate_path::request::Inquiry;
-
-                        const MAX_SIZE: usize = 5;
-                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
-                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
-                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
-
-                        fn write_into(
-                            &self,
-                            camera_id: #crate_path::CameraId,
-                            buffer: &mut [u8],
-                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
-                            #write_into_body
-                        }
-                    }
-
-                    impl #crate_path::Inquiry for #struct_name {
-                        type Response = #crate_path::command::RawInquiryPayload;
-
-                        fn route(&self) -> #crate_path::InquiryRoute {
-                            #crate_path::InquiryRoute::RAW
-                        }
-
-                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
-                            fn decode(
-                                payload: &[u8],
-                            ) -> ::core::result::Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
-                                ::core::result::Result::Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
-                            }
-                            #crate_path::ResponseDecoder::from_fn(decode)
-                        }
-                    }
-                }
-            } else if let Some(typed_response) = &attrs.typed_response {
-                let response_type = type_spec_tokens(typed_response, &crate_path);
-                quote! {
-                    impl #crate_path::Request for #struct_name {
-                        type Class = #crate_path::request::Inquiry;
-
-                        const MAX_SIZE: usize = 5;
-                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
-                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
-                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
-
-                        fn write_into(
-                            &self,
-                            camera_id: #crate_path::CameraId,
-                            buffer: &mut [u8],
-                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
-                            #write_into_body
-                        }
-                    }
-
-                    impl #crate_path::Inquiry for #struct_name {
-                        type Response = #response_type;
-
-                        fn route(&self) -> #crate_path::InquiryRoute {
-                            #crate_path::InquiryRoute::custom(
-                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
-                            )
-                        }
-
-                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
-                            fn decode(
-                                payload: &[u8],
-                            ) -> ::core::result::Result<#response_type, #crate_path::Error> {
-                                let response = #decode_response;
-                                <#struct_name as #crate_path::command::ResponseParser>::from_response(
-                                    response,
-                                )
-                            }
-                            #crate_path::ResponseDecoder::from_fn(decode)
-                        }
-                    }
-                }
-            } else {
-                quote! {
-                    impl #crate_path::Request for #struct_name {
-                        type Class = #crate_path::request::Inquiry;
-
-                        const MAX_SIZE: usize = 5;
-                        const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
-                        const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
-                        const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
-
-                        fn write_into(
-                            &self,
-                            camera_id: #crate_path::CameraId,
-                            buffer: &mut [u8],
-                        ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
-                            #write_into_body
-                        }
-                    }
-
-                    impl #crate_path::Inquiry for #struct_name {
-                        type Response = #crate_path::command::Response;
-
-                        fn route(&self) -> #crate_path::InquiryRoute {
-                            #crate_path::InquiryRoute::custom(
-                                #crate_path::command::InquiryKind::#response_kind as u16 + 1,
-                            )
-                        }
-
-                        fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
-                            #response_decoder
-                        }
-                    }
-                }
-            };
-
-            let expanded = quote! {
-                #parse_response_impl
-
-                #typed_impl
-
-                #final_inquiry_impl
-            };
-
-            expanded
-        }
-        _ => syn::Error::new_spanned(&input, "ViscaInquiry can only be derived for structs")
-            .to_compile_error(),
+    if !matches!(input.data, syn::Data::Struct(_)) {
+        return syn::Error::new_spanned(&input, "ViscaInquiry can only be derived for structs")
+            .to_compile_error();
+    }
+    match parse_visca_attributes_from_struct(&input).and_then(|attrs| attrs.validate(&input.ident))
+    {
+        Ok(spec) => generate(&input.ident, &spec, &crate::crate_path::grafton_visca()),
+        Err(error) => error.to_compile_error(),
     }
 }
 
+/// The `#[visca(...)]` keys as written, before cross-key validation.
 #[derive(Default)]
-struct ViscaAttributes {
-    byte_value: Option<u8>,
-    subcategory: Option<u8>,
-    response_kind: Option<Ident>,
-    parser_type: Option<ParserStrategy>,
-    field_name: Option<Ident>,
-    mode_type: Option<Type>,
-    parse_with: Option<Path>,
-    convention: Option<Path>,
-    data_variant: Option<Ident>,
-    // Typed response attributes for ResponseParser impl generation:
-    typed_response: Option<Type>,
-    typed_field: Option<Vec<Ident>>,
-    typed_constructor: Option<Ident>,
-    typed_is_tuple: bool,
-}
-
-impl ViscaAttributes {
-    fn parser_info(&self) -> Option<ParserInfo> {
-        self.parser_type.as_ref().map(|parser_type| ParserInfo {
-            parser_type: *parser_type,
-            field_name: self.field_name.clone(),
-            mode_type: self.mode_type.clone(),
-            parse_with: self.parse_with.clone(),
-            convention: self.convention.clone(),
-            data_variant: self.data_variant.clone(),
-        })
-    }
+struct RawAttributes {
+    opcode: AttrSlot<u8>,
+    subcode: AttrSlot<u8>,
+    response: AttrSlot<Ident>,
+    parser: AttrSlot<ParserStrategy>,
+    field: AttrSlot<Ident>,
+    value_type: AttrSlot<Type>,
+    parse_with: AttrSlot<Path>,
+    convention: AttrSlot<Path>,
+    data_variant: AttrSlot<Ident>,
+    typed_response: AttrSlot<Type>,
+    typed_field: AttrSlot<Vec<Ident>>,
+    typed_constructor: AttrSlot<TypedConstructor>,
+    typed_is_tuple: AttrSlot<()>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -349,75 +80,116 @@ enum ParserStrategy {
     Custom,
 }
 
-#[derive(Clone)]
-struct ParserInfo {
-    parser_type: ParserStrategy,
-    field_name: Option<Ident>,
-    mode_type: Option<Type>,
-    parse_with: Option<Path>,
-    convention: Option<Path>, // OnIs02 or OnIs03 for bool_convention parser
-    data_variant: Option<Ident>, // InquiryData variant if different from response (InquiryKind)
+/// How a typed response is built from the destructured inquiry fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TypedConstructor {
+    /// `Ok(field)`.
+    Identity,
+    /// `Type::new(field)`.
+    New,
+    /// `Ok(Type::new(field))`.
+    OkNew,
+    /// `Type::new(field as u8)`.
+    NewU8,
+    /// `Ok(Type { fields.. })`.
+    OkStruct,
 }
 
-fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaAttributes> {
-    let mut attrs = ViscaAttributes::default();
+/// A validated inquiry derive.
+struct InquirySpec {
+    opcode: u8,
+    subcode: u8,
+    kind: ResponseKind,
+}
+
+enum ResponseKind {
+    /// `response = Raw`: the payload is returned unparsed.
+    Raw,
+    /// A built-in `InquiryKind` response.
+    BuiltIn(Box<BuiltInResponse>),
+}
+
+/// A built-in `InquiryKind`, optionally decoded by a selector and lifted into
+/// a typed response.
+struct BuiltInResponse {
+    response: Ident,
+    /// The `InquiryData` variant a selector builds and a typed response
+    /// destructures: `data_variant` with a selector, else `response`.
+    variant: Ident,
+    decoder: Option<PayloadDecoder>,
+    typed: Option<TypedResponse>,
+}
+
+/// A parser selector with every attribute it requires.
+enum PayloadDecoder {
+    /// Selectors that only name the built-in table shape.
+    Canonical,
+    Custom(Path),
+    BoolConvention {
+        field: Ident,
+        convention: Path,
+    },
+    Nibble {
+        field: Ident,
+    },
+    Mode {
+        value_type: Type,
+    },
+    LastNibble {
+        field: Ident,
+    },
+    NdFilter,
+    PictureEffect,
+    DefogLevel,
+    FocusRange,
+}
+
+struct TypedResponse {
+    ty: Type,
+    fields: Vec<Ident>,
+    constructor: TypedConstructor,
+    is_tuple: bool,
+}
+
+impl TypedConstructor {
+    const ALL: [(&'static str, Self); 4] = [
+        ("new", Self::New),
+        ("ok_new", Self::OkNew),
+        ("new_u8", Self::NewU8),
+        ("ok_struct", Self::OkStruct),
+    ];
+
+    /// The attribute spelling, or `None` for the default conversion.
+    fn name(self) -> Option<&'static str> {
+        Self::ALL
+            .iter()
+            .find_map(|(name, constructor)| (*constructor == self).then_some(*name))
+    }
+}
+
+/// Combines two results, keeping every error.
+fn both<A, B>(a: syn::Result<A>, b: syn::Result<B>) -> syn::Result<(A, B)> {
+    match (a, b) {
+        (Ok(a), Ok(b)) => Ok((a, b)),
+        (Err(mut first), Err(second)) => {
+            first.combine(second);
+            Err(first)
+        }
+        (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
+    }
+}
+
+fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<RawAttributes> {
+    let mut attrs = RawAttributes::default();
     let mut saw_visca = false;
 
-    for attr in &input.attrs {
-        if attr.path().is_ident("visca") {
-            saw_visca = true;
-            attr.parse_nested_meta(|meta| {
-                if meta.path.is_ident("typed_is_tuple") {
-                    attrs.typed_is_tuple = true;
-                    return Ok(());
-                }
-
-                if meta.path.is_ident("opcode") {
-                    let value = meta.value()?;
-                    let lit: LitInt = value.parse()?;
-                    attrs.byte_value = Some(parse_u8_literal(&lit)?);
-                } else if meta.path.is_ident("subcode") {
-                    let value = meta.value()?;
-                    let lit: LitInt = value.parse()?;
-                    attrs.subcategory = Some(parse_u8_literal(&lit)?);
-                } else if meta.path.is_ident("response") {
-                    let value = meta.value()?;
-                    attrs.response_kind = Some(parse_ident_value(value, "response")?);
-                } else if meta.path.is_ident("parser") {
-                    let value = meta.value()?;
-                    attrs.parser_type = Some(parse_parser_strategy(value)?);
-                } else if meta.path.is_ident("field") {
-                    let value = meta.value()?;
-                    attrs.field_name = Some(parse_ident_value(value, "field")?);
-                } else if meta.path.is_ident("value_type") {
-                    let value = meta.value()?;
-                    attrs.mode_type = Some(parse_type_spec(value)?);
-                } else if meta.path.is_ident("parse_with") {
-                    let value = meta.value()?;
-                    attrs.parse_with = Some(parse_path_value(value, "parse_with")?);
-                } else if meta.path.is_ident("convention") {
-                    let value = meta.value()?;
-                    let convention = parse_path_value(value, "convention")?;
-                    validate_bool_convention(&convention)?;
-                    attrs.convention = Some(convention);
-                } else if meta.path.is_ident("data_variant") {
-                    let value = meta.value()?;
-                    attrs.data_variant = Some(parse_ident_value(value, "data_variant")?);
-                } else if meta.path.is_ident("typed_response") {
-                    let value = meta.value()?;
-                    attrs.typed_response = Some(parse_type_spec(value)?);
-                } else if meta.path.is_ident("typed_field") {
-                    let value = meta.value()?;
-                    attrs.typed_field = Some(parse_ident_list_value(value)?);
-                } else if meta.path.is_ident("typed_constructor") {
-                    let value = meta.value()?;
-                    attrs.typed_constructor = Some(parse_ident_value(value, "typed_constructor")?);
-                } else {
-                    return Err(meta.error("unknown visca attribute key"));
-                }
-                Ok(())
-            })?;
-        }
+    for attr in input
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident(ATTRIBUTE))
+    {
+        saw_visca = true;
+        attr.parse_nested_meta(|meta| attrs.parse_key(&meta))?;
     }
 
     if !saw_visca {
@@ -430,30 +202,224 @@ fn parse_visca_attributes_from_struct(input: &DeriveInput) -> syn::Result<ViscaA
     Ok(attrs)
 }
 
-fn push_error(target: &mut Option<syn::Error>, error: syn::Error) {
-    if let Some(existing) = target {
-        existing.combine(error);
-    } else {
-        *target = Some(error);
+impl RawAttributes {
+    fn parse_key(&mut self, meta: &ParseNestedMeta<'_>) -> syn::Result<()> {
+        let path = &meta.path;
+        if path.is_ident("typed_is_tuple") {
+            self.typed_is_tuple.set(ATTRIBUTE, meta, ())
+        } else if path.is_ident("opcode") {
+            let byte = parse_u8_literal(&meta.value()?.parse::<LitInt>()?, "`opcode`")?;
+            self.opcode.set(ATTRIBUTE, meta, byte)
+        } else if path.is_ident("subcode") {
+            let byte = parse_u8_literal(&meta.value()?.parse::<LitInt>()?, "`subcode`")?;
+            self.subcode.set(ATTRIBUTE, meta, byte)
+        } else if path.is_ident("response") {
+            let response = parse_ident_value(meta.value()?, "response")?;
+            self.response.set(ATTRIBUTE, meta, response)
+        } else if path.is_ident("parser") {
+            let parser = parse_parser_strategy(meta.value()?)?;
+            self.parser.set(ATTRIBUTE, meta, parser)
+        } else if path.is_ident("field") {
+            let field = parse_ident_value(meta.value()?, "field")?;
+            self.field.set(ATTRIBUTE, meta, field)
+        } else if path.is_ident("value_type") {
+            let value_type = meta.value()?.parse()?;
+            self.value_type.set(ATTRIBUTE, meta, value_type)
+        } else if path.is_ident("parse_with") {
+            let parse_with = meta.value()?.parse()?;
+            self.parse_with.set(ATTRIBUTE, meta, parse_with)
+        } else if path.is_ident("convention") {
+            let convention: Path = meta.value()?.parse()?;
+            validate_bool_convention(&convention)?;
+            self.convention.set(ATTRIBUTE, meta, convention)
+        } else if path.is_ident("data_variant") {
+            let variant = parse_ident_value(meta.value()?, "data_variant")?;
+            self.data_variant.set(ATTRIBUTE, meta, variant)
+        } else if path.is_ident("typed_response") {
+            let typed_response = meta.value()?.parse()?;
+            self.typed_response.set(ATTRIBUTE, meta, typed_response)
+        } else if path.is_ident("typed_field") {
+            let fields = parse_ident_list_value(meta.value()?)?;
+            self.typed_field.set(ATTRIBUTE, meta, fields)
+        } else if path.is_ident("typed_constructor") {
+            let constructor = parse_typed_constructor(meta.value()?)?;
+            self.typed_constructor.set(ATTRIBUTE, meta, constructor)
+        } else {
+            Err(unknown_key(meta, ATTRIBUTE, ATTRIBUTE_KEYS))
+        }
     }
-}
 
-fn parse_u8_literal(lit: &LitInt) -> syn::Result<u8> {
-    let suffix = lit.suffix();
-    if !suffix.is_empty() {
-        return Err(syn::Error::new(
-            lit.span(),
-            "numeric visca fields must be unsuffixed u8 literals",
-        ));
+    /// The one place cross-key rules are checked. Every violation found is
+    /// reported together.
+    fn validate(self, struct_name: &Ident) -> syn::Result<InquirySpec> {
+        let Self {
+            opcode,
+            subcode,
+            response,
+            parser,
+            field,
+            value_type,
+            parse_with,
+            convention,
+            data_variant,
+            typed_response,
+            typed_field,
+            typed_constructor,
+            typed_is_tuple,
+        } = self;
+        // A missing required key is reported on the struct; a rule between
+        // keys is reported on the key that breaks it.
+        let error = |message: &str| syn::Error::new_spanned(struct_name, message);
+        let at = |span: Span, message: &str| syn::Error::new(span, message);
+
+        let response = response.into_entry();
+        let response_span = response.as_ref().map(|(_, span)| *span);
+        let response = response
+            .map(|(response, _)| response)
+            .ok_or_else(|| error("visca attribute must have a response value"));
+        let opcode = opcode
+            .into_value()
+            .ok_or_else(|| error("visca attribute must have an opcode value"));
+        let parser = parser.into_entry();
+        let typed_response = typed_response.into_entry();
+
+        let raw = response.as_ref().is_ok_and(|response| response == "Raw");
+        let raw_conflict = match (raw, response_span) {
+            (true, Some(span)) if parser.is_some() || typed_response.is_some() => Err(at(
+                span,
+                "response = Raw does not support generated built-in parsers; implement \
+                 ResponseParser manually",
+            )),
+            _ => Ok(()),
+        };
+
+        let field = field.into_value();
+        let parser_span = parser.as_ref().map(|(_, span)| *span);
+        let parser = parser.map(|(parser, _)| parser);
+        let decoder = parser
+            .zip(parser_span)
+            .map(|(parser, span)| -> syn::Result<PayloadDecoder> {
+                let error = |message: &str| at(span, message);
+                Ok(match parser {
+                    ParserStrategy::Custom => PayloadDecoder::Custom(
+                        parse_with
+                            .into_value()
+                            .ok_or_else(|| error("custom parser requires parse_with"))?,
+                    ),
+                    ParserStrategy::BoolConvention => {
+                        let (field, convention) = both(
+                            field
+                                .clone()
+                                .ok_or_else(|| error("bool_convention parser requires field")),
+                            convention
+                                .into_value()
+                                .ok_or_else(|| error("bool_convention parser requires convention")),
+                        )?;
+                        PayloadDecoder::BoolConvention { field, convention }
+                    }
+                    ParserStrategy::ExtendedNibble | ParserStrategy::Nibble => {
+                        PayloadDecoder::Nibble {
+                            field: field.clone().unwrap_or_else(|| format_ident!("value")),
+                        }
+                    }
+                    ParserStrategy::Mode | ParserStrategy::ModeEnum => PayloadDecoder::Mode {
+                        value_type: value_type
+                            .into_value()
+                            .ok_or_else(|| error("mode parser requires value_type"))?,
+                    },
+                    ParserStrategy::LastNibble => PayloadDecoder::LastNibble {
+                        field: field
+                            .clone()
+                            .ok_or_else(|| error("last_nibble parser requires field"))?,
+                    },
+                    ParserStrategy::NdFilter => PayloadDecoder::NdFilter,
+                    ParserStrategy::PictureEffect => PayloadDecoder::PictureEffect,
+                    ParserStrategy::DefogLevel => PayloadDecoder::DefogLevel,
+                    ParserStrategy::FocusRange => PayloadDecoder::FocusRange,
+                    ParserStrategy::Bool
+                    | ParserStrategy::DirectByte
+                    | ParserStrategy::Byte
+                    | ParserStrategy::Position
+                    | ParserStrategy::Flags
+                    | ParserStrategy::BitFlags
+                    | ParserStrategy::PanTilt
+                    | ParserStrategy::TallyStatus
+                    | ParserStrategy::SharpnessMode
+                    | ParserStrategy::Gamma
+                    | ParserStrategy::AutoWbSensitivity => PayloadDecoder::Canonical,
+                })
+            })
+            .transpose();
+
+        let typed_constructor = typed_constructor.into_entry();
+        let typed =
+            match (typed_response, typed_field.into_entry()) {
+                (Some((ty, _)), Some((fields, fields_span))) => {
+                    let constructor = typed_constructor
+                        .map_or(TypedConstructor::Identity, |(constructor, _)| constructor);
+                    if constructor == TypedConstructor::OkStruct || fields.len() == 1 {
+                    Ok(())
+                } else {
+                    Err(at(fields_span, &match constructor.name() {
+                        Some(name) => {
+                            format!("typed_constructor `{name}` requires exactly one typed_field")
+                        }
+                        None => "default typed response conversion requires exactly one \
+                                 typed_field"
+                            .to_owned(),
+                    }))
+                }
+                .map(|()| {
+                    Some(TypedResponse {
+                        ty,
+                        fields,
+                        constructor,
+                        is_tuple: typed_is_tuple.get().is_some(),
+                    })
+                })
+                }
+                (Some((_, span)), None) => Err(at(span, "typed_response requires typed_field")),
+                (None, fields) => both(
+                    match fields {
+                        Some((_, span)) => Err(at(span, "typed_field requires typed_response")),
+                        None => Ok(()),
+                    },
+                    match typed_constructor {
+                        Some((_, span)) => {
+                            Err(at(span, "typed_constructor requires typed_response"))
+                        }
+                        None => Ok(()),
+                    },
+                )
+                .map(|_| None),
+            };
+
+        let ((((response, opcode), decoder), typed), ()) = both(
+            both(both(both(response, opcode), decoder), typed),
+            raw_conflict,
+        )?;
+        let subcode = subcode.into_value().unwrap_or(0x04);
+        if raw {
+            return Ok(InquirySpec {
+                opcode,
+                subcode,
+                kind: ResponseKind::Raw,
+            });
+        }
+        let variant = parser
+            .and(data_variant.into_value())
+            .unwrap_or_else(|| response.clone());
+        Ok(InquirySpec {
+            opcode,
+            subcode,
+            kind: ResponseKind::BuiltIn(Box::new(BuiltInResponse {
+                response,
+                variant,
+                decoder,
+                typed,
+            })),
+        })
     }
-
-    let raw = lit.to_string().replace('_', "");
-    let parsed = if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
-        u8::from_str_radix(hex, 16)
-    } else {
-        raw.parse::<u8>()
-    };
-    parsed.map_err(|_| syn::Error::new(lit.span(), "value must fit in u8"))
 }
 
 fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
@@ -465,15 +431,6 @@ fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
         ));
     }
     Ok(ident)
-}
-
-fn parse_path_value(input: ParseStream<'_>, _name: &str) -> syn::Result<Path> {
-    let path: Path = input.parse()?;
-    Ok(path)
-}
-
-fn parse_type_spec(input: ParseStream<'_>) -> syn::Result<Type> {
-    input.parse()
 }
 
 fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
@@ -491,6 +448,15 @@ fn parse_ident_list_value(input: ParseStream<'_>) -> syn::Result<Vec<Ident>> {
     }
 
     Ok(vec![parse_ident_value(input, "typed_field")?])
+}
+
+fn parse_typed_constructor(input: ParseStream<'_>) -> syn::Result<TypedConstructor> {
+    let ident = parse_ident_value(input, "typed_constructor")?;
+    let name = ident.to_string();
+    TypedConstructor::ALL
+        .iter()
+        .find_map(|(candidate, constructor)| (*candidate == name).then_some(*constructor))
+        .ok_or_else(|| syn::Error::new(ident.span(), format!("unknown typed_constructor `{name}`")))
 }
 
 fn parse_parser_strategy(input: ParseStream<'_>) -> syn::Result<ParserStrategy> {
@@ -545,360 +511,334 @@ fn validate_bool_convention(convention: &Path) -> syn::Result<()> {
     }
 }
 
-fn validate_attrs(attrs: &ViscaAttributes, struct_name: &Ident) -> syn::Result<()> {
-    let mut error = None;
+/// Emits the derive's output. `impl Request` and `impl Inquiry` are each
+/// written once; the response kind only selects their varying parts.
+fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -> TokenStream {
+    let InquirySpec {
+        opcode,
+        subcode,
+        kind,
+    } = spec;
 
-    if let Some(parser) = attrs.parser_info() {
-        match parser.parser_type {
-            ParserStrategy::Mode | ParserStrategy::ModeEnum if parser.mode_type.is_none() => {
-                push_error(
-                    &mut error,
-                    syn::Error::new_spanned(struct_name, "mode parser requires value_type"),
+    let (response_type, route, decoder, inherent, typed_impl) = match kind {
+        ResponseKind::Raw => (
+            quote! { #crate_path::command::RawInquiryPayload },
+            quote! { #crate_path::InquiryRoute::RAW },
+            quote! {
+                fn decode(
+                    payload: &[u8],
+                ) -> ::core::result::Result<#crate_path::command::RawInquiryPayload, #crate_path::Error> {
+                    ::core::result::Result::Ok(#crate_path::command::RawInquiryPayload::from_slice(payload))
+                }
+                #crate_path::ResponseDecoder::from_fn(decode)
+            },
+            None,
+            None,
+        ),
+        ResponseKind::BuiltIn(built_in) => {
+            let BuiltInResponse {
+                response,
+                variant,
+                decoder,
+                typed,
+            } = built_in.as_ref();
+            let decode_body = match decoder {
+                Some(decoder) => selector_decode_body(response, variant, decoder, crate_path),
+                None => canonical_decode(response, crate_path),
+            };
+            let parse_response = decoder.is_some().then(|| {
+                quote! {
+                    /// Parses this inquiry's payload with the shared decoder.
+                    ///
+                    /// This is the exact decoder used by `Inquiry::decoder()`.
+                    /// Built-in selector forms use the canonical `InquiryKind`
+                    /// table; explicit selector overrides use their declared
+                    /// parser on both public paths.
+                    pub fn parse_response(&self, data: &[u8]) -> ::core::result::Result<#crate_path::command::InquiryData, #crate_path::Error> {
+                        match Self::__grafton_visca_decode_payload(data)? {
+                            #crate_path::command::Response::Inquiry(response) => {
+                                ::core::result::Result::Ok(response)
+                            }
+                            #crate_path::command::Response::Error(error) => {
+                                ::core::result::Result::Err(error)
+                            }
+                            _ => ::core::result::Result::Err(
+                                #crate_path::Error::UnexpectedResponseType
+                            ),
+                        }
+                    }
+                }
+            });
+            // One payload decoder per derive: `Inquiry::decoder`, the typed
+            // conversion and `parse_response` all call it.
+            let inherent = quote! {
+                impl #struct_name {
+                    #[doc(hidden)]
+                    fn __grafton_visca_decode_payload(
+                        payload: &[u8],
+                    ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
+                        #decode_body
+                    }
+
+                    #parse_response
+                }
+            };
+            let route = quote! {
+                #crate_path::InquiryRoute::custom(
+                    #crate_path::command::InquiryKind::#response as u16 + 1,
                 )
-            }
-            ParserStrategy::BoolConvention => {
-                if parser.field_name.is_none() {
-                    push_error(
-                        &mut error,
-                        syn::Error::new_spanned(
+            };
+            match typed {
+                Some(typed) => {
+                    let response_type = type_tokens(&typed.ty, crate_path);
+                    (
+                        response_type.clone(),
+                        route,
+                        quote! {
+                            fn decode(
+                                payload: &[u8],
+                            ) -> ::core::result::Result<#response_type, #crate_path::Error> {
+                                <#struct_name as #crate_path::command::ResponseParser>::from_response(
+                                    #struct_name::__grafton_visca_decode_payload(payload)?,
+                                )
+                            }
+                            #crate_path::ResponseDecoder::from_fn(decode)
+                        },
+                        Some(inherent),
+                        Some(generate_typed_impl(
                             struct_name,
-                            "bool_convention parser requires field",
-                        ),
-                    );
+                            variant,
+                            typed,
+                            &response_type,
+                            crate_path,
+                        )),
+                    )
                 }
-                if parser.convention.is_none() {
-                    push_error(
-                        &mut error,
-                        syn::Error::new_spanned(
-                            struct_name,
-                            "bool_convention parser requires convention",
-                        ),
-                    );
-                }
-            }
-            ParserStrategy::LastNibble if parser.field_name.is_none() => push_error(
-                &mut error,
-                syn::Error::new_spanned(struct_name, "last_nibble parser requires field"),
-            ),
-            ParserStrategy::Custom if parser.parse_with.is_none() => push_error(
-                &mut error,
-                syn::Error::new_spanned(struct_name, "custom parser requires parse_with"),
-            ),
-            _ => {}
-        }
-    }
-
-    match (&attrs.typed_response, &attrs.typed_field) {
-        (Some(_), None) => push_error(
-            &mut error,
-            syn::Error::new_spanned(struct_name, "typed_response requires typed_field"),
-        ),
-        (None, Some(_)) => push_error(
-            &mut error,
-            syn::Error::new_spanned(struct_name, "typed_field requires typed_response"),
-        ),
-        _ => {}
-    }
-
-    let constructor_name = attrs
-        .typed_constructor
-        .as_ref()
-        .map(std::string::ToString::to_string);
-    if let Some(constructor) = &attrs.typed_constructor {
-        match constructor_name.as_deref() {
-            Some("new" | "ok_new" | "new_u8" | "ok_struct") => {}
-            Some(unknown) => push_error(
-                &mut error,
-                syn::Error::new(
-                    constructor.span(),
-                    format!("unknown typed_constructor `{unknown}`"),
+                None => (
+                    quote! { #crate_path::command::Response },
+                    route,
+                    quote! {
+                        #crate_path::ResponseDecoder::from_fn(
+                            #struct_name::__grafton_visca_decode_payload
+                        )
+                    },
+                    Some(inherent),
+                    None,
                 ),
-            ),
-            None => {}
-        }
-    }
-
-    if attrs.typed_response.is_none() && attrs.typed_constructor.is_some() {
-        push_error(
-            &mut error,
-            syn::Error::new_spanned(struct_name, "typed_constructor requires typed_response"),
-        );
-    }
-
-    if let Some(field_names) = &attrs.typed_field {
-        match constructor_name.as_deref() {
-            None | Some("new" | "ok_new" | "new_u8") => {
-                if attrs.typed_response.is_some() && field_names.len() != 1 {
-                    let message = match constructor_name.as_deref() {
-                        Some(name) => {
-                            format!("typed_constructor `{name}` requires exactly one typed_field")
-                        }
-                        None => {
-                            "default typed response conversion requires exactly one typed_field"
-                                .to_owned()
-                        }
-                    };
-                    push_error(&mut error, syn::Error::new_spanned(struct_name, message));
-                }
             }
-            Some("ok_struct") | Some(_) => {}
         }
-    }
+    };
 
-    if let Some(error) = error {
-        Err(error)
-    } else {
-        Ok(())
+    quote! {
+        #inherent
+
+        #typed_impl
+
+        impl #crate_path::Request for #struct_name {
+            type Class = #crate_path::request::Inquiry;
+
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CLASS: #crate_path::TimeoutClass = #crate_path::TimeoutClass::Inquiry;
+            const RETRY_CLASS: #crate_path::RetryClass = #crate_path::RetryClass::Inquiry;
+            const CONTROL_CLASS: #crate_path::ControlClass = #crate_path::ControlClass::Normal;
+
+            fn write_into(
+                &self,
+                camera_id: #crate_path::CameraId,
+                buffer: &mut [u8],
+            ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
+                const LEN: usize = 5;
+                if buffer.len() < LEN {
+                    return ::core::result::Result::Err(#crate_path::Error::buffer_too_small(LEN, buffer.len()));
+                }
+                buffer[0] = camera_id.to_address_byte();
+                buffer[1] = 0x09;
+                buffer[2] = #subcode;
+                buffer[3] = #opcode;
+                buffer[4] = #crate_path::command::VISCA_TERMINATOR;
+                ::core::result::Result::Ok(LEN)
+            }
+        }
+
+        impl #crate_path::Inquiry for #struct_name {
+            type Response = #response_type;
+
+            fn route(&self) -> #crate_path::InquiryRoute {
+                #route
+            }
+
+            fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
+                #decoder
+            }
+        }
     }
 }
 
-/// Generates the one payload decoder shared by `parse_response` and
-/// `Inquiry::decoder` for a derive carrying a parser selector.
-///
-/// Most historical selectors merely identify a built-in response shape, so
-/// they delegate to the authoritative inquiry table. Selectors carrying a
-/// caller-supplied transformation retain that transformation here; each uses
-/// the public payload helper rather than restating a wire convention.
-fn generate_shared_decode_body(
-    response_variant: &Ident,
-    parser_info: &ParserInfo,
-    crate_path: &TokenStream,
-) -> TokenStream {
-    let canonical = quote! {
+/// The canonical table decoder for `response`.
+fn canonical_decode(response: &Ident, crate_path: &TokenStream) -> TokenStream {
+    quote! {
         #crate_path::command::parse_inquiry_payload(
             payload,
-            &#crate_path::command::InquiryKind::#response_variant,
+            &#crate_path::command::InquiryKind::#response,
         )
+    }
+}
+
+/// The payload decoder for a derive carrying a parser selector.
+///
+/// Shape selectors name a built-in response shape and decode with the
+/// authoritative inquiry table. Transforming selectors carry their own
+/// decoding here; each uses the public payload helper rather than restating a
+/// wire convention.
+fn selector_decode_body(
+    response: &Ident,
+    variant: &Ident,
+    decoder: &PayloadDecoder,
+    crate_path: &TokenStream,
+) -> TokenStream {
+    // The one-byte selectors share this guard.
+    let single_byte = quote! {
+        let &[byte] = payload else {
+            return ::core::result::Result::Err(
+                #crate_path::Error::invalid_response_length(1, payload)
+            );
+        };
     };
 
-    let actual_variant = parser_info
-        .data_variant
-        .clone()
-        .unwrap_or_else(|| response_variant.clone());
-
-    let data_decoder = match parser_info.parser_type {
-        ParserStrategy::Custom => {
-            let parse_with = parser_info
-                .parse_with
-                .as_ref()
-                .expect("custom parser requires parse_with attribute");
-            Some(quote! { #parse_with(payload) })
-        }
-        ParserStrategy::BoolConvention => {
-            let field_name = parser_info
-                .field_name
-                .as_ref()
-                .expect("bool_convention parser requires field attribute");
-            let convention = parser_info
-                .convention
-                .as_ref()
-                .expect("bool_convention parser requires convention attribute");
+    let data = match decoder {
+        PayloadDecoder::Canonical => return canonical_decode(response, crate_path),
+        PayloadDecoder::Custom(parse_with) => quote! { #parse_with(payload) },
+        PayloadDecoder::BoolConvention { field, convention } => {
             let convention = bool_convention_tokens(convention, crate_path);
-            let parameter = field_name.to_string();
-            Some(quote! {
+            let parameter = field.to_string();
+            quote! {
                 {
                     let payload = #crate_path::command::Payload::new(payload);
-                    let #field_name = payload.parse_bool(#parameter, #convention)?;
+                    let #field = payload.parse_bool(#parameter, #convention)?;
                     ::core::result::Result::Ok(
-                        #crate_path::command::InquiryData::#actual_variant { #field_name }
+                        #crate_path::command::InquiryData::#variant { #field }
                     )
                 }
-            })
+            }
         }
-        ParserStrategy::ExtendedNibble | ParserStrategy::Nibble => {
-            let field_name = parser_info
-                .field_name
-                .clone()
-                .unwrap_or_else(|| format_ident!("value"));
-            Some(quote! {
-                {
-                    let payload = #crate_path::command::Payload::new(payload);
-                    let nibbles = <#crate_path::command::Nibbles<'_, 2> as
-                        ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
-                    ::core::result::Result::Ok(
-                        #crate_path::command::InquiryData::#response_variant {
-                            #field_name: nibbles.u8_pair(0),
-                        }
-                    )
-                }
-            })
-        }
-        ParserStrategy::Mode | ParserStrategy::ModeEnum => {
-            let mode_type = parser_info
-                .mode_type
-                .as_ref()
-                .expect("mode parser requires value_type attribute");
-            let mode_type = command_type_tokens(mode_type, crate_path);
-            let field_name = match response_variant.to_string().as_str() {
+        PayloadDecoder::Nibble { field } => quote! {
+            {
+                let payload = #crate_path::command::Payload::new(payload);
+                let nibbles = <#crate_path::command::Nibbles<'_, 2> as
+                    ::core::convert::TryFrom<#crate_path::command::Payload<'_>>>::try_from(payload)?;
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#response {
+                        #field: nibbles.u8_pair(0),
+                    }
+                )
+            }
+        },
+        PayloadDecoder::Mode { value_type } => {
+            let value_type = command_type_tokens(value_type, crate_path);
+            let field = match response.to_string().as_str() {
                 "FocusZone" => quote! { zone },
                 "AutoFocusSensitivity" => quote! { sensitivity },
                 _ => quote! { mode },
             };
-            Some(quote! {
+            quote! {
                 {
-                    if payload.len() != 1 {
-                        return ::core::result::Result::Err(
-                            #crate_path::Error::invalid_response_length(1, payload)
-                        );
-                    }
-                    let value = <#mode_type as ::core::convert::TryFrom<u8>>::try_from(payload[0])
+                    #single_byte
+                    let value = <#value_type as ::core::convert::TryFrom<u8>>::try_from(byte)
                         .map_err(|_| #crate_path::Error::invalid_response(::std::borrow::Cow::Owned(::std::format!(
                                 "Valid {} value",
-                                ::core::stringify!(#mode_type)
-                            )), ::std::vec![payload[0]]))?;
+                                ::core::stringify!(#value_type)
+                            )), ::std::vec![byte]))?;
                     ::core::result::Result::Ok(
-                        #crate_path::command::InquiryData::#response_variant { #field_name: value }
+                        #crate_path::command::InquiryData::#response { #field: value }
                     )
                 }
-            })
+            }
         }
-        ParserStrategy::LastNibble => {
-            let field_name = parser_info
-                .field_name
-                .as_ref()
-                .expect("last_nibble parser requires field attribute");
-            Some(quote! {
-                {
-                    let payload = #crate_path::command::Payload::new(payload);
-                    let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
-                    ::core::result::Result::Ok(
-                        #crate_path::command::InquiryData::#actual_variant {
-                            #field_name: nibbles.last_nibble(),
-                        }
-                    )
-                }
-            })
-        }
-        ParserStrategy::NdFilter => Some(quote! {
+        PayloadDecoder::LastNibble { field } => quote! {
             {
-                if payload.len() != 1 {
-                    return ::core::result::Result::Err(
-                        #crate_path::Error::invalid_response_length(1, payload)
-                    );
-                }
-                let position = #crate_path::command::NdFilterPosition::from_byte(payload[0]);
+                let payload = #crate_path::command::Payload::new(payload);
+                let nibbles = #crate_path::command::Nibbles::<4>::try_from(payload)?;
                 ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#actual_variant { position }
+                    #crate_path::command::InquiryData::#variant {
+                        #field: nibbles.last_nibble(),
+                    }
                 )
             }
-        }),
-        ParserStrategy::PictureEffect => Some(quote! {
+        },
+        PayloadDecoder::NdFilter => quote! {
             {
-                if payload.len() != 1 {
-                    return ::core::result::Result::Err(
-                        #crate_path::Error::invalid_response_length(1, payload)
-                    );
-                }
-                let effect = #crate_path::command::PictureEffectMode::from_byte(payload[0]);
+                #single_byte
+                let position = #crate_path::command::NdFilterPosition::from_byte(byte);
                 ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#actual_variant { effect }
+                    #crate_path::command::InquiryData::#variant { position }
                 )
             }
-        }),
-        ParserStrategy::DefogLevel => Some(quote! {
+        },
+        PayloadDecoder::PictureEffect => quote! {
             {
-                if payload.len() != 1 {
-                    return ::core::result::Result::Err(
-                        #crate_path::Error::invalid_response_length(1, payload)
-                    );
-                }
-                let level = #crate_path::types::DefogLevel::new(payload[0]).map_err(|_| {
-                    #crate_path::Error::invalid_parameter("level", ::std::borrow::Cow::Owned(payload[0].to_string()), ::std::borrow::Cow::Borrowed("value out of range"))
-                })?;
+                #single_byte
+                let effect = #crate_path::command::PictureEffectMode::from_byte(byte);
                 ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#actual_variant { level }
+                    #crate_path::command::InquiryData::#variant { effect }
                 )
             }
-        }),
-        ParserStrategy::FocusRange => Some(quote! {
+        },
+        PayloadDecoder::DefogLevel => quote! {
             {
-                if payload.len() != 1 {
-                    return ::core::result::Result::Err(
-                        #crate_path::Error::invalid_response_length(1, payload)
-                    );
-                }
-                let range = #crate_path::command::FocusRange::try_from(payload[0])?;
+                #single_byte
+                let level = #crate_path::types::DefogLevel::new(byte)?;
                 ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#actual_variant { range }
+                    #crate_path::command::InquiryData::#variant { level }
                 )
             }
-        }),
-        _ => None,
+        },
+        PayloadDecoder::FocusRange => quote! {
+            {
+                #single_byte
+                let range = #crate_path::command::FocusRange::try_from(byte)?;
+                ::core::result::Result::Ok(
+                    #crate_path::command::InquiryData::#variant { range }
+                )
+            }
+        },
     };
 
-    if let Some(data_decoder) = data_decoder {
-        quote! {
-            (#data_decoder).map(#crate_path::command::Response::Inquiry)
-        }
-    } else {
-        canonical
+    quote! {
+        (#data).map(#crate_path::command::Response::Inquiry)
     }
 }
 
-/// Generate an impl of `command::ResponseParser` for the struct based on
-/// `typed_*` attributes. Returns empty tokens if no `typed_response` attribute is set.
+/// Generates the `command::ResponseParser` impl for a typed response.
 fn generate_typed_impl(
     struct_name: &Ident,
-    response_variant: &Ident,
+    variant: &Ident,
+    typed: &TypedResponse,
+    response_type: &TokenStream,
     crate_path: &TokenStream,
-    attrs: &ViscaAttributes,
-    parser_info: &Option<ParserInfo>,
 ) -> TokenStream {
-    let Some(typed_response) = &attrs.typed_response else {
-        return quote! {};
-    };
+    let TypedResponse {
+        fields,
+        constructor,
+        is_tuple,
+        ..
+    } = typed;
 
-    let response_type = type_spec_tokens(typed_response, crate_path);
-
-    // Use data_variant from parser info if present, otherwise use response_variant
-    let data_variant = parser_info
-        .as_ref()
-        .and_then(|p| p.data_variant.clone())
-        .unwrap_or_else(|| response_variant.clone());
-
-    let Some(field_names) = &attrs.typed_field else {
-        return syn::Error::new_spanned(
-            struct_name,
-            "typed_response requires typed_field attribute",
-        )
-        .to_compile_error();
-    };
-
-    // Generate the destructure pattern
-    let destructure = if attrs.typed_is_tuple {
-        quote! { #crate_path::command::InquiryData::#data_variant(#(#field_names),*) }
+    let destructure = if *is_tuple {
+        quote! { #crate_path::command::InquiryData::#variant(#(#fields),*) }
     } else {
-        quote! { #crate_path::command::InquiryData::#data_variant { #(#field_names),* } }
+        quote! { #crate_path::command::InquiryData::#variant { #(#fields),* } }
     };
 
-    // Generate the construction expression
-    let constructor = attrs
-        .typed_constructor
-        .as_ref()
-        .map(std::string::ToString::to_string);
-    let construction = match constructor.as_deref() {
-        None => {
-            let f = &field_names[0];
-            quote! { ::core::result::Result::Ok(#f) }
+    let first = &fields[0];
+    let construction = match constructor {
+        TypedConstructor::Identity => quote! { ::core::result::Result::Ok(#first) },
+        TypedConstructor::New => quote! { #response_type::new(#first) },
+        TypedConstructor::OkNew => {
+            quote! { ::core::result::Result::Ok(#response_type::new(#first)) }
         }
-        Some("new") => {
-            let f = &field_names[0];
-            quote! { #response_type::new(#f) }
-        }
-        Some("ok_new") => {
-            let f = &field_names[0];
-            quote! { ::core::result::Result::Ok(#response_type::new(#f)) }
-        }
-        Some("new_u8") => {
-            let f = &field_names[0];
-            quote! { #response_type::new(#f as u8) }
-        }
-        Some("ok_struct") => {
-            quote! { ::core::result::Result::Ok(#response_type { #(#field_names),* }) }
-        }
-        Some(unknown) => {
-            let msg = format!("unknown typed_constructor: {unknown}");
-            return syn::Error::new_spanned(struct_name, msg).to_compile_error();
+        TypedConstructor::NewU8 => quote! { #response_type::new(#first as u8) },
+        TypedConstructor::OkStruct => {
+            quote! { ::core::result::Result::Ok(#response_type { #(#fields),* }) }
         }
     };
 
@@ -917,11 +857,6 @@ fn generate_typed_impl(
             }
         }
     }
-}
-
-/// Convert a typed response specification into a generated type path.
-fn type_spec_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
-    type_tokens(ty, crate_path)
 }
 
 fn command_type_tokens(ty: &Type, crate_path: &TokenStream) -> TokenStream {
@@ -1080,12 +1015,112 @@ mod tests {
             },
         ];
 
-        for input in inputs {
+        for (input, key) in
+            inputs
+                .into_iter()
+                .zip(["command", "sub_command", "custom_fn", "inquiry_variant"])
+        {
             let tokens = derive_visca_inquiry_impl(input).to_string();
             assert!(
-                tokens.contains("unknown visca attribute key"),
+                tokens.contains(&format!(
+                    "unknown `visca` attribute `{key}`; expected one of"
+                )),
                 "legacy key aliases must not be accepted: {tokens}"
             );
+        }
+    }
+
+    fn expanded(input: DeriveInput) -> String {
+        derive_visca_inquiry_impl(input).to_string()
+    }
+
+    #[test]
+    fn every_integer_literal_radix_is_accepted_for_opcode_and_subcode() {
+        for input in [
+            syn::parse_quote! {
+                #[visca(opcode = 0b0100_0111, subcode = 0o4, response = ZoomPosition)]
+                struct BinaryOctalInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 71, subcode = 4, response = ZoomPosition)]
+                struct DecimalInquiry;
+            },
+        ] {
+            let tokens = expanded(input);
+            assert!(
+                tokens.contains("buffer [2] = 4u8 ;") && tokens.contains("buffer [3] = 71u8 ;"),
+                "every radix must encode the same bytes: {tokens}"
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_keys_are_rejected_across_attributes() {
+        let tokens = expanded(syn::parse_quote! {
+            #[visca(opcode = 0x00, response = Power)]
+            #[visca(opcode = 0x01)]
+            struct RepeatedOpcodeInquiry;
+        });
+        assert!(
+            tokens.contains("duplicate `visca` attribute `opcode`")
+                && tokens.contains("first `opcode` specified here"),
+            "a repeated key must not silently win: {tokens}"
+        );
+    }
+
+    #[test]
+    fn request_and_route_are_emitted_once_for_every_response_kind() {
+        for input in [
+            syn::parse_quote! {
+                #[visca(opcode = 0x7E, response = Raw)]
+                struct RawInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x00, response = Power)]
+                struct GenericInquiry;
+            },
+            syn::parse_quote! {
+                #[visca(opcode = 0x00, response = Power, typed_response = bool, typed_field = on)]
+                struct TypedInquiry;
+            },
+        ] {
+            let tokens = expanded(input);
+            assert_eq!(tokens.matches(":: Request for").count(), 1, "{tokens}");
+            assert_eq!(tokens.matches(":: Inquiry for").count(), 1, "{tokens}");
+            assert_eq!(tokens.matches("fn route").count(), 1, "{tokens}");
+            assert!(
+                tokens.matches("parse_inquiry_payload").count() <= 1,
+                "the canonical decoder is written at most once: {tokens}"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_attribute_rules_report_one_wording() {
+        for (input, expected) in [
+            (
+                syn::parse_quote! {
+                    #[visca(opcode = 0x00, response = Power, typed_response = bool)]
+                    struct MissingFieldInquiry;
+                },
+                "typed_response requires typed_field",
+            ),
+            (
+                syn::parse_quote! {
+                    #[visca(
+                        opcode = 0x00,
+                        response = Power,
+                        typed_response = bool,
+                        typed_field = on,
+                        typed_constructor = build
+                    )]
+                    struct UnknownConstructorInquiry;
+                },
+                "unknown typed_constructor `build`",
+            ),
+        ] {
+            let tokens = expanded(input);
+            assert!(tokens.contains(expected), "{expected}: {tokens}");
         }
     }
 

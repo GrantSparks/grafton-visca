@@ -1,57 +1,45 @@
 //! Type-safe wrappers for VISCA protocol values.
 
-use std::{borrow::Cow, fmt};
+use std::fmt;
 
-use crate::{error::Error, units::Percentage, ViscaValue};
+use crate::{error::Error, units::Percentage};
 
-/// Gain level value for direct gain control.
-///
-/// This is the syntactic VISCA nibble domain. Individual camera profiles
-/// retain their documented gain range and reject values outside it during
-/// request preparation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x00",
-    max = "0x0F",
-    display_format = "hex",
-    display_prefix = "Gain Level"
-)]
-pub struct GainLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Gain level value for direct gain control.
+    ///
+    /// This is the syntactic VISCA nibble domain. Individual camera profiles
+    /// retain their documented gain range and reject values outside it during
+    /// request preparation.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(
+        min = "0x00",
+        max = "0x0F",
+        display_format = "hex",
+        display_prefix = "Gain Level"
+    )]
+    pub struct GainLevel(u8);
+}
 
-/// Gain limit value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE, 0xF]",
-    display_format = "hex",
-    display_prefix = "Gain Limit"
-)]
-pub struct GainLimit(u8);
+crate::__grafton_visca_newtype! {
+    /// Gain limit value.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x0", max = "0xF", display_format = "hex", display_prefix = "Gain Limit")]
+    pub struct GainLimit(u8);
+}
 
-/// 2D noise reduction level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0", max = "5", display_prefix = "2D NR Level")]
-pub struct NoiseReduction2DLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// 2D noise reduction level.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0", max = "5", display_prefix = "2D NR Level")]
+    pub struct NoiseReduction2DLevel(u8);
+}
 
-/// 3D noise reduction level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0", max = "8", display_prefix = "3D NR Level")]
-pub struct NoiseReduction3DLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// 3D noise reduction level.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0", max = "8", display_prefix = "3D NR Level")]
+    pub struct NoiseReduction3DLevel(u8);
+}
 
 /// Trait for types that can be converted into VISCA iris level values.
 ///
@@ -67,23 +55,16 @@ pub trait IntoIrisLevel {
     fn into_iris_level(self) -> Result<IrisLevel, Error>;
 }
 
-/// Iris level for direct iris control.
-///
-/// This covers the union of the standard built-in profiles' wire domains.
-/// Individual camera profiles retain their documented iris range and reject
-/// values outside it during request preparation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x00",
-    max = "0x1E",
-    display_format = "hex",
-    display_prefix = "Iris"
-)]
-pub struct IrisLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Iris level for direct iris control.
+    ///
+    /// This covers the union of the standard built-in profiles' wire domains.
+    /// Individual camera profiles retain their documented iris range and reject
+    /// values outside it during request preparation.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x1E", display_format = "hex", display_prefix = "Iris")]
+    pub struct IrisLevel(u8);
+}
 
 macro_rules! impl_into_iris_level {
     ($($t:ty => $conversion:expr),* $(,)?) => {
@@ -164,122 +145,61 @@ impl fmt::Display for ShutterSpeed {
     }
 }
 
-/// Brightness level for direct brightness control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
-    display_format = "hex",
-    display_prefix = "Brightness"
-)]
-pub struct BrightnessLevel(u16);
+crate::__grafton_visca_newtype! {
+    /// Brightness level for direct brightness control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(
+        min = "0x00",
+        max = "0x11",
+        display_format = "hex",
+        display_prefix = "Brightness"
+    )]
+    pub struct BrightnessLevel(u16);
+}
 
-/// Sharpness level for direct sharpness control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F]",
-    display_prefix = "Sharpness"
-)]
-pub struct SharpnessLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Sharpness level for direct sharpness control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x0F", display_prefix = "Sharpness")]
+    pub struct SharpnessLevel(u8);
+}
 
-/// Luminance level for brightness adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
-    display_prefix = "Luminance"
-)]
-pub struct LuminanceLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Luminance level for brightness adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x0", max = "0xE", display_prefix = "Luminance")]
+    pub struct LuminanceLevel(u8);
+}
 
-/// Contrast level for contrast adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8, 0x9, 0xA, 0xB, 0xC, 0xD, 0xE]",
-    display_prefix = "Contrast"
-)]
-pub struct ContrastLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Contrast level for contrast adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x0", max = "0xE", display_prefix = "Contrast")]
+    pub struct ContrastLevel(u8);
+}
 
-/// Dynamic range level for wide dynamic range control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x0, 0x1, 0x2, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8]",
-    display_prefix = "Dynamic Range"
-)]
-pub struct DynamicRangeLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Dynamic range level for wide dynamic range control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x0", max = "0x8", display_prefix = "Dynamic Range")]
+    pub struct DynamicRangeLevel(u8);
+}
 
-/// Exposure compensation level (-7 to +7).
-///
-/// Valid range: -7 to +7.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub struct ExposureCompensationLevel(i8);
+crate::__grafton_visca_newtype! {
+    /// Exposure compensation level (-7 to +7).
+    ///
+    /// Valid range: -7 to +7.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+    #[visca_value(min = "-7", max = "7", display_prefix = "Exposure Compensation")]
+    pub struct ExposureCompensationLevel(i8);
+}
 
 impl ExposureCompensationLevel {
-    /// Minimum exposure compensation level.
-    pub const MIN: i8 = -7;
-    /// Maximum exposure compensation level.
-    pub const MAX: i8 = 7;
-
-    /// Creates a new `ExposureCompensationLevel` with validation.
-    ///
-    /// # Errors
-    /// Returns `Error::InvalidParameter` if value is outside -7 to +7 range.
-    pub fn new(value: i8) -> Result<Self, Error> {
-        if (Self::MIN..=Self::MAX).contains(&value) {
-            Ok(Self(value))
-        } else {
-            Err(Error::InvalidParameter {
-                parameter: "value",
-                value: Cow::Owned(value.to_string()),
-                reason: Cow::Owned(format!(
-                    "Exposure compensation level must be between {} and {}",
-                    Self::MIN,
-                    Self::MAX
-                )),
-            })
-        }
-    }
-
     /// Convert to protocol value (0x0 to 0xE).
     #[allow(clippy::cast_sign_loss)]
     #[must_use]
     pub const fn to_protocol_value(self) -> u8 {
         (self.0 + 7) as u8
-    }
-}
-
-impl TryFrom<i8> for ExposureCompensationLevel {
-    type Error = Error;
-
-    fn try_from(value: i8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-impl From<ExposureCompensationLevel> for i8 {
-    fn from(value: ExposureCompensationLevel) -> Self {
-        value.0
     }
 }
 
@@ -499,19 +419,12 @@ pub enum NdiQuality {
     Off,
 }
 
-/// Zoom position value for direct zoom control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x0000",
-    max = "0x7FFF",
-    display_format = "hex",
-    display_prefix = "Zoom"
-)]
-pub struct ZoomPosition(u16);
+crate::__grafton_visca_newtype! {
+    /// Zoom position value for direct zoom control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x0000", max = "0x7FFF", display_format = "hex", display_prefix = "Zoom")]
+    pub struct ZoomPosition(u16);
+}
 
 /// Focus position value for direct focus control.
 ///
@@ -567,19 +480,17 @@ impl fmt::Display for FocusPosition {
     }
 }
 
-/// Color temperature value for white balance control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x00",
-    max = "0x37",
-    display_format = "hex",
-    display_prefix = "Color Temp"
-)]
-pub struct ColorTemp(u16);
+crate::__grafton_visca_newtype! {
+    /// Color temperature value for white balance control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(
+        min = "0x00",
+        max = "0x37",
+        display_format = "hex",
+        display_prefix = "Color Temp"
+    )]
+    pub struct ColorTemp(u16);
+}
 
 impl ColorTemp {
     /// Color temperature, in Kelvin, selected by wire value `0x00`.
@@ -624,42 +535,36 @@ impl ColorTemp {
     }
 }
 
-/// Red gain value for white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x00",
-    max = "0xFF",
-    display_format = "hex",
-    display_prefix = "Red Channel"
-)]
-pub struct RedChannel(u8);
+crate::__grafton_visca_newtype! {
+    /// Red gain value for white balance adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(
+        min = "0x00",
+        max = "0xFF",
+        display_format = "hex",
+        display_prefix = "Red Channel"
+    )]
+    pub struct RedChannel(u8);
+}
 
-/// Blue gain value for white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    min = "0x00",
-    max = "0xFF",
-    display_format = "hex",
-    display_prefix = "Blue Channel"
-)]
-pub struct BlueChannel(u8);
+crate::__grafton_visca_newtype! {
+    /// Blue gain value for white balance adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(
+        min = "0x00",
+        max = "0xFF",
+        display_format = "hex",
+        display_prefix = "Blue Channel"
+    )]
+    pub struct BlueChannel(u8);
+}
 
-/// Saturation level for color adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
-pub struct SaturationLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Saturation level for color adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Saturation")]
+    pub struct SaturationLevel(u8);
+}
 
 impl SaturationLevel {
     /// Converts this saturation level to a percentage value (60%-200%).
@@ -669,60 +574,50 @@ impl SaturationLevel {
     }
 }
 
-/// Hue level for color adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
-pub struct HueLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Hue level for color adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x0E", display_prefix = "Hue")]
+    pub struct HueLevel(u8);
+}
 
-/// Gamma curve level for gamma control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
-pub struct GammaLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Gamma curve level for gamma control.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0", max = "4", display_prefix = "Gamma")]
+    pub struct GammaLevel(u8);
+}
 
-/// Red tuning value for fine white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
-pub struct RedTuning(i8);
+crate::__grafton_visca_newtype! {
+    /// Red tuning value for fine white balance adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "-10", max = "10", display_prefix = "Red Tuning")]
+    pub struct RedTuning(i8);
+}
 
 impl RedTuning {
     /// Neutral red tuning value (no adjustment).
     pub const NEUTRAL: Self = Self(0);
 }
 
-/// Blue tuning value for fine white balance adjustment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "i8", into = "i8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
-pub struct BlueTuning(i8);
+crate::__grafton_visca_newtype! {
+    /// Blue tuning value for fine white balance adjustment.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "-10", max = "10", display_prefix = "Blue Tuning")]
+    pub struct BlueTuning(i8);
+}
 
 impl BlueTuning {
     /// Neutral blue tuning value (no adjustment).
     pub const NEUTRAL: Self = Self(0);
 }
 
-/// Pan speed value for horizontal camera movement speed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
-pub struct PanSpeed(u8);
+crate::__grafton_visca_newtype! {
+    /// Pan speed value for horizontal camera movement speed.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
+    pub struct PanSpeed(u8);
+}
 
 impl PanSpeed {
     /// Zero pan speed (stopped).
@@ -757,18 +652,16 @@ impl PanSpeed {
     }
 }
 
-/// Tilt speed value for vertical camera movement speed.
-///
-/// The syntactic wire-value range is `0x00..=0x18`. Most standard two-speed
-/// VISCA profiles limit tilt to `0x14`; request validation applies each
-/// profile's advertised capability range before encoding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x18", display_prefix = "Tilt Speed")]
-pub struct TiltSpeed(u8);
+crate::__grafton_visca_newtype! {
+    /// Tilt speed value for vertical camera movement speed.
+    ///
+    /// The syntactic wire-value range is `0x00..=0x18`. Most standard two-speed
+    /// VISCA profiles limit tilt to `0x14`; request validation applies each
+    /// profile's advertised capability range before encoding.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x18", display_prefix = "Tilt Speed")]
+    pub struct TiltSpeed(u8);
+}
 
 impl TiltSpeed {
     /// Zero tilt speed (stopped).
@@ -803,17 +696,15 @@ impl TiltSpeed {
     }
 }
 
-/// Zoom speed value for camera zoom control.
-///
-/// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
-/// This type provides the standard zoom speed control for VISCA cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
-pub struct ZoomSpeed(u8);
+crate::__grafton_visca_newtype! {
+    /// Zoom speed value for camera zoom control.
+    ///
+    /// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
+    /// This type provides the standard zoom speed control for VISCA cameras.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x07", display_prefix = "Zoom Speed")]
+    pub struct ZoomSpeed(u8);
+}
 
 impl ZoomSpeed {
     /// Zero zoom speed (stopped).
@@ -871,17 +762,15 @@ impl ZoomSpeed {
     }
 }
 
-/// Focus speed value for camera focus control.
-///
-/// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
-/// This type provides the standard focus speed control for VISCA cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
-pub struct FocusSpeed(u8);
+crate::__grafton_visca_newtype! {
+    /// Focus speed value for camera focus control.
+    ///
+    /// Valid range: 0 to 7, where 0 is the slowest and 7 is the fastest.
+    /// This type provides the standard focus speed control for VISCA cameras.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x07", display_prefix = "Focus Speed")]
+    pub struct FocusSpeed(u8);
+}
 
 impl FocusSpeed {
     /// Zero focus speed (stopped).
@@ -916,18 +805,16 @@ impl FocusSpeed {
     }
 }
 
-/// Motion sync speed value for synchronized camera movements.
-///
-/// Valid range: 1 to 24 (0x01 to 0x18)
-/// Used with PtzOptics cameras to control the speed of synchronized
-/// pan, tilt, and zoom movements during preset recalls.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
-pub struct MotionSyncSpeed(u8);
+crate::__grafton_visca_newtype! {
+    /// Motion sync speed value for synchronized camera movements.
+    ///
+    /// Valid range: 1 to 24 (0x01 to 0x18)
+    /// Used with PtzOptics cameras to control the speed of synchronized
+    /// pan, tilt, and zoom movements during preset recalls.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x01", max = "0x18", display_prefix = "Motion Sync Speed")]
+    pub struct MotionSyncSpeed(u8);
+}
 
 impl MotionSyncSpeed {
     /// Slow motion sync speed (typically 8).
@@ -951,17 +838,15 @@ impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
     }
 }
 
-/// Defog processing level for improving visibility in foggy or hazy conditions.
-///
-/// Valid range: 0 to 5 (0x00 to 0x05)
-/// Higher values apply stronger defog processing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
-pub struct DefogLevel(u8);
+crate::__grafton_visca_newtype! {
+    /// Defog processing level for improving visibility in foggy or hazy conditions.
+    ///
+    /// Valid range: 0 to 5 (0x00 to 0x05)
+    /// Higher values apply stronger defog processing.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
+    pub struct DefogLevel(u8);
+}
 
 /// Exposure compensation position value (high-resolution EV adjustment).
 ///
@@ -991,34 +876,30 @@ impl ExposureCompensationPosition {
     }
 }
 
-/// Broadcast domain setting affecting video output standards.
-///
-/// This setting may affect video timing, color space, and other
-/// broadcast-related parameters. The specific meaning depends on
-/// the camera model.
-///
-/// Valid range: Typically 0 to 3
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
-pub struct BroadcastDomain(u8);
+crate::__grafton_visca_newtype! {
+    /// Broadcast domain setting affecting video output standards.
+    ///
+    /// This setting may affect video timing, color space, and other
+    /// broadcast-related parameters. The specific meaning depends on
+    /// the camera model.
+    ///
+    /// Valid range: Typically 0 to 3
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
+    pub struct BroadcastDomain(u8);
+}
 
-/// ND filter preset selection for cameras with multiple ND filter configurations.
-///
-/// This allows switching between different saved ND filter settings
-/// on cameras that support preset ND configurations.
-///
-/// Valid range: Typically 0 to 3
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
-pub struct NdFilterPreset(u8);
+crate::__grafton_visca_newtype! {
+    /// ND filter preset selection for cameras with multiple ND filter configurations.
+    ///
+    /// This allows switching between different saved ND filter settings
+    /// on cameras that support preset ND configurations.
+    ///
+    /// Valid range: Typically 0 to 3
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[visca_value(min = "0x00", max = "0x03", display_prefix = "ND Filter Preset")]
+    pub struct NdFilterPreset(u8);
+}
 
 #[cfg(test)]
 mod tests {
