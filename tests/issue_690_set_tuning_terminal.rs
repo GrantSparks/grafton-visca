@@ -1,108 +1,42 @@
-//! Issue #690: `set_tuning` must observe the session's terminal boundary.
+//! Issue #690: `set_tuning` observes the session's terminal boundary on both
+//! facades.
 //!
-//! `set_tuning` documents that it "returns the session's terminal error if the
-//! owner is gone," but the blocking `reconfigure` path mutated owner state
-//! directly and never consulted the boundary gate, so it returned `Ok(())` on a
-//! poisoned or closed session — a silent no-op contradicting its contract. It
-//! now travels through the owner worker's control boundary (#780), as on the
-//! async facade: a live session still reconfigures, and a terminated session
-//! yields its terminal error. Profile validation failures travel through that
-//! boundary too, so an invalid proposal cannot mask an existing terminal cause.
+//! `set_tuning` returns the session's terminal error once the owner is gone.
+//! It travels through the owner's control boundary (#780) on both facades: a
+//! live session still reconfigures, and a terminated session yields its
+//! retained terminal cause. Profile validation failures travel through that
+//! boundary too, so an invalid proposal cannot mask an existing terminal
+//! cause, and a live session rejects an invalid proposal without changing the
+//! installed tuning.
+//!
+//! Every scenario runs on the blocking facade and on the async facade under
+//! each enabled runtime.
 
-#![cfg(feature = "blocking")]
+#![cfg(any(
+    feature = "blocking",
+    all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
-    command::CommandKind,
-    completion::AppliedOnly,
-    profile::ProfileSpec,
-    request::builtin::ZoomStop,
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
-    Error, OperationalTuning,
+    completion::AppliedOnly, profile::ProfileSpec, request::builtin::ZoomStop, Error,
+    OperationalTuning, SessionConfig,
 };
 
+use fake_camera::FakeCamera;
 use profile_fixtures::NonDefaultCompileTimeProfile;
-
-/// A scripted raw datagram camera. Each send optionally queues reads, and a send
-/// may instead fail the following read pump (to poison the strict session).
-#[derive(Debug)]
-struct ScriptedTransport {
-    config: TransportConfig,
-    sends: usize,
-    fault_after_send: Option<usize>,
-    reads: VecDeque<Result<Vec<u8>, Error>>,
-    replies_each_send: Vec<Vec<u8>>,
-}
-
-impl ScriptedTransport {
-    fn faulting() -> Self {
-        Self {
-            config: TransportConfig::default(),
-            sends: 0,
-            fault_after_send: Some(1),
-            reads: VecDeque::new(),
-            replies_each_send: Vec::new(),
-        }
-    }
-
-    fn healthy() -> Self {
-        Self {
-            config: TransportConfig::default(),
-            sends: 0,
-            fault_after_send: None,
-            reads: VecDeque::new(),
-            replies_each_send: vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]],
-        }
-    }
-}
-
-impl HasTransportConfig for ScriptedTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for ScriptedTransport {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.sends = self.sends.saturating_add(1);
-        if self.fault_after_send == Some(self.sends) {
-            self.reads
-                .push_back(Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionRefused,
-                )))));
-        } else {
-            for reply in &self.replies_each_send {
-                self.reads.push_back(Ok(reply.clone()));
-            }
-        }
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let bytes = self.reads.pop_front().ok_or(Error::io_timeout())??;
-        Ok(ReceiveOutcome::copy_message(&bytes, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
 
 fn raw_config() -> SessionConfig {
     SessionConfig::new(
@@ -111,97 +45,116 @@ fn raw_config() -> SessionConfig {
     )
 }
 
-/// A live session still accepts a valid retune — the fix must not break the
-/// documented happy path.
-#[test]
-fn set_tuning_on_a_live_session_still_succeeds() {
-    let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
-    let tuning = OperationalTuning::new().command_spacing(Duration::from_millis(40));
-    session
-        .set_tuning(tuning)
-        .expect("a live session accepts a valid retune");
-    assert_eq!(
-        session.tuning(),
-        tuning,
-        "the retune took effect on the live session"
-    );
-    session.shutdown().expect("owner shutdown");
+/// A raw datagram camera that fails the read after its first write. Under the
+/// strict construction policy that fault poisons the session while the
+/// unsequenced command is awaiting its ACK.
+fn faulting_camera() -> FakeCamera {
+    let mut writes = 0usize;
+    FakeCamera::new(move |_, answer| {
+        writes += 1;
+        if writes == 1 {
+            answer.fault(Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))));
+        }
+    })
 }
 
-#[test]
-fn set_tuning_on_a_live_session_rejects_invalid_tuning_without_changing_it() {
-    let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
-    let installed = OperationalTuning::new().command_spacing(Duration::from_millis(40));
-    session
-        .set_tuning(installed)
-        .expect("a live session accepts valid tuning");
-
-    let error = session
-        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
-        .expect_err("a live session still rejects a zero protocol timeout");
-    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
-    assert_eq!(
-        session.tuning(),
-        installed,
-        "a rejected live update leaves the installed tuning unchanged"
-    );
-    session.shutdown().expect("owner shutdown");
-}
-
-#[test]
-fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
-    let config = raw_config().with_strict_unconfirmed_poison(true);
-    let session = Session::open(ScriptedTransport::faulting(), config).expect("owner session");
-    {
-        let camera = session
-            .camera::<NonDefaultCompileTimeProfile>()
-            .expect("camera view");
-        let error = camera
-            .submit::<AppliedOnly, _>(&ZoomStop)
-            .expect("submission")
-            .applied()
-            .expect_err("the strict opt-in poisons on the receive fault");
-        assert!(matches!(error, Error::StreamPoisoned { .. }));
+facade_matrix! {
+    /// A live session still accepts a valid retune.
+    fn set_tuning_on_a_live_session_still_succeeds() {
+        let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
+        let tuning = OperationalTuning::new().command_spacing(Duration::from_millis(40));
+        wait!(session.set_tuning(tuning)).expect("a live session accepts a valid retune");
+        assert_eq!(
+            session.tuning(),
+            tuning,
+            "the retune took effect on the live session"
+        );
+        session.shutdown().expect("owner shutdown");
     }
 
-    // Even an otherwise-valid update must report the retained terminal cause
-    // once the owner is poisoned.
-    let error = session
-        .set_tuning(OperationalTuning::new())
-        .expect_err("set_tuning must not silently succeed on a poisoned session");
-    assert!(
-        matches!(error, Error::StreamPoisoned { .. }),
-        "set_tuning surfaces the session's terminal error, got {error:?}"
-    );
-    assert!(error.requires_new_session());
+    fn set_tuning_on_a_live_session_rejects_invalid_tuning_without_changing_it() {
+        let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
+        let installed = OperationalTuning::new().command_spacing(Duration::from_millis(40));
+        wait!(session.set_tuning(installed)).expect("a live session accepts valid tuning");
 
-    let error = session
-        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
-        .expect_err("profile validation cannot mask an existing poison");
-    assert!(
-        matches!(error, Error::StreamPoisoned { .. }),
-        "set_tuning gives the poison precedence over InvalidRequest, got {error:?}"
-    );
+        let error = wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO)))
+            .expect_err("a live session still rejects a zero protocol timeout");
+        assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+        assert_eq!(
+            session.tuning(),
+            installed,
+            "a rejected live update leaves the installed tuning unchanged"
+        );
+        session.shutdown().expect("owner shutdown");
+    }
+
+    fn set_tuning_on_a_poisoned_session_returns_the_terminal_error() {
+        let config = raw_config().with_strict_unconfirmed_poison(true);
+        let session = open!(faulting_camera(), config).expect("owner session");
+        {
+            let camera = session
+                .camera::<NonDefaultCompileTimeProfile>()
+                .expect("camera view");
+            let error = wait!(
+                wait!(camera.submit::<AppliedOnly, _>(&ZoomStop))
+                    .expect("submission")
+                    .applied()
+            )
+            .expect_err("the strict opt-in poisons on the receive fault");
+            assert!(matches!(error, Error::StreamPoisoned { .. }));
+        }
+
+        // Even an otherwise-valid update must report the retained terminal
+        // cause once the owner is poisoned.
+        let error = wait!(session.set_tuning(OperationalTuning::new()))
+            .expect_err("set_tuning must not silently succeed on a poisoned session");
+        assert!(
+            matches!(error, Error::StreamPoisoned { .. }),
+            "set_tuning surfaces the session's terminal error, got {error:?}"
+        );
+        assert!(error.requires_new_session());
+
+        let error = wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO)))
+            .expect_err("profile validation cannot mask an existing poison");
+        assert!(
+            matches!(error, Error::StreamPoisoned { .. }),
+            "set_tuning gives the poison precedence over InvalidRequest, got {error:?}"
+        );
+    }
+
+    /// `shutdown` leaves the handle usable and its terminal cause retained.
+    fn set_tuning_after_shutdown_returns_the_terminal_error() {
+        let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
+        session.shutdown().expect("clean shutdown");
+        assert_updates_report_shutdown(
+            wait!(session.set_tuning(OperationalTuning::new())),
+            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))),
+        );
+    }
+
+    /// A consuming `close` leaves a cloned handle with the same terminal cause.
+    fn set_tuning_after_close_returns_the_terminal_error() {
+        let session = open!(FakeCamera::acking(1), raw_config()).expect("owner session");
+        let closed_handle = session.clone();
+        wait!(session.close()).expect("clean owner shutdown");
+        assert_updates_report_shutdown(
+            wait!(closed_handle.set_tuning(OperationalTuning::new())),
+            wait!(closed_handle.set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))),
+        );
+    }
 }
 
-#[test]
-fn set_tuning_on_a_closed_session_returns_the_terminal_error() {
-    let session = Session::open(ScriptedTransport::healthy(), raw_config()).expect("owner session");
-    session.shutdown().expect("clean shutdown");
-
-    // The session is Shutdown; even an otherwise-valid update must report that
-    // retained terminal cause.
-    let error = session
-        .set_tuning(OperationalTuning::new())
-        .expect_err("set_tuning must not silently succeed on a closed session");
+/// Both a valid and a profile-invalid update report the completed shutdown.
+fn assert_updates_report_shutdown(valid: Result<(), Error>, invalid: Result<(), Error>) {
+    let error = valid.expect_err("set_tuning must not silently succeed on a closed session");
     assert!(
         matches!(error, Error::RuntimeShutdown),
         "set_tuning surfaces the shutdown boundary, got {error:?}"
     );
 
-    let error = session
-        .set_tuning(OperationalTuning::new().ack_timeout(Duration::ZERO))
-        .expect_err("profile validation cannot mask a completed shutdown");
+    let error = invalid.expect_err("profile validation cannot mask a completed shutdown");
     assert!(
         matches!(error, Error::RuntimeShutdown),
         "set_tuning gives shutdown precedence over InvalidRequest, got {error:?}"

@@ -12,117 +12,85 @@
     all(feature = "async", feature = "runtime-tokio")
 ))]
 
-use grafton_visca::{ProfileSpec, SessionConfig};
+use std::{io, sync::Arc};
+
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
+use fake_camera::AsyncWire;
+#[cfg(feature = "blocking")]
+use fake_camera::BlockingWire;
+use fake_camera::FakeCamera;
+use grafton_visca::{
+    transport::{AddressingMode, TransportConfig},
+    Error, ProfileSpec, SessionConfig,
+};
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("profile")
 }
 
+/// A serial-addressed stream camera whose writes fail after `successful_writes`
+/// accepted sends. Every accepted command is answered with an ACK and a
+/// completion from the camera addressed by the request.
+fn stream_camera(successful_writes: usize) -> FakeCamera {
+    let mut remaining = successful_writes;
+    FakeCamera::new(move |write, answer| {
+        if remaining == 0 {
+            answer.fail_send(Error::Io(Arc::new(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "peer went away mid-frame",
+            ))));
+            return;
+        }
+        remaining -= 1;
+        let target = write.first().copied().unwrap_or(0x81) & 0x0f;
+        let source = 0x80 | (target.saturating_add(8) << 4);
+        answer
+            .reply(vec![source, 0x41, 0xff])
+            .reply(vec![source, 0x51, 0xff]);
+    })
+}
+
+#[cfg(feature = "blocking")]
+/// A serial-addressed stream camera that reports peer closure, a zero-byte
+/// read, in answer to a write.
+fn closing_camera() -> FakeCamera {
+    FakeCamera::new(|_, answer| {
+        answer.reply(Vec::new());
+    })
+}
+
+/// Serial addressing selects stream send semantics, which is the transport
+/// class the spec poisons on a write failure.
+fn serial_config() -> TransportConfig {
+    let mut config = TransportConfig::default();
+    config.addressing = AddressingMode::Serial;
+    config
+}
+
 #[cfg(feature = "blocking")]
 mod blocking_recovery {
-    use std::{collections::VecDeque, io, sync::Arc, time::Duration};
-
     use grafton_visca::{
         blocking::Session,
-        command::CommandKind,
         state_cache::StateEntry,
-        transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig,
-        },
+        transport::{AddressingMode, SendSemantics},
         Error, ErrorKind, StateKey,
     };
 
-    use super::{profile, SessionConfig};
+    use super::{
+        closing_camera, profile, serial_config, stream_camera, BlockingWire, FakeCamera,
+        SessionConfig,
+    };
 
-    /// A stream transport whose writes fail after a configured number of
-    /// successful sends, and which can report peer closure as a zero-byte read.
-    #[derive(Debug)]
-    struct StreamProbe {
-        config: TransportConfig,
-        responses: VecDeque<Vec<u8>>,
-        writes_before_failure: usize,
-        close_after_write: bool,
-    }
-
-    impl StreamProbe {
-        fn healthy() -> Self {
-            Self {
-                // Serial addressing selects stream send semantics, which is the
-                // transport class the spec poisons on a write failure.
-                config: {
-                    let mut config = TransportConfig::default();
-                    config.addressing = AddressingMode::Serial;
-                    config
-                },
-                responses: VecDeque::new(),
-                writes_before_failure: usize::MAX,
-                close_after_write: false,
-            }
-        }
-
-        fn failing_after(writes: usize) -> Self {
-            Self {
-                writes_before_failure: writes,
-                ..Self::healthy()
-            }
-        }
-
-        fn closing_after_write() -> Self {
-            Self {
-                close_after_write: true,
-                ..Self::healthy()
-            }
-        }
-    }
-
-    impl HasTransportConfig for StreamProbe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for StreamProbe {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            if self.writes_before_failure == 0 {
-                return Err(Error::Io(Arc::new(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "peer went away mid-frame",
-                ))));
-            }
-            self.writes_before_failure -= 1;
-            let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-            let source = 0x80 | (target.saturating_add(8) << 4);
-            self.responses.push_back(vec![source, 0x41, 0xff]);
-            self.responses.push_back(vec![source, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<ReceiveOutcome, Error> {
-            if self.close_after_write {
-                // A zero-byte read is the peer closing the connection.
-                return Ok(ReceiveOutcome::complete(0));
-            }
-            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            Ok(ReceiveOutcome::copy_message(&response, dst))
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(self.config.addressing)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Stream
-        }
+    /// A stream transport onto `camera`, addressed serially.
+    fn stream_wire(camera: &FakeCamera) -> BlockingWire {
+        camera
+            .blocking_wire()
+            .with_config(serial_config())
+            .with_semantics(SendSemantics::Stream)
+            .with_addressing(AddressingMode::Serial)
     }
 
     #[test]
@@ -130,7 +98,7 @@ mod blocking_recovery {
         // The reusable configuration is what recovery keeps.
         let config = SessionConfig::new(profile());
 
-        let session = Session::open(StreamProbe::failing_after(1), config.clone())
+        let session = Session::open(stream_wire(&stream_camera(1)), config.clone())
             .expect("open the original session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
@@ -172,8 +140,8 @@ mod blocking_recovery {
         drop(camera);
         drop(session);
 
-        let rebuilt =
-            Session::open(StreamProbe::healthy(), config).expect("rebuild a fresh session");
+        let rebuilt = Session::open(stream_wire(&stream_camera(usize::MAX)), config)
+            .expect("rebuild a fresh session");
         let rebuilt_camera = rebuilt
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view on the rebuilt session");
@@ -199,7 +167,7 @@ mod blocking_recovery {
     #[test]
     fn peer_closure_requires_a_new_session() {
         let session = Session::open(
-            StreamProbe::closing_after_write(),
+            stream_wire(&closing_camera()),
             SessionConfig::new(profile()),
         )
         .expect("open a session");
@@ -218,8 +186,11 @@ mod blocking_recovery {
 
     #[test]
     fn deliberate_shutdown_does_not_require_a_new_session() {
-        let session = Session::open(StreamProbe::healthy(), SessionConfig::new(profile()))
-            .expect("open a session");
+        let session = Session::open(
+            stream_wire(&stream_camera(usize::MAX)),
+            SessionConfig::new(profile()),
+        )
+        .expect("open a session");
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .expect("camera view");
@@ -247,113 +218,28 @@ mod blocking_recovery {
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod tokio_recovery {
-    use std::{
-        future::Future,
-        io,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc,
-        },
-    };
-
     use grafton_visca::{
         runtime::TokioRuntime,
-        transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig,
-        },
+        transport::{AddressingMode, SendSemantics},
         Error, Session,
     };
 
-    use super::{profile, SessionConfig};
+    use super::{profile, serial_config, stream_camera, AsyncWire, FakeCamera, SessionConfig};
 
-    #[derive(Debug)]
-    struct StreamProbe {
-        config: TransportConfig,
-        responses: flume::Receiver<Vec<u8>>,
-        response_tx: flume::Sender<Vec<u8>>,
-        writes_before_failure: Arc<AtomicUsize>,
-    }
-
-    impl StreamProbe {
-        fn new(writes_before_failure: usize) -> Self {
-            let (response_tx, responses) = flume::unbounded();
-            Self {
-                config: {
-                    let mut config = TransportConfig::default();
-                    config.addressing = AddressingMode::Serial;
-                    config
-                },
-                responses,
-                response_tx,
-                writes_before_failure: Arc::new(AtomicUsize::new(writes_before_failure)),
-            }
-        }
-    }
-
-    impl HasTransportConfig for StreamProbe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for StreamProbe {
-        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let tx = self.response_tx.clone();
-            let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-            let source = 0x80 | (target.saturating_add(8) << 4);
-            let remaining = Arc::clone(&self.writes_before_failure);
-            async move {
-                if remaining
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
-                        value.checked_sub(1)
-                    })
-                    .is_err()
-                {
-                    return Err(Error::Io(Arc::new(io::Error::new(
-                        io::ErrorKind::BrokenPipe,
-                        "peer went away mid-frame",
-                    ))));
-                }
-                tx.send_async(vec![source, 0x41, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                tx.send_async(vec![source, 0x51, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                Ok(())
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-            async move {
-                let bytes = self
-                    .responses
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                Ok(ReceiveOutcome::copy_message(&bytes, dst))
-            }
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Stream
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(self.config.addressing)
-        }
+    /// A stream transport onto `camera`, addressed serially.
+    fn stream_wire(camera: &FakeCamera) -> AsyncWire {
+        camera
+            .async_wire()
+            .with_config(serial_config())
+            .with_semantics(SendSemantics::Stream)
+            .with_addressing(AddressingMode::Serial)
     }
 
     #[tokio::test]
     async fn poisoned_async_session_requires_a_new_session_and_the_rebuilt_one_works() {
         let config = SessionConfig::new(profile());
         let session = Session::open(
-            StreamProbe::new(1),
+            stream_wire(&stream_camera(1)),
             config.clone(),
             TokioRuntime::from_current().expect("tokio runtime"),
         )
@@ -389,7 +275,7 @@ mod tokio_recovery {
         drop(session);
 
         let rebuilt = Session::open(
-            StreamProbe::new(usize::MAX),
+            stream_wire(&stream_camera(usize::MAX)),
             config,
             TokioRuntime::from_current().expect("tokio runtime"),
         )
@@ -408,7 +294,7 @@ mod tokio_recovery {
     #[tokio::test]
     async fn deliberate_async_shutdown_does_not_require_a_new_session() {
         let session = Session::open(
-            StreamProbe::new(usize::MAX),
+            stream_wire(&stream_camera(usize::MAX)),
             SessionConfig::new(profile()),
             TokioRuntime::from_current().expect("tokio runtime"),
         )

@@ -8,131 +8,59 @@
 //! The compile-time half of the contract (a mismatch is not expressible) lives
 //! in the `tests/api_contract` fixtures driven by `api_stability_test.rs`.
 
+#![cfg(any(
+    feature = "blocking",
+    all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
+
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::{FakeCamera, ZOOM_STOP};
+
+/// A camera that answers every write with an ACK and a completion for the
+/// addressed camera, in one read. IP addressing normalizes the device address
+/// byte, so the frame written is the same for every registered target (the
+/// shared `ZOOM_STOP`); the target itself is observable on the camera session
+/// and in response routing.
+fn echo_camera() -> FakeCamera {
+    FakeCamera::new(|write, answer| {
+        let reply = 0x80 | (write.first().copied().unwrap_or(0x81) & 0x0f) << 4;
+        answer.reply(vec![reply, 0x41, 0xff, reply, 0x51, 0xff]);
+    })
+}
+
 #[cfg(feature = "blocking")]
 mod blocking_single_camera {
-    use std::{
-        collections::VecDeque,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc, Mutex,
-        },
-        time::Duration,
-    };
+    use std::time::Duration;
 
     use grafton_visca::{
         blocking::{CameraConfig, CameraSession, Connect},
-        command::CommandKind,
         profiles::PtzOpticsG2,
-        transport::{
-            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-        },
         CameraId, Error,
     };
 
-    /// IP addressing normalizes the device address byte, so the frame is the
-    /// same for every registered target; the target itself is observable on
-    /// the camera session and in response routing.
-    const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
+    use super::{echo_camera, FakeCamera, ZOOM_STOP};
 
-    /// Answers every write with an ACK and a completion for the addressed
-    /// camera, and reports when it is finally dropped.
-    #[derive(Debug)]
-    struct EchoTransport {
-        config: TransportConfig,
-        responses: Mutex<VecDeque<Vec<u8>>>,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-        dropped: Arc<AtomicBool>,
-    }
-
-    #[derive(Clone, Debug)]
-    struct EchoProbe {
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-        dropped: Arc<AtomicBool>,
-    }
-
-    impl EchoProbe {
-        fn writes(&self) -> Vec<Vec<u8>> {
-            self.writes.lock().expect("writes lock").clone()
-        }
-
-        fn transport_dropped(&self) -> bool {
-            self.dropped.load(Ordering::SeqCst)
-        }
-    }
-
-    impl EchoTransport {
-        fn new() -> (Self, EchoProbe) {
-            let writes = Arc::new(Mutex::new(Vec::new()));
-            let dropped = Arc::new(AtomicBool::new(false));
-            (
-                Self {
-                    config: TransportConfig::default(),
-                    responses: Mutex::new(VecDeque::new()),
-                    writes: Arc::clone(&writes),
-                    dropped: Arc::clone(&dropped),
-                },
-                EchoProbe { writes, dropped },
-            )
-        }
-    }
-
-    impl Drop for EchoTransport {
-        fn drop(&mut self) {
-            self.dropped.store(true, Ordering::SeqCst);
-        }
-    }
-
-    impl HasTransportConfig for EchoTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for EchoTransport {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.writes
-                .lock()
-                .expect("writes lock")
-                .push(bytes.to_vec());
-            let reply = 0x80 | (bytes.first().copied().unwrap_or(0x81) & 0x0f) << 4;
-            self.responses
-                .lock()
-                .expect("responses lock")
-                .push_back(vec![reply, 0x41, 0xff, reply, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<ReceiveOutcome, Error> {
-            let bytes = self
-                .responses
-                .lock()
-                .expect("responses lock")
-                .pop_front()
-                .ok_or(Error::io_timeout())?;
-            Ok(ReceiveOutcome::copy_message(&bytes, dst))
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
+    /// Whether the one wire built from `camera` has been dropped.
+    fn transport_dropped(camera: &FakeCamera) -> bool {
+        camera.wires_dropped() == 1
     }
 
     #[test]
     fn the_profile_is_named_once_and_the_view_needs_no_projection() {
-        let (transport, probe) = EchoTransport::new();
+        let fake = echo_camera();
 
         // `PtzOpticsG2` appears exactly once, on the configuration. The camera
         // view below is bound to it by construction: no turbofish, no `?`.
-        let camera = CameraSession::open(transport, &CameraConfig::<PtzOpticsG2>::new())
+        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
             .expect("single-camera owner session");
 
         assert_eq!(camera.target(), CameraId::CAMERA_1);
@@ -146,23 +74,24 @@ mod blocking_single_camera {
             .applied()
             .expect("zoom stop application");
 
-        assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+        assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
 
         camera.close().expect("explicit teardown");
         assert!(
-            probe.transport_dropped(),
+            transport_dropped(&fake),
             "closing the owned camera must drop its transport"
         );
     }
 
     #[test]
     fn the_configured_form_keeps_camera_id_and_timing_policy() {
-        let (transport, probe) = EchoTransport::new();
+        let fake = echo_camera();
         let config = CameraConfig::<PtzOpticsG2>::new()
             .try_camera_id(3)
             .expect("camera 3 is addressable");
 
-        let camera = CameraSession::open(transport, &config).expect("single-camera owner session");
+        let camera = CameraSession::open(fake.blocking_wire(), &config)
+            .expect("single-camera owner session");
 
         assert_eq!(camera.target(), CameraId::new(3).expect("camera 3"));
         camera
@@ -172,15 +101,15 @@ mod blocking_single_camera {
             .expect("zoom stop admission")
             .applied()
             .expect("zoom stop application");
-        assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+        assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
 
         camera.close().expect("explicit teardown");
     }
 
     #[test]
     fn shutdown_is_observable_and_drop_alone_tears_the_session_down() {
-        let (transport, probe) = EchoTransport::new();
-        let camera = CameraSession::open(transport, &CameraConfig::<PtzOpticsG2>::new())
+        let fake = echo_camera();
+        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
             .expect("single-camera owner session");
 
         camera.shutdown().expect("owner shutdown");
@@ -200,7 +129,7 @@ mod blocking_single_camera {
         // which drops the transport as it exits.
         drop(camera);
         for _ in 0..100 {
-            if probe.transport_dropped() {
+            if transport_dropped(&fake) {
                 return;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -210,8 +139,8 @@ mod blocking_single_camera {
 
     #[test]
     fn the_session_view_still_selects_the_same_owner() {
-        let (transport, _probe) = EchoTransport::new();
-        let camera = CameraSession::open(transport, &CameraConfig::<PtzOpticsG2>::new())
+        let fake = echo_camera();
+        let camera = CameraSession::open(fake.blocking_wire(), &CameraConfig::<PtzOpticsG2>::new())
             .expect("single-camera owner session");
 
         // The multi-camera path is unchanged and reaches the same owner.
@@ -243,10 +172,7 @@ mod blocking_single_camera {
 mod async_single_camera {
     use std::{
         future::Future,
-        sync::{
-            atomic::{AtomicBool, Ordering},
-            Arc, Mutex,
-        },
+        sync::{Arc, Mutex},
         time::Duration,
     };
 
@@ -254,126 +180,33 @@ mod async_single_camera {
         camera::{CameraConfig, Connect},
         profiles::PtzOpticsG2,
         runtime::Runtime,
-        transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig,
-        },
+        transport::{AddressingMode, TransportConfig},
         CameraId, CameraSession, Error, Executor,
     };
 
-    /// IP addressing normalizes the device address byte, so the frame is the
-    /// same for every registered target; the target itself is observable on
-    /// the camera session and in response routing.
-    const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
+    use super::{echo_camera, fake_camera::AsyncWire, FakeCamera, ZOOM_STOP};
 
-    /// Answers every write with an ACK and a completion for the addressed
-    /// camera, and reports when it is finally dropped.
-    #[derive(Debug)]
-    struct EchoTransport {
-        config: TransportConfig,
-        response_tx: flume::Sender<Vec<u8>>,
-        responses: flume::Receiver<Vec<u8>>,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-        dropped: Arc<AtomicBool>,
+    /// The echo camera's transport: IP addressing, datagram sends.
+    fn echo_wire(camera: &FakeCamera) -> AsyncWire {
+        camera.async_wire().with_addressing(AddressingMode::Ip)
     }
 
-    #[derive(Clone, Debug)]
-    struct EchoProbe {
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-        dropped: Arc<AtomicBool>,
+    /// Whether the one wire built from `camera` has been dropped.
+    fn transport_dropped(camera: &FakeCamera) -> bool {
+        camera.wires_dropped() == 1
     }
 
-    impl EchoProbe {
-        fn writes(&self) -> Vec<Vec<u8>> {
-            self.writes.lock().expect("writes lock").clone()
-        }
-
-        fn transport_dropped(&self) -> bool {
-            self.dropped.load(Ordering::SeqCst)
-        }
-    }
-
-    impl EchoTransport {
-        fn new() -> (Self, EchoProbe) {
-            let (response_tx, responses) = flume::unbounded();
-            let writes = Arc::new(Mutex::new(Vec::new()));
-            let dropped = Arc::new(AtomicBool::new(false));
-            (
-                Self {
-                    config: TransportConfig::default(),
-                    response_tx,
-                    responses,
-                    writes: Arc::clone(&writes),
-                    dropped: Arc::clone(&dropped),
-                },
-                EchoProbe { writes, dropped },
-            )
-        }
-    }
-
-    impl Drop for EchoTransport {
-        fn drop(&mut self) {
-            self.dropped.store(true, Ordering::SeqCst);
-        }
-    }
-
-    impl HasTransportConfig for EchoTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for EchoTransport {
-        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            self.writes
-                .lock()
-                .expect("writes lock")
-                .push(bytes.to_vec());
-            let reply = 0x80 | (bytes.first().copied().unwrap_or(0x81) & 0x0f) << 4;
-            let response_tx = self.response_tx.clone();
-            async move {
-                response_tx
-                    .send_async(vec![reply, 0x41, 0xff, reply, 0x51, 0xff])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-            async move {
-                let bytes = self
-                    .responses
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-                Ok(ReceiveOutcome::copy_message(&bytes, dst))
-            }
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(AddressingMode::Ip)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
-    }
-
-    /// A runtime whose connector hands out the echo transport, so the standard
-    /// `Connect::open_tcp` path can be driven without a socket.
+    // Local fake: a runtime whose connector hands out the echo transport, so
+    // the standard `Connect::open_tcp` path can be driven without a socket.
     #[derive(Clone, Debug)]
     struct EchoRuntime<E> {
         inner: E,
         endpoints: Arc<Mutex<Vec<String>>>,
-        transport: Arc<Mutex<Option<EchoTransport>>>,
+        transport: Arc<Mutex<Option<AsyncWire>>>,
     }
 
     impl<E> EchoRuntime<E> {
-        fn new(inner: E, transport: EchoTransport) -> Self {
+        fn new(inner: E, transport: AsyncWire) -> Self {
             Self {
                 inner,
                 endpoints: Arc::new(Mutex::new(Vec::new())),
@@ -385,7 +218,7 @@ mod async_single_camera {
             self.endpoints.lock().expect("endpoints lock").clone()
         }
 
-        fn take_transport(&self, address: &str) -> Result<EchoTransport, Error> {
+        fn take_transport(&self, address: &str) -> Result<AsyncWire, Error> {
             self.endpoints
                 .lock()
                 .expect("endpoints lock")
@@ -440,8 +273,8 @@ mod async_single_camera {
     }
 
     impl<E: Executor> Runtime for EchoRuntime<E> {
-        type TcpTransport = EchoTransport;
-        type UdpTransport = EchoTransport;
+        type TcpTransport = AsyncWire;
+        type UdpTransport = AsyncWire;
         #[cfg(feature = "transport-serial-tokio")]
         type SerialTransport = std::convert::Infallible;
 
@@ -467,8 +300,8 @@ mod async_single_camera {
     /// The one-line standard constructor names the profile once and returns a
     /// camera that owns its session.
     async fn standard_constructor_owns_its_session<E: Executor>(inner: E) {
-        let (transport, probe) = EchoTransport::new();
-        let runtime = EchoRuntime::new(inner, transport);
+        let fake = echo_camera();
+        let runtime = EchoRuntime::new(inner, echo_wire(&fake));
 
         let camera = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
             .await
@@ -486,19 +319,19 @@ mod async_single_camera {
             .applied()
             .await
             .expect("zoom stop application");
-        assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+        assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
 
         camera.close().await.expect("explicit teardown");
     }
 
     /// The configured form is the same bind with the caller's own transport.
     async fn configured_constructor_binds_the_profile_once<E: Executor>(executor: E) {
-        let (transport, probe) = EchoTransport::new();
+        let fake = echo_camera();
         let config = CameraConfig::<PtzOpticsG2>::new()
             .try_camera_id(3)
             .expect("camera 3 is addressable");
 
-        let camera = CameraSession::open(transport, &config, executor)
+        let camera = CameraSession::open(echo_wire(&fake), &config, executor)
             .await
             .expect("single-camera owner session");
 
@@ -512,7 +345,7 @@ mod async_single_camera {
             .applied()
             .await
             .expect("zoom stop application");
-        assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
+        assert_eq!(fake.writes(), vec![ZOOM_STOP.to_vec()]);
 
         // The owned camera survives the wrapper: it keeps the owner alive.
         let owned = camera.into_camera();
@@ -524,15 +357,15 @@ mod async_single_camera {
             .applied()
             .await
             .expect("zoom stop application");
-        assert_eq!(probe.writes().len(), 2);
+        assert_eq!(fake.writes().len(), 2);
     }
 
     /// Shutdown is observable through the owned camera, and dropping the value
     /// is a complete teardown.
     async fn shutdown_and_drop_tear_the_session_down<E: Executor>(executor: E) {
-        let (transport, probe) = EchoTransport::new();
+        let fake = echo_camera();
         let camera = CameraSession::open(
-            transport,
+            echo_wire(&fake),
             &CameraConfig::<PtzOpticsG2>::new(),
             executor.clone(),
         )
@@ -554,7 +387,7 @@ mod async_single_camera {
 
         drop(camera);
         for _ in 0..100 {
-            if probe.transport_dropped() {
+            if transport_dropped(&fake) {
                 return;
             }
             executor.sleep(Duration::from_millis(5)).await;
@@ -562,21 +395,9 @@ mod async_single_camera {
         panic!("dropping the owned camera must end the owner and its transport");
     }
 
-    async fn run_matrix<E: Executor>(executor: E) {
-        standard_constructor_owns_its_session(executor.clone()).await;
-        configured_constructor_binds_the_profile_once(executor.clone()).await;
-        shutdown_and_drop_tear_the_session_down(executor).await;
-    }
-
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_single_camera_constructors() {
-        run_matrix(grafton_visca::TokioRuntime::from_current().expect("Tokio runtime")).await;
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_single_camera_constructors() {
-        smol::block_on(run_matrix(grafton_visca::SmolRuntime::new()));
-    }
+    runtime_matrix!(
+        standard_constructor_owns_its_session,
+        configured_constructor_binds_the_profile_once,
+        shutdown_and_drop_tear_the_session_down,
+    );
 }

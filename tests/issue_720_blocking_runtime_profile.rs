@@ -1,82 +1,21 @@
 #![cfg(all(feature = "blocking", feature = "dyn-api"))]
 
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::time::Duration;
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::FakeCamera;
 use grafton_visca::{
     blocking::Session,
     capabilities::Capabilities,
-    command::{CommandKind, PowerOn},
+    command::PowerOn,
     profile::{
         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming, TransportCompatibility,
     },
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
-    CommandTimeouts, Error, SessionConfig,
+    transport::SendSemantics,
+    CommandTimeouts, SessionConfig,
 };
-
-#[derive(Clone)]
-struct RuntimeProfileCamera {
-    replies: VecDeque<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    config: TransportConfig,
-}
-
-impl RuntimeProfileCamera {
-    fn new() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                replies: VecDeque::new(),
-                writes: Arc::clone(&writes),
-                config: TransportConfig::default(),
-            },
-            writes,
-        )
-    }
-}
-
-impl HasTransportConfig for RuntimeProfileCamera {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for RuntimeProfileCamera {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
-        self.replies.push_back(vec![0x90, 0x41, 0xff]);
-        self.replies.push_back(vec![0x90, 0x51, 0xff]);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let Some(reply) = self.replies.pop_front() else {
-            return Err(Error::io_timeout());
-        };
-        Ok(ReceiveOutcome::copy_message(&reply, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Stream
-    }
-}
 
 fn runtime_power_profile() -> ProfileSpec {
     let mut capabilities =
@@ -112,9 +51,12 @@ fn runtime_power_profile() -> ProfileSpec {
 
 #[test]
 fn blocking_dynamic_view_drives_a_runtime_only_profile() {
-    let (transport, writes) = RuntimeProfileCamera::new();
-    let session = Session::open(transport, SessionConfig::new(runtime_power_profile()))
-        .expect("runtime-profile session");
+    let fake = FakeCamera::acking(1);
+    let session = Session::open(
+        fake.blocking_wire().with_semantics(SendSemantics::Stream),
+        SessionConfig::new(runtime_power_profile()),
+    )
+    .expect("runtime-profile session");
 
     let camera = session.camera_dyn().expect("dynamic blocking camera");
     assert_eq!(
@@ -124,7 +66,7 @@ fn blocking_dynamic_view_drives_a_runtime_only_profile() {
     camera.execute(&PowerOn::new()).expect("power command");
 
     assert_eq!(
-        *writes.lock().expect("writes lock"),
+        fake.writes(),
         vec![vec![0x81, 0x01, 0x04, 0x00, 0x02, 0xff]]
     );
     session.close().expect("close session");

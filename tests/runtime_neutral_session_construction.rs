@@ -7,16 +7,17 @@
 
 #![cfg(feature = "async")]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
 use std::{future::Future, pin::Pin, time::Duration};
 
 use grafton_visca::{
-    profiles::PtzOpticsG2,
-    transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
-    CameraId, Error, ExecError, Executor, ProfileSpec, Session, SessionConfig,
+    profiles::PtzOpticsG2, transport::AddressingMode, CameraId, Error, ExecError, Executor,
+    ProfileSpec, Session, SessionConfig,
 };
+
+use fake_camera::FakeCamera;
 
 /// A small caller-owned executor that needs no crate runtime feature.
 #[derive(Clone, Copy, Debug)]
@@ -86,43 +87,6 @@ impl Executor for ThreadExecutor {
     }
 }
 
-#[derive(Debug)]
-struct IdleTransport {
-    config: TransportConfig,
-}
-
-impl IdleTransport {
-    fn new() -> Self {
-        Self {
-            config: TransportConfig::default(),
-        }
-    }
-}
-
-impl HasTransportConfig for IdleTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl AsyncTransport for IdleTransport {
-    async fn send(&mut self, _bytes: &[u8]) -> std::result::Result<(), Error> {
-        Ok(())
-    }
-
-    async fn recv_into(&mut self, _dst: &mut [u8]) -> std::result::Result<ReceiveOutcome, Error> {
-        std::future::pending().await
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
-
 #[test]
 fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
     let executor = ThreadExecutor;
@@ -130,7 +94,9 @@ fn caller_owned_session_opens_and_closes_on_a_custom_executor() {
         .block_on(async move {
             let expected_profile = ProfileSpec::from_compile_time::<PtzOpticsG2>()?;
             let session = Session::open(
-                IdleTransport::new(),
+                FakeCamera::silent()
+                    .async_wire()
+                    .with_addressing(AddressingMode::Ip),
                 SessionConfig::from_compile_time::<PtzOpticsG2>()?,
                 executor,
             )

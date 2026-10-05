@@ -6,7 +6,17 @@
     feature = "runtime-smol"
 ))]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::FakeCamera;
 use grafton_visca::{observability::MetricsSnapshot, ProfileSpec, SessionConfig};
+
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+use grafton_visca::{
+    transport::{AddressingMode, SendSemantics, TransportConfig},
+    Error,
+};
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 use grafton_visca::{
@@ -16,6 +26,50 @@ use grafton_visca::{
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("profile")
+}
+
+/// A camera that answers every write with an ACK and a completion. A serial
+/// camera addresses its replies to the writing target; otherwise they come
+/// from source `0x90`. With `fail_send`, every write fails and nothing is
+/// answered.
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn probe_camera(serial: bool, fail_send: bool) -> FakeCamera {
+    FakeCamera::new(move |write, answer| {
+        if fail_send {
+            answer.fail_send(Error::connection_closed(None));
+            return;
+        }
+        let target = write.first().copied().unwrap_or(0x81) & 0x0f;
+        let source = if serial {
+            0x80 | (target.saturating_add(8) << 4)
+        } else {
+            0x90
+        };
+        answer
+            .reply(vec![source, 0x41, 0xff])
+            .reply(vec![source, 0x51, 0xff]);
+    })
+}
+
+/// The transport configuration of a probe: serial addressing for a serial
+/// camera, the default otherwise.
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn probe_config(serial: bool) -> TransportConfig {
+    let mut config = TransportConfig::default();
+    if serial {
+        config.addressing = AddressingMode::Serial;
+    }
+    config
+}
+
+/// A serial camera sends as a stream; otherwise as datagrams.
+#[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
+fn probe_semantics(serial: bool) -> SendSemantics {
+    if serial {
+        SendSemantics::Stream
+    } else {
+        SendSemantics::Datagram
+    }
 }
 
 fn assert_metrics_shape(snapshot: MetricsSnapshot) {
@@ -65,137 +119,31 @@ fn assert_clear(cache: &StateCache, key: StateKey, values: &[i64]) {
 #[cfg(feature = "blocking")]
 mod blocking_observability {
     use std::{
-        collections::VecDeque,
         thread,
         time::{Duration, Instant},
     };
 
     use grafton_visca::{
-        blocking::Session,
-        command::CommandKind,
-        command::PanTiltLimitCorner,
-        request::builtin::PanTiltLimitClear,
-        transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig,
-        },
-        Error,
+        blocking::Session, command::PanTiltLimitCorner, request::builtin::PanTiltLimitClear,
     };
 
     use super::*;
+    use fake_camera::BlockingWire;
 
-    #[derive(Debug)]
-    struct Probe {
-        config: TransportConfig,
-        responses: VecDeque<Vec<u8>>,
-        fail_send: bool,
-    }
-
-    impl Probe {
-        fn new() -> Self {
-            Self {
-                config: TransportConfig::default(),
-                responses: VecDeque::new(),
-                fail_send: false,
-            }
-        }
-
-        fn serial() -> Self {
-            let mut probe = Self::new();
-            probe.config.addressing = AddressingMode::Serial;
-            probe
-        }
-
-        fn receive(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            Ok(ReceiveOutcome::copy_message(&response, dst))
-        }
-    }
-
-    impl HasTransportConfig for Probe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for Probe {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            if self.fail_send {
-                return Err(Error::connection_closed(None));
-            }
-            let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-            let source = if self.config.addressing == AddressingMode::Serial {
-                0x80 | (target.saturating_add(8) << 4)
-            } else {
-                0x90
-            };
-            self.responses.push_back(vec![source, 0x41, 0xff]);
-            self.responses.push_back(vec![source, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<ReceiveOutcome, Error> {
-            self.receive(dst)
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(self.config.addressing)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            if self.config.addressing == AddressingMode::Serial {
-                SendSemantics::Stream
-            } else {
-                SendSemantics::Datagram
-            }
-        }
-    }
-
-    /// A camera that accepts every write and never answers, so a request
-    /// stays in flight for as long as the test needs.
-    #[derive(Debug)]
-    struct SilentProbe {
-        config: TransportConfig,
-    }
-
-    impl HasTransportConfig for SilentProbe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for SilentProbe {
-        fn send_with_timeout(
-            &mut self,
-            _bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            _dst: &mut [u8],
-            timeout: Duration,
-        ) -> Result<ReceiveOutcome, Error> {
-            thread::sleep(timeout);
-            Err(Error::io_timeout())
-        }
+    /// A blocking transport onto a probe camera.
+    fn probe_wire(serial: bool, fail_send: bool) -> BlockingWire {
+        let config = probe_config(serial);
+        probe_camera(serial, fail_send)
+            .blocking_wire()
+            .with_addressing(config.addressing)
+            .with_semantics(probe_semantics(serial))
+            .with_config(config)
     }
 
     #[test]
     fn metrics_diagnostics_bounds_and_cache_apply_only_after_terminal() {
-        let session = Session::open(Probe::new(), SessionConfig::new(profile())).unwrap();
+        let session =
+            Session::open(probe_wire(false, false), SessionConfig::new(profile())).unwrap();
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap();
@@ -231,7 +179,7 @@ mod blocking_observability {
         config
             .register_target(CameraId::CAMERA_2, profile())
             .unwrap();
-        let session = Session::open(Probe::serial(), config).unwrap();
+        let session = Session::open(probe_wire(true, false), config).unwrap();
         let first = session
             .camera_for::<grafton_visca::profiles::PtzOpticsG2>(CameraId::CAMERA_1)
             .unwrap();
@@ -249,7 +197,7 @@ mod blocking_observability {
         assert_unknown(&second_view, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
 
-        let fresh = Session::open(Probe::new(), SessionConfig::new(profile())).unwrap();
+        let fresh = Session::open(probe_wire(false, false), SessionConfig::new(profile())).unwrap();
         assert_unknown(
             &fresh
                 .camera::<grafton_visca::profiles::PtzOpticsG2>()
@@ -262,9 +210,8 @@ mod blocking_observability {
 
     #[test]
     fn write_failure_does_not_update_cache() {
-        let mut probe = Probe::new();
-        probe.fail_send = true;
-        let session = Session::open(probe, SessionConfig::new(profile())).unwrap();
+        let session =
+            Session::open(probe_wire(false, true), SessionConfig::new(profile())).unwrap();
         let camera = session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap();
@@ -277,9 +224,11 @@ mod blocking_observability {
     #[test]
     fn metrics_are_observable_while_another_thread_waits_on_a_request() {
         let session = Session::open(
-            SilentProbe {
-                config: TransportConfig::default(),
-            },
+            // A camera that accepts every write and never answers, so a
+            // request stays in flight for as long as the test needs.
+            FakeCamera::silent()
+                .blocking_wire()
+                .with_semantics(SendSemantics::Stream),
             SessionConfig::new(profile()),
         )
         .expect("open blocking session");
@@ -313,106 +262,26 @@ mod blocking_observability {
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod tokio_observability {
-    use std::{future::Future, sync::Arc, time::Duration};
+    use std::{sync::Arc, time::Duration};
 
-    use grafton_visca::{
-        runtime::TokioRuntime,
-        transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-            TransportConfig,
-        },
-        Error, Session,
-    };
+    use grafton_visca::{runtime::TokioRuntime, Session};
 
     use super::*;
+    use fake_camera::AsyncWire;
 
-    #[derive(Debug)]
-    struct Probe {
-        config: TransportConfig,
-        responses: flume::Receiver<Vec<u8>>,
-        response_tx: flume::Sender<Vec<u8>>,
-        fail_send: bool,
-    }
-
-    impl Probe {
-        fn new() -> Self {
-            let (response_tx, responses) = flume::unbounded();
-            Self {
-                config: TransportConfig::default(),
-                responses,
-                response_tx,
-                fail_send: false,
-            }
-        }
-
-        fn serial() -> Self {
-            let mut probe = Self::new();
-            probe.config.addressing = AddressingMode::Serial;
-            probe
-        }
-    }
-
-    impl HasTransportConfig for Probe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for Probe {
-        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let tx = self.response_tx.clone();
-            let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-            let source = if self.config.addressing == AddressingMode::Serial {
-                0x80 | (target.saturating_add(8) << 4)
-            } else {
-                0x90
-            };
-            let fail_send = self.fail_send;
-            async move {
-                if fail_send {
-                    return Err(Error::connection_closed(None));
-                }
-                tx.send_async(vec![source, 0x41, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                tx.send_async(vec![source, 0x51, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                Ok(())
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-            async move {
-                let bytes = self
-                    .responses
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                Ok(ReceiveOutcome::copy_message(&bytes, dst))
-            }
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            if self.config.addressing == AddressingMode::Serial {
-                SendSemantics::Stream
-            } else {
-                SendSemantics::Datagram
-            }
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(self.config.addressing)
-        }
+    /// An async transport onto a probe camera.
+    fn probe_wire(serial: bool, fail_send: bool) -> AsyncWire {
+        let config = probe_config(serial);
+        probe_camera(serial, fail_send)
+            .async_wire()
+            .with_addressing(config.addressing)
+            .with_semantics(probe_semantics(serial))
+            .with_config(config)
     }
 
     async fn session() -> Session {
         Session::open(
-            Probe::new(),
+            probe_wire(false, false),
             SessionConfig::new(profile()),
             TokioRuntime::from_current().unwrap(),
         )
@@ -506,7 +375,7 @@ mod tokio_observability {
             .register_target(CameraId::CAMERA_2, profile())
             .unwrap();
         let session = Session::open(
-            Probe::serial(),
+            probe_wire(true, false),
             config,
             TokioRuntime::from_current().unwrap(),
         )
@@ -527,10 +396,8 @@ mod tokio_observability {
         assert_unknown(&second, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
 
-        let mut failed = Probe::new();
-        failed.fail_send = true;
         let failed_session = Session::open(
-            failed,
+            probe_wire(false, true),
             SessionConfig::new(profile()),
             TokioRuntime::from_current().unwrap(),
         )
@@ -557,75 +424,27 @@ mod tokio_observability {
 
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 mod smol_observability {
-    use std::future::Future;
-
-    use grafton_visca::{
-        runtime::SmolRuntime,
-        transport::{
-            AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-        },
-        Error, Session,
-    };
+    use grafton_visca::{runtime::SmolRuntime, Session};
 
     use super::*;
 
-    #[derive(Debug)]
-    struct Probe {
-        config: TransportConfig,
-        responses: flume::Receiver<Vec<u8>>,
-        response_tx: flume::Sender<Vec<u8>>,
-    }
-
-    impl Probe {
-        fn new() -> Self {
-            let (response_tx, responses) = flume::unbounded();
-            Self {
-                config: TransportConfig::default(),
-                responses,
-                response_tx,
-            }
-        }
-    }
-
-    impl HasTransportConfig for Probe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for Probe {
-        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let tx = self.response_tx.clone();
-            let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
+    /// An async camera that answers every write with an ACK and a completion
+    /// from the writing target.
+    fn probe_camera() -> FakeCamera {
+        FakeCamera::new(|write, answer| {
+            let target = write.first().copied().unwrap_or(0x81) & 0x0f;
             let source = 0x80 | (target.saturating_add(8) << 4);
-            async move {
-                tx.send_async(vec![source, 0x41, 0xff]).await.unwrap();
-                tx.send_async(vec![source, 0x51, 0xff]).await.unwrap();
-                Ok(())
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-            async move {
-                let bytes = self.responses.recv_async().await.unwrap();
-                Ok(ReceiveOutcome::copy_message(&bytes, dst))
-            }
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
+            answer
+                .reply(vec![source, 0x41, 0xff])
+                .reply(vec![source, 0x51, 0xff]);
+        })
     }
 
     #[test]
     fn smol_metrics_and_subscription_bounds() {
         smol::block_on(async {
             let session = Session::open(
-                Probe::new(),
+                probe_camera().async_wire(),
                 SessionConfig::new(profile()),
                 SmolRuntime::new(),
             )

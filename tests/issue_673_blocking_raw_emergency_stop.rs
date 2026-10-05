@@ -17,184 +17,55 @@
 
 #![cfg(feature = "blocking")]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
     thread,
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     completion::{AppliedOnly, Targeted},
     profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
-    transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
+    transport::{AddressingMode, TransportConfig},
     AffectedAxes, CameraId, ControlClass, Error, OperationalTuning, RetryClass, TimeoutClass,
 };
 
+use fake_camera::{frames, FakeCamera, ZOOM_STOP};
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
-const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
-const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
+/// An ACK on socket one from camera two.
 const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
-const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
-const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
-const RAW_ZOOM_STOP: [u8; 6] = [0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 
-#[derive(Debug)]
-struct Script {
-    steps: VecDeque<Vec<Vec<u8>>>,
-    writes: Vec<Vec<u8>>,
-}
-
-/// A raw datagram camera whose replies are scripted per write: each send
+/// A raw datagram camera whose replies are scripted per write: each write
 /// queues its step's replies, which the owner worker reads as soon as they
-/// are on the wire. The probe can also deliver a late reply on its own.
-#[derive(Debug)]
-struct RawProbeTransport {
-    config: TransportConfig,
-    script: Arc<Mutex<Script>>,
-    reply_tx: flume::Sender<Vec<u8>>,
-    replies: flume::Receiver<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
-struct Probe {
-    script: Arc<Mutex<Script>>,
-    reply_tx: flume::Sender<Vec<u8>>,
-}
-
-impl Probe {
-    fn writes(&self) -> Vec<Vec<u8>> {
-        self.script.lock().expect("script lock").writes.clone()
-    }
-
-    fn write_count(&self) -> usize {
-        self.script.lock().expect("script lock").writes.len()
-    }
-
-    fn wait_for_writes(&self, count: usize, timeout: Duration) {
-        let started = Instant::now();
-        while self.write_count() < count {
-            assert!(
-                started.elapsed() < timeout,
-                "timed out waiting for write {count}; saw {:?}",
-                self.writes()
-            );
-            thread::sleep(Duration::from_millis(1));
+/// are on the wire. Writes past the script draw no reply. The test can also
+/// deliver a late reply on its own with `push`.
+fn scripted_camera(steps: Vec<Vec<Vec<u8>>>) -> FakeCamera {
+    let mut steps: VecDeque<_> = steps.into();
+    FakeCamera::new(move |_, answer| {
+        for reply in steps.pop_front().unwrap_or_default() {
+            answer.reply(reply);
         }
-    }
-
-    /// Asserts that no further write appears while the scheduler deliberately
-    /// holds the queued work.
-    fn assert_stable_write_count(&self, count: usize) {
-        thread::sleep(Duration::from_millis(20));
-        assert_eq!(self.write_count(), count, "queued work must stay unwritten");
-    }
-
-    /// Waits until the worker has read every reply on the wire. The worker
-    /// handles a read before it selects its next boundary, so work submitted
-    /// afterwards is scheduled against the replies already applied.
-    fn wait_until_replies_read(&self) {
-        let started = Instant::now();
-        while !self.reply_tx.is_empty() {
-            assert!(
-                started.elapsed() < Duration::from_secs(1),
-                "the owner worker never read the queued replies"
-            );
-            thread::sleep(Duration::from_millis(1));
-        }
-    }
-
-    /// Delivers one reply that no write scripted.
-    fn reply(&self, bytes: &[u8]) {
-        self.reply_tx
-            .send(bytes.to_vec())
-            .expect("owner reply channel remains connected");
-    }
+    })
 }
 
-impl RawProbeTransport {
-    fn new(steps: Vec<Vec<Vec<u8>>>) -> (Self, Probe) {
-        let script = Arc::new(Mutex::new(Script {
-            steps: steps.into(),
-            writes: Vec::new(),
-        }));
-        let (reply_tx, replies) = flume::unbounded();
-        let config = {
-            let mut config = TransportConfig::default();
-            config.addressing = AddressingMode::Serial;
-            config
-        };
-        (
-            Self {
-                config,
-                script: Arc::clone(&script),
-                reply_tx: reply_tx.clone(),
-                replies,
-            },
-            Probe { script, reply_tx },
-        )
-    }
-}
-
-impl HasTransportConfig for RawProbeTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for RawProbeTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        let replies = {
-            let mut script = self.script.lock().expect("script lock");
-            script.writes.push(bytes.to_vec());
-            script.steps.pop_front().unwrap_or_default()
-        };
-        for reply in replies {
-            self.reply_tx
-                .send(reply)
-                .map_err(|_| Error::connection_closed(None))?;
-        }
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let reply = self
-            .replies
-            .recv_timeout(timeout)
-            .map_err(|error| match error {
-                flume::RecvTimeoutError::Timeout => Error::io_timeout(),
-                flume::RecvTimeoutError::Disconnected => Error::connection_closed(None),
-            })?;
-        Ok(ReceiveOutcome::copy_message(&reply, dst))
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+/// Asserts that no further write appears while the scheduler deliberately
+/// holds the queued work.
+fn assert_stable_write_count(camera: &FakeCamera, count: usize) {
+    thread::sleep(Duration::from_millis(20));
+    assert_eq!(
+        camera.write_count(),
+        count,
+        "queued work must stay unwritten"
+    );
 }
 
 fn session_config() -> SessionConfig {
@@ -216,13 +87,21 @@ fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
     config.with_tuning(OperationalTuning::new().command_spacing(command_spacing))
 }
 
-fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Session, Probe) {
-    let (transport, probe) = RawProbeTransport::new(steps);
-    let session = Session::open(transport, config).expect("owner session");
-    (session, probe)
+fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Session, FakeCamera) {
+    let camera = scripted_camera(steps);
+    let wire = camera
+        .blocking_wire()
+        .with_config({
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
+        })
+        .with_addressing(AddressingMode::Serial);
+    let session = Session::open(wire, config).expect("owner session");
+    (session, camera)
 }
 
-fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, Probe) {
+fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, FakeCamera) {
     session_with_config(steps, session_config())
 }
 
@@ -233,19 +112,19 @@ fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
 }
 
 fn raw_applied_only(reply_shape: RawReplyShape) -> raw::AppliedOnly {
-    raw::AppliedOnly::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+    raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw applied-only operation")
 }
 
 fn raw_applied_only_for(target: CameraId, reply_shape: RawReplyShape) -> raw::AppliedOnly {
-    let mut wire = RAW_ZOOM_STOP;
+    let mut wire = ZOOM_STOP.to_vec();
     wire[0] = target.to_address_byte();
     raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("targeted raw applied-only operation")
 }
 
 fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
-    raw::Targeted::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+    raw::Targeted::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw targeted operation")
 }
 
@@ -254,8 +133,8 @@ fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
 #[test]
 fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
     let (session, probe) = session(vec![
-        vec![ACK_SOCKET_ONE.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -266,8 +145,8 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
     let drive = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("drive submitted");
-    probe.wait_for_writes(1, Duration::from_secs(1));
-    probe.wait_until_replies_read();
+    probe.wait_for_writes(1);
+    probe.wait_for_reads(1);
 
     let mut stop = camera
         .submit::<AppliedOnly, _>(&FocusStop)
@@ -289,12 +168,8 @@ fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
 #[test]
 fn two_unawaited_operation_handles_both_reach_the_wire() {
     let (session, probe) = session(vec![
-        vec![ACK_SOCKET_ONE.to_vec()],
-        vec![
-            ACK_SOCKET_TWO.to_vec(),
-            COMPLETE_SOCKET_ONE.to_vec(),
-            COMPLETE_SOCKET_TWO.to_vec(),
-        ],
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(1), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -324,7 +199,7 @@ fn two_unawaited_operation_handles_both_reach_the_wire() {
 fn completion_only_raw_operations_wait_for_an_idle_target() {
     macro_rules! assert_completion_only_waits {
         ($kind:ty, $operation:expr, $label:literal) => {{
-            let (session, probe) = session(vec![vec![ACK_SOCKET_ONE.to_vec()]]);
+            let (session, probe) = session(vec![vec![frames::ack(1)]]);
             let camera = session
                 .camera::<NonDefaultCompileTimeProfile>()
                 .expect("camera view");
@@ -332,20 +207,20 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
             let mut predecessor = camera
                 .submit::<AppliedOnly, _>(&predecessor)
                 .expect("raw predecessor is admitted");
-            probe.wait_for_writes(1, Duration::from_secs(1));
+            probe.wait_for_writes(1);
 
             let operation = $operation;
             let successor = camera
                 .submit::<$kind, _>(&operation)
                 .expect("completion-only successor is admitted");
-            probe.assert_stable_write_count(1);
+            assert_stable_write_count(&probe, 1);
 
-            probe.reply(COMPLETE_SOCKET_ONE);
+            probe.push(frames::complete(1));
             predecessor.applied().expect("the predecessor completes");
-            probe.wait_for_writes(2, Duration::from_secs(1));
+            probe.wait_for_writes(2);
             assert_eq!(
                 probe.writes()[1],
-                RAW_ZOOM_STOP.to_vec(),
+                ZOOM_STOP.to_vec(),
                 concat!($label, " is written once the target is idle")
             );
             successor.detach();
@@ -371,10 +246,10 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
 #[test]
 fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
     let (session, probe) = session(vec![
-        vec![ACK_SOCKET_ONE.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(2)],
+        vec![frames::ack(2), frames::complete(2)],
+        vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -383,8 +258,8 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
     let drive = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("drive submitted");
-    probe.wait_for_writes(1, Duration::from_secs(1));
-    probe.wait_until_replies_read();
+    probe.wait_for_writes(1);
+    probe.wait_for_reads(1);
 
     camera
         .motion()
@@ -407,10 +282,7 @@ fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
 /// at once and written when the quarantine releases.
 #[test]
 fn ordinary_successor_waits_for_lost_ack_quarantine() {
-    let (session, probe) = session(vec![
-        vec![],
-        vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
-    ]);
+    let (session, probe) = session(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
@@ -418,14 +290,14 @@ fn ordinary_successor_waits_for_lost_ack_quarantine() {
     let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("predecessor admission");
-    probe.wait_for_writes(1, Duration::from_millis(50));
+    probe.wait_for_writes(1);
     let first_written_at = Instant::now();
     thread::sleep(Duration::from_millis(150));
     let ordinary = raw_applied_only(RawReplyShape::AckThenCompletion);
     let mut successor = camera
         .submit::<AppliedOnly, _>(&ordinary)
         .expect("ordinary successor admission");
-    probe.wait_for_writes(2, Duration::from_secs(2));
+    probe.wait_for_writes(2);
     let release_elapsed = first_written_at.elapsed();
 
     assert!(
@@ -454,11 +326,7 @@ fn ordinary_successor_waits_for_lost_ack_quarantine() {
 fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
     let (session, probe) = session(vec![
         vec![],
-        vec![
-            ACK_SOCKET_ONE.to_vec(),
-            ACK_SOCKET_TWO.to_vec(),
-            COMPLETE_SOCKET_TWO.to_vec(),
-        ],
+        vec![frames::ack(1), frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -467,12 +335,12 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
     let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("predecessor admission");
-    probe.wait_for_writes(1, Duration::from_millis(50));
+    probe.wait_for_writes(1);
     let urgent_started = Instant::now();
     let mut urgent = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("urgent admission");
-    probe.wait_for_writes(2, Duration::from_millis(50));
+    probe.wait_for_writes(2);
     assert!(
         urgent_started.elapsed() < Duration::from_millis(50),
         "urgent first write exceeded its pacing bound"
@@ -504,7 +372,7 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
             vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
             vec![],
             vec![],
-            vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
+            vec![frames::ack(1), frames::complete(1)],
         ],
         two_camera_session_config(SPACING),
     );
@@ -518,14 +386,14 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
     let mut predecessor = camera_two
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("camera two predecessor admission");
-    probe.wait_for_writes(1, Duration::from_secs(1));
+    probe.wait_for_writes(1);
     let socket_successor = camera_two
         .submit::<AppliedOnly, _>(&raw_applied_only_for(
             CameraId::CAMERA_2,
             RawReplyShape::AckThenCompletion,
         ))
         .expect("camera two successor admission");
-    probe.wait_for_writes(2, Duration::from_secs(1));
+    probe.wait_for_writes(2);
     // A zero-length wait records the intent and returns before the paced
     // socket-cancel is written; the camera never answers it.
     assert!(matches!(
@@ -547,7 +415,7 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
             vec![0x82, 0x01, 0x04, 0x07, 0x02, 0xff],
             vec![0x82, 0x01, 0x04, 0x07, 0x00, 0xff],
             vec![0x82, 0x21, 0xff],
-            RAW_ZOOM_STOP.to_vec(),
+            ZOOM_STOP.to_vec(),
         ],
         "the camera two cancel consumes the shared pacing slot, but camera one writes next"
     );
@@ -562,9 +430,9 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
 #[test]
 fn socket_capacity_contention_queues_until_a_socket_frees() {
     let (session, probe) = session(vec![
-        vec![ACK_SOCKET_ONE.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec()],
-        vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
+        vec![frames::ack(1)],
+        vec![frames::ack(2)],
+        vec![frames::ack(1), frames::complete(1)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -579,15 +447,15 @@ fn socket_capacity_contention_queues_until_a_socket_frees() {
     let second = camera
         .submit::<AppliedOnly, _>(&second_request)
         .expect("second submission");
-    probe.wait_for_writes(2, Duration::from_secs(1));
-    probe.wait_until_replies_read();
+    probe.wait_for_writes(2);
+    probe.wait_for_reads(2);
 
     let mut third = camera
         .submit::<AppliedOnly, _>(&third_request)
         .expect("a third command under socket contention is admitted");
-    probe.assert_stable_write_count(2);
+    assert_stable_write_count(&probe, 2);
 
-    probe.reply(COMPLETE_SOCKET_ONE);
+    probe.push(frames::complete(1));
     first.applied().expect("the first command completes");
     third
         .applied()

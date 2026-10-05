@@ -1,18 +1,19 @@
 //! Scripted transport implementations for deterministic testing.
 //!
 //! This module provides transport implementations that follow a predetermined script
-//! of responses, allowing for deterministic and repeatable test behavior.
+//! of responses, allowing for deterministic and repeatable test behavior. Both
+//! transports run one step queue; only their native I/O differs.
 
 #![cfg(feature = "test-utils")]
-// Expects in test utilities are intentional for detecting test failures
-#![allow(clippy::expect_used)]
+// Panics and expects in test utilities are intentional for detecting test failures
+#![allow(clippy::panic, clippy::expect_used)]
 
 use std::time::Duration;
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 #[cfg(feature = "async")]
@@ -111,32 +112,176 @@ impl Clone for Step {
     }
 }
 
+/// One reply batch a send releases, in script order.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+// Only the async transport reads the delay; the blocking one delivers
+// immediately.
+#[cfg_attr(not(feature = "async"), allow(dead_code))]
+enum Delivery {
+    /// Deliver now.
+    Now(Vec<u8>),
+    /// Deliver after a virtual delay (a [`Step::After`]).
+    After(Duration, Vec<Vec<u8>>),
+}
+
+/// The answer a consumed step gives a send.
+#[cfg(any(feature = "async", feature = "blocking"))]
+enum Answer {
+    /// Scripted frames.
+    Frames(Vec<Vec<u8>>),
+    /// Frames computed from the sent bytes by a [`Step::DynamicResponse`].
+    Dynamic(DynamicResponseFn),
+}
+
+/// The step queue both scripted transports run, free of any I/O.
+///
+/// A send records its bytes, releases every leading [`Step::After`], consumes
+/// the front [`Step::OnSend`] (when it matches) or [`Step::DynamicResponse`],
+/// and then releases any [`Step::After`] that now leads. A front
+/// [`Step::InjectError`] is never consumed by a send: it waits for the next
+/// receive. The transports differ only in how they deliver a delayed batch.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+struct ScriptCore {
+    steps: VecDeque<Step>,
+    sent: Vec<Vec<u8>>,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl ScriptCore {
+    /// Records a send and consumes the step it answers.
+    ///
+    /// Returns the batches released so far and the answer to deliver next. A
+    /// dynamic answer is returned unrun: the caller runs it with the script
+    /// unlocked and then calls [`Self::release_leading_after`].
+    fn begin_send(&mut self, bytes: &[u8]) -> (Vec<Delivery>, Option<Answer>) {
+        self.sent.push(bytes.to_vec());
+        let mut deliveries = Vec::new();
+        self.release_leading_after(&mut deliveries);
+        let answer = match self.steps.pop_front() {
+            Some(Step::OnSend { matches, responses })
+                if matches
+                    .as_ref()
+                    .is_none_or(|pattern| bytes.starts_with(pattern)) =>
+            {
+                Some(Answer::Frames(responses))
+            }
+            Some(Step::DynamicResponse(respond)) => Some(Answer::Dynamic(respond)),
+            // An unmatched `OnSend` stays for a later send, and an
+            // `InjectError` stays for the next receive.
+            Some(step) => {
+                self.steps.push_front(step);
+                None
+            }
+            None => None,
+        };
+        (deliveries, answer)
+    }
+
+    fn release_leading_after(&mut self, deliveries: &mut Vec<Delivery>) {
+        while matches!(self.steps.front(), Some(Step::After { .. })) {
+            if let Some(Step::After { delay, responses }) = self.steps.pop_front() {
+                deliveries.push(Delivery::After(delay, responses));
+            }
+        }
+    }
+
+    fn take_injected_error(&mut self) -> Option<Error> {
+        match self.steps.front() {
+            Some(Step::InjectError(_)) => match self.steps.pop_front() {
+                Some(Step::InjectError(error)) => Some(error),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+/// A shared [`ScriptCore`] plus the reply channel both transports read.
+///
+/// Replies are plain frames: a scripted receive error is only ever a
+/// [`Step::InjectError`], so both transports surface it the same way.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Clone, Debug)]
+struct Script {
+    /// The transport type, named in lock-poisoning panics.
+    owner: &'static str,
+    core: Arc<Mutex<ScriptCore>>,
+    replies_tx: flume::Sender<Vec<u8>>,
+    replies_rx: flume::Receiver<Vec<u8>>,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl Script {
+    fn new(owner: &'static str, steps: Vec<Step>) -> Self {
+        let (replies_tx, replies_rx) = flume::unbounded();
+        Self {
+            owner,
+            core: Arc::new(Mutex::new(ScriptCore {
+                steps: steps.into(),
+                sent: Vec::new(),
+            })),
+            replies_tx,
+            replies_rx,
+        }
+    }
+
+    fn core(&self) -> MutexGuard<'_, ScriptCore> {
+        self.core
+            .lock()
+            .unwrap_or_else(|_| panic!("{} script mutex poisoned", self.owner))
+    }
+
+    fn sent(&self) -> Vec<Vec<u8>> {
+        self.core().sent.clone()
+    }
+
+    fn deliver(&self, reply: Vec<u8>) {
+        // The script holds the receiver, so the channel cannot disconnect.
+        let _ = self.replies_tx.send(reply);
+    }
+
+    fn on_send(&self, bytes: &[u8]) -> Vec<Delivery> {
+        let (mut deliveries, answer) = self.core().begin_send(bytes);
+        let responses = match answer {
+            Some(Answer::Frames(responses)) => responses,
+            // A dynamic response runs with the script unlocked, so a closure
+            // that panics cannot poison the script and one that calls back
+            // into the transport cannot deadlock it.
+            Some(Answer::Dynamic(respond)) => respond(bytes),
+            None => return deliveries,
+        };
+        deliveries.extend(responses.into_iter().map(Delivery::Now));
+        self.core().release_leading_after(&mut deliveries);
+        deliveries
+    }
+
+    fn take_injected_error(&self) -> Option<Error> {
+        self.core().take_injected_error()
+    }
+}
+
 /// Async transport that follows a predetermined script of responses.
 ///
 /// This transport allows tests to define exactly what responses should be sent
-/// and when, without relying on real network behavior or timing.
+/// and when, without relying on real network behavior or timing. A
+/// [`Step::After`] batch is delivered after its delay on the executor given to
+/// [`with_executor`](Self::with_executor), or immediately without one.
 #[cfg(feature = "async")]
 #[derive(Debug)]
 pub struct ScriptedTransport<E = ()> {
-    sent: Arc<Mutex<Vec<Vec<u8>>>>,
-    steps: Arc<Mutex<VecDeque<Step>>>,
-    response_tx: flume::Sender<Result<Vec<u8>>>,
-    response_rx: flume::Receiver<Result<Vec<u8>>>,
+    script: Script,
     executor: Option<Arc<E>>,
     shutdown_rx: Option<flume::Receiver<()>>,
-    /// Optional custom transport configuration.
-    /// When set, takes precedence over the default static config.
-    config: Option<TransportConfig>,
+    config: TransportConfig,
 }
 
 #[cfg(feature = "async")]
 impl<E> Clone for ScriptedTransport<E> {
     fn clone(&self) -> Self {
         Self {
-            sent: self.sent.clone(),
-            steps: self.steps.clone(),
-            response_tx: self.response_tx.clone(),
-            response_rx: self.response_rx.clone(),
+            script: self.script.clone(),
             executor: self.executor.clone(),
             shutdown_rx: self.shutdown_rx.clone(),
             config: self.config,
@@ -148,15 +293,11 @@ impl<E> Clone for ScriptedTransport<E> {
 impl<E> ScriptedTransport<E> {
     /// Create a new scripted transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
-        let (response_tx, response_rx) = flume::unbounded();
         Self {
-            sent: Arc::new(Mutex::new(Vec::new())),
-            steps: Arc::new(Mutex::new(steps.into().into())),
-            response_tx,
-            response_rx,
+            script: Script::new("ScriptedTransport", steps.into()),
             executor: None,
             shutdown_rx: None,
-            config: None,
+            config: TransportConfig::default(),
         }
     }
 
@@ -181,85 +322,51 @@ impl<E> ScriptedTransport<E> {
     /// timeout, and buffer settings. Session admission capacity is configured
     /// on [`SessionConfig`](crate::SessionConfig), not on the transport.
     pub fn with_config(mut self, config: TransportConfig) -> Self {
-        self.config = Some(config);
+        self.config = config;
         self
     }
 
     /// Get all commands that were sent to this transport.
     pub fn sent(&self) -> Vec<Vec<u8>> {
-        self.sent
-            .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
-            .clone()
+        self.script.sent()
     }
 
     /// Add a response to be returned immediately.
     pub fn add_response(&self, response: Vec<u8>) {
-        let _ = self.response_tx.send(Ok(response));
+        self.script.deliver(response);
     }
 
     /// Schedule a response to be delivered after `delay`.
-    /// This provides a convenient way to add delayed responses without
-    /// having to pre-script them in the constructor.
-    #[cfg(feature = "async")]
+    ///
+    /// Without an executor the response is delivered immediately, as an
+    /// unscheduled [`Step::After`] is.
     pub fn add_after(&self, delay: Duration, response: Vec<u8>)
     where
         E: Executor + ExecutorExt + 'static,
     {
-        if let Some(executor) = &self.executor {
-            let tx = self.response_tx.clone();
-            let exec = executor.clone();
-            let exec_clone = exec.clone();
-            exec.spawn_detached(async move {
-                exec_clone.sleep(delay).await;
-                let _ = tx.send_async(Ok(response)).await;
-            });
-        } else {
-            // Without an executor, deliver immediately (consistent with Step::After fallback).
-            let _ = self.response_tx.send(Ok(response));
-        }
+        self.deliver(Delivery::After(delay, vec![response]));
     }
 
-    /// Process any pending Step::After steps (static version for use in async blocks).
-    fn process_after_steps_static(
-        steps: Arc<Mutex<VecDeque<Step>>>,
-        response_tx: flume::Sender<Result<Vec<u8>>>,
-        executor: Option<Arc<E>>,
-    ) where
+    fn deliver(&self, delivery: Delivery)
+    where
         E: Executor + ExecutorExt + 'static,
     {
-        loop {
-            let step = {
-                let mut steps_guard = steps
-                    .lock()
-                    .expect("ScriptedBlockingTransport mutex poisoned");
-                // Only process Step::After, leave others alone
-                match steps_guard.front() {
-                    Some(Step::After { .. }) => steps_guard.pop_front(),
-                    _ => None,
-                }
-            };
-
-            if let Some(Step::After { delay, responses }) = step {
-                // Schedule delayed responses if we have an executor
-                if let Some(executor) = &executor {
-                    let response_tx_clone = response_tx.clone();
-                    let executor_clone = executor.clone();
-                    // Use spawn_detached for true fire-and-forget semantics
-                    executor.spawn_detached(async move {
-                        executor_clone.sleep(delay).await;
-                        for response in responses {
-                            let _ = response_tx_clone.send_async(Ok(response)).await;
-                        }
-                    });
-                } else {
-                    // No executor available, send responses immediately
-                    for response in responses {
-                        let _ = response_tx.send(Ok(response));
+        match (delivery, &self.executor) {
+            (Delivery::Now(reply), _) => self.script.deliver(reply),
+            (Delivery::After(delay, batch), Some(executor)) => {
+                let replies_tx = self.script.replies_tx.clone();
+                let sleeper = Arc::clone(executor);
+                executor.spawn_detached(async move {
+                    sleeper.sleep(delay).await;
+                    for reply in batch {
+                        let _ = replies_tx.send_async(reply).await;
                     }
+                });
+            }
+            (Delivery::After(_, batch), None) => {
+                for reply in batch {
+                    self.script.deliver(reply);
                 }
-            } else {
-                break;
             }
         }
     }
@@ -271,115 +378,28 @@ where
     E: Executor + ExecutorExt + 'static,
 {
     async fn send(&mut self, bytes: &[u8]) -> Result<()> {
-        let bytes_vec = bytes.to_vec();
-        let sent = self.sent.clone();
-        let steps = self.steps.clone();
-        let response_tx = self.response_tx.clone();
-        let executor = self.executor.clone();
-
-        sent.lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
-            .push(bytes_vec.clone());
-
-        // First, drain any leading After steps
-        ScriptedTransport::<E>::process_after_steps_static(
-            steps.clone(),
-            response_tx.clone(),
-            executor.clone(),
-        );
-
-        // Only act on the *front* of the queue. Never reorder past InjectError (leave for recv*())
-        let step = {
-            let mut guard = steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            match guard.front() {
-                Some(Step::InjectError(_)) => None, // leave it for recv*()
-                Some(Step::After { .. }) => None,   // already handled by process_after_steps_static
-                Some(Step::OnSend { .. }) | Some(Step::DynamicResponse(_)) => guard.pop_front(),
-                None => None,
-            }
-        };
-
-        if let Some(step) = step {
-            match step {
-                Step::OnSend { matches, responses } => {
-                    let should_respond = matches
-                        .as_ref()
-                        .is_none_or(|pattern| bytes_vec.starts_with(pattern));
-
-                    if should_respond {
-                        for response in responses {
-                            let _ = response_tx.send(Ok(response));
-                        }
-                        // Process any After steps that may now be at the front
-                        ScriptedTransport::<E>::process_after_steps_static(
-                            steps.clone(),
-                            response_tx.clone(),
-                            executor.clone(),
-                        );
-                    } else {
-                        steps
-                            .lock()
-                            .expect("ScriptedBlockingTransport mutex poisoned")
-                            .push_front(Step::OnSend { matches, responses });
-                    }
-                }
-                Step::After { .. } => {
-                    unreachable!("After steps are handled by process_after_steps_static");
-                }
-                Step::InjectError(_) => {
-                    unreachable!("InjectError is never popped in send()");
-                }
-                Step::DynamicResponse(func) => {
-                    let responses = func(&bytes_vec);
-                    for response in responses {
-                        let _ = response_tx.send(Ok(response));
-                    }
-                    // After a dynamic response, After steps may now lead.
-                    ScriptedTransport::<E>::process_after_steps_static(
-                        steps.clone(),
-                        response_tx.clone(),
-                        executor.clone(),
-                    );
-                }
-            }
+        for delivery in self.script.on_send(bytes) {
+            self.deliver(delivery);
         }
-
         Ok(())
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome> {
-        let steps = self.steps.clone();
-        let response_rx = self.response_rx.clone();
-
-        {
-            let mut steps_guard = steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            if let Some(Step::InjectError(_)) = steps_guard.front() {
-                let error = match steps_guard
-                    .pop_front()
-                    .expect("No error step available in scripted transport")
-                {
-                    Step::InjectError(e) => e,
-                    _ => unreachable!(),
-                };
-                return Err(error);
-            }
-        }
-
         use futures_lite::future;
 
+        if let Some(error) = self.script.take_injected_error() {
+            return Err(error);
+        }
+
+        let replies_rx = self.script.replies_rx.clone();
         let next = async {
-            match response_rx.recv_async().await {
-                Ok(Ok(bytes)) => Ok(bytes),
-                Ok(Err(_)) => Err(Error::io_timeout()),
-                Err(_) => Err(Error::io_timeout()),
-            }
+            replies_rx
+                .recv_async()
+                .await
+                .map_err(|_| Error::io_timeout())
         };
 
-        let outcome = if let Some(shutdown_rx) = &self.shutdown_rx {
+        let reply = if let Some(shutdown_rx) = &self.shutdown_rx {
             // Race between data reception and shutdown signal
             future::race(
                 async {
@@ -395,49 +415,53 @@ where
             next.await
         }?;
 
-        Ok(ReceiveOutcome::copy_message(&outcome, dst))
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
+    }
+}
+
+#[cfg(feature = "async")]
+impl<E> HasTransportConfig for ScriptedTransport<E> {
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
 /// Blocking transport that follows a predetermined script of responses.
 ///
-/// This is the blocking version of ScriptedTransport, designed for testing
-/// blocking transport implementations.
+/// This is the blocking counterpart of the async `ScriptedTransport` and runs
+/// the same step queue. It has no executor, so a [`Step::After`] batch is
+/// delivered immediately and its delay is ignored.
 #[cfg(feature = "blocking")]
 #[derive(Clone, Debug)]
 pub struct ScriptedBlockingTransport {
-    sent: Arc<Mutex<Vec<Vec<u8>>>>,
-    steps: Arc<Mutex<VecDeque<Step>>>,
-    response_tx: flume::Sender<Result<Vec<u8>>>,
-    response_rx: flume::Receiver<Result<Vec<u8>>>,
-    transport_config: TransportConfig,
+    script: Script,
+    config: TransportConfig,
 }
 
 #[cfg(feature = "blocking")]
 impl ScriptedBlockingTransport {
     /// Create a new scripted blocking transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
-        let (response_tx, response_rx) = flume::unbounded();
         Self {
-            sent: Arc::new(Mutex::new(Vec::new())),
-            steps: Arc::new(Mutex::new(steps.into().into())),
-            response_tx,
-            response_rx,
-            transport_config: TransportConfig::default(),
+            script: Script::new("ScriptedBlockingTransport", steps.into()),
+            config: TransportConfig::default(),
         }
+    }
+
+    /// Set a custom transport configuration.
+    pub fn with_config(mut self, config: TransportConfig) -> Self {
+        self.config = config;
+        self
     }
 
     /// Get all commands that were sent to this transport.
     pub fn sent(&self) -> Vec<Vec<u8>> {
-        self.sent
-            .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
-            .clone()
+        self.script.sent()
     }
 
     /// Add a response to be returned immediately.
     pub fn add_response(&self, response: Vec<u8>) {
-        let _ = self.response_tx.send(Ok(response));
+        self.script.deliver(response);
     }
 }
 
@@ -449,122 +473,16 @@ impl BlockingTransport for ScriptedBlockingTransport {
         _kind: CommandKind,
         _timeout: Duration,
     ) -> Result<()> {
-        self.sent
-            .lock()
-            .expect("ScriptedBlockingTransport mutex poisoned")
-            .push(bytes.to_vec());
-
-        // Drain *leading* After steps first (sync flavor ignores delay)
-        loop {
-            let next = {
-                let mut steps = self
-                    .steps
-                    .lock()
-                    .expect("ScriptedBlockingTransport mutex poisoned");
-                match steps.front() {
-                    Some(Step::After { .. }) => steps.pop_front(),
-                    _ => None,
-                }
-            };
-            match next {
-                Some(Step::After { responses, .. }) => {
-                    for response in responses {
-                        let _ = self.response_tx.send(Ok(response));
+        for delivery in self.script.on_send(bytes) {
+            match delivery {
+                Delivery::Now(reply) => self.script.deliver(reply),
+                Delivery::After(_, batch) => {
+                    for reply in batch {
+                        self.script.deliver(reply);
                     }
-                }
-                _ => break,
-            }
-        }
-
-        // Only look at the front; never pop InjectError here
-        let step = {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            match steps.front() {
-                Some(Step::InjectError(_)) => None,
-                Some(Step::After { .. }) => None,
-                Some(Step::OnSend { .. }) | Some(Step::DynamicResponse(_)) => steps.pop_front(),
-                None => None,
-            }
-        };
-
-        if let Some(step) = step {
-            match step {
-                Step::OnSend { matches, responses } => {
-                    let should_respond = matches
-                        .as_ref()
-                        .is_none_or(|pattern| bytes.starts_with(pattern));
-
-                    if should_respond {
-                        for response in responses {
-                            let _ = self.response_tx.send(Ok(response));
-                        }
-                        // After consuming OnSend, drain any newly-leading After steps
-                        loop {
-                            let next = {
-                                let mut steps = self
-                                    .steps
-                                    .lock()
-                                    .expect("ScriptedBlockingTransport mutex poisoned");
-                                match steps.front() {
-                                    Some(Step::After { .. }) => steps.pop_front(),
-                                    _ => None,
-                                }
-                            };
-                            match next {
-                                Some(Step::After { responses, .. }) => {
-                                    for response in responses {
-                                        let _ = self.response_tx.send(Ok(response));
-                                    }
-                                }
-                                _ => break,
-                            }
-                        }
-                    } else {
-                        self.steps
-                            .lock()
-                            .expect("ScriptedBlockingTransport mutex poisoned")
-                            .push_front(Step::OnSend { matches, responses });
-                    }
-                }
-                Step::DynamicResponse(func) => {
-                    let responses = func(bytes);
-                    for response in responses {
-                        let _ = self.response_tx.send(Ok(response));
-                    }
-                    // Drain any leading After now visible
-                    loop {
-                        let next = {
-                            let mut steps = self
-                                .steps
-                                .lock()
-                                .expect("ScriptedBlockingTransport mutex poisoned");
-                            match steps.front() {
-                                Some(Step::After { .. }) => steps.pop_front(),
-                                _ => None,
-                            }
-                        };
-                        match next {
-                            Some(Step::After { responses, .. }) => {
-                                for response in responses {
-                                    let _ = self.response_tx.send(Ok(response));
-                                }
-                            }
-                            _ => break,
-                        }
-                    }
-                }
-                Step::After { .. } => {
-                    unreachable!("After steps are handled before main match block");
-                }
-                Step::InjectError(_) => {
-                    unreachable!("InjectError is never popped in send_with_timeout()");
                 }
             }
         }
-
         Ok(())
     }
 
@@ -573,77 +491,44 @@ impl BlockingTransport for ScriptedBlockingTransport {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome> {
-        // Check for injected errors first
-        {
-            let mut steps = self
-                .steps
-                .lock()
-                .expect("ScriptedBlockingTransport mutex poisoned");
-            if let Some(Step::InjectError(_)) = steps.front() {
-                let error = match steps
-                    .pop_front()
-                    .expect("No error step available in scripted transport")
-                {
-                    Step::InjectError(e) => e,
-                    _ => unreachable!(),
-                };
-                return Err(error);
-            }
+        if let Some(error) = self.script.take_injected_error() {
+            return Err(error);
         }
 
-        // Use the provided timeout for the receive operation
-        // If timeout is zero, check for data immediately without blocking
-        let actual_timeout = if timeout.is_zero() {
-            // Use a minimal timeout for zero-wait polling
-            Duration::from_micros(1)
-        } else {
-            timeout
+        // A zero timeout polls: check for a queued reply without blocking.
+        // A timeout too long to express as a deadline waits indefinitely.
+        let timeout = timeout.max(Duration::from_micros(1));
+        let reply = match std::time::Instant::now().checked_add(timeout) {
+            Some(deadline) => self.script.replies_rx.recv_deadline(deadline).ok(),
+            None => self.script.replies_rx.recv().ok(),
         };
-
-        match self.response_rx.recv_timeout(actual_timeout) {
-            Ok(Ok(response)) => Ok(ReceiveOutcome::copy_message(&response, dst)),
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(Error::io_timeout()),
-        }
+        reply
+            .map(|reply| ReceiveOutcome::copy_message(&reply, dst))
+            .ok_or_else(Error::io_timeout)
     }
 }
 
 #[cfg(feature = "blocking")]
 impl HasTransportConfig for ScriptedBlockingTransport {
     fn transport_config(&self) -> &TransportConfig {
-        &self.transport_config
+        &self.config
     }
 }
 
-/// Helper functions for creating common VISCA response patterns
+/// Script steps for common camera behaviours.
+///
+/// The reply frames come from one module, `src/testing/frames.rs`, which the
+/// integration suite also compiles; see its documentation for the reply
+/// grammar and the one Buffer Full shape.
 pub mod helpers {
     use super::Step;
 
-    /// VISCA terminator byte
-    pub const VISCA_TERMINATOR: u8 = 0xFF;
-
-    /// Create an ACK response for the given socket number (0-7)
-    pub fn ack(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x40 | (socket & 0x0F), VISCA_TERMINATOR]
-    }
-
-    /// Create a completion response for the given socket number (0-7)
-    pub fn complete(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x50 | (socket & 0x0F), VISCA_TERMINATOR]
-    }
-
-    /// Create a NOT EXECUTABLE response for the given socket number (0-7)
-    /// Returns error code 0x41 (Command Not Executable, per VISCA spec)
-    pub fn not_executable(socket: u8) -> Vec<u8> {
-        vec![0x90, 0x60 | (socket & 0x0F), 0x41, VISCA_TERMINATOR]
-    }
-
-    /// Create a BUFFER FULL response
-    /// Returns error code 0x03 (Command Buffer Full, per VISCA spec)
-    /// Note: BufferFull errors don't have a socket assignment as the command wasn't accepted
-    pub fn buffer_full(_socket: u8) -> Vec<u8> {
-        vec![0x90, 0x60, 0x03, VISCA_TERMINATOR] // No socket bits in 0x60 for buffer full
-    }
+    // The frames a downstream script needs to build its own steps; the error
+    // replies are reachable as ready-made steps in [`errors`].
+    pub use crate::testing::frames::{
+        ack, buffer_full, complete, inquiry_reply, not_executable, sony_reply, sony_sequence,
+    };
+    use crate::testing::frames::{canceled, no_socket, syntax_error};
 
     /// Create a standard command response (ACK followed by completion)
     pub fn standard_command_response(socket: u8) -> Step {
@@ -671,30 +556,12 @@ pub mod helpers {
 
     /// Create a BUFFER FULL response followed by successful completion after retry
     pub fn buffer_full_then_success(socket: u8) -> Vec<Step> {
-        vec![
-            Step::OnSend {
-                matches: None,
-                responses: vec![buffer_full(0)], // BufferFull has no socket assignment
-            },
-            Step::OnSend {
-                matches: None,
-                responses: vec![ack(socket), complete(socket)], // Retry succeeds with socket assignment
-            },
-        ]
+        buffer_full_sequence_then_success(socket, 1)
     }
 
     /// Create a NOT EXECUTABLE response followed by successful completion after retry
     pub fn not_executable_then_success(socket: u8) -> Vec<Step> {
-        vec![
-            Step::OnSend {
-                matches: None,
-                responses: vec![not_executable(socket)],
-            },
-            Step::OnSend {
-                matches: None,
-                responses: vec![ack(socket), complete(socket)],
-            },
-        ]
+        not_executable_sequence_then_success(socket, 1)
     }
 
     /// Create a transient inquiry SYNTAX ERROR (0x02) followed by a successful
@@ -708,7 +575,7 @@ pub mod helpers {
         vec![
             Step::OnSend {
                 matches: Some(pattern.clone()),
-                responses: vec![vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]],
+                responses: vec![syntax_error()],
             },
             Step::OnSend {
                 matches: Some(pattern),
@@ -717,181 +584,90 @@ pub mod helpers {
         ]
     }
 
-    /// Create a sequence of BUFFER FULL responses followed by success
+    /// Create `full_count` BUFFER FULL refusals followed by ACK and completion
+    /// on `socket`. Buffer Full carries no socket: the camera never accepted
+    /// the refused sends.
     pub fn buffer_full_sequence_then_success(socket: u8, full_count: usize) -> Vec<Step> {
-        let mut steps = Vec::new();
-
-        // Add BUFFER FULL responses
-        for _ in 0..full_count {
-            steps.push(Step::OnSend {
-                matches: None,
-                responses: vec![buffer_full(socket)],
-            });
-        }
-
-        // Add final success response
-        steps.push(Step::OnSend {
-            matches: None,
-            responses: vec![ack(socket), complete(socket)],
-        });
-
-        steps
+        refusals_then_success(buffer_full(), full_count, socket)
     }
 
     /// Create a sequence of NOT EXECUTABLE responses followed by success
     pub fn not_executable_sequence_then_success(socket: u8, error_count: usize) -> Vec<Step> {
-        let mut steps = Vec::new();
+        refusals_then_success(not_executable(socket), error_count, socket)
+    }
 
-        // Add NOT EXECUTABLE responses
-        for _ in 0..error_count {
-            steps.push(Step::OnSend {
+    fn refusals_then_success(refusal: Vec<u8>, count: usize, socket: u8) -> Vec<Step> {
+        std::iter::repeat_n(refusal, count)
+            .map(|frame| Step::OnSend {
                 matches: None,
-                responses: vec![not_executable(socket)],
-            });
-        }
-
-        // Add final success response
-        steps.push(Step::OnSend {
-            matches: None,
-            responses: vec![ack(socket), complete(socket)],
-        });
-
-        steps
+                responses: vec![frame],
+            })
+            .chain(std::iter::once(standard_command_response(socket)))
+            .collect()
     }
 
     /// Auto-response mode: generate appropriate response for any VISCA command
     /// This is useful for tests that don't care about specific command details
     pub fn auto_respond_step() -> Step {
-        Step::OnSend {
-            matches: None,
-            responses: vec![ack(1), complete(1)], // Default to socket 1
-        }
+        standard_command_response(1) // Default to socket 1
     }
 
-    /// Create an ACK response with Sony envelope for the given socket number (0-7)
-    pub fn sony_ack(socket: u8) -> Vec<u8> {
-        vec![
-            0x01,
-            0x11,
-            0x00,
-            0x03,
-            0x00,
-            0x00,
-            0x00,
-            0x00, // Sony header
-            0x90,
-            0x40 | (socket & 0x0F),
-            VISCA_TERMINATOR,
-        ]
-    }
-
-    /// Create a completion response with Sony envelope for the given socket number (0-7)
-    pub fn sony_complete(socket: u8) -> Vec<u8> {
-        sony_complete_with_sequence(socket, 0)
-    }
-
-    /// Create an ACK response with Sony envelope and specific sequence number
-    pub fn sony_ack_with_sequence(socket: u8, sequence: u32) -> Vec<u8> {
-        let seq_bytes = sequence.to_be_bytes();
-        vec![
-            0x01,
-            0x11,
-            0x00,
-            0x03,
-            seq_bytes[0],
-            seq_bytes[1],
-            seq_bytes[2],
-            seq_bytes[3], // Sony header with sequence
-            0x90,
-            0x40 | (socket & 0x0F),
-            VISCA_TERMINATOR,
-        ]
-    }
-
-    /// Create a completion response with Sony envelope and specific sequence number
-    pub fn sony_complete_with_sequence(socket: u8, sequence: u32) -> Vec<u8> {
-        let seq_bytes = sequence.to_be_bytes();
-        vec![
-            0x01,
-            0x11,
-            0x00,
-            0x03,
-            seq_bytes[0],
-            seq_bytes[1],
-            seq_bytes[2],
-            seq_bytes[3], // Sony header with sequence
-            0x90,
-            0x50 | (socket & 0x0F),
-            VISCA_TERMINATOR,
-        ]
-    }
-
-    /// Auto-response mode for Sony cameras: generate Sony envelope responses
-    /// This function returns a Step that dynamically extracts the sequence number
-    /// from the incoming command and echoes it back in the responses.
+    /// Auto-response mode for Sony cameras: every send is answered with an ACK
+    /// and a completion on socket 1, each wrapped in the Sony envelope that
+    /// echoes the request's sequence number (sequence 0 for a request that is
+    /// not enveloped).
     pub fn sony_auto_respond_step() -> Step {
         Step::DynamicResponse(Box::new(|sent_bytes| {
-            let sequence = if sent_bytes.len() >= 8 {
-                u32::from_be_bytes([sent_bytes[4], sent_bytes[5], sent_bytes[6], sent_bytes[7]])
-            } else {
-                0
-            };
-
+            let sequence = sony_sequence(sent_bytes).unwrap_or(0);
             vec![
-                sony_ack_with_sequence(1, sequence),
-                sony_complete_with_sequence(1, sequence),
+                sony_reply(sequence, &ack(1)),
+                sony_reply(sequence, &complete(1)),
             ]
         }))
     }
 
     /// Create a power inquiry response
     pub fn power_inquiry_response(power_on: bool) -> Step {
-        let data = if power_on {
-            vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]
-        } else {
-            vec![0x90, 0x50, 0x03, VISCA_TERMINATOR]
-        };
-
-        inquiry_response(vec![0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR], 1, data)
+        let state = if power_on { 0x02 } else { 0x03 };
+        inquiry_response(
+            vec![0x81, 0x09, 0x04, 0x00, crate::command::VISCA_TERMINATOR],
+            1,
+            inquiry_reply(&[state]),
+        )
     }
 
     /// Common error responses
     pub mod errors {
-        use super::{Step, VISCA_TERMINATOR};
+        use super::Step;
         use crate::Error;
 
-        /// Generate a syntax error response
-        pub fn syntax_error(_socket: u8) -> Step {
-            // Syntax errors come without ACK, so they don't have socket assignment
-            // Per VISCA spec, immediate errors use 0x60 without socket bits
+        fn reply(frame: Vec<u8>) -> Step {
             Step::OnSend {
                 matches: None,
-                responses: vec![vec![0x90, 0x60, 0x02, VISCA_TERMINATOR]],
+                responses: vec![frame],
             }
         }
 
-        /// Generate a command buffer full error response
-        pub fn command_buffer_full(socket: u8) -> Step {
-            Step::OnSend {
-                matches: None,
-                responses: vec![vec![0x90, 0x60 | socket, 0x03, VISCA_TERMINATOR]],
-            }
+        /// Generate a syntax error response (no socket: the message was never
+        /// accepted).
+        pub fn syntax_error() -> Step {
+            reply(super::syntax_error())
+        }
+
+        /// Generate a command buffer full error response (no socket: the
+        /// command was never accepted).
+        pub fn command_buffer_full() -> Step {
+            reply(super::buffer_full())
         }
 
         /// Generate a command canceled response
         pub fn command_canceled(socket: u8) -> Step {
-            Step::OnSend {
-                matches: None,
-                responses: vec![vec![0x90, 0x60 | socket, 0x04, VISCA_TERMINATOR]],
-            }
+            reply(super::canceled(socket))
         }
 
         /// Generate a no socket available error response
         pub fn no_socket() -> Step {
-            Step::OnSend {
-                matches: None,
-                responses: vec![vec![0x90, 0x60, 0x05, VISCA_TERMINATOR]],
-            }
+            reply(super::no_socket(0))
         }
 
         /// Generate a transport timeout error
@@ -908,20 +684,6 @@ pub mod helpers {
     }
 }
 
-#[cfg(feature = "async")]
-impl<E> HasTransportConfig for ScriptedTransport<E> {
-    fn transport_config(&self) -> &TransportConfig {
-        // Return custom config if set, otherwise fall back to static default
-        if let Some(ref config) = self.config {
-            config
-        } else {
-            static DEFAULT_CONFIG: std::sync::OnceLock<TransportConfig> =
-                std::sync::OnceLock::new();
-            DEFAULT_CONFIG.get_or_init(TransportConfig::default)
-        }
-    }
-}
-
 #[cfg(all(test, any(feature = "async", feature = "blocking")))]
 mod tests {
     use super::*;
@@ -929,6 +691,7 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
     #[cfg(feature = "async")]
     use crate::testing::testkit::DeterministicExecutor;
+    use crate::transport::ReceiveOutcome;
 
     #[test]
     #[cfg(feature = "blocking")]
@@ -1072,5 +835,129 @@ mod tests {
                 .copied_len();
             assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
         });
+    }
+
+    /// A scripted receive error is surfaced unchanged, not as a timeout.
+    fn scripted_connection_loss() -> Vec<Step> {
+        vec![
+            helpers::errors::connection_lost(),
+            helpers::standard_command_response(1),
+        ]
+    }
+
+    fn assert_connection_lost(result: Result<ReceiveOutcome>) {
+        match result {
+            Err(Error::ConnectionClosed { reason }) => {
+                assert_eq!(reason.as_deref(), Some("Test connection lost"));
+            }
+            other => panic!("expected the scripted ConnectionClosed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "blocking")]
+    #[allow(clippy::unwrap_used)]
+    fn blocking_receive_surfaces_the_scripted_error_then_the_script_resumes() {
+        let mut transport = ScriptedBlockingTransport::new(scripted_connection_loss());
+        let mut buffer = [0u8; 16];
+        assert_connection_lost(transport.recv_into_with_timeout(&mut buffer, Duration::ZERO));
+        transport
+            .send_with_timeout(
+                &[0x81, 0x01, VISCA_TERMINATOR],
+                CommandKind::Command,
+                Duration::ZERO,
+            )
+            .unwrap();
+        let n = transport
+            .recv_into_with_timeout(&mut buffer, Duration::ZERO)
+            .unwrap()
+            .copied_len();
+        assert_eq!(&buffer[..n], helpers::ack(1).as_slice());
+    }
+
+    #[test]
+    #[cfg(feature = "async")]
+    #[allow(clippy::unwrap_used)]
+    fn async_receive_surfaces_the_scripted_error_then_the_script_resumes() {
+        let (executor, _clock) = DeterministicExecutor::new();
+        let mut transport =
+            ScriptedTransport::new(scripted_connection_loss()).with_executor(Arc::clone(&executor));
+        executor.run_until(async {
+            let mut buffer = [0u8; 16];
+            assert_connection_lost(transport.recv_into(&mut buffer).await);
+            transport
+                .send(&[0x81, 0x01, VISCA_TERMINATOR])
+                .await
+                .unwrap();
+            let n = transport.recv_into(&mut buffer).await.unwrap().copied_len();
+            assert_eq!(&buffer[..n], helpers::ack(1).as_slice());
+        });
+    }
+
+    /// `After` batches are released in script order around the consumed step.
+    #[test]
+    #[cfg(feature = "blocking")]
+    #[allow(clippy::unwrap_used)]
+    fn blocking_send_releases_after_batches_in_script_order() {
+        let mut transport = ScriptedBlockingTransport::new(vec![
+            Step::after(Duration::from_secs(5), vec![vec![0x01]]),
+            Step::on_send(None, vec![vec![0x02]]),
+            Step::after(Duration::from_secs(5), vec![vec![0x03], vec![0x04]]),
+            Step::on_send(None, vec![vec![0x05]]),
+        ]);
+        transport
+            .send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+            .unwrap();
+        let mut buffer = [0u8; 4];
+        let mut received = Vec::new();
+        while let Ok(outcome) = transport.recv_into_with_timeout(&mut buffer, Duration::ZERO) {
+            received.push(buffer[..outcome.copied_len()].to_vec());
+        }
+        assert_eq!(received, [[0x01], [0x02], [0x03], [0x04]]);
+    }
+
+    /// Poisons a script's lock: a thread panics while holding it.
+    fn poison(script: &Script) {
+        let core = Arc::clone(&script.core);
+        let _ = std::thread::spawn(move || {
+            let _held = core.lock();
+            panic!("a thread panics while holding the script lock");
+        })
+        .join();
+    }
+
+    /// A panicking dynamic response runs outside the script lock, so the
+    /// script stays usable after it.
+    #[test]
+    #[cfg(feature = "blocking")]
+    fn a_panicking_dynamic_response_does_not_poison_the_script() {
+        let transport =
+            ScriptedBlockingTransport::new(vec![Step::DynamicResponse(Box::new(|_| {
+                panic!("dynamic response panics")
+            }))]);
+        let mut sender = transport.clone();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sender.send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+        }));
+        assert!(result.is_err(), "the dynamic response panicked");
+        assert_eq!(transport.sent(), vec![vec![0x81]]);
+    }
+
+    #[test]
+    #[cfg(feature = "blocking")]
+    #[should_panic(expected = "ScriptedBlockingTransport script mutex poisoned")]
+    fn blocking_poison_panic_names_the_blocking_transport() {
+        let transport = ScriptedBlockingTransport::new(vec![]);
+        poison(&transport.script);
+        let _ = transport.sent();
+    }
+
+    #[test]
+    #[cfg(feature = "async")]
+    #[should_panic(expected = "ScriptedTransport script mutex poisoned")]
+    fn async_poison_panic_names_the_async_transport() {
+        let transport = ScriptedTransport::<DeterministicExecutor>::new(vec![]);
+        poison(&transport.script);
+        let _ = transport.sent();
     }
 }

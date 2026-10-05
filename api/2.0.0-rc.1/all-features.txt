@@ -27056,59 +27056,55 @@ pub fn grafton_visca::testing::testkit::executor_selection::TestExecutors::for_l
 pub fn grafton_visca::testing::testkit::executor_selection::TestExecutors::for_timeout_tests() -> grafton_visca::testing::testkit::executor_selection::TestExecutorType
 pub mod grafton_visca::testing::testkit::helpers
 pub mod grafton_visca::testing::testkit::helpers::errors
-pub fn grafton_visca::testing::testkit::helpers::errors::command_buffer_full(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
+pub fn grafton_visca::testing::testkit::helpers::errors::command_buffer_full() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::errors::command_canceled(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::errors::connection_lost() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::errors::no_socket() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::helpers::errors::syntax_error(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
+pub fn grafton_visca::testing::testkit::helpers::errors::syntax_error() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::errors::transport_timeout() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub const grafton_visca::testing::testkit::helpers::VISCA_TERMINATOR: u8
 pub fn grafton_visca::testing::testkit::helpers::ack(u8) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::helpers::auto_respond_step() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::helpers::buffer_full(u8) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::helpers::buffer_full() -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::helpers::buffer_full_sequence_then_success(u8, usize) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::helpers::buffer_full_then_success(u8) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::helpers::command_response(alloc::vec::Vec<u8>, u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::complete(u8) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::helpers::inquiry_reply(&[u8]) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::helpers::inquiry_response(alloc::vec::Vec<u8>, u8, alloc::vec::Vec<u8>) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::not_executable(u8) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::helpers::not_executable_sequence_then_success(u8, usize) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::helpers::not_executable_then_success(u8) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::helpers::power_inquiry_response(bool) -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::helpers::sony_ack(u8) -> alloc::vec::Vec<u8>
-pub fn grafton_visca::testing::testkit::helpers::sony_ack_with_sequence(u8, u32) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::helpers::sony_auto_respond_step() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::helpers::sony_complete(u8) -> alloc::vec::Vec<u8>
-pub fn grafton_visca::testing::testkit::helpers::sony_complete_with_sequence(u8, u32) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::helpers::sony_reply(u32, &[u8]) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::helpers::sony_sequence(&[u8]) -> core::option::Option<u32>
 pub fn grafton_visca::testing::testkit::helpers::standard_command_response(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::helpers::syntax_error_then_inquiry_success(alloc::vec::Vec<u8>, alloc::vec::Vec<u8>) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub mod grafton_visca::testing::testkit::scripted_transport
 pub mod grafton_visca::testing::testkit::scripted_transport::helpers
 pub mod grafton_visca::testing::testkit::scripted_transport::helpers::errors
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::command_buffer_full(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::command_buffer_full() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::command_canceled(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::connection_lost() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::no_socket() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::syntax_error(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::syntax_error() -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::errors::transport_timeout() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub const grafton_visca::testing::testkit::scripted_transport::helpers::VISCA_TERMINATOR: u8
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::ack(u8) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::auto_respond_step() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::buffer_full(u8) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::buffer_full() -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::buffer_full_sequence_then_success(u8, usize) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::buffer_full_then_success(u8) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::command_response(alloc::vec::Vec<u8>, u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::complete(u8) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::inquiry_reply(&[u8]) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::inquiry_response(alloc::vec::Vec<u8>, u8, alloc::vec::Vec<u8>) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::not_executable(u8) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::not_executable_sequence_then_success(u8, usize) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::not_executable_then_success(u8) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::power_inquiry_response(bool) -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_ack(u8) -> alloc::vec::Vec<u8>
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_ack_with_sequence(u8, u32) -> alloc::vec::Vec<u8>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_auto_respond_step() -> grafton_visca::testing::testkit::scripted_transport::Step
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_complete(u8) -> alloc::vec::Vec<u8>
-pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_complete_with_sequence(u8, u32) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_reply(u32, &[u8]) -> alloc::vec::Vec<u8>
+pub fn grafton_visca::testing::testkit::scripted_transport::helpers::sony_sequence(&[u8]) -> core::option::Option<u32>
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::standard_command_response(u8) -> grafton_visca::testing::testkit::scripted_transport::Step
 pub fn grafton_visca::testing::testkit::scripted_transport::helpers::syntax_error_then_inquiry_success(alloc::vec::Vec<u8>, alloc::vec::Vec<u8>) -> alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>
 #[non_exhaustive] pub enum grafton_visca::testing::testkit::scripted_transport::Step
@@ -27139,6 +27135,7 @@ impl grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransp
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::add_response(&self, alloc::vec::Vec<u8>)
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::new(impl core::convert::Into<alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>>) -> Self
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::sent(&self) -> alloc::vec::Vec<alloc::vec::Vec<u8>>
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::with_config(self, grafton_visca::transport::TransportConfig) -> Self
 impl core::clone::Clone for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::clone(&self) -> grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
 impl core::fmt::Debug for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
@@ -27291,6 +27288,7 @@ impl grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransp
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::add_response(&self, alloc::vec::Vec<u8>)
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::new(impl core::convert::Into<alloc::vec::Vec<grafton_visca::testing::testkit::scripted_transport::Step>>) -> Self
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::sent(&self) -> alloc::vec::Vec<alloc::vec::Vec<u8>>
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::with_config(self, grafton_visca::transport::TransportConfig) -> Self
 impl core::clone::Clone for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::clone(&self) -> grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
 impl core::fmt::Debug for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
@@ -30002,8 +30000,6 @@ impl<T> core::marker::Unpin for grafton_visca::units::ViscaUnits<T> where T: cor
 impl<T> core::marker::UnsafeUnpin for grafton_visca::units::ViscaUnits<T> where T: core::marker::UnsafeUnpin
 impl<T> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::units::ViscaUnits<T> where T: core::panic::unwind_safe::RefUnwindSafe
 impl<T> core::panic::unwind_safe::UnwindSafe for grafton_visca::units::ViscaUnits<T> where T: core::panic::unwind_safe::UnwindSafe
-pub macro grafton_visca::logic_test!
-pub macro grafton_visca::timeout_test!
 pub macro grafton_visca::visca_command!
 pub macro grafton_visca::visca_range_type!
 pub enum grafton_visca::AffectedAxis

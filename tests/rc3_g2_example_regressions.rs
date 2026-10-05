@@ -7,116 +7,48 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-use std::{
-    collections::VecDeque,
-    fmt,
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
-};
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use std::{thread, time::Duration};
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::profiles::PtzOpticsG2,
-    command::CommandKind,
     profile::ProfileSpec,
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
-    CancellationOutcome, Error, HaltOutcome,
+    transport::SendSemantics,
+    CancellationOutcome, HaltOutcome,
 };
 
+use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP, ZOOM_TELE};
+
 const PAN_TILT_STOP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0c, 0x0a, 0x03, 0x03, 0xff];
-const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
-const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
-const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
 
-type Script = Box<dyn FnMut(&[u8]) -> Vec<Vec<u8>> + Send>;
-
-struct ScriptedG2 {
-    config: TransportConfig,
-    replies: VecDeque<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    script: Script,
-}
-
-impl fmt::Debug for ScriptedG2 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ScriptedG2").finish_non_exhaustive()
-    }
-}
-
-impl ScriptedG2 {
-    fn new(script: Script) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                config: TransportConfig::default(),
-                replies: VecDeque::new(),
-                writes: Arc::clone(&writes),
-                script,
-            },
-            writes,
-        )
-    }
-}
-
-impl HasTransportConfig for ScriptedG2 {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for ScriptedG2 {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.writes.lock().unwrap().push(bytes.to_vec());
-        let replies = (self.script)(bytes);
-        self.replies.extend(replies);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        destination: &mut [u8],
-        timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        match self.replies.pop_front() {
-            Some(reply) => Ok(ReceiveOutcome::copy_message(&reply, destination)),
-            None => {
-                thread::sleep(timeout.min(Duration::from_millis(5)));
-                Err(Error::io_timeout())
-            }
-        }
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Stream
-    }
-}
-
-fn g2_session(script: Script) -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-    let (transport, writes) = ScriptedG2::new(script);
-    let session = Session::open(
-        transport,
+/// A G2 on a byte stream: a session over `camera` on the real profile.
+fn g2_session(camera: &FakeCamera) -> Session {
+    Session::open(
+        camera.blocking_wire().with_semantics(SendSemantics::Stream),
         SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile")),
     )
-    .expect("session");
-    (session, writes)
+    .expect("session")
 }
 
-const FOCUS_STOP_MANUAL_REPLY: [[u8; 3]; 2] = [[0x90, 0x42, 0xff], [0x90, 0x52, 0xff]];
-
-fn halt_script(focus: Vec<Vec<u8>>) -> Script {
-    Box::new(move |bytes: &[u8]| match bytes {
-        b if b == PAN_TILT_STOP => vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]],
-        b if b == ZOOM_STOP => vec![vec![0x90, 0x42, 0xff], vec![0x90, 0x52, 0xff]],
-        b if b == FOCUS_STOP => focus.clone(),
-        _ => Vec::new(),
+/// The G2's halt answers: pan/tilt STOP completes on socket one and zoom STOP
+/// on socket two; the focus STOP draws `focus`.
+fn halt_camera(focus: Vec<Vec<u8>>) -> FakeCamera {
+    FakeCamera::new(move |bytes, answer| match bytes {
+        b if b == PAN_TILT_STOP => {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+        b if b == ZOOM_STOP => {
+            answer.reply(frames::ack(2)).reply(frames::complete(2));
+        }
+        b if b == FOCUS_STOP => {
+            for reply in &focus {
+                answer.reply(reply.clone());
+            }
+        }
+        _ => {}
     })
 }
 
@@ -135,23 +67,22 @@ fn all_writes() -> Vec<Vec<u8>> {
 /// its zoom STOP unconditionally rather than only after a refused cancel.
 #[test]
 fn g2_cancel_after_immediate_completion_is_completed_and_sends_nothing() {
-    let (session, writes) = g2_session(Box::new(|bytes: &[u8]| {
+    let fake = FakeCamera::new(|bytes, answer| {
         if bytes == ZOOM_TELE {
-            vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]
-        } else {
-            Vec::new()
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
         }
-    }));
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    });
+    let session = g2_session(&fake);
+    let view = session.camera::<PtzOpticsG2>().expect("camera");
 
-    let mut operation = camera.zoom().tele().expect("tele admitted");
+    let mut operation = view.zoom().tele().expect("tele admitted");
     thread::sleep(Duration::from_millis(100));
     let outcome = operation.cancel();
     assert!(
         matches!(outcome, Ok(CancellationOutcome::Completed)),
         "{outcome:?}"
     );
-    assert_eq!(writes.lock().unwrap().as_slice(), &[ZOOM_TELE.to_vec()]);
+    assert_eq!(fake.writes(), [ZOOM_TELE.to_vec()]);
     session.shutdown().expect("shutdown");
 }
 
@@ -165,10 +96,11 @@ fn g2_cancel_after_immediate_completion_is_completed_and_sends_nothing() {
 /// must inspect each axis instead.
 #[test]
 fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
-    let (session, writes) = g2_session(halt_script(vec![vec![0x90, 0x61, 0x41, 0xff]]));
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let fake = halt_camera(vec![frames::not_executable(1)]);
+    let session = g2_session(&fake);
+    let view = session.camera::<PtzOpticsG2>().expect("camera");
 
-    let report = camera.motion().stop_all_motion().expect("halt accepted");
+    let report = view.motion().stop_all_motion().expect("halt accepted");
 
     assert!(
         matches!(report.pan_tilt, HaltOutcome::Applied),
@@ -177,7 +109,7 @@ fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
     assert!(matches!(report.zoom, HaltOutcome::Applied), "{report:?}");
     assert!(matches!(report.focus, HaltOutcome::Failed(_)), "{report:?}");
     assert!(report.into_result().is_err());
-    assert_eq!(writes.lock().unwrap().as_slice(), all_writes());
+    assert_eq!(fake.writes(), all_writes());
     session.shutdown().expect("shutdown");
 }
 
@@ -186,12 +118,11 @@ fn g2_auto_focus_halt_report_keeps_pan_tilt_and_zoom_applied() {
 /// example exits 0.
 #[test]
 fn g2_manual_focus_halt_report_is_all_applied() {
-    let (session, writes) = g2_session(halt_script(
-        FOCUS_STOP_MANUAL_REPLY.iter().map(|r| r.to_vec()).collect(),
-    ));
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+    let fake = halt_camera(vec![frames::ack(2), frames::complete(2)]);
+    let session = g2_session(&fake);
+    let view = session.camera::<PtzOpticsG2>().expect("camera");
 
-    let report = camera.motion().stop_all_motion().expect("halt accepted");
+    let report = view.motion().stop_all_motion().expect("halt accepted");
 
     assert!(
         matches!(report.pan_tilt, HaltOutcome::Applied),
@@ -200,6 +131,6 @@ fn g2_manual_focus_halt_report_is_all_applied() {
     assert!(matches!(report.zoom, HaltOutcome::Applied), "{report:?}");
     assert!(matches!(report.focus, HaltOutcome::Applied), "{report:?}");
     assert!(report.into_result().is_ok());
-    assert_eq!(writes.lock().unwrap().as_slice(), all_writes());
+    assert_eq!(fake.writes(), all_writes());
     session.shutdown().expect("shutdown");
 }

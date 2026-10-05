@@ -2,19 +2,20 @@
 //!
 //! A stream transport (TCP, and serial) must not treat a classifier verdict as a
 //! session verdict. Three defects are pinned here through the real blocking
-//! facade, against the 1.x tolerance they restore:
+//! facade, against the 2.0 stream-decode contract:
 //!
 //! * #672 — a delimited-but-unclassifiable frame (padded ACK, vendor socket
 //!   nibble, RS-485 echo, stray `FF`, truncation, ...) is discarded as a
-//!   malformed frame and the session stays Running, exactly as 1.x logged and
-//!   continued and as a datagram already discards it. Only a genuine framing
-//!   loss (buffer overflow / no boundary) still poisons.
+//!   malformed frame and the session stays Running, as a datagram already
+//!   discards it. Only a genuine framing loss (buffer overflow / no boundary)
+//!   still poisons.
 //! * #674 — a stream read that decodes more than the per-receive frame limit
 //!   stops at the limit and drains the remainder, instead of poisoning the whole
 //!   session over a large-but-valid burst.
 //! * #681 — a single-target IP session whose camera answers with a non-default
 //!   chain address (e.g. `0xA0` for VISCA address 2) still attributes the reply
-//!   to the sole outstanding command (1.x's camera-blind attribution).
+//!   to the sole outstanding command: a single-target session attributes a reply
+//!   by its outstanding command, not by the camera address the reply carries.
 //!
 //! The async twin of the stream-consequence rules is pinned at owner level in
 //! `runtime::owner::async_actor::tests`; this file exercises the shared decode
@@ -22,101 +23,51 @@
 
 #![cfg(feature = "blocking")]
 
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::GenericVisca,
     request::builtin::ZoomStop,
-    transport::{
-        AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
-        SendSemantics, TransportConfig,
-    },
-    Error,
+    transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
 };
+
+use fake_camera::{BlockingWire, FakeCamera};
 
 /// A scripted stream camera. Each queued entry is delivered as one `recv`
 /// read (truncated to the caller's receive buffer, which the tests size large
 /// enough that nothing is dropped) once the command has been written, as a
-/// real camera answers only what it was sent; before that, and once the
-/// script is exhausted, a read reports an idle timeout.
-#[derive(Debug)]
-struct StreamCamera {
-    config: TransportConfig,
-    reads: VecDeque<Vec<u8>>,
-    sent: Arc<Mutex<Vec<Vec<u8>>>>,
-}
-
-impl StreamCamera {
-    fn new(addressing: AddressingMode, reads: Vec<Vec<u8>>) -> Self {
-        // A generous receive buffer so a single scripted read can carry a burst
-        // larger than the per-receive frame limit, reproducing the "more than 64
-        // frames in one read" condition of #674 (a real raw-IP/serial session
-        // uses a 256-byte buffer).
-        let config = {
-            let mut config = TransportConfig::default();
-            config.addressing = addressing;
-            config.buffer_config = {
-                let mut config = BufferConfig::default();
-                config.recv_buffer_size = 1024;
-                config.max_buffer_size = 8192;
-                config
-            };
+/// real camera answers only what it was sent; before that, a read waits for the
+/// camera and reports an idle timeout.
+fn stream_camera(addressing: AddressingMode, reads: Vec<Vec<u8>>) -> BlockingWire {
+    // A generous receive buffer so a single scripted read can carry a burst
+    // larger than the per-receive frame limit, reproducing the "more than 64
+    // frames in one read" condition of #674 (a real raw-IP/serial session
+    // uses a 256-byte buffer).
+    let config = {
+        let mut config = TransportConfig::default();
+        config.addressing = addressing;
+        config.buffer_config = {
+            let mut config = BufferConfig::default();
+            config.recv_buffer_size = 1024;
+            config.max_buffer_size = 8192;
             config
         };
-        Self {
-            config,
-            reads: reads.into(),
-            sent: Arc::new(Mutex::new(Vec::new())),
+        config
+    };
+    let mut script = Some(reads);
+    FakeCamera::new(move |_, answer| {
+        for chunk in script.take().unwrap_or_default() {
+            answer.reply(chunk);
         }
-    }
-}
-
-impl HasTransportConfig for StreamCamera {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for StreamCamera {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.sent.lock().expect("sent lock").push(bytes.to_vec());
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        if self.sent.lock().expect("sent lock").is_empty() {
-            return Err(Error::io_timeout());
-        }
-        let Some(chunk) = self.reads.pop_front() else {
-            return Err(Error::io_timeout());
-        };
-        Ok(ReceiveOutcome::copy_message(&chunk, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Stream
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
+    })
+    .blocking_wire()
+    .with_config(config)
+    .with_semantics(SendSemantics::Stream)
+    .with_addressing(addressing)
 }
 
 fn generic_session_config() -> SessionConfig {
@@ -129,8 +80,8 @@ const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
 /// Run one command against a stream camera scripted with `reads`, asserting the
 /// command is applied and the session stayed usable.
 fn command_settles_over_stream(addressing: AddressingMode, reads: Vec<Vec<u8>>) {
-    let transport = StreamCamera::new(addressing, reads);
-    let session = Session::open(transport, generic_session_config()).expect("owner session");
+    let session = Session::open(stream_camera(addressing, reads), generic_session_config())
+        .expect("owner session");
     let camera = session.camera::<GenericVisca>().expect("camera view");
 
     camera
@@ -149,10 +100,9 @@ fn command_settles_over_stream(addressing: AddressingMode, reads: Vec<Vec<u8>>) 
 /// is involved.
 #[test]
 fn stream_quirky_frames_are_discarded_and_keep_the_session() {
-    // This replay is pinned to the raw `GenericVisca` profile: the malformed
-    // frames below are raw VISCA, not an encapsulated envelope. Constructing the
-    // profile here also records that provenance for the 1.x behavioral oracle.
-    ProfileSpec::from_compile_time::<GenericVisca>().expect("raw GenericVisca profile");
+    // The session's profile is the raw `GenericVisca` profile
+    // (`generic_session_config`), so the malformed frames below are raw VISCA,
+    // not an encapsulated envelope.
     // The sixteen-plus shapes the protocol reviewer probed, each a frame the
     // framer delimits (or absorbs) but the strict classifier will not accept.
     let quirks: &[&[u8]] = &[
@@ -208,7 +158,7 @@ fn serial_stream_echo_and_quirks_are_discarded_and_keep_the_session() {
 /// is durable beyond the lossy diagnostics stream.
 #[test]
 fn a_discarded_malformed_stream_frame_increments_the_published_metric() {
-    let transport = StreamCamera::new(
+    let transport = stream_camera(
         AddressingMode::Ip,
         vec![
             vec![0x90, 0x41, 0x00, 0xff], // padded ACK: delimited but unclassifiable
@@ -271,7 +221,7 @@ fn stream_large_burst_keeps_the_session_and_settles() {
 
 /// Issue #681: a single-target IP session whose camera is configured with VISCA
 /// address 2 answers `A0 ...`. That reply must attribute to the sole outstanding
-/// command (1.x's camera-blind attribution) rather than poisoning the session.
+/// command rather than poisoning the session.
 #[test]
 fn single_target_ip_chain_address_reply_settles_the_command() {
     // The camera answers with its chain address 2 for both the ACK and the
@@ -302,7 +252,7 @@ fn stream_unbounded_garbage_without_a_boundary_still_poisons() {
     // across reads: the framer cannot frame them and cannot recover its
     // position, which is a real loss the session must not survive silently.
     let garbage: Vec<Vec<u8>> = (0..10).map(|_| vec![0x00_u8; 1024]).collect();
-    let transport = StreamCamera::new(AddressingMode::Ip, garbage);
+    let transport = stream_camera(AddressingMode::Ip, garbage);
     let session = Session::open(transport, generic_session_config()).expect("owner session");
     let camera = session.camera::<GenericVisca>().expect("camera view");
 
