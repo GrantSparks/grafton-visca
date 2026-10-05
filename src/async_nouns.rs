@@ -434,6 +434,10 @@ impl<'a, P: CompileTimeProfile> MotionAccessor<'a, P> {
     /// The owner fences older declared motion and independently dispatches STOPs
     /// under one deadline, respecting protocol gates. Inspect each supported axis
     /// in the returned report; application alone does not prove physical rest.
+    /// A STOP the camera refuses is reported promptly and not resent: for
+    /// example a PTZOptics G2 in auto-focus mode answers the focus STOP with
+    /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable), so
+    /// `focus` is `Failed` while the lens is under auto-focus control.
     pub async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
         self.camera.core().stop_all_motion().await
     }

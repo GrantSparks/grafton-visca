@@ -818,7 +818,12 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
-        assert!(matches!(failed.wait().await, Err(Error::SyntaxError)));
+        // The error arrived after the ACK, so it is reported unconfirmed with
+        // the camera's exact error as its source (#795).
+        assert!(matches!(
+            failed.wait().await,
+            Err(Error::CommandFailedAfterAck { source, .. }) if matches!(*source, Error::SyntaxError)
+        ));
 
         let mut operation = handle
             .submit_operation(prepared_zoom(&profile))

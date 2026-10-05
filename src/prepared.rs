@@ -783,11 +783,19 @@ where
     operation.validate_for_profile(profile)?;
     let affected_axes = operation.affected_axes();
     let mut context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
         // Urgent admission authority comes only from the sealed built-in STOP hook.
-        stop: context.control.class == crate::runtime::engine::ControlClass::Urgent,
+        stop,
     });
+    if stop {
+        // A STOP the camera finds not executable (`0x41`, for example a focus
+        // STOP while auto-focus owns the lens) is refused for a standing
+        // reason a resend cannot change, and its caller needs that verdict
+        // promptly. Capacity rejections (`0x03`/`0x05`) still retry (#795).
+        context.retry.movement_not_executable = false;
+    }
     let settlement = K::lower_settlement(
         target,
         profile,
@@ -1054,8 +1062,11 @@ fn retry_policy(
     // `Never` is the sole policy opt-out from automatic replay. These flags
     // are only policy permissions: the engine narrows them further using
     // envelope evidence. Thus sequence-correlated Sony traffic may retry a
-    // lost ACK or post-ACK completion timeout, while a successfully sent raw
-    // command is poisoned on an ambiguous outcome rather than replayed.
+    // lost ACK (same-sequence retransmission, docs/visca_reference.md §5.3),
+    // while a successfully sent raw command is never replayed on an ambiguous
+    // outcome, and no command is written again after its ACK on either
+    // envelope (#795): `completion_timeout` only governs a command that has no
+    // ACK phase.
     let replayable = !matches!(retry_class, RetryClass::Never);
     RetryPolicy {
         max_retries,
@@ -2816,10 +2827,11 @@ mod tests {
         );
         assert!(busy_observer >= busy_budget);
 
-        // Sony's sequence envelope makes a post-ACK completion retry safe.
-        // It may occur at the 30 s completion deadline, so the operation
-        // receipt must observe through the 60 s retry budget rather than
-        // detach at completion's first deadline.
+        // The operation receipt observes through the whole 60 s retry budget
+        // rather than detaching at the 30 s completion deadline, so any
+        // retry the budget still permits (a lost ACK, a busy camera) precedes
+        // the observer's Timeout. An acknowledged command is never rewritten
+        // (#795).
         let sony =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let sony_operation = prepare_operation::<completion::Targeted, _>(
@@ -2836,7 +2848,7 @@ mod tests {
         assert_eq!(sony_budget, Duration::from_secs(60));
         assert!(
             sony_observer > Duration::from_secs(30),
-            "the Sony completion retry must precede observer Timeout"
+            "a Sony retry within the budget must precede observer Timeout"
         );
         assert!(sony_observer >= sony_budget);
     }
@@ -3056,6 +3068,47 @@ mod tests {
         assert!(!policy(RetryClass::Standard));
         assert!(!policy(RetryClass::Inquiry));
         assert!(!policy(RetryClass::Never));
+    }
+
+    /// A typed STOP the camera answers with `0x41` was refused for a standing
+    /// reason (G2 focus STOP in auto-focus), so it is reported at once rather
+    /// than rewritten; capacity rejections still retry. Ordinary movement
+    /// keeps the #566 `0x41` retry.
+    #[test]
+    fn typed_stops_do_not_retry_command_not_executable() {
+        use crate::request::builtin::{FocusStop, ZoomDrive, ZoomStop};
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        let stop_policies = [
+            prepare_builtin_operation::<completion::AppliedOnly, _>(
+                &FocusStop,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+            )
+            .expect("focus stop"),
+            prepare_builtin_operation::<completion::AppliedOnly, _>(
+                &ZoomStop,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+            )
+            .expect("zoom stop"),
+        ];
+        for prepared in &stop_policies {
+            assert!(prepared.context.motion.is_some_and(|motion| motion.stop));
+            assert!(!prepared.context.retry.movement_not_executable);
+            assert!(prepared.context.retry.buffer_full);
+        }
+        let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
+            &ZoomDrive::Tele,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("zoom drive");
+        assert!(drive.context.motion.is_some_and(|motion| !motion.stop));
+        assert!(drive.context.retry.movement_not_executable);
     }
 
     /// Issue #566: the default retry budget is at least the 1.x ten-second

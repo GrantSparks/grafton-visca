@@ -84,18 +84,24 @@ scenario raw-error-unique-evidence-and-authority
 000010 | expect | observer=engine outcome=ack:collision-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
 000011 | frame | target=1 envelope=raw response=completion socket=1
 000011 | expect | observer=collision-command outcome=applied | #542 completion releases all target and socket ownership and emits Applied for the exact request.
-000012 | transmit | id=unowned-socket-command target=1 kind=command envelope=raw
-000013 | frame | target=1 envelope=raw response=error socket=2 code=0x01
-000013 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 named raw error sockets are authoritative and an unowned socket is ignored.
-000014 | frame | target=1 envelope=raw response=error code=0x01
-000014 | expect | observer=unowned-socket-command outcome=error:0x01 | #542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.
-000015 | transmit | id=executing-command target=1 kind=command envelope=raw
-000016 | frame | target=1 envelope=raw response=ack socket=1
-000016 | expect | observer=engine outcome=ack:executing-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
-000017 | frame | target=1 envelope=raw response=error code=0x01
-000017 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 socketless raw errors never target an already Executing command.
-000018 | frame | target=1 envelope=raw response=error socket=1 code=0x01
-000018 | expect | observer=executing-command outcome=error:0x01 | #542 a named raw error socket resolves only its exact target/socket owner.
+000012 | transmit | id=free-socket-inquiry target=1 kind=inquiry envelope=raw route=power
+000013 | transmit | id=free-socket-command target=1 kind=command envelope=raw
+000014 | frame | target=1 envelope=raw response=error socket=2 code=0x01
+000014 | expect | observer=free-socket-command outcome=error:0x01 | #542 a named raw error on a free, unheld socket routes the unique unacknowledged command; an inquiry is never allocated a socket, so its error is socketless.
+000015 | frame | target=1 envelope=raw response=reply route=power payload=on
+000015 | expect | observer=free-socket-inquiry outcome=reply:power:on | #542 raw inquiry replies use route and content matching before FIFO fallback.
+000016 | transmit | id=executing-command target=1 kind=command envelope=raw
+000017 | frame | target=1 envelope=raw response=ack socket=1
+000017 | expect | observer=engine outcome=ack:executing-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+000018 | frame | target=1 envelope=raw response=error code=0x01
+000018 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 socketless raw errors never target an already Executing command.
+000019 | transmit | id=pending-command target=1 kind=command envelope=raw
+000020 | frame | target=1 envelope=raw response=error socket=1 code=0x01
+000020 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 a named raw error on a busy socket is ambiguous while another command is unacknowledged.
+000021 | frame | target=1 envelope=raw response=ack socket=2
+000021 | expect | observer=engine outcome=ack:pending-command:target=1:socket=2 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+000022 | frame | target=1 envelope=raw response=error socket=1 code=0x01
+000022 | expect | observer=executing-command outcome=error-after-ack:0x01 | #542 a named raw error socket resolves only its exact target/socket owner.
 end
 
 scenario sony-stale-duplicate-and-unmatched-never-fallback

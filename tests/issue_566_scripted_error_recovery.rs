@@ -68,6 +68,27 @@ impl Request for StandardCommand {
     }
 }
 
+/// A plain command in the movement retry class and quick timeout class.
+///
+/// `0x41` is replayed for ordinary movement. A typed STOP is deliberately not
+/// this vehicle: a STOP the camera finds not executable (for example a focus
+/// STOP under auto-focus) is reported at once rather than rewritten.
+#[derive(Debug)]
+struct MovementCommand;
+
+impl Request for MovementCommand {
+    type Class = request::Plain;
+    const MAX_SIZE: usize = 3;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+    const RETRY_CLASS: RetryClass = RetryClass::Movement;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+        Ok(3)
+    }
+}
+
 fn session_config() -> SessionConfig {
     SessionConfig::new(
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
@@ -143,16 +164,37 @@ fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
         .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("a refused movement command must be replayed");
     assert_eq!(probe.sent().len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
+/// The same refusal of a typed STOP is conclusive: the camera's standing
+/// condition (a focus STOP under auto-focus) cannot change by resending, so
+/// the STOP reports it at once and the replay step is never consumed.
+#[test]
+fn a_refused_typed_stop_is_terminal() {
+    let (session, probe) = open(helpers::not_executable_then_success(0));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied_with_timeout(Duration::from_secs(5))
+        .expect_err("a refused STOP surfaces the camera's refusal");
+    assert!(
+        matches!(error, Error::CommandNotExecutable),
+        "expected the camera's own refusal, got {error:?}"
+    );
+    assert_eq!(probe.sent().len(), 1, "no replay was attempted");
+    session.shutdown().expect("owner shutdown");
+}
+
 /// `helpers::not_executable_sequence_then_success`: several consecutive
-/// refusals still resolve. `ZoomStop` is `RetryClass::Movement` but
+/// refusals still resolve. `MovementCommand` is `RetryClass::Movement` but
 /// `TimeoutClass::Quick`, so the *count* it is allowed comes from the quick
 /// class; the movement retry class is what decides that `0x41` is replayable
 /// here at all.
@@ -164,9 +206,7 @@ fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
         .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("three refusals stay inside the movement budget of three");
     assert_eq!(probe.sent().len(), 4);
     session.shutdown().expect("owner shutdown");
@@ -306,9 +346,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("the configured budget must absorb one refusal fewer than it allows");
     assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
     session.shutdown().expect("owner shutdown");
@@ -321,9 +359,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect_err("the configured budget must run out rather than replaying on");
     assert!(
         matches!(error, Error::CommandNotExecutable),

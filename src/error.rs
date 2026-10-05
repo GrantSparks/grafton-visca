@@ -20,10 +20,11 @@
 //! | A caller's wait on an admitted operation, cancellation, command, or inquiry expires while the owner still holds the request | Any | Any | [`Error::ObservationTimeout`] (stage `Observation`, certainty `StillLive`) | `false` | Never resubmit: wait again on the handle, or reconcile. `is_retryable()` is `false`. |
 //! | The engine's protocol lifecycle reaches a terminal deadline without correlation ambiguity (ACK, completion, inquiry reply, or retry budget) | Sony, or a raw inquiry | Any | [`Error::Timeout`] (stage `Terminal`; certainty `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry, `NotAccepted` if never sent) | `false` | Follow [`Error::failure_context`]: reconcile an unconfirmed command, retry a conclusively failed inquiry. A timeout alone is not liveness proof. |
 //! | An admission deadline expires before the owner accepts the request | Any | Any | [`Error::Timeout`] (stage `PreAdmission`, certainty `NotAccepted`) | `false` | The request never existed; submitting it again is safe. |
-//! | A sent command's ACK/completion becomes unconfirmable under the default policy | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
+//! | A sent command's ACK/completion becomes unconfirmable under the default policy, including a STOP written inside a `NoReply` command's hold whose only answer was a socketless error that command could also have sent (it binds to neither, #795) | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
 //! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
 //! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
-//! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives; close and reopen the session to recover them. Other cameras and the session keep working. Commands and stops to that camera are still sent, but its socketless error frames stay filtered, so a socketless rejection ends the command [`Error::UnsequencedCommandUnconfirmed`]; settlement polling, `is_moving`, and `wait_until_idle` on it fail. An owed socketless error arriving while a command is live cannot settle the debt. |
+//! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives or a later answer from the camera proves it never will; close and reopen the session to recover them sooner. A raw `CompletionOnly` command left unanswered holds inquiries back the same way, until its completion arrives. Other cameras and the session keep working, and commands and stops to that camera are still sent; settlement polling, `is_moving`, and `wait_until_idle` on it fail. Frames are resolved in write order (#795): the owed reply (data or a socketless rejection) settles the lane, and so does the ACK or rejection of any command written after the inquiry, since the camera answers in order — a camera that never answers that inquiry reopens its inquiries with its next command answer. |
+//! | An ordinary ACK-bearing, `CompletionOnly`, or `NoReply` command to a camera whose earlier command ended [`Error::UnsequencedCommandUnconfirmed`] before its ACK (or completion) after its bytes entered the stream, once that owed answer has still not arrived when the owing command's ambiguity window ends; or a `CompletionOnly` command to a camera that has not answered anything since a `NoReply` command whose ambiguity window has ended | Raw | Stream | [`Error::CommandCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Commands to that camera cannot be correlated until the owed answer arrives or a later answer from the camera proves it never will (the reply to a later inquiry, or the answer to a later STOP); close and reopen the session to recover them sooner. Within the window such commands wait; a late answer is discarded and never acknowledges or completes a later command. A `CompletionOnly` command's owed completion is settled only by itself: if it never comes — a camera that drops it, or a socketless error that it or a STOP behind it could have sent that was in fact its rejection but that the ledger could not prove so within three hand-offs — ordinary commands to that camera stay latched until the session is reopened. STOPs (including the owner halt), inquiries, other cameras, and the session keep working (#795). |
 //! | Request or cancellation send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
 //! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
@@ -31,7 +32,9 @@
 //! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
 //! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. An urgent typed STOP can still use its target's control reserve. |
 //! | An urgent typed STOP finds its target's control reserve and ordinary admission both full | Any | Any | [`Error::ControlReserveExhausted`] | `false` | Back off briefly: earlier stops for that camera are still pending. |
-//! | Camera returns a conclusive protocol rejection | Any | Any | The exact VISCA error variant | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
+//! | Camera returns a conclusive protocol rejection before ACK | Any | Any | The exact VISCA error variant (a typed STOP's `0x41` is reported at once, never retried) | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
+//! | Camera reports an error for a command it already acknowledged | Any | Any | [`Error::CommandFailedAfterAck`] wrapping the exact VISCA error (stage `Terminal`, certainty `Unconfirmed`; not retryable); the engine never writes the command again | `false` | The command may have partly executed: reconcile before resubmitting a relative move or preset (#795). |
+//! | An owner halt supersedes declared motion | Any | Any | [`Error::MotionSuperseded`] (stage `PreAdmission` or `Terminal`; certainty `NotAccepted` if it never reached the camera, `Unconfirmed` if an earlier attempt may have) | `false` | Resubmit only on `NotAccepted`; otherwise reconcile. Not proof of physical rest (#795). |
 //! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
 
 use thiserror::Error as ThisError;
@@ -155,6 +158,10 @@ pub enum ErrorKind {
 /// - `InvalidPreset` - Requested preset is outside the profile's supported range
 /// - `InquiryCorrelationLost` - A camera's raw stream inquiries cannot be
 ///   correlated on this session; reopen it to recover
+/// - `CommandCorrelationLost` - A camera's ordinary raw stream commands cannot
+///   be correlated on this session until an owed answer arrives
+/// - `CommandFailedAfterAck` - The camera failed a command it had accepted;
+///   it may have partly executed
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
@@ -271,6 +278,13 @@ pub enum Error {
     NoSocket,
 
     /// VISCA protocol command not executable (0x41): Command cannot be executed due to current conditions.
+    ///
+    /// Before the camera acknowledged the command, this is a conclusive
+    /// rejection: the command did not start. The owner retries it for
+    /// ordinary movement, but never for a typed STOP (for example a focus
+    /// STOP while auto-focus owns the lens). After an acknowledgement it ends
+    /// the command without any resend, and the command may have partly
+    /// executed; reconcile before resubmitting a relative move or preset.
     #[error("Command is not executable")]
     CommandNotExecutable,
 
@@ -403,13 +417,25 @@ pub enum Error {
         operation: OperationId,
     },
 
-    /// An owner halt superseded older declared motion. A previously written
-    /// attempt may have affected the camera; this is not proof of physical rest.
-    #[error("Motion on {axes:?} was superseded by an owner halt")]
+    /// An owner halt superseded older declared motion before it finished.
+    ///
+    /// `context` reports what is known about the superseded request. Its
+    /// certainty is [`Certainty::NotAccepted`] when no attempt was ever
+    /// written, or when every written attempt was conclusively rejected by
+    /// the camera; resubmitting it is then safe. It is
+    /// [`Certainty::Unconfirmed`] when an earlier attempt may have reached
+    /// the camera; reconcile before resubmitting. The stage is
+    /// [`FailureStage::PreAdmission`] when the fence rejected the submission
+    /// itself and [`FailureStage::Terminal`] when it ended an admitted
+    /// request. Supersession is never proof of physical rest.
+    #[error("Motion on {axes:?} was superseded by an owner halt ({})", context.stage)]
     #[non_exhaustive]
     MotionSuperseded {
         /// Axes selected by the fence.
         axes: crate::AffectedAxes,
+        /// Where the request was superseded, and whether it may have taken
+        /// effect.
+        context: FailureContext,
     },
 
     /// A later admitted operation prevents attribution of polled settlement.
@@ -491,18 +517,26 @@ pub enum Error {
     /// that camera (and every user-declared
     /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) raw
     /// command, whose completion is equally unkeyed) fails with this error
-    /// without being written, until the owed reply arrives.
+    /// without being written, until the owed reply arrives or a later answer
+    /// proves it never will.
     ///
     /// Nothing was sent, so the failure context is `Terminal` /
     /// [`Certainty::NotAccepted`]. It is not retryable on this session: retrying
-    /// fails the same way until the owed reply happens to arrive. The session
-    /// itself is live — other cameras are unaffected, and STOPs and other
-    /// ACK-bearing commands to this camera are still sent, although a socketless
-    /// rejection of one of them is filtered as ambiguous and the command ends
-    /// [`Self::UnsequencedCommandUnconfirmed`]; settlement polling and motion
+    /// fails the same way until the lane reopens. The session itself is live —
+    /// other cameras are unaffected, and STOPs and other ACK-bearing commands
+    /// to this camera are still sent; settlement polling and motion
     /// observation on this camera fail because they need inquiries — so
-    /// [`Self::requires_new_session`] is `false`. To recover this camera's
-    /// inquiries, close and reopen the session.
+    /// [`Self::requires_new_session`] is `false`. Frames on a raw stream are
+    /// resolved in write order, and a camera answers in the order it reads:
+    /// the owed reply (data or a socketless rejection) reopens the lane, and
+    /// so does the first answer to any command written after the inquiry,
+    /// which proves the owed reply will never come. A camera that never
+    /// answers that inquiry therefore keeps accepting commands, and its next
+    /// command answer reopens its inquiries. To recover this camera's
+    /// inquiries sooner, close and reopen the session. A raw
+    /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) command
+    /// whose answer is still owed holds the camera's inquiries back the same
+    /// way: it is exclusive on its camera until its completion arrives.
     #[error(
         "Raw inquiry correlation for {camera} is lost: an earlier inquiry's reply is still \
          owed by the stream, so this request was not sent; reopen the session to recover"
@@ -511,6 +545,67 @@ pub enum Error {
     InquiryCorrelationLost {
         /// The camera whose raw inquiry lane is latched.
         camera: crate::CameraId,
+    },
+
+    /// A raw-TCP (byte-stream) camera still owes the answer to an earlier
+    /// command, so this command was not sent (#795).
+    ///
+    /// The command half of [`Self::InquiryCorrelationLost`]. A stream loses
+    /// nothing it accepted, so a command that ended
+    /// [`Self::UnsequencedCommandUnconfirmed`] before the camera's ACK (or,
+    /// for a [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly)
+    /// command, its completion) will still be answered, ahead of any later
+    /// command, however long a stall delays it. Raw answers carry no identity,
+    /// so that late answer would otherwise acknowledge and complete the next
+    /// command. The session discards it on arrival and holds later ordinary
+    /// commands to the camera for the profile's
+    /// [`ambiguity_timeout`](crate::profile::ProfileTiming::ambiguity_timeout).
+    /// If it has not arrived by then, every ordinary ACK-bearing and
+    /// `CompletionOnly` command to that camera fails with this error without
+    /// being written, until it arrives or a later answer from the camera (the
+    /// reply to a later inquiry, or the answer to a later STOP) proves it
+    /// never will; a `CompletionOnly` command's completion, which comes only
+    /// once it has run, is settled only by itself.
+    ///
+    /// Nothing was sent, so the failure context is `Terminal` /
+    /// [`Certainty::NotAccepted`]. It is not retryable on this session until
+    /// the lane reopens. A `NoReply` command to that camera fails with it
+    /// too: its possible rejection could not be told from the owed answer.
+    /// Conversely a `NoReply` command's own possible rejection, a socketless
+    /// `z0 60 41 FF` that a stall can delay past any window, stays owed until
+    /// a later answer from the camera settles it: past that command's
+    /// ambiguity window a `CompletionOnly` command to the camera, whose own
+    /// rejection could not be told from it, fails with this error too.
+    /// STOPs (including an owner halt), inquiries, and other cameras are never
+    /// blocked, and the session stays
+    /// live, so [`Self::requires_new_session`] is `false`. To recover this
+    /// camera's commands without waiting, close and reopen the session.
+    #[error(
+        "Raw command correlation for {camera} is lost: an earlier command's answer is still \
+         owed by the stream, so this request was not sent; reopen the session to recover"
+    )]
+    #[non_exhaustive]
+    CommandCorrelationLost {
+        /// The camera whose raw command lane is latched.
+        camera: crate::CameraId,
+    },
+
+    /// The camera reported an error for a command it had already
+    /// acknowledged (#795).
+    ///
+    /// The ACK proved the camera accepted the command, so it may have started
+    /// or partly executed before failing: a relative move or preset recall may
+    /// already have moved. `source` is the camera's exact error. The engine
+    /// never writes the command again, and this error is not retryable and
+    /// reports `Terminal` / [`Certainty::Unconfirmed`] whatever the camera's
+    /// code would mean before an ACK. Reconcile the camera state before
+    /// resubmitting.
+    #[error("Camera reported an error after acknowledging the command: {source}")]
+    #[non_exhaustive]
+    CommandFailedAfterAck {
+        /// The camera's error, exactly as it would be reported before an ACK.
+        #[source]
+        source: Box<Error>,
     },
 
     /// A private runtime identity space was exhausted without a safe non-aliasing value.
@@ -837,10 +932,11 @@ impl Error {
         Self::ObservationTimeout { operation }
     }
 
-    /// Reports declared motion superseded by an owner halt.
+    /// Reports declared motion superseded by an owner halt, with what is
+    /// known about whether it took effect.
     #[must_use]
-    pub const fn motion_superseded(axes: crate::AffectedAxes) -> Self {
-        Self::MotionSuperseded { axes }
+    pub const fn motion_superseded(axes: crate::AffectedAxes, context: FailureContext) -> Self {
+        Self::MotionSuperseded { axes, context }
     }
 
     /// Reports a polling failure after the movement was applied.
@@ -860,6 +956,21 @@ impl Error {
     #[must_use]
     pub const fn inquiry_correlation_lost(camera: crate::CameraId) -> Self {
         Self::InquiryCorrelationLost { camera }
+    }
+
+    /// Reports a camera whose raw commands cannot be correlated on this
+    /// session until an owed answer arrives.
+    #[must_use]
+    pub const fn command_correlation_lost(camera: crate::CameraId) -> Self {
+        Self::CommandCorrelationLost { camera }
+    }
+
+    /// Reports a camera error for a command the camera had acknowledged.
+    #[must_use]
+    pub fn command_failed_after_ack(source: impl Into<Box<Error>>) -> Self {
+        Self::CommandFailedAfterAck {
+            source: source.into(),
+        }
     }
 
     /// Reports exhausted ordinary admission capacity.
@@ -958,7 +1069,8 @@ impl Error {
             // NotExecutable: command invalid in current state
             Self::CommandNotExecutable
             | Self::InvalidState(..)
-            | Self::InquiryCorrelationLost { .. } => ErrorKind::NotExecutable,
+            | Self::InquiryCorrelationLost { .. }
+            | Self::CommandCorrelationLost { .. } => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
             Self::ConnectionClosed { .. } | Self::RuntimeShutdown | Self::StreamPoisoned { .. } => {
@@ -969,9 +1081,9 @@ impl Error {
             Self::TransportError(..) => ErrorKind::Transport,
 
             // Unconfirmed: one transmitted operation has an unknowable result
-            Self::CancellationUnconfirmed | Self::UnsequencedCommandUnconfirmed => {
-                ErrorKind::Unconfirmed
-            }
+            Self::CancellationUnconfirmed
+            | Self::UnsequencedCommandUnconfirmed
+            | Self::CommandFailedAfterAck { .. } => ErrorKind::Unconfirmed,
 
             // IoRefused: connection attempt rejected
             Self::ConnectionFailed { .. } => ErrorKind::IoRefused,
@@ -1149,6 +1261,8 @@ impl Error {
             | Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
             | Self::InquiryCorrelationLost { .. }
+            | Self::CommandCorrelationLost { .. }
+            | Self::CommandFailedAfterAck { .. }
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
@@ -1290,12 +1404,15 @@ impl Error {
     /// about the affected request's effect.
     ///
     /// Returns `Some` for every timeout ([`Self::Timeout`],
-    /// [`Self::ObservationTimeout`]) and for the unconfirmed outcomes
+    /// [`Self::ObservationTimeout`]), for the unconfirmed outcomes
     /// ([`Self::UnsequencedCommandUnconfirmed`],
-    /// [`Self::CancellationUnconfirmed`], motion supersession, and settlement
-    /// observation failures); `None` otherwise. [`Self::WithContext`] is looked
-    /// through. [`Self::SettlementObservationFailed`] reports uncertainty for
-    /// the original movement while retaining the polling failure as its source.
+    /// [`Self::CancellationUnconfirmed`], and settlement observation
+    /// failures), and for [`Self::MotionSuperseded`], which carries the
+    /// context recorded when the halt superseded it (`NotAccepted` when it
+    /// never reached the camera); `None` otherwise. [`Self::WithContext`] is
+    /// looked through. [`Self::SettlementObservationFailed`] reports
+    /// uncertainty for the original movement while retaining the polling
+    /// failure as its source.
     ///
     /// # Example
     ///
@@ -1322,10 +1439,7 @@ impl Error {
             Self::SettlementObservationFailed { .. } | Self::SettlementSuperseded { .. } => Some(
                 FailureContext::new(FailureStage::Observation, Certainty::Unconfirmed),
             ),
-            Self::MotionSuperseded { .. } => Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::Unconfirmed,
-            )),
+            Self::MotionSuperseded { context, .. } => Some(*context),
             Self::ObservationTimeout { .. } => Some(FailureContext::new(
                 FailureStage::Observation,
                 Certainty::StillLive,
@@ -1338,9 +1452,12 @@ impl Error {
                 FailureStage::CancellationAttempt,
                 Certainty::Unconfirmed,
             )),
-            Self::InquiryCorrelationLost { .. } => Some(FailureContext::new(
+            Self::InquiryCorrelationLost { .. } | Self::CommandCorrelationLost { .. } => Some(
+                FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted),
+            ),
+            Self::CommandFailedAfterAck { .. } => Some(FailureContext::new(
                 FailureStage::Terminal,
-                Certainty::NotAccepted,
+                Certainty::Unconfirmed,
             )),
             Self::WithContext { source, .. } => source.failure_context(),
             _ => None,
@@ -2032,6 +2149,57 @@ mod tests {
             ErrorKind::Unconfirmed
         );
         assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
+    }
+
+    /// #795: the command lane's latch error mirrors the inquiry lane's.
+    #[test]
+    fn command_correlation_lost_is_unsent_live_session_and_not_retryable() {
+        let error = Error::command_correlation_lost(crate::CameraId::CAMERA_2);
+        assert!(matches!(
+            error,
+            Error::CommandCorrelationLost { camera } if camera == crate::CameraId::CAMERA_2
+        ));
+        assert_eq!(error.kind(), ErrorKind::NotExecutable);
+        assert!(!error.is_retryable());
+        assert_eq!(error.suggested_retry_delay(), None);
+        assert!(!error.requires_new_session());
+        assert_eq!(
+            error.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::NotAccepted
+            ))
+        );
+        assert!(error.to_string().contains("Camera 2"), "{error}");
+    }
+
+    /// #795: a camera error after an ACK never invites a resubmission, whatever
+    /// its code would mean before the ACK, and keeps the exact camera error.
+    #[test]
+    fn a_camera_error_after_ack_is_unconfirmed_and_not_retryable() {
+        for camera in [
+            Error::CommandBufferFull,
+            Error::NoSocket,
+            Error::CommandNotExecutable,
+            Error::SyntaxError,
+        ] {
+            let error = Error::command_failed_after_ack(camera.clone());
+            assert_eq!(error.kind(), ErrorKind::Unconfirmed, "{error:?}");
+            assert!(!error.is_retryable(), "{error:?}");
+            assert_eq!(error.suggested_retry_delay(), None, "{error:?}");
+            assert!(!error.requires_new_session(), "{error:?}");
+            assert_eq!(
+                error.failure_context(),
+                Some(FailureContext::new(
+                    FailureStage::Terminal,
+                    Certainty::Unconfirmed
+                ))
+            );
+            assert_eq!(
+                std::error::Error::source(&error).map(ToString::to_string),
+                Some(camera.to_string())
+            );
+        }
     }
 
     #[test]

@@ -429,7 +429,11 @@ impl<'view, P: CompileTimeProfile> MotionAccessor<'view, P> {
     ///
     /// Older declared motion is fenced at owner acceptance. STOPs share one
     /// deadline and respect protocol gates; inspect each supported axis result
-    /// in the report. Applied STOPs do not prove physical rest.
+    /// in the report. Applied STOPs do not prove physical rest. A STOP the
+    /// camera refuses is reported promptly and not resent: for example a
+    /// PTZOptics G2 in auto-focus mode answers the focus STOP with
+    /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable),
+    /// so `focus` is `Failed` while the lens is under auto-focus control.
     pub fn stop_all_motion(&self) -> Result<crate::HaltReport> {
         self.camera.core().stop_all_motion()
     }
