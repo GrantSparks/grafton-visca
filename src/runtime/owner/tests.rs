@@ -3,23 +3,15 @@
 use std::time::Duration;
 
 use super::*;
-use crate::{
-    runtime::engine::{CancellationPolicy, EnvelopeKind, TransportKind},
-    CameraId,
-};
+use crate::{runtime::engine::CancellationPolicy, CameraId};
 
 fn policy_for_target_validation() -> ProtocolPolicy {
     ProtocolPolicy {
         capacity: 1,
-        envelope: EnvelopeKind::Raw,
-        transport: TransportKind::Datagram,
         inquiry_capacity: 1,
-        command_spacing: Duration::ZERO,
-        inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::ZERO,
-        raw_release_grace: Duration::from_millis(100),
-        strict_unconfirmed_poison: false,
+        ..ProtocolPolicy::test_default()
     }
 }
 
@@ -74,16 +66,9 @@ fn reconfigurable_owner_state() -> OwnerState {
     let mut protocol = policy_for_target_validation();
     protocol.command_spacing = Duration::from_millis(10);
     protocol.inquiry_spacing = Duration::from_millis(20);
-    let policy = OwnerPolicy::single_target(
-        protocol,
-        CameraId::CAMERA_1,
-        TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Supported,
-            control_reserve: 0,
-        },
-    )
-    .expect("single-target owner policy");
+    let policy =
+        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+            .expect("single-target owner policy");
     OwnerState::new(policy).expect("owner state")
 }
 
@@ -367,7 +352,6 @@ mod metrics {
             CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
             EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
             RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
-            TransportKind,
         },
         CameraId, Error, ViscaSocket,
     };
@@ -395,25 +379,13 @@ mod metrics {
         let protocol = ProtocolPolicy {
             capacity: 4,
             envelope,
-            transport: TransportKind::Datagram,
             inquiry_capacity: 2,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         };
-        OwnerPolicy::single_target(
-            protocol,
-            CameraId::CAMERA_1,
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-                control_reserve: 0,
-            },
-        )
-        .unwrap()
+        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+            .unwrap()
     }
 
     fn request_context(retry: RetryPolicy) -> RequestContext {
@@ -1196,8 +1168,8 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, InquiryRoute,
-            ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
+            CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
+            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -1392,22 +1364,17 @@ mod lifecycle_trace {
     ) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
             capacity,
-            envelope: EnvelopeKind::Raw,
             transport,
             inquiry_capacity: capacity,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         };
         let mut targets = [None; 9];
         for slot in targets.iter_mut().take(4).skip(1) {
             *slot = Some(TargetPolicy {
-                command_sockets: 2,
                 cancellation,
-                control_reserve: 0,
+                ..TargetPolicy::test_default()
             });
         }
         OwnerPolicy::with_targets(protocol, targets).unwrap()

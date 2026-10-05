@@ -11,15 +11,17 @@ use std::sync::{atomic::Ordering, Mutex};
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        InquiryRoute, ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy,
-        RuntimeRequest, TargetPolicy, TimeoutPolicy, TransportKind,
+        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, InquiryRoute,
+        ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest,
+        TargetPolicy, TimeoutPolicy,
     },
     CameraId, ViscaSocket,
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{ControlClass, EnvelopeSequence, IgnoreReason, SequenceWidth};
+use crate::runtime::engine::{
+    ControlClass, EnvelopeKind, EnvelopeSequence, IgnoreReason, SequenceWidth, TransportKind,
+};
 
 use crate::runtime::engine::{DecodedFrame, SessionState};
 use crate::runtime::owner::DiagnosticEvent;
@@ -230,22 +232,13 @@ fn policy(capacity: usize) -> OwnerPolicy {
     OwnerPolicy::single_target(
         ProtocolPolicy {
             capacity,
-            envelope: EnvelopeKind::Raw,
-            transport: TransportKind::Datagram,
             inquiry_capacity: capacity,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_secs(1),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         },
         CameraId::CAMERA_1,
-        TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Supported,
-            control_reserve: 0,
-        },
+        TargetPolicy::test_default(),
     )
     .unwrap()
 }
@@ -278,21 +271,13 @@ fn stream_policy(capacity: usize) -> OwnerPolicy {
 fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let protocol = ProtocolPolicy {
         capacity: 3,
-        envelope: EnvelopeKind::Raw,
         transport,
         inquiry_capacity: 1,
-        command_spacing: Duration::ZERO,
-        inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::from_secs(1),
-        raw_release_grace: Duration::from_millis(100),
-        strict_unconfirmed_poison: false,
+        ..ProtocolPolicy::test_default()
     };
-    let target = TargetPolicy {
-        command_sockets: 2,
-        cancellation: CancellationPolicy::Supported,
-        control_reserve: 0,
-    };
+    let target = TargetPolicy::test_default();
     let mut targets = [None; 9];
     targets[usize::from(CameraId::CAMERA_1.id())] = Some(target);
     targets[usize::from(CameraId::CAMERA_2.id())] = Some(target);

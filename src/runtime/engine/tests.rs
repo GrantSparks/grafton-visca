@@ -25,16 +25,9 @@ fn camera(value: u8) -> CameraId {
 
 fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
     ProtocolPolicy {
-        capacity: 16,
         envelope,
         transport,
-        inquiry_capacity: 8,
-        command_spacing: Duration::ZERO,
-        inquiry_spacing: Duration::ZERO,
-        inquiry_cooldown: Duration::from_millis(25),
-        raw_inquiry_release_hold: Duration::from_millis(50),
-        raw_release_grace: Duration::from_millis(100),
-        strict_unconfirmed_poison: false,
+        ..ProtocolPolicy::test_default()
     }
 }
 
@@ -43,7 +36,7 @@ fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
 fn strict_poison_policy() -> ProtocolPolicy {
     ProtocolPolicy {
         strict_unconfirmed_poison: true,
-        ..policy(EnvelopeKind::Raw, TransportKind::Datagram)
+        ..ProtocolPolicy::test_default()
     }
 }
 
@@ -53,14 +46,7 @@ fn strict_poison_engine() -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(strict_poison_policy()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
     engine
@@ -208,24 +194,10 @@ fn inquiry_with_retry(target: u8, route: InquiryRoute, retry: RetryPolicy) -> Ru
 fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(policy(envelope, transport)).unwrap();
     engine
-        .register_target(
-            camera(1),
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-                control_reserve: 0,
-            },
-        )
+        .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
     engine
-        .register_target(
-            camera(2),
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-                control_reserve: 0,
-            },
-        )
+        .register_target(camera(2), TargetPolicy::test_default())
         .unwrap();
     engine
 }
@@ -239,14 +211,7 @@ fn single_flight_raw_engine() -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(configured).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
     engine
@@ -1195,14 +1160,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     configured.inquiry_cooldown = Duration::ZERO;
     let mut engine = ProtocolEngine::new(configured).unwrap();
     engine
-        .register_target(
-            camera(1),
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-                control_reserve: 0,
-            },
-        )
+        .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
 
     let first = engine.handle(
@@ -2482,7 +2440,7 @@ fn engine_with_target(
             TargetPolicy {
                 command_sockets: sockets,
                 cancellation,
-                control_reserve: 0,
+                ..TargetPolicy::test_default()
             },
         )
         .unwrap();
@@ -3600,14 +3558,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
     let mut engine = ProtocolEngine::new(configured).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
     let seed = engine.handle(
@@ -3728,14 +3679,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
     let mut engine = ProtocolEngine::new(configured).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
 
@@ -3959,14 +3903,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     configured.inquiry_capacity = 1;
     let mut engine = ProtocolEngine::new(configured).unwrap();
     engine
-        .register_target(
-            camera(1),
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-                control_reserve: 0,
-            },
-        )
+        .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
     let first_wire = wire(0x81);
     let first_request = RuntimeRequest::Inquiry {
@@ -4199,14 +4136,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                             .unwrap();
                     for target in 1..=3 {
                         created
-                            .register_target(
-                                camera(target),
-                                TargetPolicy {
-                                    command_sockets: 2,
-                                    cancellation: CancellationPolicy::Supported,
-                                    control_reserve: 0,
-                                },
-                            )
+                            .register_target(camera(target), TargetPolicy::test_default())
                             .unwrap();
                     }
                     engine = Some(created);
@@ -4518,14 +4448,7 @@ fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(configured).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
     engine
@@ -5926,8 +5849,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
                 target,
                 TargetPolicy {
                     command_sockets: 1,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
+                    ..TargetPolicy::test_default()
                 },
             )
             .unwrap();
@@ -13194,9 +13116,8 @@ fn reserved_engine() -> ProtocolEngine {
             .register_target(
                 camera(target),
                 TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
                     control_reserve: 2,
+                    ..TargetPolicy::test_default()
                 },
             )
             .unwrap();
@@ -13574,14 +13495,7 @@ fn single_flight_raw_stream_engine() -> ProtocolEngine {
     let mut engine = ProtocolEngine::new(configured).unwrap();
     for target in [camera(1), camera(2)] {
         engine
-            .register_target(
-                target,
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(target, TargetPolicy::test_default())
             .unwrap();
     }
     engine

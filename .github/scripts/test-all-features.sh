@@ -58,9 +58,9 @@ readonly FEATURE_LEGS=(
     # cannot run it, because `ScriptedBlockingTransport` needs `blocking` and
     # `ScriptedTransport`/`DeterministicExecutor` need `async`. The union below is
     # the entry that actually executes the shipped toolkit and the tests built on
-    # it; without it the 40 test-utils tests (10 issue-566 scripted, 5 inquiry
-    # simulator, 4 timeout, 15 deterministic-executor, 5 scripted-transport, and
-    # 1 blocking test) run in no CI job at all.
+    # it; without it the 53 test-utils tests (11 issue-566 scripted, 5 inquiry
+    # simulator, 4 timeout, 15 deterministic-executor, 11 scripted-transport,
+    # and 7 `testing::frame_tests`) run in no CI job at all.
     "test-utils|--no-default-features --features test-utils --all-targets"
     "test-utils + blocking + Tokio|--no-default-features --features test-utils,blocking,runtime-tokio --all-targets"
     "macro derives|-p grafton-visca-macros"

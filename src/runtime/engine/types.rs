@@ -488,6 +488,19 @@ pub(crate) struct TargetPolicy {
     pub(crate) control_reserve: u8,
 }
 
+#[cfg(test)]
+impl TargetPolicy {
+    /// Shared test fixture: two command sockets, supported cancellation and
+    /// no control reserve. Tests override fields with `..TargetPolicy::test_default()`.
+    pub(crate) const fn test_default() -> Self {
+        Self {
+            command_sockets: 2,
+            cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
+        }
+    }
+}
+
 /// Which admission budget an entry holds (D26, #778).
 ///
 /// Ordinary requests hold one of the session's `capacity` slots. An urgent
@@ -529,6 +542,28 @@ pub(crate) struct ProtocolPolicy {
     /// hard-fail than risk a subtle correlation error. This flag is meaningless
     /// for the Sony envelope, whose sequence correlation needs no raw hold.
     pub(crate) strict_unconfirmed_poison: bool,
+}
+
+#[cfg(test)]
+impl ProtocolPolicy {
+    /// Shared test fixture: a raw datagram policy with capacity 16, inquiry
+    /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
+    /// non-strict recovery. Tests override fields
+    /// with `..ProtocolPolicy::test_default()`.
+    pub(crate) const fn test_default() -> Self {
+        Self {
+            capacity: 16,
+            envelope: EnvelopeKind::Raw,
+            transport: TransportKind::Datagram,
+            inquiry_capacity: 8,
+            command_spacing: Duration::ZERO,
+            inquiry_spacing: Duration::ZERO,
+            inquiry_cooldown: Duration::from_millis(25),
+            raw_inquiry_release_hold: Duration::from_millis(50),
+            raw_release_grace: Duration::from_millis(100),
+            strict_unconfirmed_poison: false,
+        }
+    }
 }
 
 /// Identifies full-width and known-truncated Sony envelope correlation data.

@@ -274,6 +274,12 @@ real Tokio/smol executor for wall-clock timeout behavior. See
 `src/testing/testkit/README.md` and the existing operation-handle integration
 tests for maintained patterns.
 
+Integration tests that need a fake camera use `tests/common/fake_camera.rs`
+(`FakeCamera` with `blocking_wire()`/`async_wire()`, the shared reply frames
+and wait helpers); scenarios that run on several facades or runtimes use
+`facade_matrix!`/`runtime_matrix!` from `tests/common/matrix.rs`. A
+hand-written transport stays local only with a `// Local fake:` comment.
+
 ### Running Tests
 
 ```bash

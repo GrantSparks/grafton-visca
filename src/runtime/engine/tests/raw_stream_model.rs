@@ -492,9 +492,8 @@ impl Session {
                 .register_target(
                     target,
                     TargetPolicy {
-                        command_sockets: 2,
-                        cancellation: CancellationPolicy::Supported,
                         control_reserve: 2,
+                        ..TargetPolicy::test_default()
                     },
                 )
                 .unwrap();

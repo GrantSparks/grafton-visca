@@ -5962,16 +5962,10 @@ mod cancellation_regression_tests {
 
     fn policy(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolPolicy {
         ProtocolPolicy {
-            capacity: 16,
             envelope,
-            transport: TransportKind::Datagram,
-            inquiry_capacity: 8,
             command_spacing,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
-            raw_inquiry_release_hold: Duration::from_millis(50),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         }
     }
 
@@ -6024,14 +6018,7 @@ mod cancellation_regression_tests {
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
         let mut engine = ProtocolEngine::new(policy(envelope, command_spacing)).expect("engine");
         engine
-            .register_target(
-                camera(),
-                TargetPolicy {
-                    command_sockets: 2,
-                    cancellation: CancellationPolicy::Supported,
-                    control_reserve: 0,
-                },
-            )
+            .register_target(camera(), TargetPolicy::test_default())
             .expect("target");
         engine
     }
