@@ -336,6 +336,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/observability_and_recovery.md`. This is a narrow, documented exception
   to the per-request #671 timeout rule; Raw UDP and Sony-encapsulated sessions
   are unchanged.
+- Raw-VISCA streams: a dispute over a frame two requests could have sent is
+  now decided wherever the engine has proof. A request whose staged write
+  never left proves the other explanation; for a demoted dispute it only ends
+  tracking. A completion learned later proves the `CompletionOnly` command
+  accepted. The disputed error then reaches the request that sent it instead
+  of ending it Unconfirmed or latching `CommandCorrelationLost`. An ACK bound
+  to neither candidate now holds the socket it names and displaces a stale
+  owner there (#721), so a late completion or error can no longer reach the
+  wrong command (#795).
 
 ### Added
 

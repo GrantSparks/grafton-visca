@@ -486,7 +486,37 @@ drops reached nothing and leaves no entry). When the debt's answer arrives it
 is discarded instead of reaching a later request. An owed ACK's command is
 then executing on the camera, so the socket the ACK names (or the first free
 one, for a socketless ACK) is held; a socketless completion while that hold
-exists binds to no live command. An
+exists binds to no live command. An ACK disputed between two candidates
+holds the socket it names the same way, since one of them executes there,
+for the longer of the two candidates' completion deadlines (a candidate whose
+write result has not come yet counts: its answer may overtake that result).
+Either kind of ACK naming a socket the engine still indexes to an executing
+command proves that command's completion was lost: it ends unconfirmed and
+the socket is released (#721).
+
+A tracked dispute is also decided where the engine learns who sent nothing
+or who completed, and its frames are then assigned at once:
+
+- A request it names that ends as a staged write that never left sent
+  nothing. If it is the `CompletionOnly` command, the disputed error was the
+  STOP's and each handed-off frame its step's (accepted); if it is a step,
+  that step never sent the frame acceptance would make its own, so the
+  command was rejected: it fails with the error and owes no completion, and
+  the command lane does not latch. An accept-only dispute is the exception:
+  its steps were chosen through entries already disputed, so a step's
+  identity is inferred rather than proven, and an unwritten step only ends
+  its tracking.
+- A completion dropped while it was unknown whether the camera names its
+  sockets in completions is the `CompletionOnly` command's once the camera
+  is known to name them (`take_completion`). Like any completion of the
+  command, it proves the command accepted.
+
+A dispute is left untracked (its entries keep their union of debts, the
+endgame above) only where neither explanation is proven: past three
+hand-offs; when its candidate's answer arrives while another request could
+have sent it and nothing can be handed off; when a second dispute touches a
+`NoReply` command's dispute; when an accept-only dispute's candidate is
+paid; or when one of its steps ends as a staged write that never left. An
 owed inquiry reply also retains the target's `InquiryUnkeyed` hold through its
 window and, once paid, leaves only the ordinary reply skew from that moment.
 On a stream a pre-ACK command needs no time-bounded `PreAck` hold — its debt

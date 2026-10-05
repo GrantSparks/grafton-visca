@@ -2397,3 +2397,389 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
     assert_eq!(request_transmit(&effects).1, flowing);
     engine.assert_invariants().unwrap();
 }
+
+/// A `CompletionOnly` command and a STOP behind it are both still being
+/// written when a socketless error arrives (an answer may overtake its write
+/// result), so the error is disputed between them. The `CompletionOnly`
+/// command then ends as a staged write that never left: it sent nothing, so
+/// the error was the STOP's rejection, which the STOP receives at once, and
+/// nothing stays owed (property-test regression: a tracked dispute named a
+/// dropped entry).
+#[test]
+fn an_unwritten_completion_only_command_decides_its_dispute_accepted() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (staged, completion_only) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            immediate_retry_budget(Duration::from_millis(10)),
+        ),
+        now,
+    );
+    assert_eq!(request_transmit(&staged).1, completion_only);
+    let (stop_effects, stop) = admit(&mut engine, 2, stop_command(1), now);
+    assert_eq!(request_transmit(&stop_effects).1, stop);
+    send_ok(&mut engine, &stop_effects, None, now);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    // The `CompletionOnly` command's budget ends with its write unconfirmed.
+    let expired = engine.advance(now + Duration::from_millis(10));
+    assert!(terminal_failure(&expired, completion_only).is_some());
+    assert!(matches!(
+        terminal_failure(&expired, stop),
+        Some(Error::CommandNotExecutable)
+    ));
+    assert!(!engine.ledger.awaits_dispute(camera(1), stop));
+    assert_eq!(raw_owed(&engine, 1), 0);
+    assert!(engine.ledger.is_empty());
+    engine.assert_invariants().unwrap();
+}
+
+/// The other direction: the `CompletionOnly` command was written, the STOP
+/// behind it was still being written when the disputed error came, and the
+/// STOP then ends as a staged write that never left. It sent nothing, so
+/// the error was the command's rejection: the command fails with it, and its
+/// entry is retired instead of owing a completion that latches the command
+/// lane with `CommandCorrelationLost`.
+#[test]
+fn an_unwritten_stop_decides_its_dispute_rejected() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (effects, completion_only) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            no_not_executable_retry(),
+        ),
+        now,
+    );
+    send_ok(&mut engine, &effects, None, now);
+    let mut request = stop_command(1);
+    request.context_mut().retry.total_budget = Duration::from_millis(10);
+    let (stop_effects, stop) = admit(&mut engine, 2, request, now);
+    assert_eq!(request_transmit(&stop_effects).1, stop);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    let expired = engine.advance(now + Duration::from_millis(10));
+    assert!(terminal_failure(&expired, stop).is_some());
+    assert!(matches!(
+        terminal_failure(&expired, completion_only),
+        Some(Error::CommandNotExecutable)
+    ));
+    assert_eq!(raw_owed(&engine, 1), 0);
+    let later = now + Duration::from_secs(1);
+    engine.advance(later);
+    assert_eq!(command_lane(&engine, 1), LaneState::Clear);
+    let (effects, next) = admit(
+        &mut engine,
+        3,
+        command(1, CancellationPolicy::Supported),
+        later,
+    );
+    assert_eq!(request_transmit(&effects).1, next);
+    engine.assert_invariants().unwrap();
+}
+
+/// A completion the camera sent while it was not yet known whether it names
+/// sockets in completions was dropped as ambiguous. Once the camera is known
+/// to name them, that completion was the `CompletionOnly` command's: it
+/// proves the command accepted and decides the dispute over it, so the STOP
+/// fails with its real rejection (rather than ending unconfirmed) and leaves
+/// no debt behind to dispute later requests.
+#[test]
+fn a_learned_completion_decides_its_dispute_accepted() {
+    let start = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    // A command whose completion deadline passes leaves its socket held.
+    let held = executing_on(&mut engine, 1, ViscaSocket::S2, start);
+    let expired = engine.advance(start + Duration::from_millis(40));
+    assert!(terminal_failure(&expired, held).is_some());
+    let now = start + Duration::from_millis(100);
+    engine.advance(now);
+    let (effects, completion_only) = admit(
+        &mut engine,
+        2,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            no_not_executable_retry(),
+        ),
+        now,
+    );
+    assert_eq!(request_transmit(&effects).1, completion_only);
+    send_ok(&mut engine, &effects, None, now);
+    let (stop_effects, stop) = admit(&mut engine, 3, stop_command(1), now);
+    assert_eq!(request_transmit(&stop_effects).1, stop);
+    send_ok(&mut engine, &stop_effects, None, now);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    // The command's completion, while the socket is held: dropped.
+    let dropped = engine.handle_turn(socketless_completion(1), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&dropped).is_none());
+    // The held command's late completion names its socket: the camera names
+    // sockets, so the dropped completion was the command's.
+    engine.handle_turn(completion(1, ViscaSocket::S2), now, EngineTurn::INPUT_ONLY);
+    let learned = engine.advance(now);
+    assert!(matches!(
+        terminal_outcome(&learned, completion_only),
+        Some(RuntimeOutcome::Applied)
+    ));
+    assert!(matches!(
+        terminal_failure(&learned, stop),
+        Some(Error::CommandNotExecutable)
+    ));
+    assert!(engine.ledger.is_empty());
+    // A later STOP's ACK binds to it alone.
+    let (effects, later) = admit(&mut engine, 4, stop_command(1), now);
+    send_ok(&mut engine, &effects, None, now);
+    engine.handle(ack(1, ViscaSocket::S1), now);
+    assert_eq!(socket_of(&engine, later), Some(ViscaSocket::S1));
+    engine.assert_invariants().unwrap();
+}
+
+/// A STOP's ACK pays an earlier STOP's debt and names the socket of a
+/// command the engine still indexes as executing there: the camera put the
+/// owed STOP in that socket, so that command's completion was lost and it
+/// has ended. It ends unconfirmed (#721) instead of keeping the socket, so a
+/// later socketless completion is never taken for its own (randomized model,
+/// a camera that omits the socket in completions, seed 75).
+#[test]
+fn an_owed_acks_socket_displaces_its_stale_owner() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let stale = executing_on(&mut engine, 1, ViscaSocket::S2, now);
+    let (effects, owed) = admit(&mut engine, 2, stop_command(1), now);
+    assert_eq!(request_transmit(&effects).1, owed);
+    send_ok(&mut engine, &effects, None, now);
+    let later = now + Duration::from_millis(20);
+    let expired = engine.advance(later);
+    assert!(matches!(
+        terminal_failure(&expired, owed),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    let (effects, next) = admit(&mut engine, 3, stop_command(1), later);
+    assert_eq!(request_transmit(&effects).1, next);
+    send_ok(&mut engine, &effects, None, later);
+    // The owed STOP's ACK, naming the socket the stale command still holds.
+    let paid = engine.handle(ack(1, ViscaSocket::S2), later);
+    assert!(matches!(
+        terminal_failure(&paid, stale),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(socket_of(&engine, stale), None);
+    let completion = engine.handle(socketless_completion(1), later);
+    assert!(terminal_outcome(&completion, stale).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// An ACK that binds to neither of two candidates still shows that one of
+/// them executes in the socket it names. That socket is held until evidence
+/// releases it, so a socketless completion arriving while nothing else
+/// executes is never taken for an earlier held command's (randomized model,
+/// a camera that omits the socket in completions, seed 76: the release let
+/// that earlier command's late completion reach a later one).
+#[test]
+fn a_disputed_ack_holds_the_socket_it_names() {
+    let now = Instant::now();
+    let mut engine = numbering_camera(now);
+    let (_, first_stop, _) = disputed(&mut engine, now);
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 4, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&acked).is_none());
+    assert_eq!(socket_of(&engine, first_stop), None);
+    assert_eq!(socket_of(&engine, second_stop), None);
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S2))
+        .is_some());
+    // The completion naming it is the executing STOP's: it frees the socket.
+    engine.handle(completion(1, ViscaSocket::S2), at);
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S2))
+        .is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// A disputed ACK naming the socket the engine still indexes to an
+/// executing command proves that command's completion was lost, as an owed
+/// ACK does: it ends unconfirmed and the socket is released (#721).
+#[test]
+fn a_disputed_acks_socket_displaces_its_stale_owner() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let stale = executing_on(&mut engine, 1, ViscaSocket::S2, now);
+    let (effects, first_stop) = admit(&mut engine, 2, stop_command(1), now);
+    assert_eq!(request_transmit(&effects).1, first_stop);
+    send_ok(&mut engine, &effects, None, now);
+    // A rejection naming the busy socket: the first STOP's, or an execution
+    // error of the stale command (unseen completions). Disputed.
+    let rejection = engine.handle_turn(
+        named_error(1, ViscaSocket::S2, 0x41),
+        now,
+        EngineTurn::INPUT_ONLY,
+    );
+    assert!(terminal_id(&rejection).is_none());
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 3, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::INPUT_ONLY);
+    assert!(matches!(
+        terminal_failure(&acked, stale),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(socket_of(&engine, stale), None);
+    assert!(engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S2))
+        .is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// The hold a disputed ACK installs takes its deadline from the two
+/// candidates, including one whose write result has not come yet (its
+/// answer may overtake it): here neither candidate awaits its ACK in the
+/// engine's phases, yet the socket is held.
+#[test]
+fn a_disputed_ack_holds_its_socket_while_a_candidate_is_still_being_written() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (effects, _) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
+        now,
+    );
+    send_ok(&mut engine, &effects, None, now);
+    let (stop_effects, first_stop) = admit(&mut engine, 2, stop_command(1), now);
+    assert_eq!(request_transmit(&stop_effects).1, first_stop);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 3, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    // Neither STOP's write result has come.
+    assert!(engine
+        .entries
+        .values()
+        .all(|entry| !matches!(entry.phase, Phase::AwaitingAck { .. })));
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S1), at, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&acked).is_none());
+    let hold = engine
+        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+        .expect("the disputed ACK's socket is held");
+    // The STOPs' completion deadline (40 ms in this profile).
+    assert_eq!(hold.until, at + Duration::from_millis(40));
+    engine.assert_invariants().unwrap();
+}
+
+/// A halt STOP still staged when a socketless error is disputed between it
+/// and the `CompletionOnly` command ahead of it, and then expired by the
+/// owner before its write: it sent nothing, so the error was the command's
+/// rejection, which the expiry's effects deliver at once.
+#[test]
+fn an_expired_unwritten_halt_stop_delivers_its_disputes_decision() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (effects, completion_only) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            no_not_executable_retry(),
+        ),
+        now,
+    );
+    send_ok(&mut engine, &effects, None, now);
+    let deadline = now + Duration::from_millis(10);
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(deadline);
+    let (stop_effects, stop) = admit(&mut engine, 2, request, now);
+    let (transmission, _, _) = request_transmit(&stop_effects);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    let expired = engine
+        .expire_unwritten_halt(transmission, deadline)
+        .expect("expired before the driver wrote it");
+    assert!(terminal_failure(&expired, stop).is_some());
+    assert!(matches!(
+        terminal_failure(&expired, completion_only),
+        Some(Error::CommandNotExecutable)
+    ));
+    assert_eq!(raw_owed(&engine, 1), 0);
+    engine.assert_invariants().unwrap();
+}
+
+/// An accept-only (demoted) dispute is never rejected by a step that ends
+/// unwritten: its steps were chosen through entries already disputed, so a
+/// step's identity is inferred rather than proven. The dispute is untracked
+/// instead, and the `CompletionOnly` command keeps waiting for its completion.
+#[test]
+fn an_unwritten_step_of_an_accept_only_dispute_only_untracks_it() {
+    let now = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let (effects, completion_only) = admit(
+        &mut engine,
+        1,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            no_not_executable_retry(),
+        ),
+        now,
+    );
+    send_ok(&mut engine, &effects, None, now);
+    // The first STOP stays staged and ends unwritten at its budget.
+    let mut request = stop_command(1);
+    request.context_mut().retry.total_budget = Duration::from_millis(30);
+    let (stop_effects, first_stop) = admit(&mut engine, 2, request, now);
+    assert_eq!(request_transmit(&stop_effects).1, first_stop);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&disputed).is_none());
+    // A second STOP written at its wait bound; a second ambiguous error
+    // demotes the dispute.
+    let mut request = stop_command(1);
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
+    let (_, second_stop) = admit(&mut engine, 3, request, now);
+    let at = now + Duration::from_millis(10);
+    let written = engine.advance(at);
+    assert_eq!(request_transmit(&written).1, second_stop);
+    send_ok(&mut engine, &written, None, at);
+    let ambiguous = engine.handle_turn(socketless_error(1, 0x41), at, EngineTurn::INPUT_ONLY);
+    assert!(terminal_id(&ambiguous).is_none());
+    assert!(engine.ledger.awaits_dispute(camera(1), first_stop));
+    let expired = engine.advance(now + Duration::from_millis(30));
+    assert!(terminal_failure(&expired, first_stop).is_some());
+    assert!(terminal_outcome(&expired, completion_only).is_none());
+    assert!(matches!(
+        phase_of(&engine, completion_only),
+        Some(Phase::AwaitingCompletion { .. })
+    ));
+    assert!(!engine.ledger.awaits_dispute(camera(1), second_stop));
+    engine.assert_invariants().unwrap();
+}

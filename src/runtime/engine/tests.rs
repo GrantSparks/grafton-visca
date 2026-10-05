@@ -14059,3 +14059,120 @@ fn latched_target_fails_completion_only_commands_promptly() {
     )));
     engine.assert_invariants().unwrap();
 }
+
+/// The five shrunk property-test cases in which a socketless error disputed
+/// between a `CompletionOnly` command and a STOP, both still being written,
+/// left a tracked dispute naming the `CompletionOnly` entry after that
+/// command ended without its write leaving (#795). Replayed step by step with
+/// every invariant checked, independently of the proptest regression file.
+#[test]
+fn disputes_over_writes_that_never_left_replay_cleanly() {
+    const CASES: [(usize, &[u64]); 5] = [
+        (
+            1,
+            &[
+                12_483_228_564_468_407_280,
+                9_534_138_241_800_550_260,
+                18_159_251_703_331_857_302,
+                11_151_147_390_633_615_138,
+            ],
+        ),
+        (
+            1,
+            &[
+                16_463_917_613_011_124_724,
+                585_702_454_431_258_907,
+                1_581_691_632_787_783,
+                31_370_940_658_660_103,
+                7_510_165_601_267_876_719,
+                3_229_786_725_243_230,
+                15_485_543_139_397_604_880,
+                1_220_165_956_259_646_686,
+                15_960_903_850_980_435_732,
+                16_697_896_156_833_616_758,
+                12_111_098_035_673_936_260,
+                606_009_080_155,
+                8_252_195_541_204_963_636,
+                7_130_984_955_802_729_590,
+                4_225_607_303_587_554_278,
+                10_266_318_225_081_787_199,
+            ],
+        ),
+        (
+            1,
+            &[
+                0,
+                3_426_837_440_031_744_571,
+                9_922_097_255_686_710_729,
+                13_809_160_830_085_087_687,
+                2_858_827_710_885_115,
+                7_580_171_796_222_951_643,
+                1_988_602_079_377_276_584,
+                548_888_252_393_388_340,
+                6_417_565_847_323_179_300,
+                4_860_544_496_578_912_494,
+                4_515_499_995_755_402_899,
+                9_609_568_079_290_839_360,
+                2_433_914_286_401_988_156,
+                6_886_414_741_206_138_407,
+                10_513_110_606_521_536_164,
+                10_293_291_565_717_250_011,
+                13_193_656_614_360_264_446,
+                9_959_459_946_738_403_379,
+                5_806_504_503_064_800_786,
+                8_356_192_350_023_697_335,
+            ],
+        ),
+        (
+            6,
+            &[
+                7_355_049_801_226_271_868,
+                5_700_853_685_870_886_444,
+                10_588_223_891_581_643_438,
+                9_893_786_571_765_732_894,
+            ],
+        ),
+        (
+            1,
+            &[
+                3_290_478_031_439_209_548,
+                208_121_098_313_296_344,
+                469_146_665_545_602_003,
+                2_818_765_296_773_154_331,
+                7_920_019_860_563_568_986,
+                19_651_427_407_282_195,
+                6_532_906_142_308_429_782,
+                530_158_953_556_307_412,
+                11_930_866_648_024_966_082,
+                16_751_618_152_528_375_326,
+            ],
+        ),
+    ];
+    for (configuration, actions) in CASES {
+        let configuration = FUZZ_CONFIGURATIONS[configuration];
+        let mut engine = fuzz_engine(configuration);
+        let mut ticket = 0_u64;
+        let mut now = Instant::now();
+        let mut coverage = FuzzCoverage::default();
+        seed_fuzz_coverage(
+            &mut engine,
+            configuration,
+            &mut ticket,
+            &mut now,
+            &mut coverage,
+        );
+        for (step, action) in actions.iter().copied().enumerate() {
+            now += Duration::from_micros((action & 0x3f).saturating_add(1));
+            fuzz_step(
+                &mut engine,
+                configuration.envelope,
+                configuration.transport,
+                action,
+                step * 4 >= actions.len() * 3,
+                &mut ticket,
+                &mut now,
+            );
+            engine.assert_invariants().unwrap();
+        }
+    }
+}

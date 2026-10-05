@@ -318,12 +318,20 @@ pub(crate) struct StreamLedger {
     pub(crate) disputes_seen: u64,
 }
 
-/// A socketless error that the `CompletionOnly` entry written at `first`, or
-/// the entry written at `second` behind it, could have sent.
+/// The entry a frame resolves against (`resolve_in`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Ambiguous {
-    first: u64,
-    second: u64,
+enum Resolution {
+    /// No entry can legally have sent it.
+    Nothing,
+    /// The oldest entry that can legally have sent it.
+    Oldest(Outstanding),
+    /// Either of two entries could have: `first`, whose answer may already
+    /// have come (or a `CompletionOnly` or `NoReply` entry that may still be
+    /// rejected), or `second` behind it.
+    Ambiguous {
+        first: Outstanding,
+        second: Outstanding,
+    },
 }
 
 /// What a first-answer frame said, kept to apply once the request that sent
@@ -400,22 +408,32 @@ struct Dispute {
     dormant: bool,
 }
 
+impl Dispute {
+    /// Whether the entry written at `order` is one this dispute names: its
+    /// `CompletionOnly` (or `NoReply`) command, or one of its steps.
+    fn names(&self, order: u64) -> bool {
+        self.completion_only.order == order || self.steps.iter().any(|step| step.order == order)
+    }
+}
+
 /// How a first-answer frame resolved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Resolved {
     /// No entry can have sent it.
+    #[default]
     Nothing,
     /// The live entry's request receives it.
     Live(Outstanding),
     /// It paid this debt and is discarded.
     Debt(Outstanding),
     /// The ledger's one ambiguity: it binds to no request
-    /// ([`StreamLedger::answer`]).
-    Disputed,
+    /// ([`StreamLedger::answer`]). The two entries either of which could
+    /// have sent it, as they stood when it arrived.
+    Disputed([Outstanding; 2]),
 }
 
 /// What a first-answer frame did.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Answered {
     pub(crate) resolved: Resolved,
     /// Whether an owed inquiry reply was paid or retired.
@@ -495,16 +513,54 @@ impl StreamLedger {
     /// Ends the live entries of `request`: one never written leaves the
     /// ledger, and a written one becomes a debt whose window `window` supplies
     /// for its kind. Debts are never dropped.
+    ///
+    /// A frame can resolve against an entry whose write result has not come
+    /// yet (an answer may overtake it). If the request then ends unwritten,
+    /// it was a staged write that never left, so that frame was not its
+    /// answer, and a tracked dispute naming it is decided: if it is the
+    /// `CompletionOnly` command, the command sent nothing and the disputed
+    /// frames were its steps' (accepted); if it is a step, that step sent
+    /// nothing and the command was rejected — unless the dispute was demoted
+    /// (accept-only): its steps were chosen through entries already
+    /// disputed, so a step's identity is inferred rather than proven, and the
+    /// dispute is untracked instead. Returns what the dispute assigns.
     pub(crate) fn retire(
         &mut self,
         target: CameraId,
         request: RequestId,
         mut window: impl FnMut(Owes) -> (Instant, Duration),
-    ) {
-        let queue = self.queue_mut(target);
-        queue.retain(|entry| {
-            !(entry.request == request && entry.standing == Standing::Live && !entry.written)
+    ) -> Answered {
+        let index = usize::from(target.id());
+        let queue = &mut self.targets[index];
+        let unwritten = |entry: &Outstanding| {
+            entry.request == request && entry.standing == Standing::Live && !entry.written
+        };
+        let mut answered = Answered::default();
+        let decided = self.disputes[index].as_ref().and_then(|dispute| {
+            queue
+                .iter()
+                .find(|entry| unwritten(entry) && dispute.names(entry.order))
+                .map(|entry| entry.order == dispute.completion_only.order)
         });
+        if let Some(command_unwritten) = decided {
+            if let Some(dispute) = self.disputes[index].take() {
+                if command_unwritten {
+                    // The command sent nothing, so the disputed error was
+                    // the STOP's, and each frame handed off since its step's.
+                    accept(queue, &dispute, &mut answered);
+                } else if !dispute.accept_only {
+                    // A step sent nothing, so it never sent the frame that
+                    // the command's acceptance would make its own: the
+                    // command was rejected.
+                    reject(queue, &dispute, &mut answered);
+                }
+                // A demoted dispute's steps were inferred through entries
+                // that were already disputed, not proven, so an unwritten one
+                // proves nothing: it is untracked instead.
+            }
+            pin(queue, None);
+        }
+        queue.retain(|entry| !unwritten(entry));
         for entry in queue
             .iter_mut()
             .filter(|entry| entry.request == request && entry.standing == Standing::Live)
@@ -517,6 +573,7 @@ impl StreamLedger {
             };
         }
         coalesce(queue);
+        answered
     }
 
     /// Resolves a first-answer frame, `evidence` saying what it was, and
@@ -572,8 +629,8 @@ impl StreamLedger {
             completion_only_retired: false,
         };
         match resolve_in(queue, answer) {
-            Ok(None) => {}
-            Ok(Some(entry)) => {
+            Resolution::Nothing => {}
+            Resolution::Oldest(entry) => {
                 let alone = entry.members == 1
                     && queue
                         .iter()
@@ -637,8 +694,10 @@ impl StreamLedger {
                     Resolved::Live(entry)
                 };
             }
-            Err(Ambiguous { first, .. }) => {
+            Resolution::Ambiguous { first, second } => {
                 let queue = &mut self.targets[index];
+                let candidates = [first, second];
+                let first = first.order;
                 let opened = self.disputes[index].is_none();
                 // A second dispute while one is tracked: only the command's
                 // completion can still prove it (accepted).
@@ -700,7 +759,7 @@ impl StreamLedger {
                 {
                     self.disputes_seen += 1;
                 }
-                answered.resolved = Resolved::Disputed;
+                answered.resolved = Resolved::Disputed(candidates);
             }
         }
         pin(&mut self.targets[index], self.disputes[index].as_ref());
@@ -788,14 +847,26 @@ impl StreamLedger {
     /// completion dropped while it was unknown whether this camera names its
     /// sockets in completions was that command's, now that the camera is
     /// known to. Returns the entry (a live one's request receives it).
-    pub(crate) fn take_completion(&mut self, target: CameraId) -> Option<Outstanding> {
-        let queue = self.queue_mut(target);
+    ///
+    /// That completion proves the command accepted, so a tracked dispute
+    /// over it is decided as by any completion of it: the disputed frames
+    /// were its steps', which the returned [`Answered`] assigns.
+    pub(crate) fn take_completion(&mut self, target: CameraId) -> Option<(Outstanding, Answered)> {
+        let index = usize::from(target.id());
+        let queue = &mut self.targets[index];
         let entry = queue
             .iter()
             .find(|entry| matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
             .copied()?;
+        let mut answered = Answered::default();
+        if let Some(dispute) =
+            self.disputes[index].take_if(|dispute| dispute.completion_only.order == entry.order)
+        {
+            accept(queue, &dispute, &mut answered);
+            pin(queue, None);
+        }
         take_in(queue, entry.order);
-        Some(entry)
+        Some((entry, answered))
     }
 
     /// Marks the entry `answer` would resolve as disputed, without paying it,
@@ -805,8 +876,12 @@ impl StreamLedger {
     /// that command's execution error or this one's rejection).
     pub(crate) fn dispute(&mut self, target: CameraId, answer: Answer) -> bool {
         let queue = self.queue_mut(target);
-        let Ok(Some(entry)) = resolve_in(queue, answer) else {
-            return false;
+        // When the frame is already ambiguous between waiting requests (the
+        // oldest one disputed), it is theirs as much as the oldest one's:
+        // disputing that one passes it on to the next, too.
+        let entry = match resolve_in(queue, answer) {
+            Resolution::Oldest(entry) | Resolution::Ambiguous { first: entry, .. } => entry,
+            Resolution::Nothing => return false,
         };
         if let Some(disputed) = queue.iter_mut().find(|other| other.order == entry.order) {
             disputed.disputed = true;
@@ -818,10 +893,10 @@ impl StreamLedger {
         // Another dispute over a tracked request: only the command's
         // completion can still prove it (accepted).
         let index = usize::from(target.id());
-        if self.disputes[index].as_ref().is_some_and(|dispute| {
-            dispute.completion_only.order == entry.order
-                || dispute.steps.iter().any(|step| step.order == entry.order)
-        }) {
+        if self.disputes[index]
+            .as_ref()
+            .is_some_and(|dispute| dispute.names(entry.order))
+        {
             demote(&mut self.disputes[index]);
             pin(&mut self.targets[index], self.disputes[index].as_ref());
         }
@@ -944,10 +1019,7 @@ impl StreamLedger {
             let ended = dispute.as_ref().is_some_and(|dispute| {
                 queue
                     .iter()
-                    .filter(|entry| {
-                        dispute.completion_only.order == entry.order
-                            || dispute.steps.iter().any(|step| step.order == entry.order)
-                    })
+                    .filter(|entry| dispute.names(entry.order))
                     .all(|entry| {
                         matches!(entry.standing, Standing::Owed { window_end, .. } if window_end <= now)
                     })
@@ -1029,12 +1101,7 @@ fn demote(dispute: &mut Option<Dispute>) {
 /// Pins the entries a tracked dispute names, and only those, so that they
 /// keep their identity; entries it no longer names may merge again.
 fn pin(queue: &mut Queue, dispute: Option<&Dispute>) {
-    let named = |order: u64| {
-        dispute.is_some_and(|dispute| {
-            dispute.completion_only.order == order
-                || dispute.steps.iter().any(|step| step.order == order)
-        })
-    };
+    let named = |order: u64| dispute.is_some_and(|dispute| dispute.names(order));
     let mut released = false;
     for entry in queue.iter_mut() {
         let pinned = named(entry.order);
@@ -1114,17 +1181,17 @@ fn reject(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
     answered.completion_only_retired = true;
 }
 
-/// The oldest entry of `queue` that `answer` can legally resolve, `Ok(None)`
-/// when none can, or [`Ambiguous`]. Ambiguity arises only through a
+/// The oldest entry of `queue` that `answer` can legally resolve, nothing
+/// when none can, or the two it is ambiguous between. Ambiguity arises only through a
 /// `CompletionOnly` entry that may still be rejected: an accepted one answers
 /// nothing until it has run, so a socketless error behind it could also be
 /// the answer of a later request (another member of the same run is no
 /// different). A `CompletionOnly` command earns no socket, so a named
 /// rejection is never its.
-fn resolve_in(queue: &Queue, answer: Answer) -> Result<Option<Outstanding>, Ambiguous> {
+fn resolve_in(queue: &Queue, answer: Answer) -> Resolution {
     let mut candidates = queue.iter().filter(|entry| legal(answer, entry.owes));
     let Some(oldest) = candidates.next().copied() else {
-        return Ok(None);
+        return Resolution::Nothing;
     };
     // A disputed live entry's answer may already have come, and so may a
     // `CompletionOnly` command's rejection.
@@ -1133,13 +1200,13 @@ fn resolve_in(queue: &Queue, answer: Answer) -> Result<Option<Outstanding>, Ambi
             && matches!(oldest.owes, Owes::Completion | Owes::Rejection));
     if uncertain {
         if let Some(second) = candidates.next() {
-            return Err(Ambiguous {
-                first: oldest.order,
-                second: second.order,
-            });
+            return Resolution::Ambiguous {
+                first: oldest,
+                second: *second,
+            };
         }
     }
-    Ok(Some(oldest))
+    Resolution::Oldest(oldest)
 }
 
 /// Whether `answer` can be a first answer for an entry owing `owes`.
@@ -1316,6 +1383,54 @@ mod tests {
         assert_eq!(shape(&ledger), [(reply, 1)]);
     }
 
+    /// A named rejection that a busy socket's owner or a waiting command
+    /// could have earned is disputed rather than given to the owner, also
+    /// when the oldest waiting command is itself disputed already (randomized
+    /// model, a camera that omits the socket in completions, seed 371: the
+    /// rejection reached the executing owner as an error after its ACK).
+    #[test]
+    fn a_rejection_already_ambiguous_between_waiting_commands_is_disputed() {
+        let mut ledger = StreamLedger::new();
+        for id in [1, 2] {
+            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.mark_written(TARGET, request(id), false);
+        }
+        // The first such rejection disputes the oldest waiting command; the
+        // next is ambiguous between the two, and disputes the second too.
+        assert!(ledger.dispute(TARGET, Answer::NamedRejection));
+        assert!(ledger.dispute(TARGET, Answer::NamedRejection));
+        assert!(ledger.queue(TARGET).iter().all(|entry| entry.disputed));
+    }
+
+    /// A completion learned later (`take_completion`) is the command's own,
+    /// so it proves the command accepted: the dispute is decided, the
+    /// disputed error goes to the STOP, and the STOP's entry leaves the
+    /// ledger rather than stay as a debt disputing later requests.
+    #[test]
+    fn a_learned_completion_proves_its_dispute_accepted() {
+        let mut ledger = StreamLedger::new();
+        for (id, owes) in [(1, Owes::Completion), (2, Owes::Ack)] {
+            ledger.push(TARGET, request(id), GenerationTicket(1), owes);
+            ledger.mark_written(TARGET, request(id), false);
+        }
+        let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        assert!(matches!(answered.resolved, Resolved::Disputed(_)));
+        assert!(ledger.awaits_dispute(TARGET, request(2)));
+        let (paid, decided) = ledger.take_completion(TARGET).unwrap();
+        assert_eq!(paid.request, request(1));
+        assert_eq!(
+            decided.retro.as_slice(),
+            [Retro {
+                request: request(2),
+                generation: GenerationTicket(1),
+                evidence: Evidence::Error(0x41),
+            }]
+        );
+        assert!(!ledger.awaits_dispute(TARGET, request(2)));
+        assert!(ledger.is_empty());
+        ledger.check_disputes().unwrap();
+    }
+
     /// Cancellations for different sockets never compete, so alternating
     /// ones still form one run per socket; competing kinds split runs.
     #[test]
@@ -1374,7 +1489,7 @@ mod tests {
         for (proof, retro_to) in [(Answer::Ack, 1), (Answer::Completion, 2)] {
             let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
             let answered = ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x02));
-            assert_eq!(answered.resolved, Resolved::Disputed);
+            assert!(matches!(answered.resolved, Resolved::Disputed(_)));
             assert_eq!(
                 shape(&ledger),
                 [(Owes::AcceptedCompletion, 1), (Owes::Ack, 1)]
