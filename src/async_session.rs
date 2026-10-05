@@ -70,7 +70,7 @@ impl Session {
         E: Executor,
         T: AsyncTransport + HasTransportConfig + 'static,
     {
-        config.validate_for_transport(transport.standard_transport_kind())?;
+        config.validate_opened_transport(&transport)?;
         let tuning = config.tuning();
         let profiles = config.profile_registry();
         let mut adapter = AsyncTransportAdapter::new_with_profile_registry(

@@ -39,8 +39,8 @@ record_construction() {
   reachable["${variant}"]="${path}"
 }
 
-record_construction ConnectionFailed src/transport/tokio/serial.rs \
-  '.map_err(|e| Error::ConnectionFailed {'
+record_construction ConnectionFailed src/transport/connect.rs \
+  'Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))'
 record_construction ConnectionClosed src/runtime/owner/mod.rs \
   'ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {'
 record_construction CommandPending src/command/response/types.rs \
@@ -98,7 +98,7 @@ record_construction ObservationTimeout src/runtime/owner/mod.rs \
 record_construction ControlReserveExhausted src/runtime/owner/mod.rs \
   'return Err(Error::ControlReserveExhausted {'
 record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
-  'Err(Error::MaxRetriesExceeded)'
+  'self.fail(Error::MaxRetriesExceeded);'
 record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
 record_construction InvalidState src/async_session.rs \

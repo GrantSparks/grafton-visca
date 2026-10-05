@@ -32,10 +32,10 @@ through their existing fluent methods or new narrow constructors. For records
 with public writable fields and Default, assign only the fields you change:
 
 ```rust
-use grafton_visca::{Error, transport::{BufferConfig, TransportConfig}};
+use grafton_visca::{Error, transport::TransportConfig};
 
-let mut config = TransportConfig::default();
-config.buffer_config = BufferConfig::for_raw_ip();
+let mut config = TransportConfig::for_tcp();
+config.buffer_config.max_buffer_size = 16_384;
 let error = Error::connection_closed(None);
 match error {
     Error::ConnectionClosed { reason, .. } => assert!(reason.is_none()),
@@ -234,7 +234,7 @@ root trait:
 | `WhiteBalanceControl` and its color-temperature/gain controls | `camera.white_balance()`; saturation, hue, and general image controls belong to `camera.image()` |
 | `PresetsControl`, `PowerControl`, `MenuControl` | `camera.presets()`, `camera.power()`, and `camera.menu()` respectively; vendor streaming-quality controls live under the profile-gated `camera.advanced()` noun. |
 | `InquiryControl` | The inquiry on the noun that owns the value; there is no aggregate replacement trait. |
-| `SystemControl` | `camera.system().version()` for the Sony-format version reply on profiles that implement `HasVersionInquiry` (Sony and `GenericVisca`; not the PTZOptics profiles, whose reply layout is unsourced, so send a `raw::Inquiry` there; custom profiles must implement `HasVersionInquiry`, include `TypedSupportSurface::VersionInquiry` in `TYPED_SUPPORT`, and list `"version-inquiry"` in persisted runtime `typed_support`, as described in the next section's gate table) and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::serial::Config::{address_set_on_connect, if_clear_on_connect}` (Address Set runs first when both are selected). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
+| `SystemControl` | `camera.system().version()` for the Sony-format version reply on profiles that implement `HasVersionInquiry` (Sony and `GenericVisca`; not the PTZOptics profiles, whose reply layout is unsourced, so send a `raw::Inquiry` there; custom profiles must implement `HasVersionInquiry`, include `TypedSupportSurface::VersionInquiry` in `TYPED_SUPPORT`, and list `"version-inquiry"` in persisted runtime `typed_support`, as described in the next section's gate table) and the profile-gated `camera.system().save_settings()` for PTZOptics settings persistence. Configure serial Address Set and I/F Clear at connection time with `transport::serial::Startup`, through `transport::serial::Config::startup` or `CameraConfig::serial_startup` (Address Set runs first when both are selected; the default writes nothing to the bus). Cancel a submitted command through its `Operation::cancel()` handle; use `camera.motion()` only for movement observation and typed STOP-all. |
 
 ### Layered async trait adapters
 
@@ -870,6 +870,85 @@ their typed-support sets did not change, and the missing `focus_zones` field
 is restored from the registry. Custom runtime profiles (no `profile_id`) are
 not affected by this check; see the `HasVersionInquiry` row above for the tag
 they need to keep `version()`.
+
+### Transport defaults, connect errors and serial startup (#797–#800, #828)
+
+These changes land between 2.0 release candidates; each is breaking for code
+that relied on the previous behaviour.
+
+**One set of per-transport defaults.** `TransportConfig::for_tcp()`,
+`for_udp()` and `for_serial()` are the defaults every built-in entry point
+uses. Start from the matching constructor to change a field:
+
+| Before | Now |
+| --- | --- |
+| `Transport::tcp()` / `udp()` limited replies to 128 bytes | 256 bytes (TCP) and 1024 bytes (UDP), as every other entry point |
+| `CameraConfig::transport_config(c)` replaced a `BufferConfig::default()` buffer with the transport preset | the supplied configuration is used as given; pass `TransportConfig::for_tcp()` (or `for_udp`, `for_serial`) as the base |
+| `TransportConfig::for_udp()`-equivalent configs reported TCP nodelay/keepalive | `for_udp()` and `for_serial()` report `None` for TCP-only fields; `tcp_nodelay: None` keeps the OS default |
+| `NetTransportBuilder::udp_buffers()`, `raw_ip_buffers()`, `sony_ip_buffers()`, `BufferConfig::for_sony_ip()` | removed; the builder already starts from the transport's defaults, and `recv_buffer_size()` / `max_buffer_size()` set explicit limits |
+| `TransportBuilderExt` | removed (its implementors were not nameable); use `Transport::tcp()` / `udp()` |
+| `declare_net_transport!` (exported by accident) | removed |
+
+`BufferConfig::recv_buffer_size` is the largest accepted reply frame and the
+size of one read; `max_buffer_size` bounds stream input carried between reads
+(see `docs/observability_and_recovery.md`). An unrepresentable timeout is now
+`Error::InvalidParameter` naming the field (`"read_timeout"`, ...) both in
+validation and at runtime, replacing `InvalidRequest("... exceeds the
+monotonic clock range")`.
+
+**Connect errors are the same on every facade.**
+
+| Failure | Before | Now (blocking, Tokio, smol) |
+| --- | --- | --- |
+| Host name does not resolve | `InvalidAddress` (blocking), `Io` (async) | `InvalidAddress { reason: "Failed to resolve '<host:port>': ..." }` |
+| Every resolved address refuses | `Io` | `ConnectionFailed { addr: "<host:port>", .. }` |
+| `connect_timeout` expires (DNS included) | blocking DNS was unbounded | `Timeout` (stage `Session`); blocking DNS is bounded by the budget |
+| Serial port cannot open | `TransportError` (blocking), `ConnectionFailed` (Tokio) | `ConnectionFailed { addr: "<port>", .. }` |
+
+Each resolved TCP address now receives a share of the remaining connect
+budget, so an unroutable first address no longer starves the others.
+
+**Serial ports.** Both serial transports open the device for exclusive
+access; on Tokio a second process opening the same port now fails with
+`ConnectionFailed` where it previously shared the port. A zero-byte serial
+read is `ConnectionClosed { reason: "serial port closed" }` on both facades.
+
+**Serial startup writes nothing by default.** `transport::serial::Config` and
+`CameraConfig` serial opens no longer broadcast I/F Clear. Select startup
+writes explicitly:
+
+```rust
+# #[cfg(feature = "transport-serial")]
+# fn example() -> grafton_visca::Result<()> {
+use grafton_visca::{camera::CameraConfig, profiles::PtzOpticsG2, transport::serial::Startup};
+
+let session = CameraConfig::<PtzOpticsG2>::serial("/dev/ttyUSB0", 9_600)
+    .serial_startup(Startup::default().with_address_set(true).with_interface_clear(true))
+    .open_serial()?;
+# Ok(()) }
+```
+
+`serial::Config` replaces `address_set_on_connect` / `if_clear_on_connect`
+(fields and builder methods) with `startup: Startup` and
+`Config::startup(Startup)`; the unused `camera_address` field and method are
+removed, and timeouts and buffer limits default to
+`TransportConfig::for_serial()` (5 s) instead of 100 ms. A timed-out or
+partial Address Set write now fails startup instead of being resent; a startup
+whose Address Set attempts all go unanswered fails with
+`Error::MaxRetriesExceeded`; a startup read error is returned unchanged
+instead of as `TransportError`. Input received during startup is discarded.
+
+**Addressed cameras are checked on every session open.** A transport that ran
+Address Set reports `HasTransportConfig::addressed_bus()` (an
+`AddressedBus { port, cameras }`). Every `Session::open`, blocking and async,
+including the `CameraConfig` and `Connect` serial paths and caller-built
+transports, checks each registered camera against it before any protocol I/O:
+a camera the chain did not address fails with
+`ConnectionFailed { addr: <port> }` whose `NotFound` source reads
+"camera N was not addressed by Address Set (chain reported M)". Extra cameras
+on the chain are allowed. A custom transport that wraps another must forward
+`addressed_bus()`, as it forwards `transport_config()` and `send_semantics()`;
+an unforwarded method silently disables the check.
 
 ### Reconfiguring timeouts at runtime
 

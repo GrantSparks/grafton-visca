@@ -1,1113 +1,669 @@
-//! Runtime-agnostic serial handshake module for VISCA communication.
+//! Sans-I/O serial startup: Address Set and I/F Clear.
 //!
-//! This module provides unified handshake logic for both async and blocking
-//! serial transports, including I/F Clear and Address Set operations.
+//! [`SerialStartup`] is the single implementation of the startup protocol —
+//! operation order, attempt budgets, retry classification and the handling
+//! of noise, idle reads and failures. The blocking and Tokio serial
+//! transports each drive it with a loop that performs only the I/O it asks
+//! for ([`Action`]), so both facades give the same guarantees on the same
+//! bus. The clock is passed in, so the async driver uses its executor's clock
+//! and stays deterministic under the test executor.
 //!
-//! The handshake process is protocol-aware and uses the existing ProtocolFramer
-//! for robust frame handling instead of manual buffer scanning.
-//!
-//! Address-set discovery retains only the final camera count reported by the
-//! bus. The protocol framer bounds incomplete wire data by the caller's
-//! configured `BufferConfig` limit; no second response-history buffer is kept
-//! by either loop.
+//! The policy itself is documented on [`crate::transport::serial`].
 
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial")
-))]
-use tracing::warn;
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial"),
-    test
-))]
-use tracing::{debug, trace};
+use std::time::{Duration, Instant};
 
-#[cfg(feature = "transport-serial-tokio")]
-use std::{future::Future, time::Duration};
+use tracing::{debug, trace, warn};
 
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial"),
-    test
-))]
-use crate::command::bytes::VISCA_TERMINATOR;
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial")
-))]
+#[cfg(test)]
+use crate::transport::serial::Startup;
 use crate::{
     camera_id::CameraId,
     command::{
+        bytes::VISCA_TERMINATOR,
         encode::WireEncode,
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
     protocol::framer::{FramingMode, ProtocolFramer},
-    transport::buffer::BufferConfig,
+    timeout::Deadline,
+    transport::serial::Config,
 };
 
-/// Result of parsing address set response bytes.
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial"),
-    test
-))]
+/// Timing of the serial startup protocol.
+///
+/// [`StartupTiming::VISCA`] is the only production value; tests drive the
+/// same production state machine with shorter budgets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParseOutcome {
-    /// Partial response received, more data needed.
-    Partial {
-        /// No final camera count has been observed yet.
-        camera_count: u8,
-    },
-    /// Address set complete.
-    Complete {
-        /// Total number of cameras discovered.
-        camera_count: u8,
-    },
+pub(crate) struct StartupTiming {
+    /// Budget for the I/F Clear write plus its settle delay.
+    pub(crate) if_clear_operation: Duration,
+    /// Required quiet time after I/F Clear.
+    pub(crate) if_clear_settle: Duration,
+    /// Budget for one Address Set attempt: its write and its reply.
+    pub(crate) address_set_attempt: Duration,
+    /// Address Set attempts before startup fails.
+    pub(crate) address_set_attempts: u8,
+    /// Pause before another Address Set attempt.
+    pub(crate) address_set_retry_delay: Duration,
+    /// Pause between reads that produced no reply, within an attempt.
+    pub(crate) idle_pause: Duration,
 }
 
-/// Parse address set response bytes from the buffer.
-///
-/// This function processes VISCA address set responses:
-/// - Final address-set reply: `88 30 0p FF`, where `p` is the final assigned
-///   device address plus one.
-/// - Network Change: `z0 38 FF`, which is a separate notification and is not
-///   an address-set completion.
-///
-/// Returns `ParseOutcome::Partial` if more data is needed,
-/// or `ParseOutcome::Complete` when the address set is finished.
-#[cfg(any(
-    feature = "transport-serial-tokio",
-    all(feature = "blocking", feature = "transport-serial"),
-    test
-))]
-pub fn parse_address_set_bytes(buf: &[u8]) -> ParseOutcome {
-    let mut i = 0;
-
-    while i < buf.len() {
-        // Address Set returns the broadcast header 0x88. `p` is not a marker:
-        // it is the final assigned address plus one, giving the camera count
-        // directly as `p - 1`.
-        if i + 3 < buf.len()
-            && buf[i] == 0x88
-            && buf[i + 1] == 0x30
-            && buf[i + 3] == VISCA_TERMINATOR
-        {
-            let next_address = buf[i + 2];
-            if (0x02..=0x08).contains(&next_address) {
-                let camera_count = next_address - 1;
-                debug!("Address Set complete, {camera_count} cameras found");
-                return ParseOutcome::Complete { camera_count };
-            }
-        }
-
-        i += 1;
-    }
-
-    ParseOutcome::Partial { camera_count: 0 }
-}
-
-/// Scalar state carried across framed address-set responses.
-///
-/// An address-set reply contains the final count rather than one response per
-/// camera. Keeping only that count makes discovery state constant-sized even
-/// when a serial device sends arbitrary amounts of noise or repeated frames.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct AddressSetState {
-    camera_count: u8,
-}
-
-impl AddressSetState {
-    fn observe(&mut self, frame: &[u8]) -> Option<u8> {
-        match parse_address_set_bytes(frame) {
-            ParseOutcome::Complete { camera_count } => {
-                self.camera_count = camera_count;
-                Some(camera_count)
-            }
-            ParseOutcome::Partial { .. } => None,
-        }
-    }
-
-    fn camera_count(self) -> u8 {
-        self.camera_count
-    }
-}
-
-/// Feed one bounded read chunk through the shared serial framing/discovery
-/// path. `ProtocolFramer` resynchronizes on overflow, while `AddressSetState`
-/// retains only a scalar count.
-fn process_address_set_chunk(
-    framer: &mut ProtocolFramer,
-    state: &mut AddressSetState,
-    chunk: &[u8],
-) -> Result<Option<u8>> {
-    framer.push_slice_with_resync(chunk)?;
-
-    for frame_result in framer.drain_frames() {
-        match frame_result {
-            Ok(frame) => {
-                if let Some(camera_count) = state.observe(&frame) {
-                    return Ok(Some(camera_count));
-                }
-            }
-            // Raw framing has already discarded through the terminator before
-            // reporting this advisory error.  Treat it as bus noise and keep
-            // scanning the now-resynchronized stream.
-            Err(Error::ResponseTooLarge { max_size }) => {
-                warn!(
-                    max_size,
-                    "Discarded oversized serial Address Set noise frame"
-                );
-            }
-            Err(error) => return Err(error),
-        }
-    }
-
-    Ok(None)
-}
-
-// Async handshake functions (feature-gated for tokio-serial)
-#[cfg(feature = "transport-serial-tokio")]
-pub mod async_handshake {
-    use std::{pin::Pin, time::Instant};
-
-    use super::*;
-    use crate::{
-        executor::Executor,
-        transport::async_io::{AsyncReadExt, AsyncWriteExt},
+impl StartupTiming {
+    /// The serial startup timing used by every serial transport.
+    pub(crate) const VISCA: Self = Self {
+        if_clear_operation: Duration::from_secs(2),
+        if_clear_settle: Duration::from_millis(100),
+        address_set_attempt: Duration::from_secs(2),
+        address_set_attempts: 3,
+        address_set_retry_delay: Duration::from_millis(100),
+        idle_pause: Duration::from_millis(10),
     };
+}
 
-    // Address Set has always used a two-second attempt budget. I/F Clear has
-    // no caller-supplied budget, so give its complete write/flush/settle
-    // operation the same finite startup bound.
-    const IF_CLEAR_OPERATION_TIMEOUT: Duration = Duration::from_secs(2);
-    const IF_CLEAR_SETTLE_DELAY: Duration = Duration::from_millis(100);
-    const ADDRESS_SET_RETRY_DELAY: Duration = Duration::from_millis(100);
-    const ADDRESS_SET_IDLE_PAUSE: Duration = Duration::from_millis(10);
-
-    type SendFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-
-    /// Erase the executor's RPITIT future before it enters another generic
-    /// async state machine. Older compilers cannot always prove the equivalent
-    /// higher-ranked lifetime bound through nested opaque futures.
-    fn timeout<'a, E, F, T>(exec: &'a E, duration: Duration, future: F) -> SendFuture<'a, Result<T>>
-    where
-        E: Executor,
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        Box::pin(exec.timeout(duration, future))
-    }
-
-    /// Erase the executor's sleep future at the same private handshake seam.
-    fn sleep<E>(exec: &E, duration: Duration) -> SendFuture<'_, ()>
-    where
-        E: Executor,
-    {
-        Box::pin(exec.sleep(duration))
-    }
-
-    /// Return the unspent portion of one fixed attempt budget.
-    ///
-    /// The start instant is sampled once, before the attempt's write. Every
-    /// later write, flush, read, and pacing pause uses the same clock origin so
-    /// partial or noisy input cannot buy another full timeout.
-    fn remaining_attempt_budget<E>(
-        exec: &E,
-        attempt_started: Instant,
-        attempt_budget: Duration,
-    ) -> Result<Duration>
-    where
-        E: Executor,
-    {
-        let elapsed = exec.now().saturating_duration_since(attempt_started);
-        let remaining = attempt_budget.saturating_sub(elapsed);
-
-        if remaining.is_zero() {
-            Err(Error::connect_timeout())
-        } else {
-            Ok(remaining)
-        }
-    }
-
-    /// Queue a serial write within the remaining attempt budget.
-    ///
-    /// Serial `flush` can enter an unbounded device drain (`tcdrain` on
-    /// POSIX), so reply handling and the I/F Clear settle interval are the
-    /// protocol-level confirmation that the queued bytes progressed.
-    async fn write_all_within_attempt<E, S>(
-        exec: &E,
-        io: &mut S,
-        bytes: &[u8],
-        attempt_started: Instant,
-        attempt_budget: Duration,
-        configured_write_timeout: Duration,
-    ) -> Result<()>
-    where
-        E: Executor,
-        S: AsyncWriteExt + Send + ?Sized,
-    {
-        let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        timeout(
-            exec,
-            configured_write_timeout.min(remaining),
-            io.write_all(bytes),
-        )
-        .await??;
-        Ok(())
-    }
-
-    /// Yield between unsuccessful reads without extending the attempt.
-    ///
-    /// This is deliberately used after partial/noisy chunks as well as empty
-    /// reads. Besides avoiding a hot loop, it lets a deterministic executor
-    /// advance to the fixed attempt deadline when a synthetic stream is always
-    /// immediately readable but never yields a valid Address Set reply.
-    async fn pause_before_next_read<E>(
-        exec: &E,
-        attempt_started: Instant,
-        attempt_budget: Duration,
-    ) -> Result<()>
-    where
-        E: Executor,
-    {
-        let remaining = remaining_attempt_budget(exec, attempt_started, attempt_budget)?;
-        sleep(exec, ADDRESS_SET_IDLE_PAUSE.min(remaining)).await;
-        Ok(())
-    }
-
-    /// Whether a transport read means it simply had no bytes to offer.
-    fn read_reported_no_data(error: &Error) -> bool {
-        matches!(error, Error::Timeout { .. })
-            || matches!(
-                error,
-                Error::Io(io_error)
-                    if matches!(
-                        io_error.kind(),
-                        std::io::ErrorKind::TimedOut
-                            | std::io::ErrorKind::WouldBlock
-                            | std::io::ErrorKind::Interrupted
-                    )
-            )
-    }
-
-    /// Send I/F Clear command to reset all devices on the bus.
-    ///
-    /// This is executor-driven and runtime-agnostic.
-    #[allow(clippy::manual_async_fn)]
-    pub fn if_clear_async<'a, E, S>(
-        exec: &'a E,
-        io: &'a mut S,
-        configured_write_timeout: Duration,
-    ) -> impl Future<Output = Result<()>> + Send + 'a
-    where
-        E: Executor,
-        S: AsyncWriteExt + Send + ?Sized,
-    {
-        async move {
-            debug!("Sending I/F Clear command");
-            let cmd = InterfaceClearCommand::new();
-            let mut buffer = [0u8; 16];
-
-            // InterfaceClearCommand is const-constructed and guaranteed to encode
-            let len = cmd
-                .write_into(CameraId::CAMERA_1, &mut buffer)
-                .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode IF Clear: {e}").into())
-                })?;
-
-            let attempt_started = exec.now();
-            write_all_within_attempt(
-                exec,
-                io,
-                &buffer[..len],
-                attempt_started,
-                IF_CLEAR_OPERATION_TIMEOUT,
-                configured_write_timeout,
-            )
-            .await?;
-
-            // Keep the required settle delay inside the same bounded startup
-            // operation rather than allowing a stalled write to consume it all.
-            let remaining =
-                remaining_attempt_budget(exec, attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?;
-            if remaining < IF_CLEAR_SETTLE_DELAY {
-                return Err(Error::connect_timeout());
-            }
-            timeout(exec, remaining, sleep(exec, IF_CLEAR_SETTLE_DELAY)).await?;
-            Ok(())
-        }
-    }
-
-    /// Send Address Set command to assign addresses to devices.
-    ///
-    /// Returns the number of cameras detected.
-    /// This is executor-driven and runtime-agnostic.
-    #[allow(clippy::manual_async_fn)]
-    pub fn address_set_async<'a, E, S>(
-        exec: &'a E,
-        io: &'a mut S,
-        timeout: Duration,
-        configured_write_timeout: Duration,
-        buffer_config: BufferConfig,
-    ) -> impl Future<Output = Result<u8>> + Send + 'a
-    where
-        E: Executor,
-        S: AsyncReadExt + AsyncWriteExt + Send + ?Sized,
-    {
-        async move {
-            let max_attempts = 3;
-
-            for attempt in 0..max_attempts {
-                debug!("Address Set attempt {}", attempt + 1);
-                let attempt_started = exec.now();
-                let cmd = AddressSetCommand::new();
-                let mut buffer = [0u8; 16];
-
-                // AddressSetCommand is const-constructed and guaranteed to encode
-                let len = cmd
-                    .write_into(CameraId::CAMERA_1, &mut buffer)
-                    .map_err(|e| {
-                        Error::TransportError(format!("Failed to encode Address Set: {e}").into())
-                    })?;
-
-                // A cancelled async write has an unknowable stream position, so
-                // preserve its failure. A receive-side timeout or a resynchronized
-                // oversized noise frame leaves the stream usable for another
-                // Address Set attempt.
-                write_all_within_attempt(
-                    exec,
-                    io,
-                    &buffer[..len],
-                    attempt_started,
-                    timeout,
-                    configured_write_timeout,
-                )
-                .await?;
-
-                match recv_address_set_response_async(
-                    exec,
-                    io,
-                    attempt_started,
-                    timeout,
-                    buffer_config,
-                )
-                .await
-                {
-                    Ok(camera_count) => {
-                        debug!("Address Set successful, found {camera_count} cameras");
-                        return Ok(camera_count);
-                    }
-                    Err(error @ (Error::Timeout { .. } | Error::ResponseTooLarge { .. }))
-                        if attempt < max_attempts - 1 =>
-                    {
-                        warn!(?error, "Address Set attempt failed, retrying...");
-                        sleep(exec, ADDRESS_SET_RETRY_DELAY).await;
-                        continue;
-                    }
-                    Err(e) => return Err(e),
-                }
-            }
-
-            Err(Error::MaxRetriesExceeded)
-        }
-    }
-
-    /// Receive and parse Address Set response using executor-driven timeout.
-    ///
-    /// # Clock-Agnostic Design
-    ///
-    /// This function uses `exec.now()` for all time measurements, ensuring
-    /// compatibility with deterministic executors that use virtual time.
-    async fn recv_address_set_response_async<E, S>(
-        exec: &E,
-        stream: &mut S,
-        attempt_started: Instant,
-        timeout_duration: Duration,
-        buffer_config: BufferConfig,
-    ) -> Result<u8>
-    where
-        E: Executor,
-        S: AsyncReadExt + Send + ?Sized,
-    {
-        // Use ProtocolFramer for robust frame handling
-        // Serial VISCA has no Sony envelope; raw framing remains authoritative
-        // even when noise begins with Sony payload-type bytes.
-        let mut framer =
-            ProtocolFramer::new_with_config_and_mode(buffer_config, FramingMode::RawVisca);
-        let mut state = AddressSetState::default();
-        let mut temp_buf = vec![0u8; buffer_config.recv_buffer_size];
-
-        loop {
-            let remaining = match remaining_attempt_budget(exec, attempt_started, timeout_duration)
-            {
-                Ok(remaining) => remaining,
-                Err(Error::Timeout { .. }) => break,
-                Err(error) => return Err(error),
-            };
-            match timeout(exec, remaining, stream.read(&mut temp_buf)).await {
-                Ok(Ok(n)) if n > 0 => {
-                    trace!("Address Set response: {:02X?}", &temp_buf[..n]);
-
-                    if let Some(camera_count) =
-                        process_address_set_chunk(&mut framer, &mut state, &temp_buf[..n])?
-                    {
-                        return Ok(camera_count);
-                    }
-
-                    match pause_before_next_read(exec, attempt_started, timeout_duration).await {
-                        Ok(()) => {}
-                        Err(Error::Timeout { .. }) => break,
-                        Err(error) => return Err(error),
-                    }
-                }
-                Ok(Ok(_)) => {
-                    match pause_before_next_read(exec, attempt_started, timeout_duration).await {
-                        Ok(()) => {}
-                        Err(Error::Timeout { .. }) => break,
-                        Err(error) => return Err(error),
-                    }
-                }
-                Ok(Err(error)) if read_reported_no_data(&error) => {
-                    match pause_before_next_read(exec, attempt_started, timeout_duration).await {
-                        Ok(()) => {}
-                        Err(Error::Timeout { .. }) => break,
-                        Err(error) => return Err(error),
-                    }
-                }
-                Ok(Err(error)) | Err(error) => return Err(error),
-            }
-        }
-
-        // Total timeout reached - check if we got any cameras
-        match state.camera_count() {
-            camera_count if camera_count > 0 => {
-                debug!(
-                    "Address Set timeout reached, but {} cameras were found",
-                    camera_count
-                );
-                Ok(camera_count)
-            }
-            _ => {
-                debug!("Address Set timeout - no cameras found");
-                Err(Error::connect_timeout())
-            }
-        }
-    }
-
-    #[cfg(all(test, feature = "test-utils"))]
-    mod tests {
-        use std::{collections::VecDeque, future::Future, sync::Arc, time::Duration};
-
-        use super::*;
-        use crate::{testing::testkit::DeterministicExecutor, transport::async_io::AsyncReadExt};
-
-        /// A serial reader whose next read never resolves.
-        struct PendingRead;
-
-        impl AsyncReadExt for PendingRead {
-            fn read<'a>(
-                &'a mut self,
-                _buf: &'a mut [u8],
-            ) -> impl Future<Output = Result<usize>> + Send + 'a {
-                std::future::pending()
-            }
-        }
-
-        /// A reader that provides selected chunks after executor-clock delays,
-        /// then remains pending. It lets the test prove that a partial chunk
-        /// does not restart the overall attempt deadline.
-        struct DelayedRead {
-            executor: Arc<DeterministicExecutor>,
-            chunks: VecDeque<(Duration, Vec<u8>)>,
-        }
-
-        impl DelayedRead {
-            fn new(
-                executor: Arc<DeterministicExecutor>,
-                chunks: impl IntoIterator<Item = (Duration, Vec<u8>)>,
-            ) -> Self {
-                Self {
-                    executor,
-                    chunks: chunks.into_iter().collect(),
-                }
-            }
-        }
-
-        impl AsyncReadExt for DelayedRead {
-            async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize> {
-                let Some((delay, chunk)) = self.chunks.pop_front() else {
-                    return std::future::pending().await;
-                };
-
-                self.executor.sleep(delay).await;
-                buf[..chunk.len()].copy_from_slice(&chunk);
-                Ok(chunk.len())
-            }
-        }
-
-        #[test]
-        fn pending_read_expires_at_the_deterministic_attempt_deadline() {
-            let (executor, clock) = DeterministicExecutor::new();
-            let timeout = Duration::from_secs(2);
-            let attempt_started = executor.now();
-            let mut stream = PendingRead;
-
-            let result = executor.run_until(recv_address_set_response_async(
-                executor.as_ref(),
-                &mut stream,
-                attempt_started,
-                timeout,
-                BufferConfig::for_serial(),
-            ));
-
-            assert!(matches!(result, Err(Error::Timeout { .. })));
-            assert_eq!(
-                clock.now().saturating_duration_since(attempt_started),
-                timeout
-            );
-        }
-
-        #[test]
-        fn partial_input_does_not_restart_the_attempt_deadline() {
-            let (executor, clock) = DeterministicExecutor::new();
-            let timeout = Duration::from_millis(100);
-            let attempt_started = executor.now();
-            let mut stream = DelayedRead::new(
-                executor.clone(),
-                [
-                    // This is an incomplete Address Set reply at t=60ms.
-                    (Duration::from_millis(60), vec![0x88, 0x30]),
-                    // After the t=60ms partial chunk (and its pacing pause),
-                    // this would complete after t=100ms. It must lose to the
-                    // original deadline rather than receiving a fresh budget.
-                    (Duration::from_millis(60), vec![0x08, VISCA_TERMINATOR]),
-                ],
-            );
-
-            let result = executor.run_until(recv_address_set_response_async(
-                executor.as_ref(),
-                &mut stream,
-                attempt_started,
-                timeout,
-                BufferConfig::for_serial(),
-            ));
-
-            assert!(matches!(result, Err(Error::Timeout { .. })));
-            assert_eq!(
-                clock.now().saturating_duration_since(attempt_started),
-                timeout
-            );
-        }
+/// The camera count reported by a final Address Set reply.
+///
+/// The reply is `88 30 0p FF`, where `p` is the final assigned address plus
+/// one. Network Change (`z0 38 FF`) and every other frame is not a reply.
+fn address_set_reply(frame: &[u8]) -> Option<u8> {
+    match frame {
+        [0x88, 0x30, next_address @ 0x02..=0x08, VISCA_TERMINATOR] => Some(next_address - 1),
+        _ => None,
     }
 }
 
-// Blocking handshake functions
-#[cfg(all(feature = "blocking", feature = "transport-serial"))]
-pub mod blocking_handshake {
-    use std::{
-        io::ErrorKind,
-        time::{Duration, Instant},
-    };
+/// The I/O the startup asks its driver to perform next.
+#[derive(Debug)]
+pub(crate) enum Action<'a> {
+    /// Write the whole frame within `timeout`, then report through
+    /// [`SerialStartup::wrote`].
+    Write { frame: &'a [u8], timeout: Duration },
+    /// Perform one read of up to [`SerialStartup::read_capacity`] bytes
+    /// within `timeout`, then report through [`SerialStartup::read`].
+    Read { timeout: Duration },
+    /// Sleep, then ask for the next action.
+    Sleep(Duration),
+    /// Discard everything received so far, so no startup reply, echo or bus
+    /// notification reaches the session; a failure ends startup.
+    DiscardInput,
+    /// Startup finished; on success [`SerialStartup::addressed_cameras`]
+    /// reports Address Set's result.
+    Done(Result<()>),
+}
 
-    use super::*;
-    use crate::transport::serial::{device_timeout, write_bounded};
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Operation {
+    AddressSet,
+    InterfaceClear,
+}
 
-    // Keep the blocking path aligned with the async handshake: Address Set has
-    // one fixed budget per attempt, while I/F Clear has a bounded startup
-    // operation including its required settle delay.
-    const IF_CLEAR_OPERATION_TIMEOUT: Duration = Duration::from_secs(2);
-    const IF_CLEAR_SETTLE_DELAY: Duration = Duration::from_millis(100);
-    const ADDRESS_SET_RETRY_DELAY: Duration = Duration::from_millis(100);
-    const ADDRESS_SET_IDLE_PAUSE: Duration = Duration::from_millis(10);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    Write,
+    Read,
+    Pause,
+    Settle,
+}
 
-    /// A scoped serial-port timeout change for one blocking handshake I/O
-    /// operation.
-    ///
-    /// `serialport` exposes one timeout setting for both reads and writes. A
-    /// guard lets Address Set temporarily cap a read to its remaining attempt
-    /// budget, or apply the configured write timeout, without leaving either
-    /// setting behind for the transport's normal operation.
-    struct HandshakeTimeoutGuard<'a> {
-        port: &'a mut dyn serialport::SerialPort,
-        original_timeout: Duration,
-        restored: bool,
+#[derive(Debug)]
+enum State {
+    /// Start the next requested operation.
+    Next,
+    /// Begin Address Set attempt `attempt` (1-based) at the next clock sample.
+    AttemptStart { attempt: u8 },
+    /// Inside one operation (or Address Set attempt) bounded by `deadline`.
+    Running {
+        operation: Operation,
+        attempt: u8,
+        deadline: Deadline,
+        phase: Phase,
+    },
+    /// Waiting before the next Address Set attempt.
+    RetryDelay { next_attempt: u8 },
+    /// Every operation succeeded; discard the remaining input once.
+    Discard,
+    /// Finished with this result.
+    Finished(Result<()>),
+}
+
+/// One encoded broadcast frame.
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    bytes: [u8; 16],
+    len: usize,
+}
+
+impl Frame {
+    fn encode(command: &impl WireEncode, name: &str) -> Result<Self> {
+        let mut bytes = [0; 16];
+        let len = command
+            .write_into(CameraId::CAMERA_1, &mut bytes)
+            .map_err(|error| {
+                Error::TransportError(format!("Failed to encode {name}: {error}").into())
+            })?;
+        Ok(Self { bytes, len })
     }
 
-    impl<'a> HandshakeTimeoutGuard<'a> {
-        fn preserving(port: &'a mut dyn serialport::SerialPort) -> Self {
-            Self {
-                original_timeout: port.timeout(),
-                port,
-                restored: false,
-            }
-        }
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
 
-        fn new(port: &'a mut dyn serialport::SerialPort, timeout: Duration) -> Result<Self> {
-            let guard = Self::preserving(port);
-            guard
-                .port
-                .set_timeout(device_timeout(timeout))
-                .map_err(|error| {
-                    Error::TransportError(
-                        format!("Failed to set serial handshake timeout: {error}").into(),
-                    )
-                })?;
+/// The serial startup protocol as a state machine.
+#[derive(Debug)]
+pub(crate) struct SerialStartup {
+    operations: std::vec::IntoIter<Operation>,
+    timing: StartupTiming,
+    read_timeout: Duration,
+    write_timeout: Duration,
+    read_capacity: usize,
+    performed_io: bool,
+    addressed_cameras: Option<u8>,
+    framer: ProtocolFramer,
+    address_set: Frame,
+    if_clear: Frame,
+    state: State,
+}
 
-            Ok(guard)
-        }
-
-        fn port_mut(&mut self) -> &mut dyn serialport::SerialPort {
-            self.port
-        }
-
-        /// Restore the caller's timeout and report a failure to do so.
-        ///
-        /// A normal, completed operation must not silently leave the port in
-        /// its temporary handshake configuration. Drop remains a fallback for
-        /// unwinding and error paths that cannot return a second error.
-        fn restore(&mut self) -> Result<()> {
-            if self.restored {
-                return Ok(());
-            }
-
-            self.port
-                .set_timeout(device_timeout(self.original_timeout))
-                .map_err(|error| {
-                    Error::TransportError(
-                        format!("Failed to restore serial handshake timeout: {error}").into(),
-                    )
-                })?;
-            self.restored = true;
-            Ok(())
-        }
+impl SerialStartup {
+    /// Plan the startup `config` requests: Address Set first, then I/F Clear.
+    pub(crate) fn new(config: &Config, timing: StartupTiming) -> Result<Self> {
+        let operations = [
+            config.startup.address_set.then_some(Operation::AddressSet),
+            config
+                .startup
+                .interface_clear
+                .then_some(Operation::InterfaceClear),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+        Ok(Self {
+            operations: operations.into_iter(),
+            timing,
+            read_timeout: config.read_timeout,
+            write_timeout: config.write_timeout,
+            read_capacity: config.buffer_config.recv_buffer_size,
+            performed_io: false,
+            addressed_cameras: None,
+            // Serial VISCA has no Sony envelope; raw framing stays
+            // authoritative even when noise begins with Sony type bytes.
+            framer: ProtocolFramer::new_with_config_and_mode(
+                config.buffer_config,
+                FramingMode::RawVisca,
+            ),
+            address_set: Frame::encode(&AddressSetCommand::new(), "Address Set")?,
+            if_clear: Frame::encode(&InterfaceClearCommand::new(), "IF Clear")?,
+            state: State::Next,
+        })
     }
 
-    impl Drop for HandshakeTimeoutGuard<'_> {
-        fn drop(&mut self) {
-            // Successful operations restore explicitly. This is only the
-            // fallback for unwinding or another error path, where a second
-            // restoration failure cannot replace the primary error.
-            if !self.restored {
-                if let Err(error) = self.port.set_timeout(device_timeout(self.original_timeout)) {
-                    trace!("Failed to restore serial handshake timeout: {error}");
-                }
-            }
-        }
+    /// The camera count Address Set reported, once it completed.
+    pub(crate) fn addressed_cameras(&self) -> Option<u8> {
+        self.addressed_cameras
     }
 
-    /// Run one serial I/O operation under a scoped timeout.
-    ///
-    /// The result deliberately remains an `io::Result` inside the crate
-    /// result: a read timeout still needs its normal no-data classification,
-    /// while a successful restoration failure is surfaced as a transport
-    /// error. If the operation itself returns an error, restoration is still
-    /// explicitly attempted before that raw result is returned.
-    fn with_scoped_timeout<T>(
-        port: &mut dyn serialport::SerialPort,
-        timeout: Duration,
-        operation: impl FnOnce(&mut dyn serialport::SerialPort) -> std::io::Result<T>,
-    ) -> Result<std::io::Result<T>> {
-        let mut guard = HandshakeTimeoutGuard::new(port, timeout)?;
-        let operation_result = operation(guard.port_mut());
-        guard.restore()?;
-        Ok(operation_result)
+    /// The read buffer size a driver must supply.
+    pub(crate) fn read_capacity(&self) -> usize {
+        self.read_capacity
     }
 
-    /// Return the unspent portion of one fixed attempt budget.
-    fn remaining_attempt_budget(
-        attempt_started: Instant,
-        attempt_budget: Duration,
-    ) -> Result<Duration> {
-        let remaining = attempt_budget.saturating_sub(attempt_started.elapsed());
-
-        if remaining.is_zero() {
-            Err(Error::connect_timeout())
-        } else {
-            Ok(remaining)
-        }
-    }
-
-    /// Queue a handshake write through the shared bounded serial write loop.
-    ///
-    /// The scoped guard restores the port's prior timeout while
-    /// [`write_bounded`] preserves the whole-attempt deadline and normalizes
-    /// interrupted and timed-out low-level writes identically to commands.
-    fn write_within_attempt(
-        io: &mut dyn serialport::SerialPort,
-        bytes: &[u8],
-        attempt_started: Instant,
-        attempt_budget: Duration,
-        configured_write_timeout: Duration,
-    ) -> Result<()> {
-        remaining_attempt_budget(attempt_started, attempt_budget)?;
-        let mut guard = HandshakeTimeoutGuard::preserving(io);
-        let deadline = attempt_started
-            .checked_add(attempt_budget)
-            .ok_or(Error::connect_timeout())?;
-        let write_result =
-            write_bounded(guard.port_mut(), bytes, deadline, configured_write_timeout);
-        guard.restore()?;
-        write_result?;
-
-        // A final low-level write may have consumed the whole budget. Do not
-        // let a later receive begin with a fresh deadline.
-        remaining_attempt_budget(attempt_started, attempt_budget)?;
-        Ok(())
-    }
-
-    /// Pause between no-data reads without granting the attempt extra time.
-    fn pause_before_next_read(attempt_started: Instant, attempt_budget: Duration) -> Result<()> {
-        let remaining = remaining_attempt_budget(attempt_started, attempt_budget)?;
-        std::thread::sleep(ADDRESS_SET_IDLE_PAUSE.min(remaining));
-        Ok(())
-    }
-
-    /// Whether a serial read simply had no bytes to offer.
-    fn read_reported_no_data(error: &std::io::Error) -> bool {
-        matches!(
-            error.kind(),
-            ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
-        )
-    }
-
-    /// Send I/F Clear command to reset all devices on the bus (blocking).
-    pub fn if_clear_blocking(
-        io: &mut dyn serialport::SerialPort,
-        configured_write_timeout: Duration,
-    ) -> Result<()> {
-        debug!("Sending I/F Clear command");
-        let cmd = InterfaceClearCommand::new();
-        let mut buffer = [0u8; 16];
-
-        // InterfaceClearCommand is const-constructed and guaranteed to encode
-        let len = cmd
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .map_err(|e| Error::TransportError(format!("Failed to encode IF Clear: {e}").into()))?;
-
-        let attempt_started = Instant::now();
-        write_within_attempt(
-            io,
-            &buffer[..len],
-            attempt_started,
-            IF_CLEAR_OPERATION_TIMEOUT,
-            configured_write_timeout,
-        )?;
-
-        // Keep the required settle delay within the same bounded startup
-        // operation rather than allowing a stalled write to consume it all.
-        if remaining_attempt_budget(attempt_started, IF_CLEAR_OPERATION_TIMEOUT)?
-            < IF_CLEAR_SETTLE_DELAY
-        {
-            return Err(Error::connect_timeout());
-        }
-        std::thread::sleep(IF_CLEAR_SETTLE_DELAY);
-        Ok(())
-    }
-
-    /// Send Address Set command to assign addresses to devices (blocking).
-    ///
-    /// Returns the number of cameras detected.
-    pub fn address_set_blocking(
-        io: &mut dyn serialport::SerialPort,
-        timeout: Duration,
-        configured_write_timeout: Duration,
-        buffer_config: BufferConfig,
-    ) -> Result<u8> {
-        let max_attempts = 3;
-
-        for attempt in 0..max_attempts {
-            debug!("Address Set attempt {}", attempt + 1);
-            let attempt_started = Instant::now();
-            let cmd = AddressSetCommand::new();
-            let mut buffer = [0u8; 16];
-
-            // AddressSetCommand is const-constructed and guaranteed to encode
-            let len = cmd
-                .write_into(CameraId::CAMERA_1, &mut buffer)
-                .map_err(|e| {
-                    Error::TransportError(format!("Failed to encode Address Set: {e}").into())
-                })?;
-
-            let attempt_result = (|| {
-                write_within_attempt(
-                    io,
-                    &buffer[..len],
-                    attempt_started,
-                    timeout,
-                    configured_write_timeout,
-                )?;
-                recv_address_set_response_blocking(io, attempt_started, timeout, buffer_config)
-            })();
-
-            match attempt_result {
-                Ok(camera_count) => {
-                    debug!("Address Set successful, found {camera_count} cameras");
-                    return Ok(camera_count);
-                }
-                Err(error @ (Error::Timeout { .. } | Error::ResponseTooLarge { .. }))
-                    if attempt < max_attempts - 1 =>
-                {
-                    warn!(?error, "Address Set attempt failed, retrying...");
-                    std::thread::sleep(ADDRESS_SET_RETRY_DELAY);
-                    continue;
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        Err(Error::MaxRetriesExceeded)
-    }
-
-    /// Receive and parse Address Set response (blocking).
-    fn recv_address_set_response_blocking(
-        stream: &mut dyn serialport::SerialPort,
-        attempt_started: Instant,
-        timeout: Duration,
-        buffer_config: BufferConfig,
-    ) -> Result<u8> {
-        // Use ProtocolFramer for robust frame handling
-        // Serial VISCA has no Sony envelope; raw framing remains authoritative
-        // even when noise begins with Sony payload-type bytes.
-        let mut framer =
-            ProtocolFramer::new_with_config_and_mode(buffer_config, FramingMode::RawVisca);
-        let mut state = AddressSetState::default();
-        let mut temp_buf = vec![0u8; buffer_config.recv_buffer_size];
-
+    /// The next I/O to perform, given the driver's clock.
+    pub(crate) fn next(&mut self, now: Instant) -> Action<'_> {
         loop {
-            let remaining = match remaining_attempt_budget(attempt_started, timeout) {
-                Ok(remaining) => remaining,
-                Err(Error::Timeout { .. }) => break,
-                Err(error) => return Err(error),
-            };
-
-            // The port's normal timeout can be shorter than an attempt (in
-            // which case its early timeout is just idle no-data), or longer
-            // than the remaining budget. Cap each read to both bounds and
-            // restore the user's setting before processing the result.
-            let read_timeout = stream.timeout().min(remaining);
-            let read_result =
-                with_scoped_timeout(stream, read_timeout, |port| port.read(&mut temp_buf))?;
-
-            match read_result {
-                Ok(n) if n > 0 => {
-                    trace!("Address Set response: {:02X?}", &temp_buf[..n]);
-
-                    if let Some(camera_count) =
-                        process_address_set_chunk(&mut framer, &mut state, &temp_buf[..n])?
-                    {
-                        return Ok(camera_count);
+            match self.state {
+                State::Next => match self.operations.next() {
+                    None if self.performed_io => self.state = State::Discard,
+                    None => self.state = State::Finished(Ok(())),
+                    Some(Operation::AddressSet) => {
+                        self.state = State::AttemptStart { attempt: 1 };
                     }
-
-                    match pause_before_next_read(attempt_started, timeout) {
-                        Ok(()) => {}
-                        Err(Error::Timeout { .. }) => break,
-                        Err(error) => return Err(error),
+                    Some(Operation::InterfaceClear) => {
+                        debug!("Sending I/F Clear");
+                        self.start(Operation::InterfaceClear, 1, now);
                     }
-                }
-                Ok(_) => match pause_before_next_read(attempt_started, timeout) {
-                    Ok(()) => {}
-                    Err(Error::Timeout { .. }) => break,
-                    Err(error) => return Err(error),
                 },
-                Err(error) if read_reported_no_data(&error) => {
-                    // A per-read timeout means no frame was consumed. Keep
-                    // the one attempt deadline active and try again.
-                    match pause_before_next_read(attempt_started, timeout) {
-                        Ok(()) => {}
-                        Err(Error::Timeout { .. }) => break,
-                        Err(error) => return Err(error),
+                State::AttemptStart { attempt } => {
+                    debug!("Address Set attempt {attempt}");
+                    self.framer.clear();
+                    self.start(Operation::AddressSet, attempt, now);
+                }
+                State::RetryDelay { next_attempt } => {
+                    self.state = State::AttemptStart {
+                        attempt: next_attempt,
+                    };
+                    return Action::Sleep(self.timing.address_set_retry_delay);
+                }
+                State::Discard => {
+                    self.state = State::Finished(Ok(()));
+                    return Action::DiscardInput;
+                }
+                State::Finished(ref result) => return Action::Done(result.clone()),
+                State::Running {
+                    operation,
+                    attempt,
+                    deadline,
+                    phase,
+                } => {
+                    let remaining = deadline.remaining_at(now);
+                    match (operation, phase) {
+                        (_, Phase::Write) if remaining.is_zero() => {
+                            self.expired(operation, attempt)
+                        }
+                        (Operation::AddressSet, Phase::Write) => {
+                            return Action::Write {
+                                frame: self.address_set.as_slice(),
+                                timeout: self.write_timeout.min(remaining),
+                            };
+                        }
+                        (Operation::InterfaceClear, Phase::Write) => {
+                            return Action::Write {
+                                frame: self.if_clear.as_slice(),
+                                timeout: self.write_timeout.min(remaining),
+                            };
+                        }
+                        (Operation::InterfaceClear, Phase::Settle) => {
+                            // The settle delay belongs to the same bounded
+                            // operation: a stalled write cannot consume it.
+                            if remaining < self.timing.if_clear_settle {
+                                self.fail(Error::connect_timeout());
+                            } else {
+                                self.state = State::Next;
+                                return Action::Sleep(self.timing.if_clear_settle);
+                            }
+                        }
+                        (Operation::AddressSet, _) if remaining.is_zero() => {
+                            self.expired(operation, attempt);
+                        }
+                        (Operation::AddressSet, Phase::Read) => {
+                            return Action::Read {
+                                timeout: self.read_timeout.min(remaining),
+                            };
+                        }
+                        (Operation::AddressSet, Phase::Pause) => {
+                            self.set_phase(Phase::Read);
+                            return Action::Sleep(self.timing.idle_pause.min(remaining));
+                        }
+                        (Operation::AddressSet, Phase::Settle)
+                        | (Operation::InterfaceClear, Phase::Read | Phase::Pause) => {
+                            unreachable!("phase {phase:?} is never entered by {operation:?}")
+                        }
                     }
                 }
-                Err(error) => {
-                    return Err(Error::TransportError(
-                        format!("Error reading Address Set response: {error}").into(),
-                    ));
+            }
+        }
+    }
+
+    /// Report the result of an [`Action::Write`].
+    ///
+    /// A failed or timed-out write ends startup: how much of the broadcast
+    /// reached the bus is unknowable, and resending after a partial frame
+    /// would put a malformed concatenation on the daisy chain.
+    pub(crate) fn wrote(&mut self, result: Result<()>) {
+        match (result, &self.state) {
+            (Err(error), _) => self.fail(error),
+            (
+                Ok(()),
+                State::Running {
+                    operation: Operation::InterfaceClear,
+                    ..
+                },
+            ) => self.set_phase(Phase::Settle),
+            (Ok(()), _) => self.set_phase(Phase::Read),
+        }
+    }
+
+    /// Report the result of an [`Action::Read`].
+    ///
+    /// An idle read (a timeout, `WouldBlock`, `Interrupted`, or no bytes) and
+    /// a chunk that completes no reply pause within the attempt; any other
+    /// read error ends startup with that error unchanged.
+    pub(crate) fn read(&mut self, result: Result<&[u8]>) {
+        let chunk = match result {
+            Ok(chunk) if !chunk.is_empty() => chunk,
+            Ok(_) => {
+                self.set_phase(Phase::Pause);
+                return;
+            }
+            // The driver already classified an idle read (an armed timeout
+            // or interruption on a device, an executor timeout in async) as
+            // `Error::Timeout`; every other error is a real read failure.
+            Err(Error::Timeout { .. }) => {
+                self.set_phase(Phase::Pause);
+                return;
+            }
+            Err(error) => {
+                self.fail(error);
+                return;
+            }
+        };
+        trace!("Address Set response: {chunk:02X?}");
+        match self.process_chunk(chunk) {
+            Ok(Some(camera_count)) => {
+                debug!("Address Set complete, {camera_count} cameras found");
+                self.addressed_cameras = Some(camera_count);
+                self.state = State::Next;
+            }
+            Ok(None) => self.set_phase(Phase::Pause),
+            // The framer could not resynchronize within its bounds: this
+            // attempt's input is unusable, but the frame was fully written,
+            // so another attempt is safe.
+            Err(error @ Error::ResponseTooLarge { .. }) => {
+                warn!(?error, "Address Set attempt discarded unframeable input");
+                if let State::Running { attempt, .. } = self.state {
+                    self.expired(Operation::AddressSet, attempt);
                 }
             }
+            Err(error) => self.fail(error),
         }
+    }
 
-        // Total timeout reached
-        match state.camera_count() {
-            camera_count if camera_count > 0 => {
-                debug!(
-                    "Address Set timeout reached, but {} cameras were found",
-                    camera_count
-                );
-                Ok(camera_count)
-            }
-            _ => {
-                debug!("Address Set timeout - no cameras found");
-                Err(Error::connect_timeout())
+    /// Feed one chunk through the bounded raw framer.
+    fn process_chunk(&mut self, chunk: &[u8]) -> Result<Option<u8>> {
+        self.framer.push_slice_with_resync(chunk)?;
+        for frame in self.framer.drain_frames() {
+            match frame {
+                Ok(frame) => {
+                    if let Some(camera_count) = address_set_reply(&frame) {
+                        return Ok(Some(camera_count));
+                    }
+                }
+                // Raw framing has already discarded through the terminator;
+                // treat the oversized frame as bus noise.
+                Err(Error::ResponseTooLarge { max_size }) => {
+                    warn!(
+                        max_size,
+                        "Discarded oversized serial Address Set noise frame"
+                    );
+                }
+                Err(error) => return Err(error),
             }
         }
+        Ok(None)
+    }
+
+    /// An attempt's budget is spent without a completed operation.
+    ///
+    /// A fully written Address Set that received no reply may be retried; once
+    /// every attempt is spent startup fails with
+    /// [`Error::MaxRetriesExceeded`]. An expired I/F Clear fails at once.
+    fn expired(&mut self, operation: Operation, attempt: u8) {
+        match operation {
+            Operation::AddressSet if attempt < self.timing.address_set_attempts => {
+                warn!(attempt, "Address Set attempt got no reply, retrying");
+                self.state = State::RetryDelay {
+                    next_attempt: attempt + 1,
+                };
+            }
+            Operation::AddressSet => {
+                debug!("Address Set got no reply after {attempt} attempts");
+                self.fail(Error::MaxRetriesExceeded);
+            }
+            Operation::InterfaceClear => self.fail(Error::connect_timeout()),
+        }
+    }
+
+    /// Begin one bounded operation (or Address Set attempt) at `now`.
+    fn start(&mut self, operation: Operation, attempt: u8, now: Instant) {
+        let budget = match operation {
+            Operation::AddressSet => self.timing.address_set_attempt,
+            Operation::InterfaceClear => self.timing.if_clear_operation,
+        };
+        match Deadline::after(now, budget, "serial startup budget") {
+            Ok(deadline) => {
+                self.performed_io = true;
+                self.state = State::Running {
+                    operation,
+                    attempt,
+                    deadline,
+                    phase: Phase::Write,
+                };
+            }
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn set_phase(&mut self, next: Phase) {
+        if let State::Running { ref mut phase, .. } = self.state {
+            *phase = next;
+        }
+    }
+
+    fn fail(&mut self, error: Error) {
+        self.state = State::Finished(Err(error));
     }
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+    use crate::transport::BufferConfig;
 
     #[test]
-    fn test_parse_address_set_single_camera() {
-        // Final assigned address is 1, so p is 2.
-        let data = [0x88, 0x30, 0x02, VISCA_TERMINATOR];
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Complete { camera_count: 1 });
-    }
-
-    #[test]
-    fn test_parse_address_set_multiple_cameras() {
-        // Three cameras: the final assigned address is 3, so p is 4.
-        let data = [0x88, 0x30, 0x04, VISCA_TERMINATOR];
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Complete { camera_count: 3 });
-    }
-
-    #[test]
-    fn test_parse_address_set_seven_cameras() {
-        // Seven cameras: the final assigned address is 7, so p is 8.
-        let data = [0x88, 0x30, 0x08, VISCA_TERMINATOR];
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Complete { camera_count: 7 });
-    }
-
-    #[test]
-    fn test_parse_address_set_ignores_network_change_and_noise() {
-        // Network Change is z0 38 FF, not an Address Set completion. A z0
-        // header must not be accepted even when the remaining bytes resemble
-        // an Address Set reply.
-        let data = [
-            0x00,
-            0x11, // Noise
-            0x90,
-            0x38,
-            VISCA_TERMINATOR, // Network Change
-            0x90,
-            0x30,
-            0x02,
-            VISCA_TERMINATOR, // Not an Address Set reply: source is z0, not 88
-            0xAA,
-            0xBB, // More noise
-            0x88,
-            0x30,
-            0x04,
-            VISCA_TERMINATOR, // Three-camera Address Set reply
-        ];
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Complete { camera_count: 3 });
-
+    fn address_set_replies_report_the_camera_count() {
         assert_eq!(
-            parse_address_set_bytes(&[0x90, 0x38, VISCA_TERMINATOR]),
-            ParseOutcome::Partial { camera_count: 0 }
+            address_set_reply(&[0x88, 0x30, 0x02, VISCA_TERMINATOR]),
+            Some(1)
         );
         assert_eq!(
-            parse_address_set_bytes(&[0x90, 0x30, 0x02, VISCA_TERMINATOR]),
-            ParseOutcome::Partial { camera_count: 0 }
+            address_set_reply(&[0x88, 0x30, 0x04, VISCA_TERMINATOR]),
+            Some(3)
         );
+        assert_eq!(
+            address_set_reply(&[0x88, 0x30, 0x08, VISCA_TERMINATOR]),
+            Some(7)
+        );
+        // Network Change and a z0-sourced lookalike are not replies.
+        assert_eq!(address_set_reply(&[0x90, 0x38, VISCA_TERMINATOR]), None);
+        assert_eq!(
+            address_set_reply(&[0x90, 0x30, 0x02, VISCA_TERMINATOR]),
+            None
+        );
+        assert_eq!(
+            address_set_reply(&[0x88, 0x30, 0x09, VISCA_TERMINATOR]),
+            None
+        );
+        assert_eq!(address_set_reply(&[0x88, 0x30, 0x08]), None);
+        assert_eq!(address_set_reply(&[]), None);
+    }
+
+    fn startup(config: Config) -> SerialStartup {
+        SerialStartup::new(&config, StartupTiming::VISCA).expect("encodable startup frames")
     }
 
     #[test]
-    fn test_parse_address_set_partial_frame() {
-        // Incomplete frame
-        let data = [0x88, 0x30, 0x08]; // Missing terminator
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Partial { camera_count: 0 });
+    fn no_requested_operation_performs_no_io() {
+        let mut startup = startup(Config::new("/dev/test"));
+        assert!(matches!(startup.next(Instant::now()), Action::Done(Ok(()))));
     }
 
     #[test]
-    fn test_parse_address_set_empty() {
-        let data = [];
-        let result = parse_address_set_bytes(&data);
-        assert_eq!(result, ParseOutcome::Partial { camera_count: 0 });
-    }
-
-    #[test]
-    fn test_parse_address_set_fragmented() {
-        // Test parsing in fragments
-        let mut accumulated = Vec::new();
-
-        // Fragment 1
-        accumulated.extend_from_slice(&[0x88, 0x30]);
-        let result = parse_address_set_bytes(&accumulated);
-        assert_eq!(result, ParseOutcome::Partial { camera_count: 0 });
-
-        // Fragment 2
-        accumulated.extend_from_slice(&[0x08, VISCA_TERMINATOR]);
-        let result = parse_address_set_bytes(&accumulated);
-        assert_eq!(result, ParseOutcome::Complete { camera_count: 7 });
-    }
-
-    #[test]
-    fn address_set_state_is_scalar_under_repeated_and_noisy_input() {
-        use std::mem::size_of;
-
-        assert_eq!(size_of::<AddressSetState>(), size_of::<u8>());
-
-        let mut state = AddressSetState::default();
-        let unrelated = [0x55u8; 4096];
-        for _ in 0..128 {
-            assert_eq!(state.observe(&unrelated), None);
+    fn fragmented_replies_and_noise_are_framed_within_bounds() {
+        let config = Config::new("/dev/test")
+            .startup(Startup::default().with_address_set(true))
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 8,
+                max_buffer_size: 64,
+            });
+        let mut startup = startup(config);
+        let now = Instant::now();
+        assert!(matches!(startup.next(now), Action::Write { .. }));
+        startup.wrote(Ok(()));
+        for chunk in [
+            &[0x55; 8][..],
+            &[0x90, 0x38],
+            &[VISCA_TERMINATOR, 0x88, 0x30],
+        ] {
+            assert!(matches!(startup.next(now), Action::Read { .. }));
+            startup.read(Ok(chunk));
+            assert!(matches!(startup.next(now), Action::Sleep(_)));
         }
-        assert_eq!(state.camera_count(), 0);
+        assert!(matches!(startup.next(now), Action::Read { .. }));
+        startup.read(Ok(&[0x08, VISCA_TERMINATOR]));
+        assert!(matches!(startup.next(now), Action::DiscardInput));
+        assert!(matches!(startup.next(now), Action::Done(Ok(()))));
+        assert_eq!(startup.addressed_cameras(), Some(7));
+    }
+}
 
-        let one_camera = [0x88, 0x30, 0x02, VISCA_TERMINATOR];
-        assert_eq!(state.observe(&one_camera), Some(1));
-        assert_eq!(state.camera_count(), 1);
+/// Startup scenarios run through both the blocking and the Tokio driver, so
+/// the two facades are held to one transcript.
+#[cfg(test)]
+pub(crate) mod scenarios {
+    use std::{io::ErrorKind, time::Duration};
 
-        let network_change = [0x90, 0x38, VISCA_TERMINATOR];
-        assert_eq!(state.observe(&network_change), None);
-        assert_eq!(state.camera_count(), 1);
+    use super::StartupTiming;
+    use crate::{
+        transport::serial::{Config, Startup},
+        Error,
+    };
 
-        let seven_cameras = [0x88, 0x30, 0x08, VISCA_TERMINATOR];
-        assert_eq!(state.observe(&seven_cameras), Some(7));
-        assert_eq!(state.camera_count(), 7);
+    /// One scripted read.
+    #[derive(Debug, Clone)]
+    pub(crate) enum Read {
+        Bytes(Vec<u8>),
+        /// The read's timeout elapsed with nothing received.
+        Idle,
+        Fails(ErrorKind),
     }
 
-    #[test]
-    fn address_set_chunk_processing_bounds_noise_and_preserves_fragments() {
-        let mut framer = ProtocolFramer::new_with_limits_and_mode(8, 64, 64, FramingMode::RawVisca);
-        let mut state = AddressSetState::default();
+    /// One scripted write.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Write {
+        Accepted,
+        TimesOut,
+    }
 
-        assert!(matches!(
-            process_address_set_chunk(&mut framer, &mut state, &[0x88, 0x30]),
-            Ok(None)
-        ));
-        assert!(matches!(
-            process_address_set_chunk(&mut framer, &mut state, &[0x08, VISCA_TERMINATOR]),
-            Ok(Some(7))
-        ));
-        assert_eq!(state.camera_count(), 7);
+    /// The expected startup result.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) enum Outcome {
+        Ok(Option<u8>),
+        Timeout,
+        Io(ErrorKind),
+        MaxRetries,
+    }
 
-        // Repeated full chunks of noise force the framer's resynchronization
-        // path but never let its retained input exceed the configured bound.
-        let noise = [0x55u8; 64];
-        for _ in 0..1024 {
-            assert!(matches!(
-                process_address_set_chunk(&mut framer, &mut state, &noise),
-                Ok(None)
-            ));
-            assert!(framer.buffered_len() <= 64);
-        }
+    #[derive(Debug, Clone)]
+    pub(crate) struct Scenario {
+        pub(crate) name: &'static str,
+        pub(crate) config: Config,
+        pub(crate) reads: Vec<Read>,
+        pub(crate) writes: Vec<Write>,
+        pub(crate) expect_writes: Vec<Vec<u8>>,
+        pub(crate) outcome: Outcome,
+        pub(crate) discards_input: bool,
+    }
 
-        framer.clear();
-        assert!(matches!(
-            process_address_set_chunk(&mut framer, &mut state, &[0x90, 0x38]),
-            Ok(None)
-        ));
-        assert!(matches!(
-            process_address_set_chunk(&mut framer, &mut state, &[VISCA_TERMINATOR]),
-            Ok(None)
-        ));
-        assert!(matches!(
-            process_address_set_chunk(
-                &mut framer,
-                &mut state,
-                &[0x88, 0x30, 0x04, VISCA_TERMINATOR]
-            ),
-            Ok(Some(3))
-        ));
-        assert_eq!(state.camera_count(), 3);
+    /// Production timing with budgets short enough for real-time drivers.
+    pub(crate) const TIMING: StartupTiming = StartupTiming {
+        if_clear_operation: Duration::from_millis(200),
+        if_clear_settle: Duration::from_millis(5),
+        address_set_attempt: Duration::from_millis(40),
+        address_set_attempts: 3,
+        address_set_retry_delay: Duration::from_millis(5),
+        idle_pause: Duration::from_millis(1),
+    };
+
+    const ADDRESS_SET: [u8; 4] = [0x88, 0x30, 0x01, 0xFF];
+    const IF_CLEAR: [u8; 5] = [0x88, 0x01, 0x00, 0x01, 0xFF];
+
+    fn reply(cameras: u8) -> Read {
+        Read::Bytes(vec![0x88, 0x30, cameras + 1, 0xFF])
+    }
+
+    fn config(address_set: bool, interface_clear: bool) -> Config {
+        Config::new("/dev/test").startup(
+            Startup::default()
+                .with_address_set(address_set)
+                .with_interface_clear(interface_clear),
+        )
+    }
+
+    pub(crate) fn all() -> Vec<Scenario> {
+        vec![
+            Scenario {
+                name: "the default startup performs no I/O",
+                config: config(false, false),
+                reads: vec![],
+                writes: vec![],
+                expect_writes: vec![],
+                outcome: Outcome::Ok(None),
+                discards_input: false,
+            },
+            Scenario {
+                name: "Address Set precedes I/F Clear and input is discarded",
+                config: config(true, true),
+                reads: vec![reply(1)],
+                writes: vec![],
+                expect_writes: vec![ADDRESS_SET.to_vec(), IF_CLEAR.to_vec()],
+                outcome: Outcome::Ok(Some(1)),
+                discards_input: true,
+            },
+            Scenario {
+                name: "I/F Clear alone",
+                config: config(false, true),
+                reads: vec![],
+                writes: vec![],
+                expect_writes: vec![IF_CLEAR.to_vec()],
+                outcome: Outcome::Ok(None),
+                discards_input: true,
+            },
+            Scenario {
+                name: "an idle read keeps the attempt",
+                config: config(true, false),
+                reads: vec![Read::Idle, reply(3)],
+                writes: vec![],
+                expect_writes: vec![ADDRESS_SET.to_vec()],
+                outcome: Outcome::Ok(Some(3)),
+                discards_input: true,
+            },
+            // #797: the blocking driver used to resend Address Set here.
+            Scenario {
+                name: "a timed-out Address Set write is not resent",
+                config: config(true, false),
+                reads: vec![reply(1)],
+                writes: vec![Write::TimesOut],
+                expect_writes: vec![ADDRESS_SET.to_vec()],
+                outcome: Outcome::Timeout,
+                discards_input: false,
+            },
+            // #797: the blocking driver used to wrap this as `TransportError`.
+            Scenario {
+                name: "a read error is returned unchanged",
+                config: config(true, false),
+                reads: vec![Read::Fails(ErrorKind::BrokenPipe)],
+                writes: vec![],
+                expect_writes: vec![ADDRESS_SET.to_vec()],
+                outcome: Outcome::Io(ErrorKind::BrokenPipe),
+                discards_input: false,
+            },
+            Scenario {
+                name: "no reply spends every attempt",
+                config: config(true, false),
+                reads: vec![],
+                writes: vec![Write::Accepted; 3],
+                expect_writes: vec![ADDRESS_SET.to_vec(); 3],
+                outcome: Outcome::MaxRetries,
+                discards_input: false,
+            },
+        ]
+    }
+
+    /// Assert a driver's result against the scenario.
+    pub(crate) fn check(scenario: &Scenario, result: &Result<Option<u8>, Error>) {
+        let name = scenario.name;
+        let matched = match (scenario.outcome, result) {
+            (Outcome::Ok(expected), Ok(actual)) => expected == *actual,
+            (Outcome::Timeout, Err(Error::Timeout { .. })) => true,
+            (Outcome::Io(kind), Err(Error::Io(error))) => error.kind() == kind,
+            (Outcome::MaxRetries, Err(Error::MaxRetriesExceeded)) => true,
+            _ => false,
+        };
+        assert!(
+            matched,
+            "{name}: expected {:?}, got {result:?}",
+            scenario.outcome
+        );
     }
 }

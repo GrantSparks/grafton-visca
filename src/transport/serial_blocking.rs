@@ -1,24 +1,26 @@
-//! Serial transport for VISCA over RS-232/422.
+//! Blocking serial transport for VISCA over RS-232/422.
 //!
-//! This module provides serial communication for VISCA protocol,
-//! supporting both RS-232 and RS-422 connections with proper
-//! Address Set and I/F Clear initialization.
-
-use tracing::trace;
+//! The port is opened and started up as documented on
+//! [`crate::transport::serial`]; this module contains only the blocking I/O
+//! driver for that shared behaviour.
 
 use std::time::{Duration, Instant};
 
+use tracing::trace;
+
 use crate::{
     command::CommandKind,
-    error::{Error, Result},
+    error::Result,
+    timeout::Deadline,
     transport::{
+        blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::{AddressingMode, TransportConfig},
         serial::{
-            device_timeout,
-            handshake::blocking_handshake::{address_set_blocking, if_clear_blocking},
-            startup_plan, write_bounded, Config as SerialConfig, StartupOperation,
+            handshake::{Action, SerialStartup, StartupTiming},
+            open_failed, port_builder, set_device_timeout, Config as SerialConfig, DevicePort,
+            SERIAL_PORT_CLOSED,
         },
-        BlockingTransport, HasTransportConfig,
+        stream_read, AddressedBus, BlockingTransport, HasTransportConfig,
     },
 };
 
@@ -26,14 +28,11 @@ use crate::{
 ///
 /// This transport operates at the stream level, reading/writing raw bytes.
 /// Framing and retry logic are handled by the runtime layer.
-///
-/// The blocking transport uses exclusive ownership (`&mut self`) for all operations,
-/// matching the design of TCP and UDP blocking transports. This eliminates the
-/// need for internal synchronization and prevents self-deadlock issues.
 pub struct SerialTransport {
     port: Box<dyn serialport::SerialPort + Send>,
     config: SerialConfig,
     transport_config: TransportConfig,
+    addressed_bus: Option<AddressedBus>,
 }
 
 impl std::fmt::Debug for SerialTransport {
@@ -45,99 +44,74 @@ impl std::fmt::Debug for SerialTransport {
     }
 }
 
-/// RAII guard that restores the serial port timeout on drop.
-///
-/// This ensures timeout restoration happens even if an early return via `?`
-/// occurs in the write/read path.
-struct TimeoutGuard<'a> {
-    port: &'a mut dyn serialport::SerialPort,
-    original_timeout: Duration,
-}
-
-impl<'a> TimeoutGuard<'a> {
-    /// Save the current device timeout without applying a new one.
-    fn preserving(port: &'a mut dyn serialport::SerialPort) -> Self {
-        Self {
-            original_timeout: port.timeout(),
-            port,
-        }
-    }
-
-    /// Create a new timeout guard, saving the current timeout and setting a new one.
-    fn new(port: &'a mut dyn serialport::SerialPort, new_timeout: Duration) -> Result<Self> {
-        let guard = Self::preserving(port);
-        guard
-            .port
-            .set_timeout(device_timeout(new_timeout))
-            .map_err(|e| Error::TransportError(format!("Failed to set timeout: {e}").into()))?;
-        Ok(guard)
-    }
-}
-
-impl Drop for TimeoutGuard<'_> {
-    fn drop(&mut self) {
-        // Best-effort restoration - log if it fails but don't panic
-        if let Err(e) = self.port.set_timeout(device_timeout(self.original_timeout)) {
-            trace!("Failed to restore serial port timeout: {e}");
-        }
-    }
-}
-
 impl SerialTransport {
-    /// Create a new serial transport with the given configuration.
+    /// Open the configured port and perform the requested startup.
+    ///
+    /// The configuration is validated before the device is opened. Opening
+    /// writes nothing to the bus unless [`SerialConfig::startup`] requests
+    /// Address Set or I/F Clear.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::Error::InvalidRequest`] for an invalid configuration,
+    /// [`crate::Error::ConnectionFailed`] when the port cannot be opened (including
+    /// when another process holds it), and the startup errors documented on
+    /// [`crate::transport::serial`].
     pub fn new(config: SerialConfig) -> Result<Self> {
-        // Build and validate the transport configuration before opening the
-        // serial device. Canonical CameraConfig does this during preflight,
-        // but this lower-level initializer also serves direct library paths.
-        let transport_config = TransportConfig {
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            buffer_config: config.buffer_config,
-            addressing: AddressingMode::Serial, // Serial transport uses Serial addressing
-            ..Default::default()
-        };
+        let transport_config = config.transport_config();
         transport_config.validate()?;
 
-        // Open serial port
-        let mut port = serialport::new(&config.port, config.baud_rate)
-            .timeout(device_timeout(config.read_timeout))
+        let mut port = port_builder(&config)
             .open()
-            .map_err(|e| {
-                Error::TransportError(format!("Failed to open serial port: {e}").into())
-            })?;
-
-        perform_startup_handshakes(&mut *port, &config)?;
+            .map_err(|error| open_failed(&config, error))?;
+        let addressed_bus = perform_startup(&mut *port, &config, StartupTiming::VISCA)?
+            .map(|cameras| AddressedBus::new(config.port.clone(), cameras));
 
         Ok(Self {
             port,
             config,
             transport_config,
+            addressed_bus,
         })
     }
 }
 
-/// Perform the requested serial bus startup operations in protocol order.
-fn perform_startup_handshakes(
-    port: &mut dyn serialport::SerialPort,
+/// Drive the shared serial startup with blocking device I/O, returning the
+/// camera count Address Set reported.
+fn perform_startup(
+    port: &mut DevicePort,
     config: &SerialConfig,
-) -> Result<()> {
-    for operation in startup_plan(config).into_iter().flatten() {
-        match operation {
-            StartupOperation::AddressSet => {
-                address_set_blocking(
+    timing: StartupTiming,
+) -> Result<Option<u8>> {
+    let mut startup = SerialStartup::new(config, timing)?;
+    let mut buffer = vec![0; startup.read_capacity()];
+    loop {
+        match startup.next(Instant::now()) {
+            Action::Write { frame, timeout } => {
+                let written = Deadline::after(Instant::now(), timeout, "write_timeout").and_then(
+                    |deadline| {
+                        write_all_bounded(port, set_device_timeout, frame, deadline, timeout)
+                    },
+                );
+                startup.wrote(written);
+            }
+            Action::Read { timeout } => {
+                let read = read_once_bounded(
                     port,
-                    Duration::from_secs(2),
-                    config.write_timeout,
-                    config.buffer_config,
-                )?;
+                    set_device_timeout,
+                    &mut buffer,
+                    timeout,
+                    TimedIo::Bounded,
+                );
+                startup.read(read.map(|read| &buffer[..read]));
             }
-            StartupOperation::InterfaceClear => {
-                if_clear_blocking(port, config.write_timeout)?;
-            }
+            Action::Sleep(duration) => std::thread::sleep(duration),
+            Action::DiscardInput => port
+                .clear(serialport::ClearBuffer::Input)
+                .map_err(std::io::Error::from)?,
+            Action::Done(result) => return result.map(|()| startup.addressed_cameras()),
         }
     }
-
-    Ok(())
 }
 
 impl HasTransportConfig for SerialTransport {
@@ -148,6 +122,10 @@ impl HasTransportConfig for SerialTransport {
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         Some(crate::camera::TransportKind::Serial)
     }
+
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        self.addressed_bus.as_ref()
+    }
 }
 
 impl BlockingTransport for SerialTransport {
@@ -157,40 +135,28 @@ impl BlockingTransport for SerialTransport {
         _kind: CommandKind,
         timeout: Duration,
     ) -> Result<()> {
-        // Apply write timeout using RAII guard for guaranteed restoration
-        let guard = TimeoutGuard::preserving(&mut *self.port);
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .ok_or(Error::io_timeout())?;
-        write_bounded(guard.port, bytes, deadline, timeout)?;
-
-        // Do not call `SerialPort::flush`: on POSIX it is `tcdrain`, which can
-        // remain blocked after the write timeout. The subsequent VISCA reply
-        // wait is the protocol-level confirmation that the queued bytes left.
+        let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
+        write_all_bounded(
+            &mut *self.port,
+            set_device_timeout,
+            bytes,
+            deadline,
+            timeout,
+        )?;
         trace!("Queued {} serial bytes: {:02X?}", bytes.len(), bytes);
-        // TimeoutGuard restores original timeout on drop
         Ok(())
     }
 
     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
-        // Use RAII guard for guaranteed timeout restoration
-        let guard = TimeoutGuard::new(&mut *self.port, timeout)?;
-
-        // Read into the provided buffer
-        match guard.port.read(dst) {
-            Ok(n) => {
-                trace!("Read {} bytes from serial port", n);
-                Ok(n)
-            }
-            Err(io_err)
-                if io_err.kind() == std::io::ErrorKind::TimedOut
-                    || io_err.kind() == std::io::ErrorKind::WouldBlock =>
-            {
-                Err(Error::io_timeout())
-            }
-            Err(io_err) => Err(io_err.into()),
-        }
-        // TimeoutGuard restores original timeout on drop
+        let read = read_once_bounded(
+            &mut *self.port,
+            set_device_timeout,
+            dst,
+            timeout,
+            TimedIo::Bounded,
+        )?;
+        trace!("Read {read} bytes from serial port");
+        stream_read(read, SERIAL_PORT_CLOSED)
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -202,70 +168,23 @@ impl BlockingTransport for SerialTransport {
 #[allow(clippy::panic, clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::transport::serial::handshake::blocking_handshake::{
-        address_set_blocking, if_clear_blocking,
-    };
     use crate::transport::BufferConfig;
+    use crate::{
+        command::bytes::VISCA_TERMINATOR,
+        transport::serial::{
+            handshake::scenarios::{self, Read as ScriptRead, Write as ScriptWrite},
+            Startup,
+        },
+        Error,
+    };
     use serialport::{ClearBuffer, DataBits, FlowControl, Parity, SerialPort, StopBits};
     use std::io::{self, ErrorKind, Read};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Mutex,
     };
     use std::thread;
     use std::{cell::RefCell, collections::VecDeque};
-
-    #[test]
-    fn test_serial_config_default() {
-        let config = SerialConfig::default();
-        assert_eq!(config.baud_rate, 9600);
-        assert_eq!(config.camera_address, 1);
-        assert!(config.if_clear_on_connect);
-        assert!(!config.address_set_on_connect);
-        assert_eq!(config.buffer_config, BufferConfig::for_serial());
-    }
-
-    #[test]
-    fn invalid_buffer_bounds_fail_before_serial_device_open() {
-        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
-            .if_clear_on_connect(false)
-            .buffer_config(BufferConfig {
-                recv_buffer_size: 65,
-                max_buffer_size: 64,
-            });
-
-        let result = SerialTransport::new(config);
-
-        assert!(matches!(
-            result,
-            Err(Error::InvalidRequest(actual))
-                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
-        ));
-    }
-
-    #[test]
-    fn zero_io_timeouts_fail_before_serial_device_open() {
-        for (config, message) in [
-            (
-                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
-                    .if_clear_on_connect(false)
-                    .read_timeout(Duration::ZERO),
-                "transport read timeout must be non-zero",
-            ),
-            (
-                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
-                    .if_clear_on_connect(false)
-                    .write_timeout(Duration::ZERO),
-                "transport write timeout must be non-zero",
-            ),
-        ] {
-            assert!(matches!(
-                SerialTransport::new(config),
-                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
-            ));
-        }
-    }
 
     /// One deterministic fake serial read outcome.
     enum ReadStep {
@@ -276,7 +195,12 @@ mod tests {
     /// One deterministic fake serial write outcome.
     enum WriteStep {
         Error(ErrorKind),
-        Partial { bytes: usize, delay: Duration },
+        Partial {
+            bytes: usize,
+            delay: Duration,
+        },
+        /// Claim more bytes than the buffer held.
+        OverReport,
     }
 
     /// A mock serial port for testing that records all operations.
@@ -307,8 +231,10 @@ mod tests {
         flush_calls: Arc<AtomicUsize>,
         /// Scripted write outcomes, used by partial-write deadline tests.
         write_steps: RefCell<VecDeque<WriteStep>>,
-        /// Fail once when this timeout is requested, then let Drop retry it.
+        /// Fail once when this timeout is requested.
         fail_next_timeout_set_to: RefCell<Option<Duration>>,
+        /// Number of input-buffer discards.
+        input_clears: RefCell<usize>,
     }
 
     impl TestSerialPort {
@@ -328,6 +254,7 @@ mod tests {
                 flush_calls: Arc::new(AtomicUsize::new(0)),
                 write_steps: RefCell::new(VecDeque::new()),
                 fail_next_timeout_set_to: RefCell::new(None),
+                input_clears: RefCell::new(0),
             }
         }
 
@@ -414,6 +341,7 @@ mod tests {
                         thread::sleep(delay);
                         Ok(bytes.min(buf.len()))
                     }
+                    WriteStep::OverReport => Ok(buf.len() + 1),
                 };
             }
 
@@ -467,7 +395,7 @@ mod tests {
                 *self.fail_next_timeout_set_to.borrow_mut() = None;
                 return Err(serialport::Error::new(
                     serialport::ErrorKind::Unknown,
-                    "simulated timeout restoration error",
+                    "simulated timeout setting error",
                 ));
             }
 
@@ -532,7 +460,10 @@ mod tests {
             Ok(0)
         }
 
-        fn clear(&self, _: ClearBuffer) -> serialport::Result<()> {
+        fn clear(&self, buffer: ClearBuffer) -> serialport::Result<()> {
+            if matches!(buffer, ClearBuffer::Input) {
+                *self.input_clears.borrow_mut() += 1;
+            }
             Ok(())
         }
 
@@ -554,95 +485,130 @@ mod tests {
 
     /// Helper to create a SerialTransport with a test port directly.
     fn create_test_transport(port: TestSerialPort) -> SerialTransport {
-        let config = SerialConfig {
-            port: "/dev/test".to_string(),
-            if_clear_on_connect: false,
-            address_set_on_connect: false,
-            ..Default::default()
-        };
-        let transport_config = TransportConfig {
-            read_timeout: config.read_timeout,
-            write_timeout: config.write_timeout,
-            buffer_config: config.buffer_config,
-            addressing: AddressingMode::Serial,
-            ..Default::default()
-        };
+        let config = SerialConfig::new("/dev/test");
+        let transport_config = config.transport_config();
         SerialTransport {
             port: Box::new(port),
             config,
             transport_config,
+            addressed_bus: None,
+        }
+    }
+
+    /// The production timing with a different Address Set attempt budget.
+    fn timing(address_set_attempt: Duration) -> StartupTiming {
+        StartupTiming {
+            address_set_attempt,
+            ..StartupTiming::VISCA
+        }
+    }
+
+    /// An Address Set startup whose read timeout matches the fake port's.
+    fn address_set(read_timeout: Duration, write_timeout: Duration) -> SerialConfig {
+        SerialConfig::new("/dev/test")
+            .startup(Startup::default().with_address_set(true))
+            .read_timeout(read_timeout)
+            .write_timeout(write_timeout)
+    }
+
+    #[test]
+    fn test_serial_config_default() {
+        let config = SerialConfig::default();
+        assert_eq!(config.baud_rate, 9600);
+        assert!(!config.startup.address_set);
+        assert!(!config.startup.interface_clear);
+        assert_eq!(config.buffer_config, BufferConfig::for_serial());
+    }
+
+    #[test]
+    fn invalid_buffer_bounds_fail_before_serial_device_open() {
+        let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
+            .buffer_config(BufferConfig {
+                recv_buffer_size: 65,
+                max_buffer_size: 64,
+            });
+
+        let result = SerialTransport::new(config);
+
+        assert!(matches!(
+            result,
+            Err(Error::InvalidRequest(actual))
+                if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
+        ));
+    }
+
+    #[test]
+    fn zero_io_timeouts_fail_before_serial_device_open() {
+        for (config, message) in [
+            (
+                SerialConfig::new("grafton-visca-zero-read-timeout-serial-device")
+                    .read_timeout(Duration::ZERO),
+                "transport read timeout must be non-zero",
+            ),
+            (
+                SerialConfig::new("grafton-visca-zero-write-timeout-serial-device")
+                    .write_timeout(Duration::ZERO),
+                "transport write timeout must be non-zero",
+            ),
+        ] {
+            assert!(matches!(
+                SerialTransport::new(config),
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
         }
     }
 
     #[test]
-    fn address_set_keeps_one_attempt_after_an_early_read_timeout() {
-        let configured_read_timeout = Duration::from_millis(50);
-        let configured_write_timeout = Duration::from_millis(7);
-        let mut port = TestSerialPort::new(configured_read_timeout).with_read_steps([
-            ReadStep::Error(ErrorKind::TimedOut),
-            ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
-        ]);
-
-        let result = address_set_blocking(
-            &mut port,
-            Duration::from_secs(1),
-            configured_write_timeout,
-            BufferConfig::for_serial(),
-        );
-
-        assert!(matches!(result, Ok(1)));
-        assert_eq!(
-            port.write_calls.load(Ordering::SeqCst),
-            1,
-            "an early idle timeout must not spend an Address Set retry"
-        );
-        assert_eq!(
-            port.read_timeouts.borrow().as_slice(),
-            &[configured_read_timeout, configured_read_timeout]
-        );
-        assert_eq!(port.timeout(), configured_read_timeout);
+    fn an_absent_port_is_a_connection_failure_naming_the_port() {
+        let config = SerialConfig::new("/dev/grafton-visca-absent-serial-device");
+        let error = SerialTransport::new(config).expect_err("an absent port cannot open");
+        assert!(matches!(
+            error,
+            Error::ConnectionFailed { ref addr, .. }
+                if addr == "/dev/grafton-visca-absent-serial-device"
+        ));
     }
 
     #[test]
-    fn address_set_retries_an_interrupted_write() {
+    fn address_set_retries_an_interrupted_write_in_place() {
         let configured_read_timeout = Duration::from_millis(50);
         let mut port = TestSerialPort::new(configured_read_timeout)
             .with_write_steps([WriteStep::Error(ErrorKind::Interrupted)])
             .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
 
-        assert_eq!(
-            address_set_blocking(
-                &mut port,
-                Duration::from_secs(1),
-                Duration::from_millis(7),
-                BufferConfig::for_serial(),
-            )
-            .expect("an interrupted handshake write retries in place"),
-            1
-        );
+        perform_startup(
+            &mut port,
+            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            timing(Duration::from_secs(1)),
+        )
+        .expect("an interrupted handshake write retries in place");
         assert_eq!(port.write_calls.load(Ordering::SeqCst), 2);
-        assert_eq!(port.timeout(), configured_read_timeout);
     }
 
+    /// #797: an expired partial write leaves an unknowable bus position, so it
+    /// ends startup instead of starting another attempt.
     #[test]
-    fn address_set_retries_a_timed_out_write() {
+    fn a_partial_address_set_write_is_not_resent() {
         let configured_read_timeout = Duration::from_millis(50);
-        let mut port = TestSerialPort::new(configured_read_timeout)
-            .with_write_steps([WriteStep::Error(ErrorKind::TimedOut)])
-            .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
+        let mut port =
+            TestSerialPort::new(configured_read_timeout).with_write_steps([WriteStep::Partial {
+                bytes: 1,
+                delay: Duration::from_millis(100),
+            }]);
 
-        assert_eq!(
-            address_set_blocking(
-                &mut port,
-                Duration::from_secs(1),
-                Duration::from_millis(7),
-                BufferConfig::for_serial(),
-            )
-            .expect("a timed-out handshake write retries on the next attempt"),
-            1
+        let result = perform_startup(
+            &mut port,
+            &address_set(configured_read_timeout, Duration::from_secs(1)),
+            timing(Duration::from_millis(50)),
         );
-        assert_eq!(port.write_calls.load(Ordering::SeqCst), 2);
-        assert_eq!(port.timeout(), configured_read_timeout);
+
+        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert_eq!(
+            port.write_calls.load(Ordering::SeqCst),
+            1,
+            "the expired partial write starts no follow-up syscall and no new attempt"
+        );
+        assert!(port.read_timeouts.borrow().is_empty());
     }
 
     #[test]
@@ -656,16 +622,12 @@ mod tests {
             ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
         ]);
 
-        assert_eq!(
-            address_set_blocking(
-                &mut port,
-                Duration::from_millis(20),
-                Duration::from_millis(7),
-                BufferConfig::for_serial(),
-            )
-            .expect("resynchronized Address Set reaches a later attempt"),
-            1
-        );
+        perform_startup(
+            &mut port,
+            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            timing(Duration::from_millis(20)),
+        )
+        .expect("resynchronized Address Set reaches a later attempt");
         assert_eq!(
             port.write_calls.load(Ordering::SeqCst),
             2,
@@ -674,191 +636,238 @@ mod tests {
     }
 
     #[test]
-    fn address_set_caps_a_long_port_read_timeout_to_the_remaining_deadline() {
+    fn address_set_caps_a_long_read_timeout_to_the_remaining_deadline() {
         let configured_read_timeout = Duration::from_secs(1);
         let configured_write_timeout = Duration::from_millis(7);
         let attempt_timeout = Duration::from_millis(50);
         let mut port = TestSerialPort::new(configured_read_timeout)
             .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
 
-        let result = address_set_blocking(
+        perform_startup(
             &mut port,
-            attempt_timeout,
-            configured_write_timeout,
-            BufferConfig::for_serial(),
-        );
+            &address_set(configured_read_timeout, configured_write_timeout),
+            timing(attempt_timeout),
+        )
+        .expect("Address Set succeeds");
 
-        assert!(matches!(result, Ok(1)));
         let read_timeouts = port.read_timeouts.borrow();
         assert_eq!(read_timeouts.len(), 1);
         assert!(
             read_timeouts[0] <= attempt_timeout,
             "the read must not be allowed to outlive the attempt budget"
         );
+        let history = port.timeout_history.borrow();
         assert!(
-            read_timeouts[0] < configured_read_timeout,
-            "the configured port timeout is longer than the remaining budget"
+            history[0] <= configured_write_timeout,
+            "the Address Set write is bounded by the configured write timeout"
         );
-        assert_eq!(
-            port.timeout_history
-                .borrow()
-                .iter()
-                .filter(|&&timeout| timeout == configured_write_timeout)
-                .count(),
-            1,
-            "Address Set write uses the configured write timeout"
-        );
-        assert_eq!(port.timeout(), configured_read_timeout);
     }
 
     #[test]
-    fn address_set_retries_after_a_partial_write_expires() {
-        let configured_read_timeout = Duration::from_millis(50);
-        let mut port =
-            TestSerialPort::new(configured_read_timeout).with_write_steps([WriteStep::Partial {
-                bytes: 1,
-                delay: Duration::from_millis(100),
-            }]);
-
-        let result = address_set_blocking(
-            &mut port,
-            Duration::from_millis(50),
-            Duration::from_secs(1),
-            BufferConfig::for_serial(),
-        );
-
-        assert!(matches!(result, Err(Error::Timeout { .. })));
-        assert_eq!(
-            port.write_calls.load(Ordering::SeqCst),
-            3,
-            "an expired partial write starts no follow-up syscall in its attempt, then Address Set uses its two remaining attempts"
-        );
-        assert!(
-            !port.read_timeouts.borrow().is_empty(),
-            "the remaining Address Set attempts may read after the first write timed out"
-        );
-        assert_eq!(port.timeout(), configured_read_timeout);
-    }
-
-    #[test]
-    fn address_set_with_a_zero_budget_performs_no_io() {
+    fn a_zero_attempt_budget_performs_no_io() {
         let configured_read_timeout = Duration::from_millis(50);
         let mut port = TestSerialPort::new(configured_read_timeout);
 
-        let result = address_set_blocking(
+        let result = perform_startup(
             &mut port,
-            Duration::ZERO,
-            Duration::from_millis(7),
-            BufferConfig::for_serial(),
+            &address_set(configured_read_timeout, Duration::from_millis(7)),
+            timing(Duration::ZERO),
         );
 
-        assert!(matches!(result, Err(Error::Timeout { .. })));
+        assert!(matches!(result, Err(Error::MaxRetriesExceeded)));
         assert_eq!(port.write_calls.load(Ordering::SeqCst), 0);
         assert!(port.read_timeouts.borrow().is_empty());
         assert!(port.timeout_history.borrow().is_empty());
-        assert_eq!(port.timeout(), configured_read_timeout);
     }
 
     #[test]
-    fn blocking_handshakes_do_not_call_an_unbounded_serial_flush() {
+    fn startup_never_calls_an_unbounded_serial_flush() {
         let configured_timeout = Duration::from_millis(50);
-        let configured_write_timeout = Duration::from_millis(7);
         let mut address_port = TestSerialPort::new(configured_timeout)
             .with_flush_error(ErrorKind::TimedOut)
             .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
-
-        assert!(matches!(
-            address_set_blocking(
-                &mut address_port,
-                Duration::from_secs(1),
-                configured_write_timeout,
-                BufferConfig::for_serial(),
-            ),
-            Ok(1)
-        ));
+        perform_startup(
+            &mut address_port,
+            &address_set(configured_timeout, Duration::from_millis(7)),
+            StartupTiming::VISCA,
+        )
+        .expect("Address Set succeeds");
         assert_eq!(address_port.flush_calls.load(Ordering::SeqCst), 0);
 
         let mut clear_port =
             TestSerialPort::new(configured_timeout).with_flush_error(ErrorKind::TimedOut);
-        assert!(if_clear_blocking(&mut clear_port, configured_write_timeout).is_ok());
+        perform_startup(
+            &mut clear_port,
+            &SerialConfig::new("/dev/test").startup(Startup::default().with_interface_clear(true)),
+            StartupTiming::VISCA,
+        )
+        .expect("I/F Clear succeeds");
         assert_eq!(clear_port.flush_calls.load(Ordering::SeqCst), 0);
     }
 
+    /// #800: failing to arm a timeout is `Error::Io` on serial devices, as it
+    /// is on sockets.
     #[test]
-    fn startup_with_address_set_and_if_clear_transmits_address_set_first() {
-        let mut port = TestSerialPort::new(Duration::from_millis(50))
-            .with_read_steps([ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR])]);
-        let config = SerialConfig::new("/dev/test")
-            .address_set_on_connect(true)
-            .if_clear_on_connect(true)
-            .write_timeout(Duration::from_millis(7))
-            .buffer_config(BufferConfig {
-                recv_buffer_size: 4,
-                max_buffer_size: 32,
-            });
-
-        perform_startup_handshakes(&mut port, &config).expect("startup handshakes succeed");
-
-        assert_eq!(
-            port.writes.borrow().as_slice(),
-            [
-                vec![0x88, 0x30, 0x01, VISCA_TERMINATOR],
-                vec![0x88, 0x01, 0x00, 0x01, VISCA_TERMINATOR],
-            ],
-            "the blocking serial startup transcript must address the bus before clearing it"
-        );
-        assert_eq!(port.read_buffer_sizes.borrow().as_slice(), &[4]);
-    }
-
-    #[test]
-    fn address_set_surfaces_timeout_restoration_failure_after_a_successful_write() {
-        let configured_read_timeout = Duration::from_millis(50);
-        let mut port = TestSerialPort::new(configured_read_timeout)
-            .with_next_timeout_set_failure(configured_read_timeout);
-
-        let result = address_set_blocking(
-            &mut port,
-            Duration::from_secs(1),
-            Duration::from_millis(7),
-            BufferConfig::for_serial(),
-        );
-
-        assert!(matches!(
-            result,
-            Err(Error::TransportError(message))
-                if message
-                    .as_ref()
-                    .contains("Failed to restore serial handshake timeout")
-        ));
-        assert_eq!(port.write_calls.load(Ordering::SeqCst), 1);
-        assert!(port.read_timeouts.borrow().is_empty());
-        assert_eq!(
-            port.timeout(),
-            configured_read_timeout,
-            "Drop retries restoration after the surfaced failure"
-        );
-    }
-
-    // =========================================================================
-    // Deadlock regression test
-    // =========================================================================
-
-    /// This test verifies that send_with_timeout does NOT deadlock.
-    ///
-    /// The old implementation would self-deadlock because:
-    /// 1. send_with_timeout locked the mutex
-    /// 2. Then called send_raw which tried to lock the same mutex
-    ///
-    /// This test spawns a thread to call send_with_timeout and waits with a timeout.
-    /// If the implementation deadlocks, the test will fail on timeout.
-    #[test]
-    fn test_send_with_timeout_does_not_deadlock() {
-        let port = TestSerialPort::new(Duration::from_secs(5));
+    fn failing_to_arm_a_device_timeout_is_an_io_error() {
+        let read_timeout = Duration::from_millis(100);
+        let port =
+            TestSerialPort::new(Duration::from_secs(5)).with_next_timeout_set_failure(read_timeout);
         let mut transport = create_test_transport(port);
 
-        let (tx, rx) = mpsc::channel();
+        let mut buf = [0u8; 16];
+        let result = transport.recv_into_with_timeout(&mut buf, read_timeout);
+        assert!(matches!(result, Err(Error::Io(_))));
+    }
 
-        // Spawn a thread to call send_with_timeout
+    /// #798/#800: a zero-byte read is end of stream on every stream transport.
+    #[test]
+    fn a_zero_byte_read_is_a_closed_serial_port() {
+        let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(5)));
+        let mut buf = [0u8; 16];
+        assert!(matches!(
+            transport.recv_into_with_timeout(&mut buf, Duration::from_millis(10)),
+            Err(Error::ConnectionClosed { reason: Some(ref reason) })
+                if reason == SERIAL_PORT_CLOSED
+        ));
+    }
+
+    /// #800: the shared write loop rejects a write claiming more bytes than
+    /// it was given, for serial exactly as for TCP.
+    #[test]
+    fn an_over_reported_serial_write_is_rejected() {
+        let port =
+            TestSerialPort::new(Duration::from_secs(5)).with_write_steps([WriteStep::OverReport]);
+        let mut transport = create_test_transport(port);
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            Duration::from_millis(100),
+        );
+        assert!(matches!(
+            result,
+            Err(Error::Io(ref error)) if error.kind() == ErrorKind::InvalidData
+        ));
+    }
+
+    #[test]
+    fn a_failed_write_is_reported_as_io() {
+        let original_timeout = Duration::from_secs(5);
+        let port = TestSerialPort::new(original_timeout).with_write_error(ErrorKind::BrokenPipe);
+        let mut transport = create_test_transport(port);
+
+        let result = transport.send_with_timeout(
+            &[0x81, 0x01, VISCA_TERMINATOR],
+            CommandKind::Command,
+            Duration::from_millis(100),
+        );
+        assert!(matches!(
+            result,
+            Err(Error::Io(ref error)) if error.kind() == ErrorKind::BrokenPipe
+        ));
+    }
+
+    /// The startup transcripts shared with the Tokio driver.
+    #[test]
+    fn shared_startup_scenarios() {
+        for scenario in scenarios::all() {
+            let reads = scenario.reads.iter().map(|read| match read {
+                ScriptRead::Bytes(bytes) => ReadStep::Bytes(bytes.clone()),
+                ScriptRead::Idle => ReadStep::Error(ErrorKind::TimedOut),
+                ScriptRead::Fails(kind) => ReadStep::Error(*kind),
+            });
+            let writes = scenario.writes.iter().map(|write| match write {
+                ScriptWrite::Accepted => WriteStep::Partial {
+                    bytes: usize::MAX,
+                    delay: Duration::ZERO,
+                },
+                ScriptWrite::TimesOut => WriteStep::Error(ErrorKind::TimedOut),
+            });
+            let mut port = TestSerialPort::new(Duration::from_millis(50))
+                .with_read_steps(reads)
+                .with_write_steps(writes);
+
+            let result = perform_startup(&mut port, &scenario.config, scenarios::TIMING);
+
+            scenarios::check(&scenario, &result);
+            assert_eq!(
+                port.writes.borrow().as_slice(),
+                scenario.expect_writes.as_slice(),
+                "{}",
+                scenario.name
+            );
+            assert_eq!(
+                *port.input_clears.borrow() == 1,
+                scenario.discards_input,
+                "{}",
+                scenario.name
+            );
+        }
+    }
+
+    /// Address Set's camera count is checked against the registered cameras
+    /// on a real (pseudo-terminal) port: a camera the chain did not address
+    /// fails the open, and an addressed one starts a session.
+    #[cfg(unix)]
+    #[test]
+    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
+    fn registered_cameras_must_have_been_addressed() {
+        use std::io::{Read as _, Write as _};
+
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, CameraId};
+
+        for (camera, expect_open) in [
+            (CameraId::CAMERA_1, true),
+            (CameraId::new(2).unwrap(), false),
+        ] {
+            let (mut master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
+            let path = slave.name().expect("pseudo-terminal path");
+            master
+                .set_timeout(Duration::from_secs(5))
+                .expect("master timeout");
+            let bus = thread::spawn(move || {
+                // One camera answers Address Set.
+                let mut frame = [0u8; 4];
+                master.read_exact(&mut frame).expect("Address Set frame");
+                assert_eq!(frame, [0x88, 0x30, 0x01, VISCA_TERMINATOR]);
+                master
+                    .write_all(&[0x88, 0x30, 0x02, VISCA_TERMINATOR])
+                    .expect("Address Set reply");
+                master
+            });
+
+            let result = CameraConfig::<PtzOpticsG2>::serial(path.clone(), 9_600)
+                .camera_id(camera)
+                .serial_startup(Startup::default().with_address_set(true))
+                .open_serial();
+            let _master = bus.join().expect("bus thread");
+            drop(slave);
+
+            match result {
+                Ok(session) => {
+                    assert!(expect_open, "camera {camera:?} was not addressed");
+                    session.close().expect("clean close");
+                }
+                Err(error) => {
+                    assert!(!expect_open, "camera {camera:?} should open: {error:?}");
+                    assert!(matches!(
+                        error,
+                        Error::ConnectionFailed { ref addr, ref source }
+                            if *addr == path
+                                && source.kind() == ErrorKind::NotFound
+                                && source.to_string()
+                                    == "camera 2 was not addressed by Address Set (chain reported 1)"
+                    ));
+                }
+            }
+        }
+    }
+
+    /// `send_with_timeout` must not deadlock: an earlier implementation
+    /// locked an internal mutex and then re-entered it.
+    #[test]
+    fn test_send_with_timeout_does_not_deadlock() {
+        let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(5)));
+        let (tx, rx) = std::sync::mpsc::channel();
         let handle = thread::spawn(move || {
             let result = transport.send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
@@ -866,113 +875,35 @@ mod tests {
                 Duration::from_millis(100),
             );
             tx.send(result).ok();
-            transport // Return transport so we can inspect it
+            transport
         });
-
-        // Wait for completion with a short timeout
-        // If the old mutex-based implementation is in place, this will timeout
         match rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(result) => {
-                assert!(
-                    result.is_ok(),
-                    "send_with_timeout should succeed: {:?}",
-                    result
-                );
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                panic!("DEADLOCK DETECTED: send_with_timeout did not complete within 500ms");
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                panic!("Thread disconnected unexpectedly");
-            }
+            Ok(result) => assert!(
+                result.is_ok(),
+                "send_with_timeout should succeed: {result:?}"
+            ),
+            Err(error) => panic!("send_with_timeout did not complete within 500ms: {error}"),
         }
-
-        // Clean up
         let _transport = handle.join().expect("Thread should complete");
-    }
-
-    // =========================================================================
-    // Timeout restoration tests
-    // =========================================================================
-
-    #[test]
-    fn test_send_with_timeout_restores_timeout_on_success() {
-        let original_timeout = Duration::from_secs(5);
-        let write_timeout = Duration::from_millis(100);
-
-        let port = TestSerialPort::new(original_timeout);
-        let mut transport = create_test_transport(port);
-
-        // Override the write timeout in config
-        transport.config.write_timeout = write_timeout;
-
-        // Send should succeed
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            write_timeout,
-        );
-        assert!(result.is_ok());
-
-        // Verify the timeout was changed and then restored
-        // Access the port to check its final timeout
-        assert_eq!(
-            transport.port.timeout(),
-            original_timeout,
-            "Timeout should be restored to original after successful send"
-        );
-    }
-
-    #[test]
-    fn test_send_with_timeout_restores_timeout_on_write_error() {
-        let original_timeout = Duration::from_secs(5);
-        let write_timeout = Duration::from_millis(100);
-
-        let port = TestSerialPort::new(original_timeout).with_write_error(ErrorKind::BrokenPipe);
-        let mut transport = create_test_transport(port);
-        transport.config.write_timeout = write_timeout;
-
-        // Send should fail
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            write_timeout,
-        );
-        assert!(result.is_err());
-
-        // Timeout should still be restored via RAII guard
-        assert_eq!(
-            transport.port.timeout(),
-            original_timeout,
-            "Timeout should be restored even after write error"
-        );
     }
 
     #[test]
     fn send_with_timeout_does_not_call_unbounded_serial_flush() {
-        let original_timeout = Duration::from_secs(5);
-        let write_timeout = Duration::from_millis(100);
-
-        let port = TestSerialPort::new(original_timeout).with_flush_error(ErrorKind::BrokenPipe);
+        let port =
+            TestSerialPort::new(Duration::from_secs(5)).with_flush_error(ErrorKind::BrokenPipe);
         let flush_calls = Arc::clone(&port.flush_calls);
         let mut transport = create_test_transport(port);
-        transport.config.write_timeout = write_timeout;
 
         // The configured flush failure is never observed because command
         // submission must not enter an unbounded device-drain syscall.
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            write_timeout,
-        );
-        assert!(result.is_ok());
+        transport
+            .send_with_timeout(
+                &[0x81, 0x01, VISCA_TERMINATOR],
+                CommandKind::Command,
+                Duration::from_millis(100),
+            )
+            .expect("send succeeds without flushing");
         assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
-
-        assert_eq!(
-            transport.port.timeout(),
-            original_timeout,
-            "Timeout should be restored after the bounded write"
-        );
     }
 
     #[test]
@@ -999,7 +930,6 @@ mod tests {
             "an expired whole-write budget must prevent a follow-up syscall"
         );
         assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(transport.port.timeout(), original_timeout);
     }
 
     #[test]
@@ -1022,151 +952,55 @@ mod tests {
 
         assert!(result.is_ok(), "a fully written frame was delivered");
         assert_eq!(write_calls.load(Ordering::SeqCst), 1);
-        assert_eq!(transport.port.timeout(), original_timeout);
-    }
-
-    #[test]
-    fn test_recv_into_with_timeout_restores_timeout_on_success() {
-        let original_timeout = Duration::from_secs(5);
-        let read_timeout = Duration::from_millis(100);
-
-        let mut port = TestSerialPort::new(original_timeout);
-        port.read_data = RefCell::new(vec![0x90, 0x50, VISCA_TERMINATOR]);
-
-        let mut transport = create_test_transport(port);
-
-        let mut buf = [0u8; 16];
-        let result = transport.recv_into_with_timeout(&mut buf, read_timeout);
-        assert!(result.is_ok());
-
-        // Timeout should be restored
-        assert_eq!(
-            transport.port.timeout(),
-            original_timeout,
-            "Timeout should be restored after successful recv"
-        );
-    }
-
-    #[test]
-    fn test_timeout_guard_records_changes() {
-        let original_timeout = Duration::from_secs(5);
-        let write_timeout = Duration::from_millis(100);
-
-        let port = TestSerialPort::new(original_timeout);
-        let mut transport = create_test_transport(port);
-        transport.config.write_timeout = write_timeout;
-
-        // Send some data
-        let _ = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            write_timeout,
-        );
-
-        // We can't directly access timeout_history through the boxed trait object,
-        // but we can verify the current timeout is correct
-        assert_eq!(transport.port.timeout(), original_timeout);
     }
 
     #[test]
     fn serial_device_timeouts_are_never_less_than_one_millisecond() {
-        let mut port = TestSerialPort::new(Duration::from_micros(500));
+        let port = TestSerialPort::new(Duration::from_micros(500));
         let history = Arc::clone(&port.timeout_history_observer);
+        let mut transport = create_test_transport(port);
 
-        // Exercise the shared command/handshake write loop with a budget the
-        // Windows serial backend would otherwise truncate to zero milliseconds.
-        let deadline = Instant::now() + Duration::from_micros(500);
-        write_bounded(
-            &mut port,
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            deadline,
-            Duration::from_micros(500),
-        )
-        .expect("the fake accepts the bounded write");
+        // A budget the Windows serial backend would otherwise truncate to
+        // zero milliseconds, on both the write and the read path.
+        transport
+            .send_with_timeout(
+                &[0x81, 0x01, VISCA_TERMINATOR],
+                CommandKind::Command,
+                Duration::from_micros(500),
+            )
+            .expect("the fake accepts the bounded write");
+        let mut buf = [0u8; 4];
+        let _ = transport.recv_into_with_timeout(&mut buf, Duration::from_nanos(1));
 
-        // Also cover the scoped read/write timeout boundary and restoration.
-        {
-            let _guard = TimeoutGuard::new(&mut port, Duration::from_nanos(1))
-                .expect("the fake accepts a clamped timeout");
-        }
-
+        let history = history
+            .lock()
+            .expect("timeout observer lock is not poisoned");
+        assert!(!history.is_empty());
         assert!(
             history
-                .lock()
-                .expect("timeout observer lock is not poisoned")
                 .iter()
                 .all(|timeout| *timeout >= Duration::from_millis(1)),
             "no serial-device timeout may be passed below the one-millisecond floor"
         );
     }
 
-    // =========================================================================
-    // Data verification tests
-    // =========================================================================
-
+    /// The port is opened through the shared builder in exclusive mode, so a
+    /// second opener of the same device fails as a connection failure.
+    #[cfg(unix)]
     #[test]
-    fn test_send_with_timeout_writes_correct_data() {
-        let port = TestSerialPort::new(Duration::from_secs(5));
-        let mut transport = create_test_transport(port);
+    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
+    fn a_held_port_cannot_be_opened_twice() {
+        let (_master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
+        let path = slave.name().expect("pseudo-terminal path");
+        let config = SerialConfig::new(path.clone());
 
-        let data = vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR];
-        let result =
-            transport.send_with_timeout(&data, CommandKind::Command, Duration::from_millis(100));
-        assert!(result.is_ok());
+        let first = SerialTransport::new(config.clone()).expect("first opener succeeds");
+        assert_eq!(first.transport_config(), &config.transport_config());
 
-        // Note: We can't directly access written_data through trait object,
-        // but the test verifies the write path doesn't panic/error
-    }
-
-    #[test]
-    fn test_recv_into_with_timeout_reads_data() {
-        let mut port = TestSerialPort::new(Duration::from_secs(5));
-        port.read_data = RefCell::new(vec![0x90, 0x50, VISCA_TERMINATOR]);
-
-        let mut transport = create_test_transport(port);
-
-        let mut buf = [0u8; 16];
-        let result = transport.recv_into_with_timeout(&mut buf, Duration::from_millis(100));
-        assert!(result.is_ok());
-        let n = result.unwrap();
-        assert_eq!(n, 3);
-        assert_eq!(&buf[..n], &[0x90, 0x50, VISCA_TERMINATOR]);
-    }
-
-    // =========================================================================
-    // TimeoutGuard unit tests
-    // =========================================================================
-
-    #[test]
-    fn test_timeout_guard_sets_and_restores_timeout() {
-        let mut port = TestSerialPort::new(Duration::from_secs(10));
-        let new_timeout = Duration::from_millis(500);
-
-        {
-            let guard = TimeoutGuard::new(&mut port, new_timeout).unwrap();
-            // Inside the guard, timeout should be the new value
-            assert_eq!(guard.port.timeout(), new_timeout);
-        }
-        // After guard is dropped, timeout should be restored
-        assert_eq!(port.timeout(), Duration::from_secs(10));
-    }
-
-    #[test]
-    fn test_timeout_guard_restores_on_early_return() {
-        // This simulates what happens when a guard goes out of scope
-        // due to an early return (via ?)
-        let mut port = TestSerialPort::new(Duration::from_secs(10));
-
-        fn operation_that_fails(port: &mut dyn SerialPort) -> Result<()> {
-            let _guard = TimeoutGuard::new(port, Duration::from_millis(100))?;
-            // Simulate early return
-            Err(Error::io_timeout())?;
-            #[allow(unreachable_code)]
-            Ok(())
-        }
-
-        let _ = operation_that_fails(&mut port);
-        // Timeout should still be restored
-        assert_eq!(port.timeout(), Duration::from_secs(10));
+        let second = SerialTransport::new(config).expect_err("the port is held exclusively");
+        assert!(matches!(
+            second,
+            Error::ConnectionFailed { ref addr, .. } if *addr == path
+        ));
     }
 }

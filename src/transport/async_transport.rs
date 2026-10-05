@@ -6,73 +6,12 @@
 use std::future::Future;
 
 use crate::{
-    transport::{AddressingMode, SendSemantics},
+    transport::{
+        datagram::{exact_fill_outcome, ReceiveOutcome},
+        AddressingMode, SendSemantics,
+    },
     Error,
 };
-
-/// Result of one transport receive with datagram-boundary information.
-///
-/// A byte stream always reports [`ReceiveOutcome::Complete`]. Datagram
-/// transports must not hand bytes to the protocol decoder unless the outcome
-/// is complete: a valid-looking prefix is not a complete datagram.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[must_use = "a receive outcome must be classified before its bytes are decoded"]
-#[non_exhaustive]
-pub enum ReceiveOutcome {
-    /// The complete payload was copied into the caller's buffer.
-    #[non_exhaustive]
-    Complete {
-        /// Number of payload bytes copied.
-        bytes: usize,
-    },
-    /// The runtime/OS positively reported that the datagram was truncated.
-    #[non_exhaustive]
-    Truncated {
-        /// Number of payload bytes copied before the tail was discarded.
-        copied: usize,
-    },
-    /// A legacy datagram receiver filled the supplied buffer but cannot report
-    /// whether a tail was discarded.
-    ///
-    /// This is deliberately rejected just like [`Self::Truncated`]. It keeps
-    /// existing custom transports source-compatible while making the fallback
-    /// safe: implementations that can distinguish an exact fit from
-    /// truncation should override [`AsyncTransport::recv_into_with_outcome`].
-    #[non_exhaustive]
-    PossiblyTruncated {
-        /// Number of payload bytes copied.
-        copied: usize,
-    },
-}
-
-impl ReceiveOutcome {
-    /// Reports a complete payload copied into the receive buffer.
-    pub const fn complete(bytes: usize) -> Self {
-        Self::Complete { bytes }
-    }
-    /// Reports a payload known to have been truncated.
-    pub const fn truncated(copied: usize) -> Self {
-        Self::Truncated { copied }
-    }
-    /// Reports an exact buffer fit whose completeness is unknown.
-    pub const fn possibly_truncated(copied: usize) -> Self {
-        Self::PossiblyTruncated { copied }
-    }
-
-    /// Number of payload bytes copied into the supplied buffer.
-    pub const fn copied_len(self) -> usize {
-        match self {
-            Self::Complete { bytes }
-            | Self::Truncated { copied: bytes }
-            | Self::PossiblyTruncated { copied: bytes } => bytes,
-        }
-    }
-
-    /// Whether all payload bytes are known to have been copied.
-    pub const fn is_complete(self) -> bool {
-        matches!(self, Self::Complete { .. })
-    }
-}
 
 /// Async transport for VISCA communication.
 ///
@@ -225,11 +164,11 @@ pub trait AsyncTransport: Send {
         async move {
             let capacity = dst.len();
             let bytes = self.recv_into(dst).await?;
-            if self.send_semantics() == SendSemantics::Datagram && bytes == capacity {
-                Ok(ReceiveOutcome::PossiblyTruncated { copied: bytes })
+            Ok(if self.send_semantics() == SendSemantics::Datagram {
+                exact_fill_outcome(bytes, capacity)
             } else {
-                Ok(ReceiveOutcome::Complete { bytes })
-            }
+                ReceiveOutcome::Complete { bytes }
+            })
         }
     }
 

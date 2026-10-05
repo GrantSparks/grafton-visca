@@ -178,7 +178,7 @@ blocking_session.close()?;
 
 let runtime = TokioRuntime::from_current()?;
 let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .transport_config({ let mut config = TransportConfig::default(); config.tcp_keepalive = Some(TcpKeepaliveConfig::default()); config })
+    .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(TcpKeepaliveConfig::default()); config })
     .open_async(runtime)
     .await?;
 let async_camera = async_session.camera();

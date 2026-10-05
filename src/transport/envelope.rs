@@ -261,7 +261,8 @@ impl Envelope for SonyEncapsulated {
     }
 
     fn extract_response(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
-        self.sony_extract_payload(framed_bytes)
+        self.extract_with_meta(Bytes::copy_from_slice(framed_bytes))
+            .map(|(payload, _)| payload)
     }
 
     fn extract_with_meta(&self, framed: Bytes) -> Result<(Bytes, FrameMeta), Error> {
@@ -297,8 +298,8 @@ impl SonyEncapsulated {
         // Validate before either advancing the allocator or touching `out` so
         // a rejected raw request cannot consume a sequence or leave a partial
         // Sony frame behind.
-        validate_sony_request_payload_length(visca_bytes.len())?;
-        validate_sony_request_payload_terminator(visca_bytes)?;
+        validate_sony_payload_length(visca_bytes.len(), Error::InvalidRequest)?;
+        validate_sony_payload_terminator(visca_bytes, Error::InvalidRequest)?;
 
         // Allocate only for a new logical message. Retries provide their
         // engine-owned sequence explicitly and must not advance this counter.
@@ -346,13 +347,17 @@ impl SonyEncapsulated {
         self.sequence_counter.store(0, Ordering::Relaxed);
     }
 
-    /// Extract the response kinds consumed by the owner boundary.
+    /// Parse one Sony response: the single Sony response parser behind both
+    /// the owner boundary and the public [`Envelope`] extraction methods.
     pub(crate) fn extract_owner_response(&self, framed: Bytes) -> Result<SonyResponse, Error> {
         let (header, payload) = decode_sony_response_parts(&framed)?;
         match header.payload_type {
             PayloadType::ViscaReply => {
-                validate_sony_visca_response_length(header.payload_length)?;
-                validate_sony_response_payload_terminator(payload)?;
+                validate_sony_payload_length(
+                    usize::from(header.payload_length),
+                    Error::ParseError,
+                )?;
+                validate_sony_payload_terminator(payload, Error::ParseError)?;
                 Ok(SonyResponse::Visca {
                     payload: framed.slice(SonyHeader::SIZE..),
                     meta: FrameMeta {
@@ -405,29 +410,6 @@ fn normalize_address(original_addr: u8, kind: CommandKind, addressing: Addressin
     }
 }
 
-impl SonyEncapsulated {
-    fn sony_extract_payload(&self, framed_bytes: &[u8]) -> Result<Bytes, Error> {
-        let (header, payload) = decode_sony_response_parts(framed_bytes)?;
-        match header.payload_type {
-            PayloadType::ViscaReply => {
-                validate_sony_visca_response_length(header.payload_length)?;
-                validate_sony_response_payload_terminator(payload)?;
-                Ok(Bytes::copy_from_slice(payload))
-            }
-            PayloadType::ControlReply => {
-                let _ = decode_sony_control_reply(payload)?;
-                Err(Error::ParseError(Cow::Borrowed(
-                    "Sony control reply is not a VISCA response payload",
-                )))
-            }
-            _ => Err(Error::ParseError(Cow::Owned(format!(
-                "Unexpected Sony payload type in response: {:?}",
-                header.payload_type
-            )))),
-        }
-    }
-}
-
 /// Decode and length-check a Sony response without copying its payload.
 fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), Error> {
     if framed.len() < SonyHeader::SIZE {
@@ -450,18 +432,6 @@ fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), Erro
     Ok((header, &framed[SonyHeader::SIZE..]))
 }
 
-/// Validate a Sony VISCA reply's payload length.
-fn validate_sony_visca_response_length(payload_length: u16) -> Result<(), Error> {
-    let payload_length = usize::from(payload_length);
-    if !(MIN_SONY_VISCA_PAYLOAD_LENGTH..=MAX_SONY_VISCA_PAYLOAD_LENGTH).contains(&payload_length) {
-        return Err(Error::ParseError(Cow::Owned(format!(
-            "Sony payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
-        ))));
-    }
-
-    Ok(())
-}
-
 /// Decode the bounded payload grammar used by Sony control replies.
 ///
 /// Successful control acknowledgements are one byte (`01`); protocol errors
@@ -476,36 +446,37 @@ fn decode_sony_control_reply(payload: &[u8]) -> Result<u16, Error> {
     }
 }
 
-/// Validate an outgoing non-empty Sony VISCA payload before framing it.
-fn validate_sony_request_payload_length(payload_length: usize) -> Result<(), Error> {
+/// Validate a non-empty Sony VISCA payload's length.
+///
+/// One rule for both directions; `error` selects the variant, which is
+/// [`Error::InvalidRequest`] for an outgoing request and [`Error::ParseError`]
+/// for a received reply.
+fn validate_sony_payload_length(
+    payload_length: usize,
+    error: fn(Cow<'static, str>) -> Error,
+) -> Result<(), Error> {
     if !(MIN_SONY_VISCA_PAYLOAD_LENGTH..=MAX_SONY_VISCA_PAYLOAD_LENGTH).contains(&payload_length) {
-        return Err(Error::InvalidRequest(Cow::Owned(format!(
-            "Sony VISCA-over-IP payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
+        return Err(error(Cow::Owned(format!(
+            "Sony VISCA payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {payload_length}"
         ))));
     }
 
     Ok(())
 }
 
-/// Validate that an outgoing command or inquiry is a complete VISCA frame.
-/// Empty input is handled by the caller as a legacy envelope no-op before this
-/// helper is reached.
-fn validate_sony_request_payload_terminator(payload: &[u8]) -> Result<(), Error> {
+/// Validate that a Sony VISCA payload is a complete VISCA frame.
+///
+/// An outgoing empty input is handled by the caller as a legacy envelope
+/// no-op, and a reply reaches this only after its header established a VISCA
+/// payload. `error` selects the variant as for
+/// [`validate_sony_payload_length`].
+fn validate_sony_payload_terminator(
+    payload: &[u8],
+    error: fn(Cow<'static, str>) -> Error,
+) -> Result<(), Error> {
     if payload.last().copied() != Some(VISCA_TERMINATOR) {
-        return Err(Error::InvalidRequest(Cow::Borrowed(
-            "Sony VISCA-over-IP payload must end with the 0xFF VISCA terminator",
-        )));
-    }
-
-    Ok(())
-}
-
-/// Validate the VISCA terminator after the header has established that the
-/// packet is a reply rather than a control/reset envelope.
-fn validate_sony_response_payload_terminator(payload: &[u8]) -> Result<(), Error> {
-    if payload.last().copied() != Some(VISCA_TERMINATOR) {
-        return Err(Error::ParseError(Cow::Borrowed(
-            "Sony VISCA reply payload must end with the 0xFF VISCA terminator",
+        return Err(error(Cow::Borrowed(
+            "Sony VISCA payload must end with the 0xFF VISCA terminator",
         )));
     }
 

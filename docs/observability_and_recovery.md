@@ -559,7 +559,7 @@ fixed; the remaining four are caller-tunable bounds:
 | Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
 | Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
-| Retained incomplete framing bytes | 8192 by default | yes — `BufferConfig::max_buffer_size` |
+| Stream input retained between reads | 8192 by default (the framer also holds one more read) | yes — `BufferConfig::max_buffer_size` |
 
 Admission capacity is fixed when the session opens and bounds each admitted
 boundary plus its pending/active owner lifecycle entry until safe terminal
@@ -581,32 +581,39 @@ The three transport-buffer rows are set from `TransportConfig::buffer_config`
 every time a production session is built, so the first two have no single
 number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
 the production adapter replaces both values before allocating owner buffers.
-Reach the public configuration with
-`CameraConfig::<P>::transport_config(config)` after assigning
-`config.buffer_config` on a `TransportConfig::default()` value for a standard
-transport, with the blocking `NetTransportBuilder`'s
-`recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
-transport's `HasTransportConfig::transport_config()`. The per-transport
-defaults are:
+Every built-in entry point — `CameraConfig`, the blocking `Transport` /
+`NetTransportBuilder`, the runtime connectors and the direct transport
+constructors — starts from the same per-transport defaults:
 
-| Buffer profile | `recv_buffer_size` | Selected by |
+| Defaults | `recv_buffer_size` | Used by |
 | --- | ---: | --- |
-| `BufferConfig::default()` | 128 | a caller-owned transport that does not override it |
-| `BufferConfig::for_udp()` | 1024 | the built-in UDP transports |
-| `BufferConfig::for_sony_ip()` | 512 | `NetTransportBuilder::sony_ip_buffers()` |
-| `BufferConfig::for_raw_ip()` | 256 | the built-in TCP transports |
-| `BufferConfig::for_serial()` | 256 | the built-in serial transports |
+| `TransportConfig::for_tcp()` | 256 | every built-in TCP transport |
+| `TransportConfig::for_udp()` | 1024 | every built-in UDP transport |
+| `TransportConfig::for_serial()` | 256 | every built-in serial transport |
+| `TransportConfig::default()` | 128 | the transport-neutral base for a caller-owned transport |
 
-Every one of these keeps `max_buffer_size` at 8192, which is where the retained
-incomplete-byte row's default comes from. A caller that raises
-`recv_buffer_size` raises the owner's per-session transport-read scratch
-allocation by exactly that amount; raising `max_buffer_size` raises the ceiling
-on retained incomplete framing bytes. `recv_buffer_size` is independently the
-framer's maximum accepted single-frame size, so
-lowering it below a profile's largest reply turns that reply into
-`Error::ResponseTooLarge`. For UDP it is also the maximum accepted datagram
-size: an over-size datagram is rejected before framing rather than silently
-truncated to this limit.
+Change one field by starting from the matching constructor, for example
+`let mut config = TransportConfig::for_tcp(); config.buffer_config.max_buffer_size = 16_384;`,
+then pass it to `CameraConfig::<P>::transport_config(config)`; a supplied
+configuration is used as given. The blocking `NetTransportBuilder` also has
+`recv_buffer_size` / `max_buffer_size` methods, and a caller-owned transport
+reports its own through `HasTransportConfig::transport_config()`.
+
+Every default keeps `max_buffer_size` at 8192. The two limits mean:
+
+- `recv_buffer_size` is the largest accepted reply frame — a raw VISCA frame
+  including its terminator, a Sony header plus payload, or one UDP datagram —
+  and the most bytes one transport read requests, so it is also the owner's
+  per-session read scratch. Lowering it below a profile's largest reply (16
+  bytes raw, 24 with a Sony header) turns that reply into
+  `Error::ResponseTooLarge`. An over-size datagram is rejected before framing
+  rather than silently truncated.
+- `max_buffer_size` bounds the stream input carried from one read to the next:
+  an incomplete frame, or complete frames the owner has not delivered yet. The
+  framer always has room for one more full read on top of it, so a healthy
+  stream whose replies are split across reads never overflows, and a byte
+  stream never retains more than `max_buffer_size + recv_buffer_size` bytes.
+  Validation requires `recv_buffer_size <= max_buffer_size`.
 
 These are implementation policy limits surfaced here so integrations can
 budget memory. They are not permission to add per-frame, per-retry,

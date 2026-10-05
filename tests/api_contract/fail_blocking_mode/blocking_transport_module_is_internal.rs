@@ -5,7 +5,10 @@
 // directory no test binary referenced, so it never ran.
 
 fn main() {
-    let _ = grafton_visca::transport::blocking::Tcp::connect("127.0.0.1:5678");
+    let _ = grafton_visca::transport::blocking::Tcp::connect_with_config(
+        "127.0.0.1:5678",
+        grafton_visca::transport::TransportConfig::for_tcp(),
+    );
 }
 
 //~ E0603

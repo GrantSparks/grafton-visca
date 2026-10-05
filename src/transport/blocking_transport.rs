@@ -120,6 +120,15 @@ impl HasTransportConfig for BlockingTransportHandle {
             BlockingTransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
         })
     }
+
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.addressed_bus(),
+            BlockingTransportHandle::Udp(transport) => transport.addressed_bus(),
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(transport) => transport.addressed_bus(),
+        }
+    }
 }
 
 /// Blocking transport for VISCA communication.
@@ -313,6 +322,28 @@ pub trait BlockingTransport: Send {
     }
 }
 
+/// The outcome of serial Address Set on one bus: the port and the number of
+/// cameras the chain reported, which then hold addresses `1..=cameras`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AddressedBus {
+    /// The serial port path the bus is attached to.
+    pub port: String,
+    /// The number of cameras Address Set addressed.
+    pub cameras: u8,
+}
+
+impl AddressedBus {
+    /// Reports that Address Set on `port` addressed `cameras` cameras.
+    #[must_use]
+    pub fn new(port: impl Into<String>, cameras: u8) -> Self {
+        Self {
+            port: port.into(),
+            cameras,
+        }
+    }
+}
+
 /// Trait for types that carry transport configuration.
 ///
 /// This trait provides a unified interface for accessing the transport configuration
@@ -341,6 +372,24 @@ pub trait HasTransportConfig {
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         None
     }
+
+    /// The serial bus this transport addressed with Address Set while
+    /// opening, if it did.
+    ///
+    /// Address Set assigns addresses `1..=n` along the daisy chain. Every
+    /// `Session::open` (blocking and async) checks each registered target
+    /// against this report before any protocol I/O: a target the chain did
+    /// not address fails the open with [`crate::Error::ConnectionFailed`]
+    /// naming the port, whose `NotFound` source names the camera. Cameras
+    /// beyond the registered ones are allowed. `None` (the default, and every
+    /// IP or custom transport) means no bus addressing ran and nothing is
+    /// checked.
+    ///
+    /// A transport that wraps another must forward this method, as it
+    /// forwards [`HasTransportConfig::transport_config`].
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        None
+    }
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
@@ -353,5 +402,10 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     #[inline]
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         (*self).standard_transport_kind()
+    }
+
+    #[inline]
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        (*self).addressed_bus()
     }
 }

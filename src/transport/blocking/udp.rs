@@ -1,23 +1,20 @@
 //! Blocking UDP transport implementation with IPv6 support.
 
 use std::{
-    io,
     net::UdpSocket,
     time::{Duration, Instant},
 };
 
-#[cfg(unix)]
-use std::io::IoSliceMut;
-#[cfg(any(unix, windows))]
-use std::io::Read;
-
 use crate::{
     command::CommandKind,
+    timeout::Deadline,
     transport::{
-        address::{canonicalize_endpoint, AddressResolver},
-        blocking::TimeoutRestoreGuard,
-        buffer::BufferConfig,
+        address::{bind_address_for, resolve_blocking},
+        blocking::{Arm, TimedIo},
         builder::{AddressingMode, TransportConfig},
+        connect::{connect_deadline, preflight},
+        datagram::{deliverable, delivered_len, recv_datagram},
+        socket_options::{apply_udp_socket_options, UdpSocketConfig},
         BlockingTransport, HasTransportConfig, SendSemantics,
     },
     Error,
@@ -33,216 +30,64 @@ pub struct Udp {
     config: TransportConfig,
 }
 
-/// One UDP receive together with whether the caller's buffer held the entire
-/// datagram.
-///
-/// A valid-looking prefix is not a valid VISCA response.  Keep this detail at
-/// the transport boundary so neither the public `BlockingTransport` trait nor
-/// the owner has to guess whether an exact-fill UDP read was truncated.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum DatagramReceive {
-    Complete(usize),
-    Truncated,
-}
-
 impl Udp {
-    /// Connect to a UDP endpoint.
-    ///
-    /// This method resolves hostnames and supports both IPv4 and IPv6 addresses.
-    /// The socket will bind to the appropriate unspecified address based on the
-    /// target address family. The address must include an explicit port; explicit
-    /// IPv6 ports require brackets.
-    pub fn connect(address: &str) -> Result<Self, Error> {
-        let config = TransportConfig {
-            read_timeout: Duration::from_secs(5),
-            write_timeout: Duration::from_secs(5),
-            buffer_config: BufferConfig::for_udp(),
-            addressing: AddressingMode::Ip, // UDP is always IP mode
-            ..Default::default()
-        };
-        Self::connect_with_config(address, config)
-    }
-
     /// Connect with a full configuration.
     ///
-    /// This method provides full control over connection and socket parameters.
-    /// The address must include an explicit port.
+    /// The address must include an explicit port. Name resolution and socket
+    /// setup share `config.connect_timeout`; see [`crate::transport::connect`]
+    /// for the error contract shared with the async connectors.
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
-        let socket = Self::preflight_udp_setup(address, config, |canonical_addr, config| {
-            // Use the common address resolver.
-            let resolver = AddressResolver::new();
-            let target_addr = resolver.resolve_first(canonical_addr)?;
+        let socket = Self::preflight_udp_setup(address, config, |endpoint, options| {
+            let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
+            let target = resolve_blocking(endpoint, deadline)?[0];
+            deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
-            // Bind to the appropriate unspecified address based on target family.
-            let bind_addr = resolver.bind_address_for(&target_addr);
-
-            let socket = UdpSocket::bind(bind_addr)?;
-            socket.connect(target_addr)?;
-
-            // Apply socket options from config.
-            socket.set_read_timeout(Some(config.read_timeout))?;
-            socket.set_write_timeout(Some(config.write_timeout))?;
-            if let Some(ttl) = config.ttl {
-                socket.set_ttl(ttl)?;
-            }
-
+            let socket = UdpSocket::bind(bind_address_for(target))?;
+            socket.connect(target)?;
+            apply_udp_socket_options(socket2::SockRef::from(&socket), options)?;
             Ok(socket)
         })?;
 
         Ok(Self { socket, config })
     }
 
-    /// Run endpoint parsing and UDP setup only after buffer preflight succeeds.
+    /// Run endpoint parsing and UDP setup only after configuration preflight.
     fn preflight_udp_setup<T>(
         address: &str,
         config: TransportConfig,
-        setup: impl FnOnce(&str, TransportConfig) -> Result<T, Error>,
+        setup: impl FnOnce(&str, UdpSocketConfig) -> Result<T, Error>,
     ) -> Result<T, Error> {
-        config.validate()?;
-        let canonical_addr = canonicalize_endpoint(address, None)?;
-        setup(&canonical_addr, config)
+        let endpoint = preflight(address, &config)?;
+        setup(&endpoint, config.into())
     }
 }
 
-/// Receive one UDP datagram, retaining truncation information where the
-/// operating system exposes it.
+fn arm_read(socket: &mut UdpSocket, timeout: Duration) -> std::io::Result<()> {
+    socket.set_read_timeout(Some(timeout))
+}
+
+fn arm_write(socket: &mut UdpSocket, timeout: Duration) -> std::io::Result<()> {
+    socket.set_write_timeout(Some(timeout))
+}
+
+/// Send one datagram before `deadline`.
 ///
-/// On Unix, a one-byte sentinel extends `dst`, so a packet that reaches it is
-/// known to exceed the caller's buffer.  On Windows, Winsock reports
-/// `WSAEMSGSIZE` for the same condition.  Other targets conservatively reject
-/// an exact-fill receive because their standard UDP API exposes no portable way
-/// to distinguish it from truncation.
-fn recv_datagram(socket: &UdpSocket, dst: &mut [u8]) -> io::Result<DatagramReceive> {
-    #[cfg(unix)]
-    {
-        let socket = socket2::SockRef::from(socket);
-        let capacity = dst.len();
-        let mut sentinel = [0_u8; 1];
-        let mut buffers = [IoSliceMut::new(dst), IoSliceMut::new(&mut sentinel)];
-        let mut socket = &*socket;
-        let received = socket.read_vectored(&mut buffers)?;
-        Ok(if received > capacity {
-            DatagramReceive::Truncated
-        } else {
-            DatagramReceive::Complete(received)
-        })
-    }
-
-    #[cfg(windows)]
-    {
-        let socket = socket2::SockRef::from(socket);
-        let mut socket = &*socket;
-        // `Socket2` preserves WSAEMSGSIZE from `recv`, unlike its vectored
-        // compatibility adapter.  The datagram has already been consumed,
-        // so report it as a discarded oversized packet.
-        const WSAEMSGSIZE: i32 = 10_040;
-        return match socket.read(dst) {
-            Ok(received) => Ok(DatagramReceive::Complete(received)),
-            Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
-                Ok(DatagramReceive::Truncated)
-            }
-            Err(error) => Err(error),
-        };
-    }
-
-    #[cfg(not(any(unix, windows)))]
-    {
-        let received = socket.recv(dst)?;
-        return Ok(if received == dst.len() {
-            DatagramReceive::Truncated
-        } else {
-            DatagramReceive::Complete(received)
-        });
-    }
-}
-
-fn udp_read_timeout(socket: &UdpSocket) -> io::Result<Option<Duration>> {
-    socket.read_timeout()
-}
-
-fn set_udp_read_timeout(socket: &mut UdpSocket, timeout: Option<Duration>) -> io::Result<()> {
-    socket.set_read_timeout(timeout)
-}
-
-fn udp_write_timeout(socket: &UdpSocket) -> io::Result<Option<Duration>> {
-    socket.write_timeout()
-}
-
-fn set_udp_write_timeout(socket: &mut UdpSocket, timeout: Option<Duration>) -> io::Result<()> {
-    socket.set_write_timeout(timeout)
-}
-
-fn send_with_timeout<S>(
+/// A send interrupted by a signal moved nothing and is retried in place,
+/// re-armed with the remaining budget, exactly as
+/// [`crate::transport::blocking::write_all_bounded`] retries it.
+fn send_datagram<S: ?Sized>(
     socket: &mut S,
-    data: &[u8],
-    timeout: Duration,
-    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
-    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
-    send: impl FnOnce(&mut S, &[u8]) -> io::Result<usize>,
+    arm: Arm<S>,
+    deadline: Deadline,
+    mut send: impl FnMut(&mut S) -> std::io::Result<usize>,
 ) -> Result<(), Error> {
-    let original_timeout = timeout_for(socket)?;
-    let mut timeout_guard =
-        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "UDP write");
-    timeout_guard.set_timeout(Some(timeout))?;
-    send(timeout_guard.socket_mut(), data)
-        .map(|_| ())
-        .map_err(|error| {
-            if matches!(
-                error.kind(),
-                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
-            ) {
-                Error::io_timeout()
-            } else {
-                error.into()
-            }
-        })
-}
-
-fn recv_with_timeout<S>(
-    socket: &mut S,
-    dst: &mut [u8],
-    duration: Duration,
-    timeout_for: fn(&S) -> io::Result<Option<Duration>>,
-    set_timeout: fn(&mut S, Option<Duration>) -> io::Result<()>,
-    mut receive: impl FnMut(&mut S, &mut [u8]) -> io::Result<DatagramReceive>,
-) -> Result<usize, Error> {
-    let original_timeout = timeout_for(socket)?;
-    let deadline = Instant::now()
-        .checked_add(duration)
-        .ok_or_else(|| Error::InvalidParameter {
-            parameter: "read timeout",
-            value: format!("{duration:?}").into(),
-            reason: "duration exceeds the monotonic clock range".into(),
-        })?;
-    let mut timeout_guard =
-        TimeoutRestoreGuard::new(socket, original_timeout, set_timeout, "UDP read");
-
-    // Keep one deadline for the whole operation. Empty datagrams must not give
-    // the caller a fresh full timeout on every receive attempt.
     loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(Error::io_timeout());
-        }
-
-        if let Err(error) = timeout_guard.set_timeout(Some(remaining)) {
-            return Err(error.into());
-        }
-
-        match receive(timeout_guard.socket_mut(), dst) {
-            Ok(DatagramReceive::Complete(0)) => continue,
-            Ok(DatagramReceive::Complete(received)) => return Ok(received),
-            Ok(DatagramReceive::Truncated) => {
-                return Err(Error::ResponseTooLarge {
-                    max_size: dst.len(),
-                });
-            }
-            Err(error)
-                if error.kind() == io::ErrorKind::TimedOut
-                    || error.kind() == io::ErrorKind::WouldBlock =>
-            {
-                return Err(Error::io_timeout());
-            }
+        let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
+        arm(socket, remaining)?;
+        match send(socket) {
+            Ok(_) => return Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(error) if TimedIo::Bounded.ended_idle(&error) => return Err(Error::io_timeout()),
             Err(error) => return Err(error.into()),
         }
     }
@@ -265,29 +110,35 @@ impl BlockingTransport for Udp {
         _kind: CommandKind,
         timeout: Duration,
     ) -> Result<(), Error> {
-        send_with_timeout(
-            &mut self.socket,
-            data,
-            timeout,
-            udp_write_timeout,
-            set_udp_write_timeout,
-            |socket, data| socket.send(data),
-        )
+        let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
+        send_datagram(&mut self.socket, arm_write, deadline, |socket| {
+            socket.send(data)
+        })
     }
 
     fn recv_into_with_timeout(
         &mut self,
         dst: &mut [u8],
-        duration: Duration,
+        timeout: Duration,
     ) -> Result<usize, Error> {
-        recv_with_timeout(
-            &mut self.socket,
-            dst,
-            duration,
-            udp_read_timeout,
-            set_udp_read_timeout,
-            |socket, dst| recv_datagram(socket, dst),
-        )
+        let deadline = Deadline::after(Instant::now(), timeout, "read_timeout")?;
+        // One deadline for the whole receive: empty datagrams are skipped
+        // without granting a fresh timeout (see `transport::datagram`).
+        loop {
+            let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
+            arm_read(&mut self.socket, remaining)?;
+            match recv_datagram(&self.socket, dst) {
+                Ok(outcome) => {
+                    if let Some(outcome) = deliverable(outcome, dst.len())? {
+                        return delivered_len(outcome, dst.len());
+                    }
+                }
+                Err(error) if TimedIo::Bounded.ended_idle(&error) => {
+                    return Err(Error::io_timeout());
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -317,51 +168,31 @@ mod tests {
     use super::*;
     use crate::transport::{BlockingTransport, BufferConfig, TransportConfig};
 
-    #[derive(Debug)]
-    struct RestoreFailSocket {
-        original_timeout: Option<Duration>,
-        timeout: Option<Duration>,
-        sent: Vec<u8>,
-        response: Vec<u8>,
-        restore_attempted: bool,
-    }
-
-    impl RestoreFailSocket {
-        fn new(original_timeout: Option<Duration>, response: impl Into<Vec<u8>>) -> Self {
-            Self {
-                original_timeout,
-                timeout: original_timeout,
-                sent: Vec::new(),
-                response: response.into(),
-                restore_attempted: false,
-            }
+    /// #800 review: an interrupted send is retried in place, not reported as
+    /// a timeout.
+    #[test]
+    fn an_interrupted_send_is_retried_in_place() {
+        struct FakeSocket {
+            arms: usize,
+            results: Vec<std::io::Result<usize>>,
         }
-
-        fn timeout(&self) -> io::Result<Option<Duration>> {
-            Ok(self.timeout)
-        }
-
-        fn set_timeout(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-            if timeout == self.original_timeout && self.timeout != self.original_timeout {
-                self.restore_attempted = true;
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "injected timeout restore failure",
-                ));
-            }
-            self.timeout = timeout;
+        fn arm(socket: &mut FakeSocket, _timeout: Duration) -> std::io::Result<()> {
+            socket.arms += 1;
             Ok(())
         }
 
-        fn send(&mut self, data: &[u8]) -> io::Result<usize> {
-            self.sent.extend_from_slice(data);
-            Ok(data.len())
-        }
-
-        fn receive(&mut self, dst: &mut [u8]) -> io::Result<DatagramReceive> {
-            dst[..self.response.len()].copy_from_slice(&self.response);
-            Ok(DatagramReceive::Complete(self.response.len()))
-        }
+        let mut socket = FakeSocket {
+            arms: 0,
+            results: vec![Err(std::io::ErrorKind::Interrupted.into()), Ok(5)],
+        };
+        let deadline = Deadline::after(Instant::now(), Duration::from_secs(1), "write_timeout")
+            .expect("budget");
+        send_datagram(&mut socket, arm, deadline, |socket| {
+            socket.results.remove(0)
+        })
+        .expect("the retried send succeeds");
+        assert_eq!(socket.arms, 2, "re-armed before the retried syscall");
+        assert!(socket.results.is_empty());
     }
 
     fn invalid_buffer_config() -> TransportConfig {
@@ -380,46 +211,6 @@ mod tests {
             Err(Error::InvalidRequest(actual))
                 if actual.as_ref() == "transport receive buffer cannot exceed maximum buffer"
         ));
-    }
-
-    #[test]
-    fn completed_send_survives_a_failing_timeout_restore() {
-        let original_timeout = Some(Duration::from_secs(1));
-        let mut socket = RestoreFailSocket::new(original_timeout, []);
-
-        send_with_timeout(
-            &mut socket,
-            b"VISCA",
-            Duration::from_millis(10),
-            RestoreFailSocket::timeout,
-            RestoreFailSocket::set_timeout,
-            RestoreFailSocket::send,
-        )
-        .expect("the sent datagram must survive cleanup failure");
-
-        assert_eq!(socket.sent, b"VISCA");
-        assert!(socket.restore_attempted);
-    }
-
-    #[test]
-    fn completed_read_survives_a_failing_timeout_restore() {
-        let original_timeout = Some(Duration::from_secs(1));
-        let mut socket = RestoreFailSocket::new(original_timeout, b"reply");
-        let mut dst = [0_u8; 8];
-
-        let received = recv_with_timeout(
-            &mut socket,
-            &mut dst,
-            Duration::from_millis(10),
-            RestoreFailSocket::timeout,
-            RestoreFailSocket::set_timeout,
-            RestoreFailSocket::receive,
-        )
-        .expect("the copied datagram must survive cleanup failure");
-
-        assert_eq!(received, 5);
-        assert_eq!(&dst[..received], b"reply");
-        assert!(socket.restore_attempted);
     }
 
     fn connected_socket_pair() -> (UdpSocket, UdpSocket) {
@@ -551,7 +342,7 @@ mod tests {
         assert!(matches!(
             error,
             Error::InvalidParameter {
-                parameter: "read timeout",
+                parameter: "read_timeout",
                 ..
             }
         ));
