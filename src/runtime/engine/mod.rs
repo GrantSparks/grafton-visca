@@ -337,9 +337,10 @@ pub(crate) struct ProtocolEngine {
     /// Frames a proven dispute assigns to their requests, applied before the
     /// frame that proved it (#795).
     retro: SmallVec<[Retro; 4]>,
-    /// Commands a late cancellation reached in the socket the camera gave
-    /// them, ended with the frame's other effects.
-    cancelled_unseen: SmallVec<[RequestId; 2]>,
+    /// Executing commands a frame proved no longer run in the socket the
+    /// engine indexes them to — a late cancellation reached them there, or
+    /// an owed command's ACK named it — ended with the frame's other effects.
+    displaced_unseen: SmallVec<[RequestId; 2]>,
     /// The instant of the input turn or due pass being applied. A request that
     /// ends without its first answer starts its debt's window here.
     turn_at: Option<Instant>,
@@ -383,7 +384,7 @@ impl ProtocolEngine {
             unlearned_completions: [0; 9],
             retired_completion_only: [0; 9],
             retro: SmallVec::new(),
-            cancelled_unseen: SmallVec::new(),
+            displaced_unseen: SmallVec::new(),
             turn_at: None,
             next_request_id: IdAllocator::new(),
             next_transmission_id: IdAllocator::new(),
@@ -781,6 +782,8 @@ impl ProtocolEngine {
             RuntimeOutcome::Failed(Error::timeout(FailureStage::Terminal, certainty)),
             &mut effects,
         );
+        // A STOP that never left may decide a dispute naming it.
+        self.apply_retro(now, &mut effects);
         Some(effects)
     }
 
@@ -3152,7 +3155,7 @@ impl ProtocolEngine {
             }
         }
         let command_window_end = add_duration(now, timeout.ambiguity);
-        self.ledger.retire(target, id, |owes| match owes {
+        let answered = self.ledger.retire(target, id, |owes| match owes {
             Owes::Reply(_) => (reply_window_end, Duration::ZERO),
             Owes::Ack
             | Owes::Completion
@@ -3160,6 +3163,7 @@ impl ProtocolEngine {
             | Owes::Rejection
             | Owes::Cancel(_) => (command_window_end, timeout.completion),
         });
+        self.absorb_answered(target, &answered, now);
     }
 
     /// Keeps the socket of a raw request that ends while its emitted
@@ -3232,12 +3236,25 @@ impl ProtocolEngine {
         };
         match &frame.response {
             DecodedResponse::Ack { socket } => {
-                match self.take_stream_answer(target, Answer::Ack, evidence, now)? {
-                    Ok(id) => Some(id),
-                    Err(debt) => {
+                let answered = self.ledger.answer(target, Answer::Ack, evidence);
+                self.absorb_answered(target, &answered, now);
+                match answered.resolved {
+                    Resolved::Live(entry) => Some(entry.request),
+                    Resolved::Debt(debt) => {
+                        self.displace_stale_socket_owner(target, *socket);
                         self.hold_owed_command_socket(target, *socket, debt, now);
                         None
                     }
+                    // Bound to neither candidate, the ACK still shows that
+                    // one of them executes in the socket it names: hold it,
+                    // so that its completion or error is never taken for
+                    // another command's (or released as a held one's).
+                    Resolved::Disputed(candidates) => {
+                        self.displace_stale_socket_owner(target, *socket);
+                        self.hold_disputed_command_socket(target, *socket, &candidates, now);
+                        None
+                    }
+                    Resolved::Nothing => None,
                 }
             }
             DecodedResponse::InquiryReply { route, .. } => {
@@ -3420,15 +3437,15 @@ impl ProtocolEngine {
     /// Applies the frames a proven dispute assigned to their requests (their
     /// arrival preceded the frame that proved it), to each request that still
     /// awaits it.
+    ///
+    /// It runs where a decision can occur: after a frame resolves, after due
+    /// work (a learned completion, a request ending unwritten), and after an
+    /// unwritten halt STOP expires. Applying a frame never decides another
+    /// dispute (the dispute it came from is already settled, and a request it
+    /// ends was written), so one pass leaves nothing pending.
     fn apply_retro(&mut self, now: Instant, effects: &mut Vec<Effect>) {
-        for id in std::mem::take(&mut self.cancelled_unseen) {
-            if self.entries.contains_key(&id) {
-                self.finish(
-                    id,
-                    RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
-                    effects,
-                );
-            }
+        for id in std::mem::take(&mut self.displaced_unseen) {
+            self.quarantine_displaced_raw_socket_owner(id, now, effects);
         }
         for retro in std::mem::take(&mut self.retro) {
             let awaiting = self.entries.get(&retro.request).is_some_and(|entry| {
@@ -3462,6 +3479,10 @@ impl ProtocolEngine {
                 Evidence::Other => {}
             }
         }
+        debug_assert!(
+            self.retro.is_empty() && self.displaced_unseen.is_empty(),
+            "applying a dispute's frames decided another dispute"
+        );
     }
 
     /// Once a camera is known to name its sockets in completions, the
@@ -3484,7 +3505,7 @@ impl ProtocolEngine {
                 continue;
             };
             while self.unlearned_completions[index] > 0 {
-                let Some(entry) = self.ledger.take_completion(target) else {
+                let Some((entry, answered)) = self.ledger.take_completion(target) else {
                     // The rest were not `CompletionOnly` commands' (a
                     // completion that omitted its socket): forgotten, they
                     // can never complete a later one.
@@ -3492,6 +3513,7 @@ impl ProtocolEngine {
                     break;
                 };
                 self.unlearned_completions[index] -= 1;
+                self.absorb_answered(target, &answered, now);
                 let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
                     live.generation == entry.generation
                         && matches!(live.phase, Phase::AwaitingCompletion { .. })
@@ -3521,7 +3543,7 @@ impl ProtocolEngine {
         match answered.resolved {
             Resolved::Live(entry) => Some(Ok(entry.request)),
             Resolved::Debt(entry) => Some(Err(entry)),
-            Resolved::Nothing | Resolved::Disputed => None,
+            Resolved::Nothing | Resolved::Disputed(_) => None,
         }
     }
 
@@ -3551,7 +3573,7 @@ impl ProtocolEngine {
             .and_then(|entry| entry.stream_order)
             .is_some_and(|order| order < cancel_order);
         if reached {
-            self.cancelled_unseen.push(owner);
+            self.displaced_unseen.push(owner);
         }
     }
 
@@ -3588,6 +3610,54 @@ impl ProtocolEngine {
         };
         let answered = self.ledger.settle_before(target, order);
         self.absorb_answered(target, &answered, now);
+    }
+
+    /// An ACK that binds to no live request names `socket`: the camera put
+    /// another command there, so a command the engine still indexes there
+    /// lost its completion and has ended (#721). It is released now and
+    /// ended with the frame's other effects.
+    fn displace_stale_socket_owner(&mut self, target: CameraId, socket: Option<ViscaSocket>) {
+        if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
+            self.release_attempt_ownership(stale);
+            self.displaced_unseen.push(stale);
+        }
+    }
+
+    /// Holds the socket a disputed ACK names, since one of its two
+    /// `candidates` executes there, for the longer of their completion
+    /// deadlines (a candidate still being written counts: its answer may
+    /// overtake its write result). Like an owed command's hold, evidence
+    /// releases it: a completion or error naming the socket, or another ACK
+    /// naming it.
+    fn hold_disputed_command_socket(
+        &mut self,
+        target: CameraId,
+        socket: Option<ViscaSocket>,
+        candidates: &[Outstanding; 2],
+        now: Instant,
+    ) {
+        let Some(socket) = socket.filter(|socket| self.socket_owner(target, *socket).is_none())
+        else {
+            return;
+        };
+        let completion = candidates
+            .iter()
+            .filter_map(|candidate| match candidate.standing {
+                Standing::Owed { completion, .. } => Some(completion),
+                Standing::Live => self
+                    .entries
+                    .get(&candidate.request)
+                    .map(|entry| entry.request.context().timeout.completion),
+            })
+            .max();
+        if let Some(completion) = completion {
+            self.extend_raw_hold(
+                target,
+                RawHoldScope::Socket(socket),
+                add_duration(now, completion),
+                None,
+            );
+        }
     }
 
     /// Holds the socket an owed ACK assigned: the camera is executing the
@@ -4168,6 +4238,9 @@ impl ProtocolEngine {
             self.apply_due(due, now, effects);
         }
         self.fail_latched_raw_lanes(effects);
+        // Due work (a learned completion, a request ending unwritten) may
+        // have decided a dispute.
+        self.apply_retro(now, effects);
         if self
             .inquiry_cooldown_until
             .is_some_and(|deadline| deadline <= now)
@@ -4970,7 +5043,7 @@ impl ProtocolEngine {
         self.unlearned_completions = [0; 9];
         self.retired_completion_only = [0; 9];
         self.retro.clear();
-        self.cancelled_unseen.clear();
+        self.displaced_unseen.clear();
         for queue in &mut self.command_queues {
             queue.clear();
         }
