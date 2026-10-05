@@ -125,7 +125,9 @@ mod blocking_facade {
         blocking::{Session, SessionConfig},
         camera::TransportKind,
         command::CommandKind,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
     };
 
     use super::*;
@@ -163,10 +165,9 @@ mod blocking_facade {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or_else(Error::io_timeout)?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -234,7 +235,8 @@ mod blocking_facade {
         let moving = session
             .camera_dyn()
             .expect("dynamic camera")
-            .is_moving(creeping_zoom_query(WINDOW))
+            .motion()
+            .is_moving_axes(creeping_zoom_query(WINDOW))
             .expect("motion query");
         camera.assert_sampled_across(WINDOW);
         assert!(moving);
@@ -246,7 +248,9 @@ mod blocking_facade {
 mod async_facade {
     use grafton_visca::{
         runtime::TokioRuntime,
-        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Session, SessionConfig,
     };
 
@@ -277,14 +281,13 @@ mod async_facade {
             Ok(())
         }
 
-        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let response = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -322,7 +325,7 @@ mod async_facade {
             .expect("motion query");
         camera.assert_sampled_across(WINDOW);
         assert!(moving, "creep over the window is movement");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -338,7 +341,7 @@ mod async_facade {
             .expect("motion query");
         camera.assert_sampled_across(WINDOW);
         assert!(!moving);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -352,7 +355,7 @@ mod async_facade {
             .is_moving_axes(creeping_zoom_query(Duration::ZERO))
             .await;
         assert_zero_window_rejected(result, &camera);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "dyn-api")]
@@ -369,6 +372,6 @@ mod async_facade {
             .expect("motion query");
         camera.assert_sampled_across(WINDOW);
         assert!(moving);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

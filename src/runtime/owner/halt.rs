@@ -18,6 +18,15 @@ pub(super) struct HaltReceipt {
     pub(super) deadline: Instant,
 }
 
+/// One supported axis's outcome: whether its STOP applied before the halt's
+/// deadline.
+pub(super) fn outcome(applied: Result<(), Error>) -> HaltOutcome {
+    match applied {
+        Ok(()) => HaltOutcome::Applied,
+        Err(error) => HaltOutcome::Failed(error),
+    }
+}
+
 pub(super) fn report(outcomes: [HaltOutcome; 3]) -> HaltReport {
     let [pan_tilt, zoom, focus] = outcomes;
     HaltReport::new(pan_tilt, zoom, focus)
@@ -44,18 +53,14 @@ impl OwnerState {
         let slots = prepared.requests.map(|request| {
             request.map(|request| {
                 let mut request = request.inspect_err(|error| {
-                    self.record_admission_rejection(
-                        prepared.target,
-                        super::RequestLane::Command,
-                        error,
-                    );
+                    self.record_admission_rejection(prepared.target, super::Lane::Command, error);
                 })?;
                 let remaining = deadline.saturating_duration_since(now);
                 if remaining.is_zero() {
                     let error = Error::admission_timeout();
                     self.record_admission_rejection(
                         request.context().target,
-                        super::RequestLane::of(&request),
+                        request.lane(),
                         &error,
                     );
                     return Err(error);
@@ -71,7 +76,7 @@ impl OwnerState {
                     .inspect_err(|error| {
                         self.record_admission_rejection(
                             request.context().target,
-                            super::RequestLane::of(&request),
+                            request.lane(),
                             error,
                         );
                     })?;

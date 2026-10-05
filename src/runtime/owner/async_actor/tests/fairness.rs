@@ -177,7 +177,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         "raw release flood took {post_h_polls} polls after Urgent queued (bound {POST_H_POLL_BOUND})"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -372,7 +372,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     for control in controls {
         control.await.unwrap().unwrap();
     }
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A timer can mature after the actor has constructed its tail selection.
@@ -560,7 +560,7 @@ fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
                 ));
             }
 
-            handle.shutdown().await.map_err(|error| error.to_string())?;
+            handle.shutdown().map_err(|error| error.to_string())?;
             let terminal = actor_task.await;
             if terminal.state != SessionState::Shutdown {
                 return Err(format!(
@@ -730,6 +730,6 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         urgent.id
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }

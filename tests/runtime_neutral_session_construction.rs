@@ -12,7 +12,8 @@ use std::{future::Future, pin::Pin, time::Duration};
 use grafton_visca::{
     profiles::PtzOpticsG2,
     transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, Error, ExecError, Executor, ProfileSpec, Session, SessionConfig,
 };
@@ -109,7 +110,7 @@ impl AsyncTransport for IdleTransport {
         Ok(())
     }
 
-    async fn recv_into(&mut self, _dst: &mut [u8]) -> std::result::Result<usize, Error> {
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> std::result::Result<ReceiveOutcome, Error> {
         std::future::pending().await
     }
 

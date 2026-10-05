@@ -18,7 +18,9 @@ use grafton_visca::{
     completion::AppliedOnly,
     profile::ProfileSpec,
     request::builtin::ZoomStop,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error, Executor, OperationalTuning, Session, SessionConfig,
 };
 
@@ -68,15 +70,14 @@ impl AsyncTransport for PoisonOnReadTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))??;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -112,7 +113,7 @@ async fn live_invalid_update_is_rejected_without_changing_tuning<E: Executor>(ex
         installed,
         "a rejected live update leaves the installed tuning unchanged"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 async fn invalid_updates_after_poison_return_retained_terminal_cause<E: Executor>(executor: E) {

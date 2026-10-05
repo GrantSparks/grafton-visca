@@ -8,8 +8,8 @@ mod stream_ledger;
 mod types;
 
 use stream_ledger::{
-    Answer, Answered, Evidence, Lane as OwedLane, LaneState, NamedFrame, Outstanding, Owes,
-    Resolved, Retro, Standing, StreamLedger,
+    Answer, Answered, Evidence, LaneState, NamedFrame, Outstanding, Owes, Resolved, Retro,
+    Standing, StreamLedger,
 };
 pub(crate) use types::*;
 
@@ -265,12 +265,6 @@ impl IdAllocator {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Lane {
-    Command,
-    Inquiry,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct DispatchSelection {
     lane: Lane,
@@ -491,54 +485,15 @@ impl ProtocolEngine {
         self.terminal_error.clone()
     }
 
-    // Read-only inspection seams. `entry` and `active_len` are driven by
-    // `runtime::engine::tests` and by `OwnerState`'s own test-gated projections;
-    // `queued_dispatch_at` is projected by `OwnerState::dispatch_at`, which the
-    // blocking submission path will consume once it distinguishes pacing from
-    // socket backpressure (#636).
-    #[allow(dead_code)]
+    // Read-only inspection seams for engine and owner tests.
+    #[cfg(test)]
     pub(crate) fn entry(&self, id: RequestId) -> Option<&Entry> {
         self.entries.get(&id)
     }
 
-    #[allow(dead_code)] // See `entry` (#636).
+    #[cfg(test)]
     pub(crate) fn active_len(&self) -> usize {
         self.entries.len()
-    }
-
-    /// Earliest time a specific ready request may dispatch without waiting for
-    /// another request to release protocol capacity. Blocking submission uses
-    /// this to distinguish pacing from socket/inquiry backpressure.
-    #[allow(dead_code)] // See `entry` (#636).
-    pub(crate) fn queued_dispatch_at(&self, id: RequestId) -> Option<Instant> {
-        let entry = self.entries.get(&id)?;
-        if !matches!(entry.phase, Phase::Ready { .. }) {
-            return None;
-        }
-        if entry.request.is_inquiry() {
-            let target = entry.request.context().target;
-            if self.raw_hold_blocks_dispatch(entry, target)
-                || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
-                || self.uncorrelated_raw_shape_blocked(entry, target)
-                || self.ledger.lane_state(target, OwedLane::Inquiry) != LaneState::Clear
-                || self.ledger.forbids_crossing(target)
-            {
-                return None;
-            }
-        } else {
-            let target = entry.request.context().target;
-            let policy = self.targets[target.id() as usize]?;
-            if !self.stop_wait_ended(entry)
-                && (self.raw_hold_blocks_dispatch(entry, target)
-                    || self.raw_command_gate_blocks(entry, target)
-                    || self.command_capacity_used_by(entry, target)
-                        >= usize::from(policy.command_sockets)
-                    || self.uncorrelated_raw_shape_blocked(entry, target))
-            {
-                return None;
-            }
-        }
-        Some(self.candidate_send_at(entry))
     }
 
     /// Audits every derived index against the authoritative entries.
@@ -922,7 +877,7 @@ impl ProtocolEngine {
             queue_generation,
         };
         let priority = request.context().control.class.priority_index();
-        let inquiry = request.is_inquiry();
+        let lane = request.lane();
         self.entries.insert(
             id,
             Entry {
@@ -949,7 +904,7 @@ impl ProtocolEngine {
                 stream_order: None,
             },
         );
-        self.queue_mut(inquiry, priority).push_back(queue_ticket);
+        self.queue_mut(lane, priority).push_back(queue_ticket);
         effects.push(Effect::Admitted { ticket, id });
     }
 
@@ -987,29 +942,41 @@ impl ProtocolEngine {
         None
     }
 
-    fn queue_mut(&mut self, inquiry: bool, priority: usize) -> &mut VecDeque<QueueTicket> {
-        if inquiry {
-            &mut self.inquiry_queues[priority]
-        } else {
-            &mut self.command_queues[priority]
+    fn queue(&self, lane: Lane, priority: usize) -> &VecDeque<QueueTicket> {
+        match lane {
+            Lane::Command => &self.command_queues[priority],
+            Lane::Inquiry => &self.inquiry_queues[priority],
         }
     }
 
-    fn prune_queue(&mut self, lane: Lane, priority: usize) {
-        let entries = &self.entries;
-        let queue = match lane {
+    fn queue_mut(&mut self, lane: Lane, priority: usize) -> &mut VecDeque<QueueTicket> {
+        match lane {
             Lane::Command => &mut self.command_queues[priority],
             Lane::Inquiry => &mut self.inquiry_queues[priority],
-        };
-        queue.retain(|ticket| {
-            entries.get(&ticket.request).is_some_and(|entry| {
-                entry.generation == ticket.generation
-                    && entry.queue_generation == ticket.queue_generation
-                    && matches!(entry.phase, Phase::Ready { ticket: active } if active == *ticket)
-                    && (entry.request.is_inquiry() == (lane == Lane::Inquiry))
-                    && entry.request.context().control.class.priority_index() == priority
-            })
-        });
+        }
+    }
+
+    /// Whether `ticket`, found in the `lane`/`priority` queue, still names its
+    /// request's current ready state. Superseded tickets are pruned lazily.
+    fn ticket_current(
+        entries: &BTreeMap<RequestId, Entry>,
+        ticket: QueueTicket,
+        lane: Lane,
+        priority: usize,
+    ) -> bool {
+        entries.get(&ticket.request).is_some_and(|entry| {
+            entry.generation == ticket.generation
+                && entry.queue_generation == ticket.queue_generation
+                && matches!(entry.phase, Phase::Ready { ticket: active } if active == ticket)
+                && entry.request.lane() == lane
+                && entry.request.context().control.class.priority_index() == priority
+        })
+    }
+
+    fn prune_queue(&mut self, lane: Lane, priority: usize) {
+        let mut queue = std::mem::take(self.queue_mut(lane, priority));
+        queue.retain(|ticket| Self::ticket_current(&self.entries, *ticket, lane, priority));
+        *self.queue_mut(lane, priority) = queue;
     }
 
     fn eligible_ticket_readonly(
@@ -1018,19 +985,14 @@ impl ProtocolEngine {
         priority: usize,
         now: Instant,
     ) -> Option<(usize, QueueTicket)> {
-        let queue = match lane {
-            Lane::Command => &self.command_queues[priority],
-            Lane::Inquiry => &self.inquiry_queues[priority],
-        };
-        queue.iter().copied().enumerate().find(|(_, ticket)| {
-            self.entries.get(&ticket.request).is_some_and(|entry| {
-                entry.generation == ticket.generation
-                    && entry.queue_generation == ticket.queue_generation
-                    && matches!(entry.phase, Phase::Ready { ticket: active } if active == *ticket)
-                    && (entry.request.is_inquiry() == (lane == Lane::Inquiry))
-                    && entry.request.context().control.class.priority_index() == priority
-            }) && self.dispatch_eligible(*ticket, now)
-        })
+        self.queue(lane, priority)
+            .iter()
+            .copied()
+            .enumerate()
+            .find(|(_, ticket)| {
+                Self::ticket_current(&self.entries, *ticket, lane, priority)
+                    && self.dispatch_eligible(*ticket, now)
+            })
     }
 
     fn select_dispatch(&self, now: Instant) -> Option<DispatchSelection> {
@@ -1080,10 +1042,7 @@ impl ProtocolEngine {
     }
 
     fn remove_ticket(&mut self, lane: Lane, priority: usize, index: usize) -> Option<QueueTicket> {
-        match lane {
-            Lane::Command => self.command_queues[priority].remove(index),
-            Lane::Inquiry => self.inquiry_queues[priority].remove(index),
-        }
+        self.queue_mut(lane, priority).remove(index)
     }
 
     fn dispatch_one(&mut self, now: Instant, effects: &mut Vec<Effect>) {
@@ -1227,42 +1186,41 @@ impl ProtocolEngine {
         });
     }
 
-    fn dispatch_eligible(&self, ticket: QueueTicket, now: Instant) -> bool {
-        let Some(entry) = self.entries.get(&ticket.request) else {
-            return false;
-        };
-        if entry.request.is_inquiry() {
-            let target = entry.request.context().target;
-            if self.raw_hold_blocks_dispatch(entry, target)
-                || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
-                || self.uncorrelated_raw_shape_blocked(entry, target)
-                || self.ledger.lane_state(target, OwedLane::Inquiry) != LaneState::Clear
-                || self.ledger.forbids_crossing(target)
-            {
-                return false;
+    /// The per-lane dispatch gate: whether protocol state, rather than
+    /// pacing, keeps ready `entry` from being written. Raw holds, protocol
+    /// capacity, the raw command gate, the stream ledger and uncorrelated raw
+    /// shapes each block; a byte-stream STOP that has waited out its
+    /// [`Self::stop_wait_bound`] by `now` bypasses the command gates. Pacing
+    /// (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
+    /// alone.
+    fn dispatch_blocked(&self, entry: &Entry, now: Option<Instant>) -> bool {
+        let target = entry.request.context().target;
+        match entry.request.lane() {
+            Lane::Inquiry => {
+                self.raw_hold_blocks_dispatch(entry, target)
+                    || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
+                    || self.uncorrelated_raw_shape_blocked(entry, target)
+                    || self.ledger.lane_state(target, Lane::Inquiry) != LaneState::Clear
+                    || self.ledger.forbids_crossing(target)
             }
-            if self.inquiry_cooldown_until.is_some_and(|until| until > now) {
-                return false;
-            }
-        } else {
-            let target = entry.request.context().target;
-            let Some(policy) = self.targets[target.id() as usize] else {
-                return false;
-            };
-            let waited_out = self
-                .stop_wait_bound(entry)
-                .is_some_and(|bound| now >= bound);
-            if !waited_out
-                && (self.raw_hold_blocks_dispatch(entry, target)
-                    || self.raw_command_gate_blocks(entry, target)
-                    || self.command_capacity_used_by(entry, target)
-                        >= usize::from(policy.command_sockets)
-                    || self.uncorrelated_raw_shape_blocked(entry, target))
-            {
-                return false;
+            Lane::Command => {
+                let Some(policy) = self.targets[target.id() as usize] else {
+                    return true;
+                };
+                !self.stop_wait_ended(entry, now)
+                    && (self.raw_hold_blocks_dispatch(entry, target)
+                        || self.raw_command_gate_blocks(entry, target)
+                        || self.command_capacity_used_by(entry, target)
+                            >= usize::from(policy.command_sockets)
+                        || self.uncorrelated_raw_shape_blocked(entry, target))
             }
         }
-        self.candidate_send_at(entry) <= now
+    }
+
+    fn dispatch_eligible(&self, ticket: QueueTicket, now: Instant) -> bool {
+        self.entries.get(&ticket.request).is_some_and(|entry| {
+            !self.dispatch_blocked(entry, Some(now)) && self.candidate_send_at(entry) <= now
+        })
     }
 
     fn candidate_send_at(&self, entry: &Entry) -> Instant {
@@ -1314,20 +1272,6 @@ impl ProtocolEngine {
                 entry.request.is_inquiry()
                     && (self.policy.envelope != EnvelopeKind::Raw
                         || entry.request.context().target == target)
-                    && matches!(
-                        entry.phase,
-                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                    )
-            })
-            .count()
-    }
-
-    #[cfg(test)]
-    fn inquiries_inflight(&self) -> usize {
-        self.entries
-            .values()
-            .filter(|entry| {
-                entry.request.is_inquiry()
                     && matches!(
                         entry.phase,
                         Phase::Sending { .. } | Phase::AwaitingReply { .. }
@@ -1422,10 +1366,10 @@ impl ProtocolEngine {
     }
 
     /// Whether `entry`, a STOP on a raw byte stream, has waited out
-    /// [`Self::stop_wait_bound`] and is written whatever else waits.
-    fn stop_wait_ended(&self, entry: &Entry) -> bool {
+    /// [`Self::stop_wait_bound`] by `now` and is written whatever else waits.
+    fn stop_wait_ended(&self, entry: &Entry, now: Option<Instant>) -> bool {
         self.stop_wait_bound(entry)
-            .zip(self.turn_at)
+            .zip(now)
             .is_some_and(|(bound, now)| now >= bound)
     }
 
@@ -1636,7 +1580,7 @@ impl ProtocolEngine {
     /// is no exception on a byte stream: its possible rejection is owed too,
     /// and could not be told from the owed answer.
     fn raw_command_gate_blocks(&self, entry: &Entry, target: CameraId) -> bool {
-        let owed = self.ledger.lane_state(target, OwedLane::Command) != LaneState::Clear;
+        let owed = self.ledger.lane_state(target, Lane::Command) != LaneState::Clear;
         (self.raw_command_unacknowledged(target)
             && !self.raw_urgent_gate_bypass_available(entry, target))
             || ((self.raw_hold(target, RawHoldScope::PreAck).is_some() || owed)
@@ -2064,10 +2008,9 @@ impl ProtocolEngine {
     /// the wire, which no transport trait in this crate offers.
     ///
     /// The exact transport cause is never lost: it is carried in the poison
-    /// reason. 1.x drew the same line — `fail_after_send_error` failed the one
-    /// command, and the runtime loops around it (`handle_send_failure!` in
-    /// `loop_task.rs`, the `SendSemantics::Stream` arms in `blocking_runner.rs`)
-    /// then poisoned every stream session anyway.
+    /// reason. The failed command is failed individually and the stream
+    /// session is poisoned, because after an unconfirmed write the byte stream
+    /// can no longer be trusted to be frame-aligned.
     fn failed_transmission(
         &mut self,
         owner: TransmissionOwner,
@@ -2135,8 +2078,8 @@ impl ProtocolEngine {
 
     /// Applies one transient receive-side transport failure.
     ///
-    /// This restores the 1.x `SchedulerEvent::NetworkError` contract only for
-    /// requests whose envelope supplies safe evidence. A sequenced Sony command
+    /// The engine acts on the fault only for requests whose envelope supplies
+    /// safe evidence. A sequenced Sony command
     /// still waiting for its ACK is retried under its own bounded retry policy.
     ///
     /// A raw command awaiting its ACK has no sequence key to replay, but a
@@ -2155,10 +2098,9 @@ impl ProtocolEngine {
     /// is a UDP `recv` returning ECONNREFUSED because an earlier datagram drew
     /// an ICMP port-unreachable.
     ///
-    /// Two deliberate narrowings of the 1.x scan, both conservative:
-    /// inquiries are untouched (1.x scanned only its command table), and a
-    /// request with cancellation in flight is left to its ambiguity deadline,
-    /// because retrying it would abandon the quarantine that owns its socket.
+    /// The scan is deliberately conservative: inquiries are untouched (only commands are examined),
+    /// and a request with cancellation in flight is left to its ambiguity deadline, because
+    /// retrying it would abandon the quarantine that owns its socket.
     fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Vec<Effect>) {
         if self.state != SessionState::Running {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
@@ -2809,11 +2751,13 @@ impl ProtocolEngine {
     ///
     /// A named raw ACK is reconciled against stale local ownership by
     /// [`Self::assign_ack_socket`] before reaching this helper. Sequenced Sony
-    /// ACKs retain the #620/#682 other-socket compatibility fallback because
-    /// their request and later terminal frames carry an independent sequence
-    /// identity. A socketless ACK takes the first free physical socket
-    /// available to that dispatched attempt. `None` means no safe assignment
-    /// exists.
+    /// ACKs may fall back to the other socket (#620/#682) when the named one
+    /// is contested: their request and later terminal frames carry an
+    /// independent sequence identity, so the assignment cannot be confused
+    /// with another request's. A socketless ACK binds to the first free
+    /// physical socket available to that dispatched attempt, because the frame
+    /// names no socket and the first free socket is the one the camera assigns
+    /// next. `None` means no safe assignment exists.
     fn assign_socket(
         &self,
         target: CameraId,
@@ -3714,7 +3658,7 @@ impl ProtocolEngine {
         let target = context.target;
         let completion_only = context.reply_shape == ReplyShape::CompletionOnly;
         if (request.is_inquiry() || completion_only)
-            && self.ledger.lane_state(target, OwedLane::Inquiry) == LaneState::Latched
+            && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched
         {
             return Some(Error::inquiry_correlation_lost(target));
         }
@@ -3728,7 +3672,7 @@ impl ProtocolEngine {
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
         let rejection_latched = completion_only && self.ledger.rejection_latched(target);
-        ((command_lane && self.ledger.lane_state(target, OwedLane::Command) == LaneState::Latched)
+        ((command_lane && self.ledger.lane_state(target, Lane::Command) == LaneState::Latched)
             || rejection_latched)
             .then(|| Error::command_correlation_lost(target))
     }
@@ -4683,11 +4627,11 @@ impl ProtocolEngine {
             generation: entry.generation,
             queue_generation,
         };
-        let inquiry = entry.request.is_inquiry();
+        let lane = entry.request.lane();
         let priority = entry.request.context().control.class.priority_index();
         let cancellation = entry.cancellation;
         self.transition(id, Phase::Ready { ticket }, cancellation, effects);
-        self.queue_mut(inquiry, priority).push_back(ticket);
+        self.queue_mut(lane, priority).push_back(ticket);
     }
 
     /// Raw correlation scopes which can be released by advancing at `now`.
@@ -4872,7 +4816,7 @@ impl ProtocolEngine {
             .min();
         for entry in self.entries.values() {
             let candidate = if matches!(entry.phase, Phase::Ready { .. })
-                && self.capacity_available_for(entry)
+                && !self.dispatch_blocked(entry, self.turn_at)
             {
                 Some(self.candidate_send_at(entry))
             } else if pending_cancellation_socket(entry).is_some() {
@@ -4938,25 +4882,6 @@ impl ProtocolEngine {
             .collect();
         self.holds
             .retain(|key, hold| hold.until > now || retained.contains(key));
-    }
-
-    fn capacity_available_for(&self, entry: &Entry) -> bool {
-        if entry.request.is_inquiry() {
-            !self.raw_hold_blocks_dispatch(entry, entry.request.context().target)
-                && self.inquiries_inflight_for(entry.request.context().target)
-                    < self.policy.inquiry_capacity
-                && !self.uncorrelated_raw_shape_blocked(entry, entry.request.context().target)
-        } else {
-            let target = entry.request.context().target;
-            self.targets[target.id() as usize].is_some_and(|policy| {
-                self.stop_wait_ended(entry)
-                    || (!self.raw_hold_blocks_dispatch(entry, target)
-                        && !self.raw_command_gate_blocks(entry, target)
-                        && self.command_capacity_used_by(entry, target)
-                            < usize::from(policy.command_sockets)
-                        && !self.uncorrelated_raw_shape_blocked(entry, target))
-            })
-        }
     }
 
     fn finish(&mut self, id: RequestId, outcome: RuntimeOutcome, effects: &mut Vec<Effect>) {
@@ -5479,8 +5404,8 @@ impl ProtocolEngine {
     }
 
     #[cfg(test)]
-    fn inject_queue_ticket(&mut self, inquiry: bool, priority: usize, ticket: QueueTicket) {
-        self.queue_mut(inquiry, priority).push_front(ticket);
+    fn inject_queue_ticket(&mut self, lane: Lane, priority: usize, ticket: QueueTicket) {
+        self.queue_mut(lane, priority).push_front(ticket);
     }
 }
 
@@ -5721,12 +5646,11 @@ fn record_deadline_expiry(
 
 /// Backoff exponent ceiling for a retry triggered by a lost ACK.
 ///
-/// 1.x capped the ACK backoff exponent at 5 — 32x the initial delay — and left
-/// completion, inquiry, protocol-error and transport-fault retries uncapped
-/// (`main:src/runtime/core/mod.rs`, `delay_exponent_cap`). The rewrite dropped
-/// the cap; this restores it.
+/// The ACK backoff exponent is capped at 5 (32x the initial delay), while
+/// completion, inquiry, protocol-error and transport-fault retries are
+/// uncapped.
 ///
-/// What it does is bound a lost-ACK retry at `initial_backoff << 5` regardless
+/// The cap bounds a lost-ACK retry at `initial_backoff << 5` regardless
 /// of `maximum_backoff`, so a session configured to wait a long time for a
 /// command the camera has already accepted does not inherit that same wait for
 /// a frame the camera never acknowledged at all.
@@ -5753,13 +5677,10 @@ enum Backoff {
 
 /// Deterministic backoff jitter.
 ///
-/// **1.x had no jitter at all.** `RetryConfig::calculate_delay` was exactly
-/// `base * 2^(attempt - 1)` with no entropy anywhere on the path, so there is
-/// nothing here to restore — this is new. It exists because the rewrite's
-/// `maximum_backoff` ceiling makes retries *converge*: every command that times
-/// out together against one camera saturates the same ceiling and then retries
-/// on the same instant, forever, which is precisely the collision a backoff is
-/// supposed to break up.
+/// The unjittered delay is exactly `initial << (attempt - 1)` with no entropy on the path. Jitter
+/// exists because the `maximum_backoff` ceiling makes retries *converge*: every command that times
+/// out together against one camera saturates the same ceiling and then retries on the same instant,
+/// forever, which is precisely the collision a backoff is supposed to break up.
 ///
 /// The spread is a pure function of the seed, the request identity and the
 /// attempt number, never of wall-clock time or process entropy. The engine
@@ -5804,10 +5725,10 @@ impl Jitter {
 
 /// Computes one attempt's backoff.
 ///
-/// The ceiling is 1.x's exponential — `initial << (attempt - 1)`, bounded by
-/// the ACK exponent cap where it applies and by `maximum_backoff` always. The
-/// wait is then the equal-jitter half-open band `[ceiling / 2, ceiling)`, so
-/// no request ever waits *longer* than 1.x would have, the ceiling is still
+/// The ceiling is the exponential `initial << (attempt - 1)`, bounded by the
+/// ACK exponent cap where it applies and by `maximum_backoff` always. The wait
+/// is then the equal-jitter half-open band `[ceiling / 2, ceiling)`, so no
+/// request ever waits longer than the unjittered exponential, the ceiling is
 /// honored exactly, and concurrent requests separate.
 fn retry_delay(policy: RetryPolicy, attempt: u32, backoff: Backoff, jitter: u64) -> Duration {
     if policy.initial_backoff == Duration::ZERO {

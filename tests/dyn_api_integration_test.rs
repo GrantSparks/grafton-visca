@@ -27,7 +27,8 @@ use grafton_visca::{
     request::builtin::{PanTiltHome, ZoomStop},
     state_cache::StateEntry,
     transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, CancellationOutcome, Error, OperationalTuning, Session, SessionConfig, StateKey,
     TokioRuntime,
@@ -176,15 +177,14 @@ impl AsyncTransport for ProbeTransport {
     fn recv_into<'a>(
         &'a mut self,
         destination: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let response = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            destination[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, destination))
         }
     }
 
@@ -272,14 +272,14 @@ async fn tokio_dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles() {
         .expect("custom applied lifecycle");
 
     assert_eq!(writes.lock().expect("writes lock").len(), 4);
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
 async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
     let (transport, writes) = ProbeTransport::new(true);
     let session = open_session(transport, SessionConfig::new(profile())).await;
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
 
     let error = camera
         .zoom()
@@ -295,7 +295,7 @@ async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
     ));
     assert!(writes.lock().expect("writes lock").is_empty());
 
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
@@ -309,9 +309,11 @@ async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
     let first = session
         .camera_dyn_for(CameraId::CAMERA_1)
         .expect("camera 1 dynamic view");
-    let first_view = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
+    let first_view = session
+        .camera_dyn_for(CameraId::CAMERA_1)
         .expect("same-target dynamic view");
-    let second = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
+    let second = session
+        .camera_dyn_for(CameraId::CAMERA_2)
         .expect("camera 2 dynamic view");
 
     assert_unknown(&first);
@@ -332,15 +334,15 @@ async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
         .expect("exact applied multicast clear effect");
     assert_state(&first, &[0]);
     assert_unknown(&second);
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 
     // A fresh owner receives a fresh fixed registry; state never leaks from
     // a previous session even when the profile is identical.
     let (fresh_transport, _) = ProbeTransport::new(true);
     let fresh = open_session(fresh_transport, SessionConfig::new(profile())).await;
-    let fresh_camera = DynSessionCamera::from_session(&fresh).expect("fresh dynamic camera");
+    let fresh_camera = fresh.camera_dyn().expect("fresh dynamic camera");
     assert_unknown(&fresh_camera);
-    fresh.shutdown().await.expect("fresh shutdown");
+    fresh.shutdown().expect("fresh shutdown");
 }
 
 #[tokio::test]
@@ -352,10 +354,7 @@ async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
         .expect("camera 2 registration");
     let session = open_session(transport, config).await;
 
-    assert!(matches!(
-        DynSessionCamera::from_session(&session),
-        Err(Error::InvalidState(_))
-    ));
+    assert!(matches!(session.camera_dyn(), Err(Error::InvalidState(_))));
     let selected = session
         .camera_dyn_for(CameraId::CAMERA_2)
         .expect("explicit dynamic target");
@@ -368,17 +367,16 @@ async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
         Err(Error::InvalidState(_))
     ));
     assert!(writes.lock().expect("writes lock").is_empty());
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
 async fn tokio_dynamic_queued_targeted_cancel_is_owner_local() {
     let (transport, writes) = ProbeTransport::new(false);
     let config = SessionConfig::new(profile())
-        .with_tuning(OperationalTuning::new().maximum_command_sockets(1))
-        .expect("one socket tuning");
+        .with_tuning(OperationalTuning::new().maximum_command_sockets(1));
     let session = open_session(transport, config).await;
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
     let nouns: &dyn DynSessionCameraNouns = &camera;
 
     let first = nouns.zoom().stop().await.expect("first operation");
@@ -398,7 +396,7 @@ async fn tokio_dynamic_queued_targeted_cancel_is_owner_local() {
     assert_eq!(writes.lock().expect("writes lock").len(), 1);
 
     first.detach();
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
@@ -406,7 +404,7 @@ async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
     let (transport, _) = ProbeTransport::new(true);
     let session = open_session(transport, SessionConfig::new(profile())).await;
     let static_camera = session.camera::<PtzOpticsG2>().expect("static camera");
-    let dynamic_camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let dynamic_camera = session.camera_dyn().expect("dynamic camera");
     let nouns: &dyn DynSessionCameraNouns = &dynamic_camera;
     let static_zoom = static_camera.zoom();
     let dynamic_zoom = nouns.zoom();
@@ -427,7 +425,7 @@ async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
         "dynamic noun construction added an outer box: dynamic={dynamic_allocations}, static={static_allocations}"
     );
 
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 // Keep the command imported in this binary so the cache test proves the

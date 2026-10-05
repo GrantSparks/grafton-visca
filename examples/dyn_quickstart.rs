@@ -17,7 +17,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     capabilities::TypedSupportSurface,
-    dynapi::{DynAppliedOperation, DynSessionCamera, DynTargetedOperation},
+    dynapi::{DynAppliedOperation, DynTargetedOperation},
     runtime::TokioRuntime,
     Connect, Error,
 };
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> {
     // One dynamic view onto the session's sole registered target.
-    let camera = DynSessionCamera::from_session(session)?;
+    let camera = session.camera_dyn()?;
 
     // Runtime capability discovery replaces the compile-time `Has*` markers.
     println!(

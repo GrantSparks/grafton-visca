@@ -133,7 +133,6 @@ pub(crate) mod builder;
     feature = "runtime-smol"
 ))]
 pub(crate) mod connect;
-#[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) mod datagram;
 #[cfg(test)]
 mod entry_point_tests;
@@ -165,7 +164,6 @@ pub use buffer::BufferConfig;
 pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
 #[cfg(feature = "blocking")]
 pub use builder::{NetTransportBuilder, Transport};
-#[cfg(feature = "async")]
 pub use datagram::ReceiveOutcome;
 pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated};
 

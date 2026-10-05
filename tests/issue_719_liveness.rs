@@ -14,7 +14,9 @@ use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     command::CommandKind,
     profile::ProfileSpec,
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error, OperationalTuning, SessionConfig,
 };
 
@@ -63,13 +65,12 @@ impl BlockingTransport for LivenessTransport {
         &mut self,
         destination: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         match self.peer {
             Peer::Answers if self.reply_pending => {
                 self.reply_pending = false;
                 let reply = [0x90, 0x50, 0x02, 0xff];
-                destination[..reply.len()].copy_from_slice(&reply);
-                Ok(reply.len())
+                Ok(ReceiveOutcome::copy_message(&reply, destination))
             }
             Peer::KeepaliveExpired => Err(Error::Io(Arc::new(std::io::Error::from(
                 std::io::ErrorKind::TimedOut,
@@ -93,7 +94,6 @@ fn config() -> SessionConfig {
             Duration::from_millis(1),
             Duration::from_millis(40),
         ))
-        .expect("bounded liveness-probe tuning")
 }
 
 #[test]

@@ -76,7 +76,8 @@ mod blocking_observability {
         command::PanTiltLimitCorner,
         request::builtin::PanTiltLimitClear,
         transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error,
     };
@@ -105,10 +106,9 @@ mod blocking_observability {
             probe
         }
 
-        fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        fn receive(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
     }
 
@@ -143,7 +143,7 @@ mod blocking_observability {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             self.receive(dst)
         }
 
@@ -187,7 +187,7 @@ mod blocking_observability {
             &mut self,
             _dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             thread::sleep(timeout);
             Err(Error::io_timeout())
         }
@@ -318,7 +318,8 @@ mod tokio_observability {
     use grafton_visca::{
         runtime::TokioRuntime,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error, Session,
     };
@@ -385,15 +386,14 @@ mod tokio_observability {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let bytes = self
                     .responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::RuntimeShutdown)?;
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
             }
         }
 
@@ -449,7 +449,7 @@ mod tokio_observability {
         assert!(fast.try_recv().is_some());
         assert!(slow.try_recv().is_some());
         camera.advanced().multicast_on().await.unwrap();
-        session.shutdown().await.unwrap();
+        session.shutdown().unwrap();
     }
 
     #[tokio::test]
@@ -471,7 +471,7 @@ mod tokio_observability {
                 | grafton_visca::DiagnosticEvent::Transition { .. }
                 | grafton_visca::DiagnosticEvent::WriteFinished { .. }
         ));
-        session.shutdown().await.unwrap();
+        session.shutdown().unwrap();
         assert!(session
             .camera::<grafton_visca::profiles::PtzOpticsG2>()
             .unwrap()
@@ -485,7 +485,7 @@ mod tokio_observability {
     async fn empty_subscription_disconnects_after_shutdown() {
         let session = session().await;
         let subscription = session.subscribe_diagnostics(1).await.unwrap();
-        session.shutdown().await.unwrap();
+        session.shutdown().unwrap();
         let mut disconnected = false;
         for _ in 0..2 {
             let result = tokio::time::timeout(Duration::from_secs(1), subscription.recv())
@@ -525,7 +525,7 @@ mod tokio_observability {
         first.advanced().multicast_on().await.unwrap();
         assert_set(&view, StateKey::MulticastStreaming, &[1]);
         assert_unknown(&second, StateKey::MulticastStreaming);
-        session.shutdown().await.unwrap();
+        session.shutdown().unwrap();
 
         let mut failed = Probe::new();
         failed.fail_send = true;
@@ -542,7 +542,7 @@ mod tokio_observability {
         let cache = camera.state_cache();
         assert!(camera.advanced().multicast_on().await.is_err());
         assert_unknown(&cache, StateKey::MulticastStreaming);
-        failed_session.shutdown().await.unwrap();
+        failed_session.shutdown().unwrap();
     }
 
     #[test]
@@ -561,7 +561,9 @@ mod smol_observability {
 
     use grafton_visca::{
         runtime::SmolRuntime,
-        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Error, Session,
     };
 
@@ -607,11 +609,10 @@ mod smol_observability {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let bytes = self.responses.recv_async().await.unwrap();
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
             }
         }
 
@@ -642,7 +643,7 @@ mod smol_observability {
                 .await
                 .unwrap();
             assert!(subscription.try_recv().is_some());
-            session.shutdown().await.unwrap();
+            session.shutdown().unwrap();
         });
     }
 }

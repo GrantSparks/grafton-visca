@@ -23,7 +23,9 @@ use grafton_visca::{
     profile::{OperationalTuning, ProfileSpec},
     profiles::PtzOpticsG2,
     request::builtin::FocusStop,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Error, Executor, Session, SessionConfig,
 };
 
@@ -130,17 +132,15 @@ impl AsyncTransport for CancellationTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            let length = bytes.len();
-            dst[..length].copy_from_slice(&bytes);
             self.reads.fetch_add(1, Ordering::AcqRel);
-            Ok(length)
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -153,9 +153,9 @@ fn g2_config(maximum_command_sockets: Option<u8>) -> SessionConfig {
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in G2 profile");
     let config = SessionConfig::new(profile);
     match maximum_command_sockets {
-        Some(maximum) => config
-            .with_tuning(OperationalTuning::new().maximum_command_sockets(maximum))
-            .expect("G2 tuning remains within the built-in profile bounds"),
+        Some(maximum) => {
+            config.with_tuning(OperationalTuning::new().maximum_command_sockets(maximum))
+        }
         None => config,
     }
 }
@@ -215,7 +215,7 @@ async fn queued_cancel_is_local<E: Executor>(executor: E) {
 
     first.detach();
     second.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cancel: bool) {
@@ -274,7 +274,7 @@ async fn sent_cancel_is_not_supported<E: Executor>(executor: E, ack_before_cance
         vec![ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 async fn terminal_race_reports_completed<E: Executor>(executor: E) {
@@ -300,7 +300,7 @@ async fn terminal_race_reports_completed<E: Executor>(executor: E) {
         Ok(CancellationOutcome::Completed)
     ));
     assert_eq!(probe.writes(), vec![ZOOM_STOP.to_vec()]);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 #[cfg(feature = "runtime-tokio")]

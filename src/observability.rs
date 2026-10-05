@@ -464,9 +464,9 @@ impl DiagnosticSubscription {
 
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Phase, SessionState};
+        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase, SessionState};
         use crate::runtime::owner::{
-            CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic, RequestLane,
+            CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic,
             ResponseDiagnostic,
         };
 
@@ -488,9 +488,9 @@ impl DiagnosticEvent {
             SessionState::Shutdown => SessionStatus::Shutdown,
             SessionState::Poisoned => SessionStatus::Poisoned,
         };
-        let lane = |value: RequestLane| match value {
-            RequestLane::Command => DiagnosticLane::Command,
-            RequestLane::Inquiry => DiagnosticLane::Inquiry,
+        let lane = |value: Lane| match value {
+            Lane::Command => DiagnosticLane::Command,
+            Lane::Inquiry => DiagnosticLane::Inquiry,
         };
         let response = |value: ResponseDiagnostic| match value {
             ResponseDiagnostic::Ack(_) => DiagnosticResponse::Ack,

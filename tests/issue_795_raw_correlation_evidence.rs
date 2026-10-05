@@ -219,7 +219,9 @@ mod blocking {
         camera::profiles::PtzOpticsG2,
         command::CommandKind,
         profile::ProfileSpec,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         units::Degrees,
         Certainty, Error, FailureContext, FailureStage, HaltOutcome, SpeedLevel,
     };
@@ -254,10 +256,9 @@ mod blocking {
             &mut self,
             destination: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             if let Some(reply) = self.link.read() {
-                destination[..reply.len()].copy_from_slice(&reply);
-                return Ok(reply.len());
+                return Ok(ReceiveOutcome::copy_message(&reply, destination));
             }
             thread::sleep(timeout.min(Duration::from_millis(2)));
             Err(Error::io_timeout())
@@ -531,7 +532,8 @@ mod asynchronous {
         camera::profiles::PtzOpticsG2,
         profile::ProfileSpec,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         units::Degrees,
         Certainty, Error, FailureContext, FailureStage, HaltOutcome, Session, SessionConfig,
@@ -559,11 +561,10 @@ mod asynchronous {
             async { Ok(()) }
         }
 
-        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             loop {
                 if let Some(reply) = self.link.read() {
-                    destination[..reply.len()].copy_from_slice(&reply);
-                    return Ok(reply.len());
+                    return Ok(ReceiveOutcome::copy_message(&reply, destination));
                 }
                 tokio::time::sleep(Duration::from_millis(2)).await;
             }
@@ -626,7 +627,7 @@ mod asynchronous {
         assert!(elapsed < Duration::from_millis(450), "{elapsed:?}");
         assert_eq!(link.count(FOCUS_STOP), 1);
         assert_eq!(link.writes().len(), 3);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -667,7 +668,7 @@ mod asynchronous {
             "{moved:?}"
         );
         assert_eq!(link.count(&relative_frame), 1);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -700,7 +701,7 @@ mod asynchronous {
         );
         tokio::time::sleep(Duration::from_millis(300)).await;
         assert_eq!(link.writes().len(), 1);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -728,7 +729,7 @@ mod asynchronous {
         link.lift();
         let stop = stop.applied_with_timeout(Duration::from_secs(5)).await;
         assert!(matches!(stop, Err(Error::CommandNotExecutable)), "{stop:?}");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -758,7 +759,7 @@ mod asynchronous {
             .await
             .expect("wide is written and settled once the owed ACK arrived");
         assert_eq!(link.writes(), [ZOOM_TELE, ZOOM_WIDE].map(<[u8]>::to_vec));
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -804,7 +805,7 @@ mod asynchronous {
             .applied_with_timeout(Duration::from_secs(5))
             .await
             .expect("the lane reopened");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -831,6 +832,6 @@ mod asynchronous {
             ))
         );
         assert_eq!(link.count(ZOOM_WIDE), 0);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

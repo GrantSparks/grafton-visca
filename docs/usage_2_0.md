@@ -27,7 +27,9 @@ Cargo feature a snippet needs.
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
 `dyn-api` does not imply `async`: its blocking projection has no futures,
-executor, or async-runtime dependency. Runtime features imply the canonical
+executor, or async-runtime dependency. It projects the camera views of the
+enabled facades, so `dyn-api` without `blocking` or `async` is rejected at
+compile time. Runtime features imply the canonical
 `async` facade. `runtime-tokio`
 and `runtime-smol` may be enabled together; each session still receives one
 explicit runtime. The default `blocking` feature is an independent native
@@ -117,11 +119,12 @@ let mut config = SessionConfig::new(g2);
 config.register_target(grafton_visca::CameraId::new(2)?, generic)?;
 
 // Apply one session-wide tuning value before opening. Tuning may only be
-// more conservative than the profile floor, which is 150 ms here.
+// more conservative than the profile floor, which is 150 ms here; opening the
+// session checks it against every registered profile.
 let config = config.with_tuning(
     grafton_visca::OperationalTuning::new()
         .inquiry_spacing(std::time::Duration::from_millis(250)),
-)?;
+);
 # Ok::<(), grafton_visca::Error>(())
 ```
 
@@ -355,7 +358,10 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
 `advanced`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`.
+`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`, with
+the same names, arities and contracts on the blocking and async cameras, the
+blocking runtime-profile camera (whose `motion()` returns the same blocking
+view) and the object-safe `DynMotion`.
 `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
 `is_moving_axes(MotionQuery)` is the axis-selecting form.
 
@@ -422,7 +428,7 @@ async fn dynamic_views(
 ) -> Result<(), grafton_visca::Error> {
     use grafton_visca::dynapi::{DynMotion, DynZoom};
 
-    let camera = grafton_visca::dynapi::DynSessionCamera::from_session(session)?;
+    let camera = session.camera_dyn()?;
     camera.zoom().stop().await?.applied().await?;
     camera.motion().is_moving_axes(query).await?;
     Ok(())

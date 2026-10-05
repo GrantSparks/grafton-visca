@@ -115,8 +115,9 @@ impl BlockingTransport for MockTcp {
         &mut self,
         dst: &mut [u8],
         _duration: std::time::Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<crate::transport::ReceiveOutcome, Error> {
         self.recv_into(dst)
+            .map(crate::transport::ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<crate::transport::AddressingMode> {

@@ -22,8 +22,8 @@ use crate::Error;
 use super::SessionState;
 use super::{
     AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
-    LiveTuning, ObserverCell, OwnerState, RequestLane, RuntimeOutcome, RuntimeRequest,
-    TargetStateCache, TerminalObserver,
+    Lane, LiveTuning, ObserverCell, OwnerState, RuntimeOutcome, RuntimeRequest, TargetStateCache,
+    TerminalObserver,
 };
 #[cfg(all(test, feature = "runtime-tokio"))]
 use super::{DiagnosticEvent, OwnerMetrics};
@@ -140,7 +140,51 @@ pub(super) type AdmissionReply = flume::Receiver<Result<Admitted, Error>>;
 pub(super) struct AdmissionExpiry {
     validity: AdmissionValidity,
     target: crate::CameraId,
-    lane: RequestLane,
+    lane: Lane,
+}
+
+/// One admission a caller enqueued, awaiting the owner's reply.
+///
+/// It turns that reply into the receipt core, so both owner shells build
+/// receipts the same way and differ only in how they wait for the reply.
+#[derive(Debug)]
+pub(super) struct PendingAdmission {
+    target: crate::CameraId,
+    completion: TerminalObserver,
+    reply: AdmissionReply,
+    expiry: Option<AdmissionExpiry>,
+}
+
+impl PendingAdmission {
+    /// The receiver of the owner's admission reply.
+    pub(super) fn reply(&self) -> &AdmissionReply {
+        &self.reply
+    }
+
+    /// Settles a caller deadline that expired while the admission was
+    /// queued; see [`OwnerHandleCore::expire_admission`]. An admission
+    /// without a deadline never expires.
+    pub(super) fn expire(&self, core: &OwnerHandleCore) -> Result<(), Error> {
+        match &self.expiry {
+            Some(expiry) => core.expire_admission(expiry),
+            None => Ok(()),
+        }
+    }
+
+    /// The receipt core for the owner's `reply`, observed under
+    /// `configured_timeout`.
+    pub(super) fn receipt(
+        self,
+        reply: Result<Result<Admitted, Error>, Error>,
+        configured_timeout: std::time::Duration,
+    ) -> Result<super::ReceiptCore, Error> {
+        Ok(super::ReceiptCore::admitted(
+            reply??,
+            self.target,
+            self.completion,
+            configured_timeout,
+        ))
+    }
 }
 
 #[derive(Debug)]
@@ -164,7 +208,7 @@ pub(super) struct AdmissionBoundary {
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PreAdmissionRejection {
     pub(super) target: crate::CameraId,
-    pub(super) lane: RequestLane,
+    pub(super) lane: Lane,
     pub(super) error: crate::ErrorKind,
 }
 
@@ -686,7 +730,7 @@ impl OwnerHandleCore {
         validity: Option<AdmissionValidity>,
     ) -> Result<(TerminalObserver, AdmissionReply), Error> {
         let target = request.context().target;
-        let lane = RequestLane::of(&request);
+        let lane = request.lane();
         if let Some(error) = self.admission_rejection() {
             self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
@@ -740,33 +784,47 @@ impl OwnerHandleCore {
         }
     }
 
-    /// [`enqueue_admission`](Self::enqueue_admission) under a caller
-    /// deadline that applies before admission. A deadline already reached at
-    /// `now` is rejected without enqueuing anything.
-    pub(super) fn enqueue_admission_until(
+    /// [`enqueue_admission`](Self::enqueue_admission) as a
+    /// [`PendingAdmission`].
+    pub(super) fn admit(&self, request: RuntimeRequest) -> Result<PendingAdmission, Error> {
+        let target = request.context().target;
+        let (completion, reply) = self.enqueue_admission(request, None)?;
+        Ok(PendingAdmission {
+            target,
+            completion,
+            reply,
+            expiry: None,
+        })
+    }
+
+    /// [`admit`](Self::admit) under a caller deadline that applies before
+    /// admission. A deadline already reached at `now` is rejected without
+    /// enqueuing anything.
+    pub(super) fn admit_until(
         &self,
         request: RuntimeRequest,
         deadline: Instant,
         now: Instant,
-    ) -> Result<(TerminalObserver, AdmissionReply, AdmissionExpiry), Error> {
+    ) -> Result<PendingAdmission, Error> {
         let target = request.context().target;
-        let lane = RequestLane::of(&request);
+        let lane = request.lane();
         if now >= deadline {
             let error = Error::admission_timeout();
             self.record_pre_admission_rejection(target, lane, &error);
             return Err(error);
         }
         let validity = AdmissionValidity::until(deadline);
-        let (completion, admission) = self.enqueue_admission(request, Some(validity.clone()))?;
-        Ok((
+        let (completion, reply) = self.enqueue_admission(request, Some(validity.clone()))?;
+        Ok(PendingAdmission {
+            target,
             completion,
-            admission,
-            AdmissionExpiry {
+            reply,
+            expiry: Some(AdmissionExpiry {
                 validity,
                 target,
                 lane,
-            },
-        ))
+            }),
+        })
     }
 
     /// Settle a caller deadline that expired while its admission was queued.
@@ -776,7 +834,7 @@ impl OwnerHandleCore {
     /// and waiting for it preserves normal post-admission observer-detach
     /// semantics instead of leaving an admitted request behind a returned
     /// timeout.
-    pub(super) fn expire_admission(&self, expiry: &AdmissionExpiry) -> Result<(), Error> {
+    fn expire_admission(&self, expiry: &AdmissionExpiry) -> Result<(), Error> {
         if !expiry.validity.expire_before_admission() {
             return Ok(());
         }
@@ -797,7 +855,7 @@ impl OwnerHandleCore {
     pub(super) fn record_pre_admission_rejection(
         &self,
         target: crate::CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: &Error,
     ) {
         let wake = self.admission_rejections.record(
@@ -837,7 +895,7 @@ mod tests {
         let ingress = AdmissionRejectionIngress::new(2);
         let rejection = PreAdmissionRejection {
             target: CameraId::CAMERA_1,
-            lane: RequestLane::Command,
+            lane: Lane::Command,
             error: crate::ErrorKind::BufferFull,
         };
         ingress.total.store(u64::MAX - 1, Ordering::Release);

@@ -1,82 +1,27 @@
-//! Blocking production transport adapter for the native owner worker.
+//! Blocking production transport driver for the native owner worker.
 //!
 //! The worker thread owns exactly one adapter, so its transport, envelope and
 //! protocol framer need no lock: every write, read and decode runs on that
-//! one thread, outside any engine borrow (D24).
+//! one thread, outside any engine borrow (D24). Only the native send and read
+//! calls live here; everything else is [`TransportAdapter`]'s.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::time::Duration;
 
 use crate::{
-    profile::{OperationalTuning, ProfileSpec},
-    runtime::engine::{RawPrefixEvidence, TransmissionMeta, TransportKind},
+    runtime::engine::TransmissionMeta,
     transport::{BlockingTransport, HasTransportConfig},
-    CameraId, Error,
+    Error,
 };
 
 use super::{
-    adapter::AdapterFraming, BlockingOwnerDriver, OwnerBuffers, OwnerPolicy, OwnerReceive,
-    RetainedStreamInput, WireWrite,
+    adapter::{BlockingIo, TransportAdapter},
+    BlockingOwnerDriver, OwnerBuffers, OwnerReceive, WireWrite,
 };
 
-/// One production blocking transport plus its owner-side framing.
-#[derive(Debug)]
-pub(crate) struct BlockingTransportAdapter<T> {
-    transport: T,
-    framing: AdapterFraming,
-    policy: OwnerPolicy,
-}
-
-impl<T> BlockingTransportAdapter<T>
+impl<T> TransportAdapter<T, BlockingIo>
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    /// Build an owner adapter from validated profile facts and the transport's
-    /// immutable configuration.  No transport operation occurs here.
-    // Test-only single-target convenience; production uses `new_with_targets`.
-    #[cfg(test)]
-    pub(crate) fn new(
-        transport: T,
-        profile: &ProfileSpec,
-        target: CameraId,
-    ) -> Result<Self, Error> {
-        Self::new_with_targets(
-            transport,
-            &[(target, profile)],
-            OperationalTuning::new(),
-            crate::DEFAULT_ADMISSION_CAPACITY,
-            false,
-        )
-    }
-
-    /// Build an adapter for several immutable target/profile pairs on one
-    /// physical transport; see [`AdapterFraming::for_targets`].
-    pub(crate) fn new_with_targets(
-        transport: T,
-        profiles: &[(CameraId, &ProfileSpec)],
-        tuning: OperationalTuning,
-        admission_capacity: NonZeroUsize,
-        strict_unconfirmed_poison: bool,
-    ) -> Result<Self, Error> {
-        let (framing, policy) = AdapterFraming::for_targets(
-            &transport,
-            transport.addressing_mode_hint(),
-            transport.send_semantics(),
-            profiles,
-            tuning,
-            admission_capacity,
-            strict_unconfirmed_poison,
-        )?;
-        Ok(Self {
-            transport,
-            framing,
-            policy,
-        })
-    }
-
-    pub(crate) fn policy(&self) -> &OwnerPolicy {
-        &self.policy
-    }
-
     /// Send Sony's sequence-number RESET before the owner worker starts.
     pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
@@ -91,7 +36,7 @@ where
     }
 }
 
-impl<T> BlockingOwnerDriver for BlockingTransportAdapter<T>
+impl<T> BlockingOwnerDriver for TransportAdapter<T, BlockingIo>
 where
     T: BlockingTransport + HasTransportConfig,
 {
@@ -113,64 +58,13 @@ where
         frame_limit: usize,
         timeout: Duration,
     ) -> Result<OwnerReceive, Error> {
-        if let Some(buffered) = self.framing.drain_buffered(buffers, frame_limit)? {
-            return Ok(OwnerReceive::Frames(buffered));
+        if let Some(buffered) = self.buffered(buffers, frame_limit)? {
+            return Ok(buffered);
         }
-        // An ordinary failed read consumed nothing, so the framer is untouched
-        // and the owner still gets to decide whether the session survives.
-        let received = match self
+        let read = self
             .transport
-            .recv_into_with_timeout(buffers.receive_mut(), timeout)
-        {
-            Ok(received) => received,
-            // A datagram transport consumed one oversized datagram and copied
-            // only a prefix. Return a decode error rather than a transport
-            // fault: the owner discards this one datagram and continues, while
-            // a fault could retry work against an already-consumed response.
-            Err(error @ Error::ResponseTooLarge { .. })
-                if self.policy.protocol.transport == TransportKind::Datagram =>
-            {
-                return Err(error);
-            }
-            // An expired read timeout is no data, not a failed read. Custom
-            // transports use `Error::io_timeout()`; raw `WouldBlock` and
-            // `Interrupted` spellings mean the same thing. A raw `TimedOut`
-            // can be TCP keepalive exhaustion and stays a fault (#719).
-            Err(error) if super::receive_reported_no_data(&error) => {
-                return Ok(OwnerReceive::NoData);
-            }
-            Err(error) => return Ok(OwnerReceive::Fault(error)),
-        };
-        // Only a zero-length read means the peer closed. A short read that
-        // carried bytes decodes to an empty batch when it did not finish a
-        // frame, which is routine on byte-stream transports.
-        if received == 0 {
-            return Ok(OwnerReceive::Closed);
-        }
-        self.framing
-            .decode(buffers, received, frame_limit)
-            .map(OwnerReceive::Frames)
-    }
-}
-
-impl<T> RetainedStreamInput for BlockingTransportAdapter<T>
-where
-    T: BlockingTransport + HasTransportConfig,
-{
-    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-        self.framing.has_buffered_stream_input()
-    }
-
-    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
-        self.framing.buffered_stream_input_len()
-    }
-
-    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        self.framing.buffered_raw_prefix_evidence()
-    }
-
-    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
-        self.framing.discard_buffered_stream_input()
+            .recv_into_with_timeout(buffers.receive_mut(), timeout);
+        self.classify_read(buffers, frame_limit, read)
     }
 }
 
@@ -190,13 +84,16 @@ mod tests {
         profiles::{GenericVisca, SonyFR7},
         protocol::framer::RawIncompletePrefix,
         runtime::{
-            engine::{DecodedResponse, EnvelopeSequence, SequenceWidth},
-            owner::BlockingOwnerHandle,
+            engine::{
+                DecodedResponse, EnvelopeSequence, RawPrefixEvidence, SequenceWidth, TransportKind,
+            },
+            owner::{BlockingOwnerHandle, BlockingTransportAdapter, RetainedStreamInput},
         },
         transport::{
             builder::{AddressingMode, TransportConfig},
-            SendSemantics,
+            ReceiveOutcome, SendSemantics,
         },
+        CameraId, OperationalTuning, ProfileSpec,
     };
 
     /// Reads replay a script; an exhausted script times out rather than
@@ -256,15 +153,12 @@ mod tests {
             &mut self,
             dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let Some(next) = self.receives.pop_front() else {
                 std::thread::sleep(timeout);
                 return Err(Error::io_timeout());
             };
-            let next = next?;
-            let n = next.len().min(dst.len());
-            dst[..n].copy_from_slice(&next[..n]);
-            Ok(n)
+            Ok(ReceiveOutcome::copy_message(&next?, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -429,14 +323,15 @@ mod tests {
         );
     }
 
-    /// Built-in UDP reports a consumed over-size datagram as
-    /// `ResponseTooLarge`. Its copied prefix must not enter the raw decoder;
-    /// it takes the decode-error path the owner discards, and later datagrams
-    /// still decode.
+    /// A consumed over-size datagram reports a truncated outcome. Its copied
+    /// prefix must not enter the raw decoder; it takes the decode-error path
+    /// the owner discards, and later datagrams still decode.
     #[test]
     fn an_oversized_datagram_is_a_decode_error_and_later_frames_still_decode() {
+        let mut oversized = vec![0x90, 0x41, 0xff];
+        oversized.resize(config().buffer_config.recv_buffer_size + 1, 0);
         let mut adapter = adapter(ScriptedTransport::new([
-            Err(Error::ResponseTooLarge { max_size: 3 }),
+            Ok(oversized),
             Ok(vec![0x90, 0x41, 0xff]),
         ]));
         let mut buffers = buffers(&adapter);
@@ -448,6 +343,117 @@ mod tests {
         assert!(
             matches!(frames[..], [ref ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
+    }
+
+    /// A custom datagram transport that cannot observe truncation: it copies
+    /// what fits of each datagram and reports a buffer-filling read as
+    /// possibly truncated, as the receive contract requires.
+    #[derive(Debug)]
+    struct UnobservedTruncation {
+        config: TransportConfig,
+        datagrams: VecDeque<Vec<u8>>,
+    }
+
+    impl HasTransportConfig for UnobservedTruncation {
+        fn transport_config(&self) -> &TransportConfig {
+            &self.config
+        }
+    }
+
+    impl BlockingTransport for UnobservedTruncation {
+        fn send_with_timeout(
+            &mut self,
+            _bytes: &[u8],
+            _kind: CommandKind,
+            _timeout: Duration,
+        ) -> Result<(), Error> {
+            Ok(())
+        }
+
+        fn recv_into_with_timeout(
+            &mut self,
+            dst: &mut [u8],
+            _timeout: Duration,
+        ) -> Result<ReceiveOutcome, Error> {
+            let datagram = self.datagrams.pop_front().ok_or_else(Error::io_timeout)?;
+            let copied = datagram.len().min(dst.len());
+            dst[..copied].copy_from_slice(&datagram[..copied]);
+            Ok(if copied == dst.len() {
+                ReceiveOutcome::possibly_truncated(copied)
+            } else {
+                ReceiveOutcome::complete(copied)
+            })
+        }
+
+        fn send_semantics(&self) -> SendSemantics {
+            SendSemantics::Datagram
+        }
+    }
+
+    /// Issue #804: a custom datagram transport whose read exactly fills the
+    /// owner buffer cannot prove the datagram fitted. The blocking owner used
+    /// to decode that prefix while the async owner discarded it; both now
+    /// discard it through one classification, and the next datagram decodes.
+    #[test]
+    fn an_unobservable_exact_fill_is_discarded_like_the_async_owner() {
+        let capacity = config().buffer_config.recv_buffer_size;
+        // A valid ACK prefix of a datagram larger than the buffer.
+        let mut oversized = vec![0x90, 0x41, 0xff];
+        oversized.resize(capacity + 1, 0);
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let mut adapter = BlockingTransportAdapter::new(
+            UnobservedTruncation {
+                config: config(),
+                datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
+            },
+            &profile,
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+        let receive = |adapter: &mut BlockingTransportAdapter<UnobservedTruncation>,
+                       buffers: &mut OwnerBuffers| {
+            adapter.receive(buffers, 4, Duration::from_millis(1))
+        };
+        assert!(matches!(
+            receive(&mut adapter, &mut buffers),
+            Err(Error::ResponseTooLarge { max_size }) if max_size == capacity
+        ));
+        let frames = frames(receive(&mut adapter, &mut buffers));
+        assert!(
+            matches!(frames[..], [ref ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
+        );
+    }
+
+    /// The smallest receive buffer a session accepts holds the largest valid
+    /// reply: a 16-byte VISCA message behind Sony's 8-byte header.
+    #[test]
+    fn the_minimum_receive_buffer_decodes_the_largest_sony_reply() {
+        let payload = [
+            0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+            0x0d, 0xff,
+        ];
+        let mut framed = crate::protocol::sony::SonyHeader::new_reply(payload.len(), 7)
+            .encode()
+            .to_vec();
+        framed.extend_from_slice(&payload);
+        assert_eq!(
+            framed.len(),
+            crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE
+        );
+        let mut config = config();
+        config.buffer_config.recv_buffer_size =
+            crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE;
+        let mut adapter = sony_adapter(ScriptedTransport::with_config(config, [Ok(framed)]));
+        let mut buffers = buffers(&adapter);
+        let frames = frames(receive(&mut adapter, &mut buffers));
+        assert!(matches!(
+            frames[..],
+            [ref reply] if matches!(
+                reply.response,
+                DecodedResponse::InquiryReply { ref payload, .. } if payload.len() == 13
+            )
+        ));
     }
 
     #[test]

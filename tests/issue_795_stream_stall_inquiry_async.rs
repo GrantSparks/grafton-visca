@@ -17,7 +17,9 @@ use grafton_visca::{
     command::FocusMode,
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CameraId, Certainty, Error, FailureContext, FailureStage, Session, SessionConfig, TokioRuntime,
 };
 
@@ -105,15 +107,14 @@ impl AsyncTransport for StallingStream {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 

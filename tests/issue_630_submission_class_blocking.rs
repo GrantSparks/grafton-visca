@@ -21,7 +21,9 @@ use grafton_visca::{
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
     request::builtin::{FocusDrive, FocusModeCommand, ZoomDrive, ZoomStop},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error, SubmissionClass,
 };
 
@@ -135,7 +137,7 @@ impl BlockingTransport for LaneTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let bytes = self
             .responses
             .recv_timeout(timeout)
@@ -143,9 +145,7 @@ impl BlockingTransport for LaneTransport {
                 flume::RecvTimeoutError::Timeout => Error::io_timeout(),
                 flume::RecvTimeoutError::Disconnected => Error::connection_closed(None),
             })?;
-        let length = bytes.len();
-        dst[..length].copy_from_slice(&bytes);
-        Ok(length)
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

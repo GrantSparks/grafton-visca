@@ -21,7 +21,9 @@ use grafton_visca::{
     camera::{IdleWait, MotionQuery},
     profile::{PositionInquirySupport, ProfileSpec},
     profiles::PtzOpticsG2,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     AffectedAxes, Certainty, Error, Executor, FailureContext, FailureStage, Session, SessionConfig,
 };
 
@@ -121,14 +123,13 @@ impl AsyncTransport for MotionTransport {
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let response = self
             .responses
             .recv_async()
             .await
             .map_err(|_| Error::connection_closed(None))?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -204,7 +205,7 @@ where
             .iter()
             .all(|bytes| bytes.starts_with(&[0x81, 0x09, 0x04, 0x47])));
     }
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 
     let profile = runtime_profile(PositionInquirySupport::new(true, true, false), true);
     let (transport, writes) = MotionTransport::new(PositionScript::default(), false);
@@ -232,7 +233,7 @@ where
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(writes.lock().expect("writes lock").is_empty());
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 
     let script = PositionScript {
         zoom: [0, 100, 100].into_iter().collect(),
@@ -259,7 +260,7 @@ where
         .await
         .expect("moving then settled");
     assert_eq!(writes.lock().expect("writes lock").len(), 3);
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 
     let script = PositionScript {
         zoom: [0].into_iter().collect(),
@@ -296,7 +297,7 @@ where
         ))
     );
     assert_eq!(writes.lock().expect("writes lock").len(), 1);
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 
     let (transport, writes) = MotionTransport::new(PositionScript::default(), true);
     let session = Session::open(
@@ -332,7 +333,7 @@ where
         assert!(writes[1].starts_with(&[0x81, 0x01, 0x04, 0x07]));
         assert!(writes[2].starts_with(&[0x81, 0x01, 0x04, 0x08]));
     }
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 /// #712 public-facade regression: the raw profile's physical 150 ms inquiry
@@ -384,7 +385,7 @@ where
     stop.applied().await.expect("urgent stop applies");
 
     assert_eq!(writes.lock().expect("writes lock").len(), 7);
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[cfg(feature = "runtime-tokio")]

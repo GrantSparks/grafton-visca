@@ -51,8 +51,9 @@ and exhaustive field patterns. Opaque types with private fields continue to use
 their existing constructors.
 
 Custom parsers use `Response::cmd_ack`, `completion` or `unknown`; custom transports
-use `ReceiveOutcome::complete`, `truncated` or `possibly_truncated` and
-`FrameMeta::new`. Capability validators use `ValidationError::out_of_range` or
+report every receive as a `ReceiveOutcome` (`complete`, `truncated`,
+`possibly_truncated`, or `copy_message` for a source that yields whole messages)
+and use `FrameMeta::new`. Capability validators use `ValidationError::out_of_range` or
 `invalid_value`; test scripts use `Step::on_send` or `after`. Error constructors
 use snake_case names such as `Error::feature_not_supported`, `invalid_parameter`,
 `runtime_queue_full` and `stream_poisoned`; `Error::timeout(stage, certainty)`
@@ -209,7 +210,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `DynSessionCameraControl` plus `DynSessionCameraNouns`. |
 | `DynPanTiltControl`, `DynZoomControl`, `DynFocusControl`, `DynPresetsControl`, and `DynMotionControl` | `DynPanTilt`, `DynZoom`, `DynFocus`, `DynPresets`, and `DynMotion`. The final dynamic surface also has `DynPower`, `DynSystem`, `DynExposure`, `DynWhiteBalance`, `DynImage`, `DynTally`, `DynNdFilter`, `DynMotionSync`, `DynMenu`, and `DynAdvanced`. |
-| `IntoDynCamera` and wrapper-specific dynamic constructors | Async: `Session::camera_dyn` / `camera_dyn_for`, or `DynSessionCamera::from_session` / `from_session_target`. Blocking runtime profiles: the same session selectors, returning `BlockingDynSessionCamera`. |
+| `IntoDynCamera` and wrapper-specific dynamic constructors | `Session::camera_dyn` / `camera_dyn_for`, returning `DynSessionCamera` (async) or `BlockingDynSessionCamera` (blocking). |
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
@@ -981,7 +982,8 @@ uses. Start from the matching constructor to change a field:
 | `declare_net_transport!` (exported by accident) | removed |
 
 `BufferConfig::recv_buffer_size` is the largest accepted reply frame and the
-size of one read; `max_buffer_size` bounds stream input carried between reads
+size of one read, and must be at least `BufferConfig::MIN_RECV_BUFFER_SIZE`
+(24 bytes); `max_buffer_size` bounds stream input carried between reads
 (see `docs/observability_and_recovery.md`). An unrepresentable timeout is now
 `Error::InvalidParameter` naming the field (`"read_timeout"`, ...) both in
 validation and at runtime, replacing `InvalidRequest("... exceeds the
@@ -1152,9 +1154,9 @@ where
 }
 ```
 
-Runtime updates are validated on exactly the grounds `SessionConfig::with_tuning`
-validates on, so tuning that would have been refused at construction is refused
-here too and leaves the live configuration untouched.
+Runtime updates are validated on exactly the grounds a session open validates
+its configured tuning on, so tuning that would have been refused at open is
+refused here too and leaves the live configuration untouched.
 
 ### Built-in command timeout categories
 

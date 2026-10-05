@@ -33,12 +33,16 @@ use crate::{
 
 use super::{OwnerBuffers, OwnerPolicy};
 #[cfg(any(feature = "async", feature = "blocking"))]
-use super::{RetainedStreamInput, WireWrite};
+use super::{OwnerReceive, RetainedStreamInput, WireWrite};
+#[cfg(feature = "async")]
+use crate::transport::AsyncTransport;
+#[cfg(feature = "blocking")]
+use crate::transport::BlockingTransport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::{
     protocol::framer::RawBufferedInput,
     runtime::engine::{RawPrefixEvidence, TransmissionMeta},
-    transport::HasTransportConfig,
+    transport::{HasTransportConfig, ReceiveOutcome},
 };
 
 /// Concrete envelope selected by a validated profile.
@@ -401,12 +405,213 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     Ok(policy)
 }
 
+/// Marks a [`TransportAdapter`] driven by the blocking owner worker.
+#[cfg(feature = "blocking")]
+#[derive(Debug)]
+pub(crate) enum BlockingIo {}
+
+/// Marks a [`TransportAdapter`] driven by the async owner actor.
+#[cfg(feature = "async")]
+#[derive(Debug)]
+pub(crate) enum AsyncIo {}
+
+/// The facts a transport declares through its facade's transport trait `F`
+/// ([`BlockingIo`] or [`AsyncIo`]). Both traits declare them identically; this
+/// seam lets one adapter constructor read them from either.
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) trait DeclaredTransport<F>: HasTransportConfig {
+    fn declared_addressing_hint(&self) -> Option<AddressingMode>;
+    fn declared_semantics(&self) -> SendSemantics;
+}
+
+#[cfg(feature = "blocking")]
+impl<T: BlockingTransport + HasTransportConfig> DeclaredTransport<BlockingIo> for T {
+    fn declared_addressing_hint(&self) -> Option<AddressingMode> {
+        self.addressing_mode_hint()
+    }
+
+    fn declared_semantics(&self) -> SendSemantics {
+        self.send_semantics()
+    }
+}
+
+#[cfg(feature = "async")]
+impl<T: AsyncTransport + HasTransportConfig> DeclaredTransport<AsyncIo> for T {
+    fn declared_addressing_hint(&self) -> Option<AddressingMode> {
+        self.addressing_mode_hint()
+    }
+
+    fn declared_semantics(&self) -> SendSemantics {
+        self.send_semantics()
+    }
+}
+
+/// One production transport plus its owner-side framing and policy.
+///
+/// The facade marker `F` selects which owner drives it: the blocking worker
+/// implements its driver for `TransportAdapter<T, BlockingIo>` and the async
+/// actor for `TransportAdapter<T, AsyncIo>`. Everything but the native send
+/// and read call is written here once, including the classification of what
+/// a read returned (#804).
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+pub(crate) struct TransportAdapter<T, F> {
+    pub(super) transport: T,
+    pub(super) framing: AdapterFraming,
+    policy: OwnerPolicy,
+    facade: std::marker::PhantomData<fn() -> F>,
+}
+
+/// The blocking owner's adapter over one blocking transport.
+#[cfg(feature = "blocking")]
+pub(crate) type BlockingTransportAdapter<T> = TransportAdapter<T, BlockingIo>;
+
+/// The async owner's adapter over one async transport.
+#[cfg(feature = "async")]
+pub(crate) type AsyncTransportAdapter<T> = TransportAdapter<T, AsyncIo>;
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl<T, F> TransportAdapter<T, F>
+where
+    T: DeclaredTransport<F>,
+{
+    /// Build an adapter for several immutable target/profile pairs on one
+    /// physical transport; see [`AdapterFraming::for_targets`]. No transport
+    /// operation occurs here.
+    pub(crate) fn new_with_targets(
+        transport: T,
+        profiles: &[(CameraId, &ProfileSpec)],
+        tuning: OperationalTuning,
+        admission_capacity: NonZeroUsize,
+        strict_unconfirmed_poison: bool,
+    ) -> Result<Self, Error> {
+        let (framing, policy) = AdapterFraming::for_targets(
+            &transport,
+            transport.declared_addressing_hint(),
+            transport.declared_semantics(),
+            profiles,
+            tuning,
+            admission_capacity,
+            strict_unconfirmed_poison,
+        )?;
+        Ok(Self {
+            transport,
+            framing,
+            policy,
+            facade: std::marker::PhantomData,
+        })
+    }
+
+    /// Test-only single-target convenience with default tuning.
+    #[cfg(test)]
+    pub(crate) fn new(
+        transport: T,
+        profile: &ProfileSpec,
+        target: CameraId,
+    ) -> Result<Self, Error> {
+        Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
+    }
+
+    /// Test-only single-target convenience.
+    #[cfg(test)]
+    pub(crate) fn new_with_tuning(
+        transport: T,
+        profile: &ProfileSpec,
+        target: CameraId,
+        tuning: OperationalTuning,
+    ) -> Result<Self, Error> {
+        Self::new_with_targets(
+            transport,
+            &[(target, profile)],
+            tuning,
+            crate::DEFAULT_ADMISSION_CAPACITY,
+            false,
+        )
+    }
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl<T, F> TransportAdapter<T, F> {
+    pub(crate) fn policy(&self) -> &OwnerPolicy {
+        &self.policy
+    }
+
+    /// Complete frames a prior receive left buffered, delivered before the
+    /// adapter reads again; see [`AdapterFraming::drain_buffered`].
+    pub(super) fn buffered(
+        &mut self,
+        buffers: &mut OwnerBuffers,
+        frame_limit: usize,
+    ) -> Result<Option<OwnerReceive>, Error> {
+        Ok(self
+            .framing
+            .drain_buffered(buffers, frame_limit)?
+            .map(OwnerReceive::Frames))
+    }
+
+    /// Classify what one native read into `buffers` returned. Both owners
+    /// share this one rule:
+    ///
+    /// - A read whose [`ReceiveOutcome`] is not complete consumed input whose
+    ///   tail is gone, so its prefix is never decoded. It is a decode error,
+    ///   not a transport fault: on a datagram transport the owner discards
+    ///   that one datagram and continues (a fault could retry work against an
+    ///   already-consumed response); on a byte stream the consumed bytes are
+    ///   lost, the stream position is unknowable, and the session ends.
+    /// - Zero bytes is end of stream; a short read that carried bytes decodes
+    ///   to an empty batch when it did not finish a frame.
+    /// - An idle read timeout is no data, not a failed read. Custom
+    ///   transports use `Error::io_timeout()`; raw `WouldBlock` and
+    ///   `Interrupted` spellings mean the same. A raw `TimedOut` can be TCP
+    ///   keepalive exhaustion and stays a fault (#719).
+    /// - Any other failed read consumed nothing, so the framer is untouched
+    ///   and the owner decides whether the session survives.
+    pub(super) fn classify_read(
+        &mut self,
+        buffers: &mut OwnerBuffers,
+        frame_limit: usize,
+        read: Result<ReceiveOutcome, Error>,
+    ) -> Result<OwnerReceive, Error> {
+        match read {
+            Ok(outcome) if !outcome.is_complete() => Err(Error::ResponseTooLarge {
+                max_size: self.policy.limits.receive_bytes,
+            }),
+            Ok(outcome) if outcome.copied_len() == 0 => Ok(OwnerReceive::Closed),
+            Ok(outcome) => self
+                .framing
+                .decode(buffers, outcome.copied_len(), frame_limit)
+                .map(OwnerReceive::Frames),
+            Err(error) if super::receive_reported_no_data(&error) => Ok(OwnerReceive::NoData),
+            Err(error) => Ok(OwnerReceive::Fault(error)),
+        }
+    }
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl<T, F> RetainedStreamInput for TransportAdapter<T, F> {
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        self.framing.has_buffered_stream_input()
+    }
+
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        self.framing.buffered_stream_input_len()
+    }
+
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        self.framing.buffered_raw_prefix_evidence()
+    }
+
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        self.framing.discard_buffered_stream_input()
+    }
+}
+
 /// The owner-side framing of one physical transport: its envelope, its
 /// protocol framer and its response routing.
 ///
-/// Both transport adapters wrap exactly one of these around their transport,
-/// so validation, write framing, decoding and the retained stream-input seam
-/// are written once; an adapter adds only its native send and receive.
+/// Every [`TransportAdapter`] holds exactly one of these beside its
+/// transport, so validation, write framing, decoding and the retained
+/// stream-input seam are written once for both owners.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug)]
 pub(crate) struct AdapterFraming {
@@ -678,8 +883,7 @@ pub(crate) fn decode_frames_with_routing(
                     // boundary but that did not classify is a malformed frame to
                     // discard, not a lost framing position. The framer keeps its
                     // place, so the stream stays Running and the frame is counted
-                    // as ignored — the behavior 1.x had (log-and-continue) and
-                    // the behavior a datagram already has. Only a genuine framing
+                    // as ignored, as a datagram already does. Only a genuine framing
                     // failure (buffer overflow above, or an oversized single
                     // frame via `framed?`) still poisons.
                     discarded_malformed = discarded_malformed.saturating_add(1);
@@ -869,17 +1073,14 @@ fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource
             CameraId::new(id).map_or(ResponseSource::Invalid, ResponseSource::Target)
         }
         AddressingMode::Ip => {
-            // #590/#598/#681: an IP VISCA reply carries no routable camera
-            // source, so it is attributable only when exactly one target is
-            // registered. A camera configured with a non-default chain address
-            // answers with *that* address (e.g. `0xA0` for VISCA address 2) even
-            // on a single-target IP session. 1.x attributed any such reply to the
-            // sole outstanding command (camera-blind: `core::reply_scope`
-            // returned `None`, so attribution fell through to the single
-            // command). Restore that: for exactly one registered target, accept
-            // any VISCA reply source (high nibble `0x9..=0xF`) and bind it to the
-            // sole target. `decode_basic` already accepts the whole `0x9y..=0xFy`
-            // range, so the classifier that follows still reads the frame.
+            // #590/#598/#681: an IP VISCA reply carries no routable camera source, so it is
+            // attributable only when exactly one target is registered. A camera configured with a
+            // non-default chain address answers with *that* address (e.g. `0xA0` for VISCA address
+            // 2) even on a single-target IP session. Attribution there is camera-blind: with one
+            // target there is nothing to disambiguate, so for exactly one registered target the
+            // engine accepts any VISCA reply source (high nibble `0x9..=0xF`) and binds it to the
+            // sole target. `decode_basic` already accepts the whole `0x9y..=0xFy` range, so the
+            // classifier that follows still reads the frame.
             match routing.targets().sole_target() {
                 Some(target) => {
                     if source < 0x90 {
@@ -1116,8 +1317,8 @@ mod tests {
     }
 
     /// Issue #590/#598/#681: an IP session has exactly one registered target, so
-    /// any VISCA reply source is attributed to that sole target (1.x's
-    /// camera-blind attribution). A camera configured with a non-default chain
+    /// any VISCA reply source is attributed to that sole target
+    /// (camera-blind attribution). A camera configured with a non-default chain
     /// address answers with *that* address (e.g. `0xA0` for VISCA address 2), and
     /// that reply must still settle the sole outstanding command rather than
     /// poisoning the session. Only lead bytes below `0x90` (controller/broadcast)

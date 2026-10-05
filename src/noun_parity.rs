@@ -11,7 +11,10 @@
 //! expansion cannot express:
 //!
 //! * every facade must invoke every noun arm;
-//! * the four hand-written Motion methods are the only residual noun methods;
+//! * no accessor or dynamic noun trait, the motion view included, carries a
+//!   hand-written method, and every motion-view surface (both
+//!   `MotionAccessor`s, `DynMotion` and the blocking runtime-profile camera)
+//!   is expanded from [`crate::noun_table::motion_table`];
 //! * an accessor extension-trait implementation cannot smuggle in a method;
 //! * static facade capability names must be direct imports of the real
 //!   `crate::capabilities` traits.
@@ -43,17 +46,27 @@ use crate::{
 const ASYNC_SOURCE: &str = include_str!("async_nouns.rs");
 const BLOCKING_SOURCE: &str = include_str!("blocking_nouns.rs");
 const DYN_SOURCE: &str = include_str!("dynapi/nouns.rs");
+const BLOCKING_DYN_SOURCE: &str = include_str!("dynapi/blocking_projection.rs");
+const ASYNC_DYN_SOURCE: &str = include_str!("dynapi/owner_projection.rs");
 
-/// Motion is a safety/observation view rather than a ledger noun.
-const MOTION_ACCESSOR: &str = "MotionAccessor";
-const MOTION_TRAIT: &str = "DynMotion";
-
-/// The only noun methods that are intentionally still hand-written.
+/// The motion-view methods [`crate::noun_table::motion_table`] generates.
 const MOTION_METHODS: &[&str] = &[
     "is_moving",
     "is_moving_axes",
     "stop_all_motion",
     "wait_until_idle",
+];
+
+/// The consumer each motion-view surface expands the motion table with.
+const MOTION_CONSUMERS: &[(&str, &str, &str)] = &[
+    ("src/async_nouns.rs", ASYNC_SOURCE, "async_motion_methods"),
+    (
+        "src/blocking_nouns.rs",
+        BLOCKING_SOURCE,
+        "blocking_motion_methods",
+    ),
+    ("src/dynapi/nouns.rs", DYN_SOURCE, "dyn_motion_declarations"),
+    ("src/dynapi/nouns.rs", DYN_SOURCE, "dyn_motion_impls"),
 ];
 
 /// Traits that may legally be implemented for an accessor type.
@@ -578,7 +591,7 @@ fn clean_source(source: &str, label: &str) -> String {
 }
 
 /// Returns the index just past a brace-delimited item.
-fn block_end(lines: &[&str], start: usize, label: &str) -> usize {
+pub(crate) fn block_end(lines: &[&str], start: usize, label: &str) -> usize {
     let mut depth = 0_i32;
     let mut opened = false;
     for (line_index, line) in lines.iter().enumerate().skip(start) {
@@ -632,7 +645,7 @@ pub(crate) fn without_test_modules(source: &str, label: &str) -> String {
 }
 
 /// Returns cleaned declaration lines, optionally excluding macro definitions.
-fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<String> {
+pub(crate) fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<String> {
     let cleaned = clean_source(source, label);
     let lines: Vec<&str> = cleaned.lines().collect();
     let masked = masked_lines(&lines, label, macros);
@@ -777,23 +790,23 @@ fn accessor_methods(source: &str, label: &str) -> BTreeMap<String, BTreeSet<Stri
         let Some(accessor) = NOUN_FACADES
             .iter()
             .map(|facade| facade.accessor)
-            .chain(std::iter::once(MOTION_ACCESSOR))
+            .chain(std::iter::once("MotionAccessor"))
             .find(|name| header.contains(name))
         else {
             continue;
         };
         let end = block_end(&refs, index, label);
         for line in lines.iter().take(end).skip(body_line + 1) {
+            // Every public method form counts: `const`, `async` or
+            // `unsafe`. Crate-private plumbing (constructors) is not surface.
             let trimmed = line.trim();
-            if !trimmed.starts_with("pub ") || trimmed.starts_with("pub(") {
+            let Some(mut declaration) = trimmed.strip_prefix("pub ") else {
                 continue;
-            }
-            let mut declaration = trimmed.strip_prefix("pub ").unwrap_or(trimmed);
-            if let Some(rest) = declaration.strip_prefix("async ") {
-                declaration = rest;
-            }
-            if let Some(rest) = declaration.strip_prefix("unsafe ") {
-                declaration = rest;
+            };
+            for qualifier in ["const ", "async ", "unsafe "] {
+                if let Some(rest) = declaration.strip_prefix(qualifier) {
+                    declaration = rest;
+                }
             }
             let Some(rest) = declaration.strip_prefix("fn ") else {
                 continue;
@@ -862,7 +875,7 @@ fn assert_accessor_trait_impls(source: &str, label: &str) {
         if !NOUN_FACADES
             .iter()
             .map(|facade| facade.accessor)
-            .chain(std::iter::once(MOTION_ACCESSOR))
+            .chain(std::iter::once("MotionAccessor"))
             .any(|accessor| target.contains(accessor))
         {
             continue;
@@ -1098,50 +1111,84 @@ fn assert_real_capability_imports(source: &str, label: &str) {
     }
 }
 
-/// Returns whether each source has exactly the expected residual Motion methods.
-fn assert_motion_and_no_residuals() {
+/// Returns the consumers `source` expands the motion table with.
+fn motion_table_consumers(source: &str, label: &'static str) -> BTreeSet<String> {
+    let declarations = without_test_modules(source, label);
+    let cleaned = clean_source(&declarations, label);
+    let mut consumers = BTreeSet::new();
+    let mut offset = 0;
+    while let Some(relative) = cleaned[offset..].find("motion_table!") {
+        let start = offset + relative + "motion_table!".len();
+        let rest = &cleaned[start..];
+        if rest.starts_with('(') {
+            let (body, consumed_length) = invocation_body(rest, label);
+            consumers.insert(body.trim().to_owned());
+            offset = start + consumed_length;
+        } else {
+            offset = start;
+        }
+    }
+    consumers
+}
+
+/// Asserts that no accessor or dynamic noun trait carries a hand-written
+/// method and that every motion-view surface is generated from the motion
+/// table (#816).
+fn assert_no_handwritten_noun_methods() {
     for (label, source) in [
         ("src/async_nouns.rs", ASYNC_SOURCE),
         ("src/blocking_nouns.rs", BLOCKING_SOURCE),
     ] {
         assert_accessor_trait_impls(source, label);
-        let methods = accessor_methods(source, label);
-        let expected: BTreeSet<String> = MOTION_METHODS
-            .iter()
-            .map(|name| (*name).to_owned())
-            .collect();
-        assert_eq!(
-            methods.get(MOTION_ACCESSOR).cloned().unwrap_or_default(),
-            expected,
-            "{label}: MotionAccessor handwritten methods changed",
-        );
-        for (accessor, names) in methods {
-            if accessor != MOTION_ACCESSOR {
-                assert!(
-                    names.is_empty(),
-                    "{label}: generated accessor {accessor} contains handwritten methods {names:?}",
-                );
-            }
+        for (accessor, names) in accessor_methods(source, label) {
+            assert!(
+                names.is_empty(),
+                "{label}: accessor {accessor} contains handwritten methods {names:?}",
+            );
         }
         assert_real_capability_imports(source, label);
     }
 
     assert_accessor_trait_impls(DYN_SOURCE, "src/dynapi/nouns.rs");
-    let dynamic = dynamic_trait_methods(DYN_SOURCE, "src/dynapi/nouns.rs");
-    let expected: BTreeSet<String> = MOTION_METHODS
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect();
-    assert_eq!(
-        dynamic.get(MOTION_TRAIT).cloned().unwrap_or_default(),
-        expected,
-        "src/dynapi/nouns.rs: DynMotion handwritten methods changed",
-    );
-    for (trait_name, names) in dynamic {
-        if trait_name != MOTION_TRAIT {
+    for (trait_name, names) in dynamic_trait_methods(DYN_SOURCE, "src/dynapi/nouns.rs") {
+        assert!(
+            names.is_empty(),
+            "src/dynapi/nouns.rs: noun trait {trait_name} contains handwritten methods {names:?}",
+        );
+    }
+
+    for (label, source, consumer) in MOTION_CONSUMERS {
+        assert!(
+            motion_table_consumers(source, label).contains(*consumer),
+            "{label}: the motion view must be expanded by `motion_table!({consumer})`",
+        );
+    }
+
+    // The runtime-profile cameras reach the motion view only through
+    // `motion()` (the blocking one returns the typed blocking
+    // `MotionAccessor`, the async one `&dyn DynMotion`); a motion method
+    // declared there in any form — public, crate-private, async, boxed —
+    // would be a second, unchecked shape.
+    for (label, source) in [
+        ("src/dynapi/blocking_projection.rs", BLOCKING_DYN_SOURCE),
+        ("src/dynapi/owner_projection.rs", ASYNC_DYN_SOURCE),
+    ] {
+        let declarations = declaration_lines(source, label, true);
+        let declared: BTreeSet<&str> = declarations
+            .iter()
+            .filter_map(|line| {
+                line.split_once("fn ")
+                    .map(|(_, rest)| first_identifier(rest))
+            })
+            .collect();
+        assert!(
+            declared.contains("motion"),
+            "{label}: `motion()` is missing"
+        );
+        for method in MOTION_METHODS {
             assert!(
-                names.is_empty(),
-                "src/dynapi/nouns.rs: generated noun trait {trait_name} contains handwritten methods {names:?}",
+                !declared.contains(method),
+                "{label}: `{method}` must come only from `motion()`",
             );
         }
     }
@@ -1237,8 +1284,8 @@ fn compiled_registry_inventory_counts_remain_readable() {
 }
 
 #[test]
-fn only_motion_methods_remain_handwritten_and_capabilities_are_real() {
-    assert_motion_and_no_residuals();
+fn no_noun_method_is_handwritten_and_capabilities_are_real() {
+    assert_no_handwritten_noun_methods();
 }
 
 /// Issue #684: the erased inquiry surface gates each built-in inquiry on exactly

@@ -4,14 +4,13 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use std::{marker::PhantomData, num::NonZeroUsize};
+use std::marker::PhantomData;
 
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
     transport::builder::TransportConfig,
-    OperationalTuning,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -195,14 +194,8 @@ pub struct CameraConfig<P> {
     pub(crate) transport: TransportOptions,
     /// Policy for resolving a missing TCP or UDP port.
     network_default_port: NetworkDefaultPort,
-    /// Validated operational overrides applied to prepared requests.
-    pub(crate) tuning: OperationalTuning,
-    /// Immutable request-admission capacity passed to the owner session.
-    pub(crate) admission_capacity: NonZeroUsize,
-    /// Whether to reset Sony VISCA-over-IP sequence state during session open.
-    pub(crate) sony_sequence_reset_on_connect: bool,
-    /// Whether raw correlation uncertainty poisons the entire session.
-    pub(crate) strict_unconfirmed_poison: bool,
+    /// The session policy passed to the owner session.
+    policy: crate::session_config::SessionPolicy,
     /// Caller-supplied transport configuration; `None` selects the
     /// transport's own defaults ([`TransportConfig::for_tcp`] and friends).
     pub(crate) transport_config: Option<TransportConfig>,
@@ -228,10 +221,7 @@ where
         Self {
             transport: TransportOptions::Custom,
             network_default_port: NetworkDefaultPort::Profile,
-            tuning: OperationalTuning::new(),
-            admission_capacity: crate::SessionConfig::default().admission_capacity(),
-            sony_sequence_reset_on_connect: false,
-            strict_unconfirmed_poison: false,
+            policy: crate::session_config::SessionPolicy::DEFAULT,
             transport_config: None,
             #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
             serial_startup: crate::transport::serial::Startup::default(),
@@ -331,67 +321,7 @@ where
         self
     }
 
-    /// Set operational overrides for prepared requests.
-    pub fn with_tuning(mut self, tuning: OperationalTuning) -> Self {
-        self.tuning = tuning;
-        self
-    }
-
-    /// Returns the operational overrides stored in this configuration.
-    #[must_use]
-    pub const fn tuning(&self) -> OperationalTuning {
-        self.tuning
-    }
-
-    /// Sets the immutable request-admission capacity for sessions opened from
-    /// this configuration.
-    ///
-    /// Admission is fail-fast once this many ordinary requests are pending or
-    /// active; each camera's typed STOPs also have a small control reserve on
-    /// top of it (see [`crate::SessionConfig::admission_capacity`]). It is
-    /// independent of transport buffers and per-camera VISCA socket capacity.
-    #[must_use]
-    pub const fn with_admission_capacity(mut self, capacity: NonZeroUsize) -> Self {
-        self.admission_capacity = capacity;
-        self
-    }
-
-    /// Returns the request-admission capacity stored in this configuration.
-    #[must_use]
-    pub const fn admission_capacity(&self) -> NonZeroUsize {
-        self.admission_capacity
-    }
-
-    /// Opt in to sending Sony's sequence-number RESET control command when a
-    /// session opened from this configuration connects.
-    #[must_use]
-    pub const fn with_sony_sequence_reset_on_connect(mut self, enabled: bool) -> Self {
-        self.sony_sequence_reset_on_connect = enabled;
-        self
-    }
-
-    /// Returns whether Sony sequence state is reset when the session connects.
-    #[must_use]
-    pub const fn sony_sequence_reset_on_connect(&self) -> bool {
-        self.sony_sequence_reset_on_connect
-    }
-
-    /// Selects strict whole-session poisoning for unconfirmable raw commands.
-    ///
-    /// This is immutable construction policy; runtime tuning remains fully
-    /// replaceable after the session opens. See
-    /// [`crate::SessionConfig::with_strict_unconfirmed_poison`].
-    #[must_use]
-    pub const fn with_strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
-        self.strict_unconfirmed_poison = enabled;
-        self
-    }
-
-    /// Returns whether raw correlation uncertainty poisons the whole session.
-    #[must_use]
-    pub const fn strict_unconfirmed_poison(&self) -> bool {
-        self.strict_unconfirmed_poison
-    }
+    crate::session_config::session_policy_accessors!();
 
     /// Replace the selected transport's default configuration.
     ///
@@ -485,35 +415,25 @@ impl<P> CameraConfig<P>
 where
     P: crate::profile::CompileTimeProfile,
 {
-    /// Validate profile, tuning, and transport facts before any transport I/O.
+    /// Validate profile, session policy, and transport facts before any
+    /// transport I/O; see [`Self::session_config`].
     pub fn validate(&self) -> crate::Result<()> {
+        self.validated_session_config().map(drop)
+    }
+
+    /// The session configuration this camera opens with, its policy
+    /// validated once against `P`'s profile.
+    pub(crate) fn validated_session_config(
+        &self,
+    ) -> crate::Result<crate::session_config::ValidatedSessionConfig> {
         let profile = crate::ProfileSpec::from_compile_time::<P>()?;
-        profile.validate_tuning(self.tuning)?;
-        if self.sony_sequence_reset_on_connect
-            && profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
-        {
-            return Err(Error::InvalidRequest(
-                "Sony sequence reset on connect requires a Sony encapsulated profile".into(),
-            ));
-        }
+        let config = crate::SessionConfig::for_target(self.camera_id, profile)?
+            .with_policy(self.policy)
+            .validated()?;
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
-        Ok(())
-    }
-
-    pub(crate) fn owner_tuning(&self) -> OperationalTuning {
-        self.tuning
-    }
-
-    pub(crate) fn owner_profile_config(&self) -> crate::Result<crate::SessionConfig> {
-        let profile = crate::ProfileSpec::from_compile_time::<P>()?;
-        let config = crate::SessionConfig::for_target(self.camera_id, profile)?
-            .with_tuning(self.owner_tuning())?;
-        Ok(config
-            .with_admission_capacity(self.admission_capacity)
-            .with_sony_sequence_reset_on_connect(self.sony_sequence_reset_on_connect)
-            .with_strict_unconfirmed_poison(self.strict_unconfirmed_poison))
+        Ok(config)
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
@@ -531,13 +451,13 @@ where
     /// Returns the validated, pure [`crate::SessionConfig`] that standard
     /// construction will pass to the owner-backed session.
     ///
-    /// This performs profile and tuning validation but no endpoint parsing,
-    /// DNS lookup, device open, task spawn, or protocol I/O. It is useful when
-    /// an application needs to inspect or compose the shared session policy
-    /// before selecting an async or blocking transport.
+    /// This performs profile and session-policy validation but no endpoint
+    /// parsing, DNS lookup, device open, task spawn, or protocol I/O. It is
+    /// useful when an application needs to inspect or compose the shared
+    /// session policy before selecting an async or blocking transport.
     pub fn session_config(&self) -> crate::Result<crate::SessionConfig> {
-        self.validate()?;
-        self.owner_profile_config()
+        self.validated_session_config()
+            .map(crate::session_config::ValidatedSessionConfig::into_config)
     }
 }
 
@@ -550,7 +470,7 @@ pub(crate) struct StandardConnectionPlan {
     pub(crate) kind: TransportKind,
     pub(crate) endpoint: String,
     pub(crate) transport_config: TransportConfig,
-    pub(crate) session_config: crate::SessionConfig,
+    pub(crate) session_config: crate::session_config::ValidatedSessionConfig,
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -561,7 +481,7 @@ where
     /// Resolves all standard profile/configuration/endpoint state before any
     /// runtime connector or blocking socket is entered.
     pub(crate) fn standard_connection_plan(&self) -> crate::Result<StandardConnectionPlan> {
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         let (kind, address, default_port, transport_config) = match &self.transport {
             TransportOptions::Tcp { address } => (
                 TransportKind::Tcp,
@@ -639,7 +559,8 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        let session = crate::Session::open::<R, _>(transport, plan.session_config, runtime).await?;
+        let session =
+            crate::Session::open_validated::<R, _>(transport, plan.session_config, runtime).await?;
         crate::CameraSession::from_session(session, self.camera_id)
     }
 
@@ -657,7 +578,7 @@ where
     {
         use crate::runtime::TransportHandle;
 
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         session_config.validate_for_transport(Some(TransportKind::Serial))?;
 
         let (port, baud_rate) = match &self.transport {
@@ -671,7 +592,7 @@ where
         let serial = runtime
             .connect_serial(self.serial_config(port, baud_rate)?)
             .await?;
-        crate::Session::open::<R, _>(
+        crate::Session::open_validated::<R, _>(
             TransportHandle::<R>::Serial(Box::new(serial)),
             session_config,
             runtime,
@@ -702,7 +623,7 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        let session = crate::blocking::Session::open(transport, plan.session_config)?;
+        let session = crate::blocking::Session::open_validated(transport, plan.session_config)?;
         crate::blocking::CameraSession::from_session(session, self.camera_id)
     }
 
@@ -714,7 +635,7 @@ where
     /// runs, the configured camera must be among the cameras it addressed.
     #[cfg(feature = "transport-serial")]
     pub fn open_serial(&self) -> crate::Result<crate::blocking::Session> {
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         session_config.validate_for_transport(Some(TransportKind::Serial))?;
         let (port, baud_rate) = match &self.transport {
             TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
@@ -728,7 +649,7 @@ where
             self.serial_config(port, baud_rate)?,
         )?;
         let transport = crate::transport::BlockingTransportHandle::Serial(serial);
-        crate::blocking::Session::open(transport, session_config)
+        crate::blocking::Session::open_validated(transport, session_config)
     }
 }
 
@@ -751,8 +672,8 @@ mod tests {
             read_timeout: Duration::from_millis(19),
             write_timeout: Duration::from_millis(23),
             buffer_config: BufferConfig {
-                recv_buffer_size: 11,
-                max_buffer_size: 17,
+                recv_buffer_size: 31,
+                max_buffer_size: 37,
             },
             tcp_nodelay: Some(false),
             tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
@@ -865,8 +786,20 @@ mod tests {
             Error,
         };
 
+        // Issue #805: the camera and session configurations reject the same
+        // policy with the one session-policy message.
         let raw = CameraConfig::<PtzOpticsG2>::new().with_sony_sequence_reset_on_connect(true);
-        assert!(matches!(raw.validate(), Err(Error::InvalidRequest(_))));
+        let session_error = crate::SessionConfig::from_compile_time::<PtzOpticsG2>()
+            .expect("G2 session config")
+            .with_sony_sequence_reset_on_connect(true)
+            .validated()
+            .expect_err("a raw profile cannot reset Sony sequences");
+        assert!(matches!(
+            (raw.validate(), session_error),
+            (Err(Error::InvalidRequest(camera)), Error::InvalidRequest(session))
+                if camera == session
+                    && camera == "Sony sequence reset on connect requires Sony encapsulated profiles"
+        ));
 
         let sony = CameraConfig::<SonyFR7>::new().with_sony_sequence_reset_on_connect(true);
         assert!(sony.sony_sequence_reset_on_connect());
@@ -905,7 +838,14 @@ mod tests {
                     recv_buffer_size: 0,
                     max_buffer_size: 64,
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
                 BufferConfig {
@@ -1025,7 +965,14 @@ mod tests {
                     recv_buffer_size: 0,
                     max_buffer_size: 64,
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
                 BufferConfig {

@@ -13,7 +13,9 @@ use grafton_visca::{
     profile::{
         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming, TransportCompatibility,
     },
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CommandTimeouts, Error, SessionConfig,
 };
 
@@ -64,12 +66,11 @@ impl BlockingTransport for RuntimeProfileCamera {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let Some(reply) = self.replies.pop_front() else {
             return Err(Error::io_timeout());
         };
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

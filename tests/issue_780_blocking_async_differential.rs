@@ -26,7 +26,8 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::{FocusStop, ZoomDrive, ZoomStop},
     transport::{
-        AsyncTransport, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AsyncTransport, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     Error, SessionConfig, TokioRuntime,
 };
@@ -142,14 +143,13 @@ impl BlockingTransport for BlockingWire {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let next = self.camera.lock().expect("camera lock").replies.pop_front();
         let Some(bytes) = next else {
             std::thread::sleep(timeout.min(Duration::from_millis(1)));
             return Err(Error::io_timeout());
         };
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -175,12 +175,11 @@ impl AsyncTransport for AsyncWire {
         async { Ok(()) }
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         loop {
             let next = self.camera.lock().expect("camera lock").replies.pop_front();
             if let Some(bytes) = next {
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                return Ok(bytes.len());
+                return Ok(ReceiveOutcome::copy_message(&bytes, dst));
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
@@ -472,9 +471,8 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
             config(),
         )
         .expect("session");
-        let camera = grafton_visca::dynapi::BlockingDynSessionCamera::from_session(&session)
-            .expect("dynamic blocking camera");
-        let outcomes = vec![outcome(camera.stop_all_motion())];
+        let camera = session.camera_dyn().expect("dynamic blocking camera");
+        let outcomes = vec![outcome(camera.motion().stop_all_motion())];
         let metrics = session.metrics().expect("metrics");
         session.close().expect("close");
         let writes = shared.lock().expect("camera lock").writes.clone();
@@ -497,11 +495,10 @@ async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch
     )
     .await
     .expect("session");
-    let camera =
-        grafton_visca::dynapi::DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
     let outcomes = vec![outcome(camera.motion().stop_all_motion().await)];
     let metrics = session.metrics().await.expect("metrics");
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
     let writes = shared.lock().expect("camera lock").writes.clone();
     let asynchronous = Run {
         writes,

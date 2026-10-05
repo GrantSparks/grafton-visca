@@ -577,9 +577,9 @@
 //!
 //! The library provides transport traits that you can implement for any
 //! communication method. The receive side reads into a caller-provided buffer
-//! and returns the byte count, so a transport never allocates per frame.
-//! `Ok(0)` means the peer
-//! closed the connection; an idle timeout is *no data*, not a fault. A
+//! and returns a [`transport::ReceiveOutcome`]: the byte count, and whether a
+//! datagram fitted. A transport never allocates per frame. Zero bytes means
+//! the peer closed the connection; an idle timeout is *no data*, not a fault. A
 //! transport also declares its stream/datagram send semantics and its
 //! [`transport::TransportConfig`], which is what
 //! [`transport::HasTransportConfig`] carries.
@@ -587,7 +587,7 @@
 //! ```rust
 //! use grafton_visca::command::CommandKind;
 //! use grafton_visca::transport::{
-//!     BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+//!     BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
 //! };
 //! use grafton_visca::Error;
 //! use std::time::Duration;
@@ -614,7 +614,7 @@
 //!         &mut self,
 //!         dst: &mut [u8],
 //!         timeout: Duration,
-//!     ) -> Result<usize, Error> {
+//!     ) -> Result<ReceiveOutcome, Error> {
 //!         // Prefer an OS-level socket timeout. An expired idle timeout is
 //!         // reported as `Error::io_timeout()`, which the runtime reads as
 //!         // "this read produced no frames".
@@ -1009,6 +1009,8 @@ pub(crate) mod macros;
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
 
+#[cfg(all(test, feature = "async", feature = "blocking"))]
+mod facade_parity;
 /// Cross-surface parity gate for the table-driven noun facades.
 #[cfg(test)]
 mod noun_parity;
@@ -1023,6 +1025,8 @@ pub mod completion;
 pub mod camera;
 
 mod camera_id;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod camera_view;
 
 /// Capability traits for camera feature composition
 pub mod capabilities;
@@ -1116,8 +1120,10 @@ pub mod session {
 #[cfg(feature = "async")]
 pub use crate::camera::{CameraConfig, Connect};
 
+// The module documents itself: an outer doc here would make rustdoc resolve
+// the module's intra-doc links at the crate root, against the async facade's
+// same-named items.
 #[cfg(feature = "blocking")]
-/// Synchronous lifecycle handles for blocking sessions.
 pub mod blocking;
 
 /// Inquiry conversion utilities for raw to user-friendly values
@@ -1168,12 +1174,22 @@ mod visca_socket;
 /// `async`, it additionally provides object-safe noun/custom-operation views
 /// and erased operation handles. Every projection retains the canonical
 /// session owner and operation lifecycle.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub mod dynapi;
 
 /// Owner-backed dynamic projections and noun traits.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub use dynapi::*;
+
+// `dyn-api` projects the camera views of the enabled session facades, so on
+// its own it has nothing to project. Cargo cannot express "requires `blocking`
+// or `async`", so the shape is rejected here rather than compiling to an
+// empty feature (#828).
+#[cfg(all(feature = "dyn-api", not(any(feature = "async", feature = "blocking"))))]
+compile_error!(
+    "feature `dyn-api` projects a session facade's camera views: enable it with \
+     `blocking`, `async`, `runtime-tokio` or `runtime-smol`"
+);
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {

@@ -24,7 +24,9 @@ use grafton_visca::{
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     types::{MotionSyncSpeed, NdiQuality, PanSpeed, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
     AffectedAxes, Error, ZoomDomain,
@@ -130,10 +132,9 @@ impl BlockingTransport for RecordingTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

@@ -28,7 +28,9 @@ use grafton_visca::{
     profiles::SonyFR7,
     raw,
     request::{self, builtin::ZoomStop},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     types::ZoomPosition,
     CameraId, ControlClass, Error, Executor, InquiryRoute, Request, RetryClass, Session,
     SessionConfig, TimeoutClass,
@@ -202,7 +204,7 @@ impl AsyncTransport for ScriptTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             // A silent camera simply never answers; the owner races this
             // against its own deadline.
@@ -211,8 +213,7 @@ impl AsyncTransport for ScriptTransport {
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -282,7 +283,7 @@ async fn a_camera_refusal_is_replayed_only_for_movement<E: Executor>(executor: E
         .await
         .expect("a refused movement command must be replayed, not failed");
     assert_eq!(probe.writes().len(), 2);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     // A typed STOP refused with `0x41` reports the camera's conclusive
     // refusal at once; resending cannot change the standing condition.
@@ -307,7 +308,7 @@ async fn a_camera_refusal_is_replayed_only_for_movement<E: Executor>(executor: E
         "expected the camera's own refusal, got {error:?}"
     );
     assert_eq!(probe.writes().len(), 1, "a refused STOP is not rewritten");
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     let transport =
         ScriptTransport::new(vec![vec![NOT_EXECUTABLE.to_vec()]]).with_trailing(standard_reply());
@@ -332,7 +333,7 @@ async fn a_camera_refusal_is_replayed_only_for_movement<E: Executor>(executor: E
         1,
         "a standard request must not replay a refusal"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Issue #566: `0x05` (`NoSocket`) is a capacity answer, so it is replayed for
@@ -353,7 +354,7 @@ async fn a_no_socket_answer_is_replayed_for_a_standard_command<E: Executor>(exec
         .await
         .expect("a camera with no free socket must be retried, not failed");
     assert_eq!(probe.writes().len(), 2);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Issue #566: the generated async noun path carries closed built-in inquiry
@@ -386,7 +387,7 @@ async fn a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_termina
         2,
         "the built-in inquiry is reissued once"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     let transport = ScriptTransport::new(vec![
         vec![SYNTAX_ERROR.to_vec()],
@@ -411,7 +412,7 @@ async fn a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_termina
         1,
         "a custom inquiry must not reach the scripted resend"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Issue #566: a sequence-correlated Sony movement request survives a lost ACK
@@ -441,7 +442,7 @@ async fn a_silent_sony_camera_is_retried_only_before_its_ack<E: Executor>(execut
         sony_sequence(&writes[1]),
         "an ACK retry preserves the logical Sony request sequence"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     let transport = ScriptTransport::new(vec![vec![ACK_SOCKET_ONE.to_vec()], standard_reply()])
         .with_sony()
@@ -471,7 +472,7 @@ async fn a_silent_sony_camera_is_retried_only_before_its_ack<E: Executor>(execut
         1,
         "an acknowledged command is never rewritten"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Issue #566: `Error::CancellationUnconfirmed` reaches the caller when a
@@ -501,7 +502,7 @@ async fn an_unresolvable_cancellation_reaches_the_caller<E: Executor>(executor: 
         !probe.writes().is_empty(),
         "the original frame was transmitted"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// One independent libtest case per scenario per runtime.

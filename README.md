@@ -208,7 +208,7 @@ matrix fit together.
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async` |
+| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async`. It projects the enabled facades, so enabling it without `blocking` or `async` is a compile error |
 | `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
@@ -536,7 +536,7 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 | `serde`                | Serialize/deserialize public value and configuration types |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
-| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits) |
+| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits); requires `blocking` or `async` |
 
 ---
 

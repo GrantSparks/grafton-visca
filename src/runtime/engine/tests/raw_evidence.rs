@@ -77,7 +77,7 @@ fn raw_owed(engine: &ProtocolEngine, target: u8) -> usize {
 }
 
 fn command_lane(engine: &ProtocolEngine, target: u8) -> LaneState {
-    engine.ledger.lane_state(camera(target), OwedLane::Command)
+    engine.ledger.lane_state(camera(target), Lane::Command)
 }
 
 // ---------------------------------------------------------------------------
@@ -1530,7 +1530,7 @@ fn unanswered_stop(engine: &mut ProtocolEngine, ticket: u64, now: Instant) -> In
 }
 
 fn inquiry_lane(engine: &ProtocolEngine, target: u8) -> LaneState {
-    engine.ledger.lane_state(camera(target), OwedLane::Inquiry)
+    engine.ledger.lane_state(camera(target), Lane::Inquiry)
 }
 
 /// Reaching the cap means the camera answers nothing: every lane of that
@@ -1894,6 +1894,12 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
     engine.assert_invariants().unwrap();
 }
 
+/// Whether the dispatch gate itself, not pacing, holds queued `id` back.
+fn dispatch_gated(engine: &ProtocolEngine, id: RequestId) -> bool {
+    let entry = engine.entry(id).expect("queued request");
+    matches!(entry.phase, Phase::Ready { .. }) && engine.dispatch_blocked(entry, engine.turn_at)
+}
+
 /// The gate blocks a queued ordinary command on a latched lane, not only one
 /// that waits in a window: a lane that latches before the due pass (which
 /// fails such work) never lets the command be written in between.
@@ -1909,18 +1915,48 @@ fn a_latched_command_lane_never_dispatches_a_queued_command() {
         now,
     );
     assert!(request_transmit_optional(&queued).is_none());
-    assert!(engine.queued_dispatch_at(id).is_none());
+    assert!(dispatch_gated(&engine, id));
     let window_end = now + Duration::from_millis(50);
     // The lane latches with the command still queued.
     engine.ledger.latch_due(window_end);
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
-    assert!(engine.queued_dispatch_at(id).is_none());
+    assert!(dispatch_gated(&engine, id));
     let failed = engine.advance(window_end);
     assert!(request_transmit_optional(&failed).is_none());
     assert!(matches!(
         terminal_failure(&failed, id),
         Some(Error::CommandCorrelationLost { .. })
     ));
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #803: the owner's wake and dispatch share one gate. An inquiry held
+/// behind a dispute is not dispatchable, so it schedules no pacing wake of
+/// its own: one at or before `now` would spin the owner without progress
+/// until an answer arrives.
+#[test]
+fn an_inquiry_held_by_a_dispute_schedules_no_wake_of_its_own() {
+    let now = Instant::now();
+    let mut engine = numbering_camera(now);
+    let (_, _, inquiry_id) = disputed(&mut engine, now);
+    assert!(engine.ledger.forbids_crossing(camera(1)));
+    assert!(dispatch_gated(&engine, inquiry_id));
+    assert!(
+        engine.next_wake().is_none_or(|wake| wake > now),
+        "a gated inquiry woke the owner at {:?} for nothing",
+        engine
+            .next_wake()
+            .map(|wake| wake.saturating_duration_since(now))
+    );
+    // The dispute ends on input, not by time (the ledger schedules no wake),
+    // so the owner's next wake is exactly the in-flight work's protocol
+    // deadline: the gated inquiry contributes nothing.
+    assert_eq!(engine.ledger.wake(), None);
+    assert_eq!(
+        engine.next_wake(),
+        engine.next_due().map(|due| due.at),
+        "the next wake is the next protocol deadline"
+    );
     engine.assert_invariants().unwrap();
 }
 
@@ -2191,7 +2227,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
     // completion never came: the queued inquiry fails as the dispute ends,
     // and a new one is refused.
     assert_eq!(
-        engine.ledger.lane_state(camera(1), OwedLane::Inquiry),
+        engine.ledger.lane_state(camera(1), Lane::Inquiry),
         LaneState::Latched
     );
     assert!(

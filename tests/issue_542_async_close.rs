@@ -15,13 +15,15 @@ use std::{
 
 use grafton_visca::{
     profiles::PtzOpticsG2,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error, Executor, Session, SessionConfig,
 };
 
 /// A transport whose endpoint is unavailable until its owner is dropped.
 ///
-/// `recv_into` intentionally remains pending so the only way the owner can
+/// Its receive intentionally remains pending so the only way the owner can
 /// finish is by observing the explicit shutdown boundary. The drop event lets
 /// the test assert that `close`'s completion is ordered after transport
 /// release, rather than merely after the shutdown signal was queued.
@@ -83,8 +85,8 @@ impl AsyncTransport for DropProbeTransport {
     fn recv_into<'a>(
         &'a mut self,
         _dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
-        std::future::pending::<Result<usize, Error>>()
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
+        std::future::pending::<Result<ReceiveOutcome, Error>>()
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -109,13 +111,13 @@ impl AsyncTransport for GatedCloseTransport {
         Ok(())
     }
 
-    async fn recv_into<'a>(&'a mut self, _dst: &'a mut [u8]) -> Result<usize, Error> {
+    async fn recv_into<'a>(&'a mut self, _dst: &'a mut [u8]) -> Result<ReceiveOutcome, Error> {
         let _ = self.receive_started.try_send(());
         self.release_eof
             .recv_async()
             .await
             .map_err(|_| Error::RuntimeShutdown)?;
-        Ok(0)
+        Ok(ReceiveOutcome::complete(0))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -144,8 +146,8 @@ async fn close_waits_for_transport_drop<E: Executor>(executor: E) {
     // A shutdown from any clone is only a signal. Consuming another clone is
     // the sole barrier, and must wait for the one shared actor/transport.
     let signal = session.clone();
-    signal.shutdown().await.expect("shutdown signal");
-    signal.shutdown().await.expect("idempotent shutdown signal");
+    signal.shutdown().expect("shutdown signal");
+    signal.shutdown().expect("idempotent shutdown signal");
 
     session.close().await.expect("deterministic close");
     assert!(

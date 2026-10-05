@@ -93,7 +93,9 @@ mod blocking_tests {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         command::CommandKind,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
     };
 
     #[derive(Debug, Clone)]
@@ -144,15 +146,14 @@ mod blocking_tests {
             &mut self,
             dst: &mut [u8],
             _timeout: std::time::Duration,
-        ) -> grafton_visca::Result<usize> {
+        ) -> grafton_visca::Result<ReceiveOutcome> {
             let bytes = self
                 .responses
                 .lock()
                 .expect("responses lock")
                 .pop_front()
                 .ok_or(Error::io_timeout())?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -219,7 +220,9 @@ mod blocking_tests {
 mod async_tests {
     use super::*;
     use grafton_visca::{
-        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Executor, Session, SessionConfig,
     };
 
@@ -270,14 +273,13 @@ mod async_tests {
             Ok(())
         }
 
-        async fn recv_into(&mut self, dst: &mut [u8]) -> grafton_visca::Result<usize> {
+        async fn recv_into(&mut self, dst: &mut [u8]) -> grafton_visca::Result<ReceiveOutcome> {
             let bytes = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -342,7 +344,7 @@ mod async_tests {
                 },
             ]
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-tokio")]

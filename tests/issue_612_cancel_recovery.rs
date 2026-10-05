@@ -29,7 +29,9 @@ use std::{
 use grafton_visca::{
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Error, Executor, Session, SessionConfig,
 };
 
@@ -113,17 +115,15 @@ impl AsyncTransport for ScriptedTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            let length = bytes.len();
-            dst[..length].copy_from_slice(&bytes);
             self.reads.fetch_add(1, Ordering::AcqRel);
-            Ok(length)
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -227,7 +227,7 @@ async fn refused_cancel_leaves_the_handle_observing<E: Executor>(executor: E) {
     ));
     assert_eq!(probe.writes().len(), 2, "a concluded cancel sends nothing");
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A handle can be detached after a refused cancellation, and the refusal
@@ -269,7 +269,7 @@ async fn handle_can_be_detached_after_a_refused_cancel<E: Executor>(executor: E)
         "no cancellation frame is ever written for a profile without support"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A still-queued command cancels locally on every profile.
@@ -305,20 +305,20 @@ async fn queued_cancel_concludes_cancelled_on_every_profile<E: Executor>(executo
 
     first.detach();
     second.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The dynamic projection erases the completion marker but not the contract:
 /// a refused cancellation leaves the dynamic handle observing too.
 #[cfg(feature = "dyn-api")]
 async fn dyn_refused_cancel_leaves_the_handle_observing<E: Executor>(executor: E) {
-    use grafton_visca::{dynapi::DynSessionCamera, request::builtin::ZoomDrive};
+    use grafton_visca::request::builtin::ZoomDrive;
 
     let (transport, probe) = ScriptedTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
         .expect("owner session");
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic G2 camera");
+    let camera = session.camera_dyn().expect("dynamic G2 camera");
 
     let mut moving = camera
         .submit_applied(&ZoomDrive::Tele)
@@ -338,7 +338,7 @@ async fn dyn_refused_cancel_leaves_the_handle_observing<E: Executor>(executor: E
         .expect("the dynamic handle still observes the original operation");
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 #[cfg(feature = "runtime-tokio")]

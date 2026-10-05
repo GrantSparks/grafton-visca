@@ -20,8 +20,7 @@
 #![cfg(feature = "async")]
 
 use crate::{
-    async_session::Camera,
-    camera::{IdleWait, MotionQuery},
+    async_session::{AsyncCameraCore, Camera},
     capabilities::{
         HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
         HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
@@ -41,7 +40,7 @@ use crate::{
     },
     command,
     completion::{AppliedOnly, Targeted},
-    noun_table::noun_table,
+    noun_table::{motion_table, noun_table},
     operation::Operation,
     profile::CompileTimeProfile,
     request::builtin,
@@ -412,11 +411,11 @@ accessor!(
 
 /// Direct motion safety and observation methods.
 #[must_use]
-pub struct MotionAccessor<'a, P: CompileTimeProfile> {
-    camera: &'a Camera<P>,
+pub struct MotionAccessor<'view> {
+    core: &'view AsyncCameraCore,
 }
 
-impl<'a, P: CompileTimeProfile> std::fmt::Debug for MotionAccessor<'a, P> {
+impl std::fmt::Debug for MotionAccessor<'_> {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("MotionAccessor")
@@ -424,57 +423,29 @@ impl<'a, P: CompileTimeProfile> std::fmt::Debug for MotionAccessor<'a, P> {
     }
 }
 
-impl<'a, P: CompileTimeProfile> MotionAccessor<'a, P> {
-    fn new(camera: &'a Camera<P>) -> Self {
-        Self { camera }
-    }
+/// Expands [`motion_table!`] rows into the async motion methods.
+macro_rules! async_motion_methods {
+    ($(
+        $(#[$doc:meta])*
+        fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
+    )*) => {
+        $(
+            $(#[$doc])*
+            pub async fn $name(&self $(, $arg: $ty)*) -> Result<$value> {
+                self.core.$core($($call),*).await
+            }
+        )*
+    };
+}
 
-    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
-    ///
-    /// The owner fences older declared motion and independently dispatches STOPs
-    /// under one deadline, respecting protocol gates. Inspect each supported axis
-    /// in the returned report; application alone does not prove physical rest.
-    /// A STOP the camera refuses is reported promptly and not resent: for
-    /// example a PTZOptics G2 in auto-focus mode answers the focus STOP with
-    /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable), so
-    /// `focus` is `Failed` while the lens is under auto-focus control.
-    pub async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        self.camera.core().stop_all_motion().await
-    }
-
-    /// Reports whether protocol position samples indicate movement on any
-    /// mechanical movement axis.
-    ///
-    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance and
-    /// observation window; use [`Self::is_moving_axes`] to pick the axes, the
-    /// tolerance, or the window. `false` means no movement was detected over
-    /// the window, not that the camera is physically at rest.
-    ///
-    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
-    pub async fn is_moving(&self) -> Result<bool> {
-        self.camera.core().is_moving(MotionQuery::default()).await
-    }
-
-    /// Reports whether two protocol position samples, separated by at least
-    /// [`MotionQuery::window`], indicate movement on the selected axes.
-    ///
-    /// A zero window fails with `Error::InvalidParameter` before any inquiry,
-    /// and a window that cannot elapse within the observation deadline fails
-    /// with `Error::Timeout` rather than reporting no movement.
-    pub async fn is_moving_axes(&self, query: MotionQuery) -> Result<bool> {
-        self.camera.core().is_moving(query).await
-    }
-
-    /// Waits until the selected axes meet the protocol idle condition.
-    pub async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        self.camera.core().wait_until_idle(wait).await
-    }
+impl MotionAccessor<'_> {
+    motion_table!(async_motion_methods);
 }
 
 impl<P: CompileTimeProfile> Camera<P> {
-    /// Returns the direct motion safety and observation surface.
-    pub fn motion(&self) -> MotionAccessor<'_, P> {
-        MotionAccessor::new(self)
+    /// Returns the separate motion safety and observation view.
+    pub fn motion(&self) -> MotionAccessor<'_> {
+        MotionAccessor { core: self.core() }
     }
 }
 

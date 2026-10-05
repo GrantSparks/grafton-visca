@@ -16,7 +16,9 @@ use grafton_visca::{
     camera::{IdleWait, MotionQuery, TransportKind},
     command::CommandKind,
     profile::{PositionInquirySupport, ProfileSpec},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     AffectedAxes, Certainty, Error, FailureContext, FailureStage,
 };
 
@@ -121,10 +123,9 @@ impl BlockingTransport for MotionTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

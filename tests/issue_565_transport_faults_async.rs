@@ -34,7 +34,8 @@ use grafton_visca::{
     profiles::SonyFR7,
     request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, CancellationOutcome, Error, Executor, Session, SessionConfig,
 };
@@ -237,15 +238,14 @@ impl AsyncTransport for FaultTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))??;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -372,7 +372,7 @@ async fn raw_receive_fault_fails_one_command_and_keeps_the_session<E: Executor>(
         .await
         .expect("later work still completes");
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A sequence-correlated Sony receive fault can retry the same logical request
@@ -428,7 +428,7 @@ async fn sony_transient_receive_fault_retries_same_sequence_and_keeps_session<E:
         .await
         .expect("later work still completes after the bounded retry");
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A failed datagram write fails exactly one command and the session keeps
@@ -478,7 +478,7 @@ async fn datagram_write_failure_fails_one_command_and_keeps_the_session<E: Execu
         .expect("later work still completes");
     assert_eq!(probe.writes().len(), 1, "a failed write is not recorded");
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A failed *stream* write is a session verdict on purpose: the byte-stream
@@ -572,7 +572,7 @@ async fn socketless_ack_and_completion_still_complete_a_command<E: Executor>(exe
         .expect("a socketless ACK and completion must still complete the command");
     assert_eq!(probe.writes().len(), 1, "no retry was needed");
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A malformed datagram is one bad receive, not session death. The owner must
@@ -609,7 +609,7 @@ async fn malformed_datagram_is_ignored_and_later_valid_reply_succeeds<E: Executo
         "malformed input must not trigger a retry"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A sequence-correlated Sony camera may name a socket another request still
@@ -668,7 +668,7 @@ async fn ack_naming_an_occupied_socket_falls_back_to_the_other_free_socket<E: Ex
         "an occupied S1 ACK must assign the second command to free S2"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Issue #297: the camera answers from inside the write, so its ACK and
@@ -711,7 +711,7 @@ async fn ack_answered_from_inside_the_write_is_matched_on_the_first_pump<E: Exec
         "a command answered inside its own write must never be rewritten"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// One independent libtest case per scenario per runtime.

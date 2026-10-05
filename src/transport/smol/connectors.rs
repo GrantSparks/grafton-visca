@@ -109,11 +109,7 @@ impl AsyncDatagram for UdpSocket {
         Ok(UdpSocket::send(self, buf).await?)
     }
 
-    async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        Ok(UdpSocket::recv(self, buf).await?)
-    }
-
-    async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+    async fn recv(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let socket: std::sync::Arc<async_io::Async<std::net::UdpSocket>> = self.clone().into();
         Ok(socket
             .read_with(|socket| recv_datagram(socket, buf))

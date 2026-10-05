@@ -11,7 +11,7 @@ use crate::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
         builder::TransportConfig,
         connect::preflight,
-        stream_read, AddressingMode, AsyncTransport, HasTransportConfig,
+        stream_read, AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -103,11 +103,10 @@ pub struct TcpReader<R> {
 }
 
 impl<R: AsyncReadExt> TcpReader<R> {
-    /// Receive data into `dst`, returning the number of bytes read.
-    ///
-    /// A closed connection is reported as [`Error::ConnectionClosed`].
-    pub async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        stream_read(self.reader.read(dst).await?, PEER_CLOSED)
+    /// Receive data into `dst`. A byte stream always reports a complete
+    /// outcome; a closed connection is reported as [`Error::ConnectionClosed`].
+    pub async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        stream_read(self.reader.read(dst).await?, PEER_CLOSED).map(ReceiveOutcome::complete)
     }
 }
 
@@ -129,8 +128,8 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
         write_all_flush(&mut self.stream, data).await
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        stream_read(self.stream.read(dst).await?, PEER_CLOSED)
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        stream_read(self.stream.read(dst).await?, PEER_CLOSED).map(ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {

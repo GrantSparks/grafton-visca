@@ -3,14 +3,11 @@
 use std::fmt;
 
 use crate::{
-    blocking::{BlockingCameraCore, Camera, Operation, Session},
-    camera::{IdleWait, MotionQuery},
-    capabilities::{Capabilities, TypedSupportSurface},
-    completion, CameraId, CompileTimeProfile, Error, Inquiry, OperationCommand, PlainCommand,
-    ProfileSpec, Result, StateCache, SubmissionClass,
+    blocking::{BlockingCameraCore, Camera, Operation},
+    completion, CompileTimeProfile, Error, Inquiry, OperationCommand, PlainCommand, Result,
 };
 
-/// An owner-backed blocking camera view for a runtime [`ProfileSpec`].
+/// An owner-backed blocking camera view for a runtime [`ProfileSpec`](crate::ProfileSpec).
 ///
 /// This view shares the same owner worker as a typed blocking [`Camera`] and,
 /// like it, is `Clone + Send + Sync` and borrows nothing. It erases only the
@@ -38,45 +35,7 @@ impl BlockingDynSessionCamera {
         Self { core }
     }
 
-    /// Creates a runtime-profile view for the session's sole target.
-    pub fn from_session(session: &Session) -> Result<Self> {
-        session.camera_dyn()
-    }
-
-    /// Creates a runtime-profile view for one registered target.
-    pub fn from_session_target(session: &Session, target: CameraId) -> Result<Self> {
-        session.camera_dyn_for(target)
-    }
-
-    /// Returns this view's fixed camera target.
-    #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.core.target()
-    }
-
-    /// Returns this view's validated runtime profile facts.
-    #[must_use]
-    pub fn profile(&self) -> &ProfileSpec {
-        self.core.profile()
-    }
-
-    /// Returns this view's validated runtime capability inventory.
-    #[must_use]
-    pub fn capabilities(&self) -> &Capabilities {
-        self.profile().capabilities()
-    }
-
-    /// Returns whether this profile permits one optional typed surface.
-    #[must_use]
-    pub fn supports_typed(&self, surface: TypedSupportSurface) -> bool {
-        self.capabilities().supports_typed(surface)
-    }
-
-    /// Returns a cheap target-local read-only state-cache view.
-    #[must_use]
-    pub fn state_cache(&self) -> StateCache {
-        self.core.state_cache()
-    }
+    crate::camera_view::camera_view_getters!(runtime_profile);
 
     /// Projects this runtime view into a statically checked profile view.
     ///
@@ -87,29 +46,6 @@ impl BlockingDynSessionCamera {
         P: CompileTimeProfile,
     {
         self.core.clone().into_typed::<P>()
-    }
-
-    /// Returns this view's ordinary-work submission-class default.
-    #[must_use]
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.core.submission_class()
-    }
-
-    /// Derives a runtime-profile view whose ordinary work uses `class`.
-    ///
-    /// The original view is unchanged, and intrinsically urgent stops remain
-    /// urgent through the returned view.
-    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
-        let mut selected = self.clone();
-        selected.set_submission_class(Some(class));
-        selected
-    }
-
-    /// Sets this view's ordinary-work submission-class default.
-    ///
-    /// Intrinsically urgent requests are never demoted.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.core.set_submission_class(class);
     }
 
     /// Executes a plain command through the shared blocking owner.
@@ -137,20 +73,9 @@ impl BlockingDynSessionCamera {
         self.core.submit(operation)
     }
 
-    /// Orders one owner halt under a common deadline.
-    /// Older declared motion is fenced; inspect each supported axis result in
-    /// the report. STOP dispatch respects protocol gates and is not physical feedback.
-    pub fn stop_all_motion(&self) -> Result<crate::HaltReport, Error> {
-        self.core.stop_all_motion()
-    }
-
-    /// Observes movement on the selected profile-supported axes.
-    pub fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        self.core.is_moving(query)
-    }
-
-    /// Waits for the selected profile-supported axes to become idle.
-    pub fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        self.core.wait_until_idle(wait)
+    /// Returns the separate motion safety and observation view, the same
+    /// view a typed blocking [`Camera`] returns.
+    pub fn motion(&self) -> crate::blocking::MotionAccessor<'_> {
+        crate::blocking::MotionAccessor::new(&self.core)
     }
 }

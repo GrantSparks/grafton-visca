@@ -9,6 +9,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (#804, #828): every transport receive reports a
+  `ReceiveOutcome`.** `AsyncTransport::recv_into` is the one required async
+  receive and now returns `Result<ReceiveOutcome, Error>`; the
+  `recv_into_with_outcome` companion and its exact-fill default are removed.
+  `BlockingTransport::recv_into_with_timeout`, `AsyncDatagram::recv` (the old
+  `recv_with_outcome`, now required; the byte-count `recv` is removed) and the
+  split `TcpReader::recv_into` likewise return `ReceiveOutcome`. Both owners
+  classify a read through one rule: an outcome that is not complete is
+  discarded as one malformed datagram (a byte stream that reports one ends the
+  session); a transport's `Err(Error::ResponseTooLarge)` is no longer a
+  special datagram-discard spelling. A custom datagram transport whose read
+  fills the buffer and cannot observe truncation reports
+  `possibly_truncated`, which the blocking owner now discards exactly as the
+  async owner did; such a transport needs `recv_buffer_size` of at least
+  `MIN_RECV_BUFFER_SIZE + 1`. Datagram transports skip empty datagrams (zero
+  bytes means end of stream). `ReceiveOutcome` is exported in every feature
+  configuration and gains `ReceiveOutcome::copy_message`.
+- **BREAKING (#828): `BufferConfig::recv_buffer_size` must be at least
+  `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes)**, the largest valid VISCA
+  reply (16 bytes) behind Sony's 8-byte header, so no valid reply can be
+  rejected as oversized. The `0` case now reports the same message.
+- **BREAKING (#805): `SessionConfig::with_tuning` is infallible**, matching
+  `CameraConfig::with_tuning`; `register_target` no longer validates tuning.
+  The session policy (tuning against every registered profile, admission
+  capacity, Sony sequence reset) is validated exactly once, when a session
+  opens, before any transport I/O. Both configurations share one set of
+  policy builders and getters with identical docs, and one Sony-reset
+  rejection message ("requires Sony encapsulated profiles").
+- **BREAKING (#805): async `Session::shutdown` and `CameraSession::shutdown`
+  are synchronous**, like the blocking ones: the request is a non-blocking
+  signal, so drop the `.await`.
+- **BREAKING (#805): `DynSessionCamera::from_session` /
+  `from_session_target` and `BlockingDynSessionCamera::from_session` /
+  `from_session_target` are removed**; `Session::camera_dyn` /
+  `camera_dyn_for` is the one constructor on both facades. A session's
+  single-target selectors no longer have an empty-registry error path: an
+  open session always has a validated, non-empty registry.
+- **BREAKING (#805): the async `Operation` prints only its identity under
+  `Debug`** (`Operation { id: OperationId(..) }`), like the blocking one;
+  it previously printed owner and observation internals.
+- **BREAKING (#816): the motion view has one shape on every facade.**
+  `BlockingDynSessionCamera::{stop_all_motion, is_moving(query),
+  wait_until_idle}` are replaced by `motion()`, which returns the same
+  `blocking::MotionAccessor` a typed blocking camera returns, so
+  `is_moving()` / `is_moving_axes(query)` mean the same everywhere.
+  `blocking::MotionAccessor` and the async `MotionAccessor` lose their
+  profile type parameter (`MotionAccessor<'_>`). The four methods' rustdoc is
+  written once and documents the window, zero-window (`InvalidParameter`) and
+  `Timeout` contract on every facade.
+- **BREAKING (#828): enabling `dyn-api` without `blocking` or `async` is a
+  compile error** explaining that it projects the enabled facades' camera
+  views; it previously compiled to an empty feature with warnings. The
+  feature-matrix script checks the rejection.
+- (#817) The raw request types document their associated policy constants
+  as unread fallbacks. `raw::Targeted`'s unread fallback policy constants
+  (`<raw::Targeted as Request>::TIMEOUT_CLASS`/`RETRY_CLASS`) now equal
+  `raw::AppliedOnly`'s (`Quick`/`Never`); every raw value's policy is the one
+  selected at construction, which the instance methods return.
+- (#805) `SessionConfig::new`/`for_target` build on `Default`; session target
+  selection and lookup errors are produced in one place.
+- A `PanTiltLimits` state-cache clear must name a corner, like
+  a limit set; a corner-less clear is refused as malformed.
+
+- **Correction (2026-10-05) to the 2.0.0-rc.1 `set_tuning` entry (#631, #805):**
+  that entry says a live `set_tuning` update is validated "on exactly the
+  grounds `SessionConfig::with_tuning` validates on". `with_tuning` no longer
+  validates; a live update is validated on exactly the grounds a session open
+  validates its configured tuning on (against every registered profile), so a
+  value that opening would have rejected is rejected here too and leaves the
+  live tuning untouched.
+
 - **BREAKING (#824): `visca_range_type!` and `#[derive(ViscaValue)]` share one
   generator** with one constructor, bounds, accessor and error contract:
   `MIN`/`MAX` are `Self`, `value` is `pub const fn value(self)`, range `new`
@@ -216,6 +287,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- (#803) A ready request's owner wake and its dispatch now use the one
+  per-lane dispatch gate; the inquiry cooldown is encoded once, as pacing.
+  The dead `queued_dispatch_at` projection is removed.
+
 - `ViscaInquiry` accepts binary and octal `opcode`/`subcode` literals; it
   previously rejected them as not fitting in a `u8` (#824).
 
@@ -292,6 +367,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   camera's inquiries. The three public API snapshots gain only this variant,
   its field, and its `const` constructor.
 
+### Internal
+
+- (#801, #802) Blocking and async owner handles, receipt waits, halt,
+  cancellation and control requests are expanded from one source;
+  settlement polling (`wait_until_idle` and targeted settlement) is one
+  sans-I/O `SettlementPoll` driven by each owner, and five-axis position
+  sampling is assembled once. The movement detector exists only with a
+  baseline, removing its invariant errors.
+- (#804) The two owner transport adapters are one `TransportAdapter` with a
+  per-facade driver containing only the native send and read.
+- (#805) The four public camera views share one generated getter set; the
+  Tokio and smol `Executor` impls come from one macro; a parity test asserts
+  `Session`, `CameraSession`, `Camera` and `Operation` expose the same method
+  set on both facades.
+- (#817) The dynamic custom-request erasure layer is one generic
+  `ErasedOperation<K>` adapter and submit path; `raw::Targeted` and
+  `raw::AppliedOnly` are generated from one definition, and the raw policy
+  accessors and `Request` forwarding are written once.
+- (#803) One `Lane` enum is shared by the engine, the stream ledger and the
+  owner.
 
 ## [2.0.0-rc.3] - 2026-10-04
 

@@ -58,77 +58,33 @@ jobs:
           components: rustfmt
       - run: cargo +nightly-2026-08-26 fmt --all -- --check
 
+  feature-shapes:
+    name: feature shapes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shapes: ${{ steps.shapes.outputs.shapes }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The one list of supported feature shapes lives in the feature-matrix
+      # script; the per-shape test/clippy/doc matrix below is built from it, so
+      # CI and local runs cannot drift apart. The list is captured first so a
+      # failing script fails this step instead of publishing an empty matrix.
+      - id: shapes
+        run: |
+          set -euo pipefail
+          shapes="$(bash .github/scripts/test-all-features.sh list-json)"
+          echo "shapes=${shapes}" >>"$GITHUB_OUTPUT"
+
   feature-matrix:
     name: ${{ matrix.name }}
+    needs: feature-shapes
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - name: no-default pure engine/domain + smoke
-            command: --no-default-features --lib --test no_default_smoke
-          - name: default blocking
-            command: --workspace --all-targets
-          - name: blocking-only
-            command: --no-default-features --features blocking --all-targets
-          - name: blocking + dyn-api
-            command: --no-default-features --features blocking,dyn-api --all-targets
-          - name: runtime-neutral async
-            command: --no-default-features --features async --all-targets
-          - name: Tokio
-            command: --no-default-features --features runtime-tokio --all-targets
-          - name: smol
-            command: --no-default-features --features runtime-smol --all-targets
-          - name: Tokio + smol
-            command: --no-default-features --features runtime-tokio,runtime-smol --all-targets
-          - name: blocking + Tokio
-            command: --no-default-features --features blocking,runtime-tokio --all-targets
-          - name: blocking + smol
-            command: --no-default-features --features blocking,runtime-smol --all-targets
-          - name: blocking + Tokio + smol
-            command: --no-default-features --features blocking,runtime-tokio,runtime-smol --all-targets
-          - name: Tokio + dyn-api
-            command: --no-default-features --features runtime-tokio,dyn-api --all-targets
-          - name: smol + dyn-api
-            command: --no-default-features --features runtime-smol,dyn-api --all-targets
-          - name: blocking + async + dyn-api
-            command: --no-default-features --features blocking,async,dyn-api --all-targets
-          - name: blocking serial
-            command: --no-default-features --features transport-serial --all-targets
-          - name: Tokio serial
-            command: --no-default-features --features runtime-tokio,transport-serial-tokio --all-targets
-          - name: smol + Tokio serial API contract
-            command: --no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test
-          # Compatibility-only union: the async runtime alongside the *blocking*
-          # serial dependency. This is the leg the README feature-union table
-          # promises; `transport-serial-tokio` above is a different tree.
-          - name: Tokio + blocking serial
-            command: --no-default-features --features runtime-tokio,transport-serial --all-targets
-          - name: serde + schemars + ts-rs
-            command: --no-default-features --features serde,schemars,ts-rs --all-targets
-          # `test-utils` alone proves the toolkit compiles with no facade
-          # selected. It cannot *run* the toolkit: `ScriptedBlockingTransport`
-          # needs `blocking`, `ScriptedTransport` and `DeterministicExecutor`
-          # need `async`, so every test that drives them is compiled away here.
-          - name: test-utils
-            command: --no-default-features --features test-utils --all-targets
-          # The union that actually executes the shipped test toolkit. Without
-          # it 40 tests exist in the tree and run in no job: 10 in
-          # `tests/issue_566_scripted_error_recovery.rs`, 5 in
-          # `tests/inquiry_simulator_test.rs`, 4 in
-          # `tests/timeout_category_tests.rs`, 15 in the `testkit`
-          # deterministic-executor tests, 5 in its scripted-transport tests,
-          # and 1 in the `src/blocking.rs` testkit unit test. `test-utils` is
-          # never unioned with a facade anywhere else in this matrix and the
-          # all-features job below is a `cargo check`, not a `cargo test`.
-          - name: test-utils + blocking + Tokio
-            command: --no-default-features --features test-utils,blocking,runtime-tokio --all-targets
-          # The workspace/default leg leaves this fixture's optional serde,
-          # schemars, and ts-rs oracle cfg'd out; `all-features` below is only
-          # a check. This executes its behavioral contract test instead.
-          - name: renamed range helper derives
-            command: -p phase4-renamed-dependency --features range-helper-derives --all-targets
+        include: ${{ fromJSON(needs.feature-shapes.outputs.shapes) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
@@ -137,10 +93,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes libudev-dev
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: matrix-${{ matrix.name }}
       - run: cargo test ${{ matrix.command }}
+      - run: cargo clippy ${{ matrix.command }} -- -D warnings
+      - if: matrix.doc
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --no-deps ${{ matrix.doc_command }}
 
   blocking-dependency-boundary:
     name: native blocking dependency boundary
@@ -153,14 +116,15 @@ jobs:
       - run: bash .github/scripts/check-blocking-dependency-boundary.sh
 
   macro-derives:
-    name: macro derives
+    # `cargo test -p grafton-visca-macros` is a feature-matrix shape; this job
+    # adds the re-exported range macro checks.
+    name: re-exported range macro
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: cargo test -p grafton-visca-macros
       - name: Check re-exported range macro with helpers off and on
         env:
           TS_RS_EXPORT_DIR: ${{ runner.temp }}/range-macro-reexport-bindings
@@ -252,11 +216,15 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Each feature shape is linted and documented in its own matrix leg;
+      # this job covers the all-features workspace and the feature selections
+      # that must be rejected.
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      - run: cargo clippy --lib --no-default-features -- -D warnings
       - env:
           RUSTDOCFLAGS: "-D warnings"
         run: cargo doc --workspace --all-features --no-deps
+      - name: Removed and facade-less feature selections are rejected
+        run: bash .github/scripts/test-all-features.sh rejections
 
   msrv:
     name: Rust 1.88 MSRV
@@ -602,6 +570,7 @@ jobs:
     if: always()
     needs:
       - format
+      - feature-shapes
       - feature-matrix
       - blocking-dependency-boundary
       - macro-derives
@@ -628,7 +597,7 @@ jobs:
           # an accidentally removed dependency would otherwise turn a partial
           # all-success object into a false green aggregate.
           EXPECTED_JOB_IDS: >-
-            ["format", "feature-matrix", "blocking-dependency-boundary",
+            ["format", "feature-shapes", "feature-matrix", "blocking-dependency-boundary",
              "macro-derives", "all-features", "examples", "lint", "msrv",
              "miri", "fuzz", "release-validation", "public-api", "downstream",
              "windows", "macos", "cargo-audit", "cargo-deny"]

@@ -66,7 +66,7 @@
 /// With `async`, it additionally includes the object-safe dynamic noun and
 /// custom-operation surface. Every projection keeps its facade's canonical
 /// owner and operation lifecycle.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub mod dyn_api {
     pub use crate::dynapi::*;
 }

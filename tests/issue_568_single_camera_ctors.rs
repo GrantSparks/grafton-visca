@@ -23,7 +23,9 @@ mod blocking_single_camera {
         blocking::{CameraConfig, CameraSession, Connect},
         command::CommandKind,
         profiles::PtzOpticsG2,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         CameraId, Error,
     };
 
@@ -109,15 +111,14 @@ mod blocking_single_camera {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let bytes = self
                 .responses
                 .lock()
                 .expect("responses lock")
                 .pop_front()
                 .ok_or(Error::io_timeout())?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -254,7 +255,8 @@ mod async_single_camera {
         profiles::PtzOpticsG2,
         runtime::Runtime,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         CameraId, CameraSession, Error, Executor,
     };
@@ -341,16 +343,14 @@ mod async_single_camera {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let bytes = self
                     .responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::connection_closed(None))?;
-                let length = bytes.len();
-                dst[..length].copy_from_slice(&bytes);
-                Ok(length)
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
             }
         }
 
@@ -539,7 +539,7 @@ mod async_single_camera {
         .await
         .expect("single-camera owner session");
 
-        camera.shutdown().await.expect("owner shutdown");
+        camera.shutdown().expect("owner shutdown");
         let rejected = camera
             .camera()
             .zoom()

@@ -25,7 +25,8 @@ use grafton_visca::{
     profiles::{ProfileId, PtzOpticsG2, SonyFR7},
     request,
     transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     Camera, CameraId, ControlClass, Error, Executor, Inquiry, InquiryRoute, Operation,
     OperationCommand, Request, ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
@@ -132,14 +133,13 @@ impl AsyncTransport for ScriptedTransport {
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let bytes = self
             .responses
             .recv()
             .await
             .ok_or(Error::connection_closed(None))?;
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -277,7 +277,7 @@ async fn one_owner_admits_plain_inquiry_and_typed_operations() {
         .await
         .expect("applied completion");
 
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
     assert_eq!(sent.lock().expect("sent lock").len(), 4);
 }
 
@@ -296,7 +296,7 @@ async fn unsupported_axis_fails_before_owner_admission_or_io() {
         .expect_err("runtime profile mismatch must fail before projection");
     assert!(matches!(error, Error::InvalidRequest(_)));
     assert!(sent.lock().expect("sent lock").is_empty());
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
@@ -336,7 +336,7 @@ async fn raw_serial_multi_target_registration_routes_each_camera() {
         .await
         .expect("camera 1 command");
 
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
     let sent = sent.lock().expect("sent lock");
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[0][0], CameraId::CAMERA_2.to_address_byte());
@@ -394,7 +394,7 @@ async fn dropping_or_detaching_operation_is_observation_only() {
     detached.detach();
     tokio::time::sleep(Duration::from_millis(20)).await;
     assert!(!sent.lock().expect("sent lock").is_empty());
-    session.shutdown().await.expect("shutdown request");
+    session.shutdown().expect("shutdown request");
 }
 
 #[tokio::test]
@@ -409,7 +409,7 @@ async fn shutdown_requests_actor_and_rejects_later_admission_without_join_claim(
     .expect("session");
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-    session.shutdown().await.expect("shutdown request");
+    session.shutdown().expect("shutdown request");
     let error = camera
         .execute(&PlainPing)
         .await
@@ -442,7 +442,7 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner() 
     assert_eq!(camera.target(), clone.target());
     assert_eq!(spawned.load(Ordering::SeqCst), 1);
     assert!(sent.lock().expect("sent lock").is_empty());
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 #[tokio::test]
@@ -475,5 +475,5 @@ async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() 
         Err(Error::InvalidRequest(_))
     ));
     assert!(sent.lock().expect("sent lock").is_empty());
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }

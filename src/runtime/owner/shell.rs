@@ -12,7 +12,7 @@
 //! - running a turn: [`OwnerShellCore::handle`] returns a [`TurnStep`]. A
 //!   [`TurnStep::Drive`] asks the shell to write each transmit that
 //!   [`OwnerShellCore::next_transmit`] stages and report it back through
-//!   [`OwnerShellCore::finish_transmit`] (or its in-turn variant), then to
+//!   [`OwnerShellCore::finish_transmit`], then to
 //!   [`OwnerShellCore::resume`] the turn; a [`TurnStep::Pace`] asks it to
 //!   sample the clock for [`OwnerShellCore::pace_receive`], which defers the
 //!   next receive while every other source stays selectable.
@@ -37,7 +37,7 @@ use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOut
 use super::{
     clamp_receive_pause, prepend_effects, transient_receive_pause, AppliedEffect, DecodedFrame,
     IdleReceiveRun, Input, OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution,
-    RequestLane, RetainedStreamInput, SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
+    RetainedStreamInput, SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
     TransmissionMeta,
 };
 use crate::runtime::engine::{
@@ -545,10 +545,26 @@ impl OwnerShellCore {
         None
     }
 
-    /// Report a transmit driven outside an input turn, which finished at
-    /// `finished_at`. Its exact completion is processed before the next
-    /// effect or any channel input.
+    /// Report a transmit the shell just wrote. Inside an input `turn` it
+    /// finishes in that turn; otherwise it finishes at `finished_at`, the
+    /// instant the write returned. Its exact completion is processed before
+    /// the next effect or any channel input.
     pub(super) fn finish_transmit(
+        &mut self,
+        turn: Option<&OwnerInputTurn>,
+        staged: &StagedWrite,
+        result: Result<TransmissionMeta, Error>,
+        finished_at: Instant,
+        effects: &mut VecDeque<Effect>,
+    ) {
+        let Some(turn) = turn else {
+            return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
+        };
+        let produced = self.state.finish_write_in_turn(turn, staged, result);
+        prepend_effects(effects, produced);
+    }
+
+    fn finish_transmit_outside_turn(
         &mut self,
         staged: &StagedWrite,
         result: Result<TransmissionMeta, Error>,
@@ -572,18 +588,6 @@ impl OwnerShellCore {
             self.state
                 .finish_write_turn(staged, result, finished_at, EngineTurn::INPUT_ONLY)
         };
-        prepend_effects(effects, produced);
-    }
-
-    /// Report a transmit driven inside `turn`.
-    pub(super) fn finish_transmit_in_turn(
-        &mut self,
-        turn: &OwnerInputTurn,
-        staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
-        effects: &mut VecDeque<Effect>,
-    ) {
-        let produced = self.state.finish_write_in_turn(turn, staged, result);
         prepend_effects(effects, produced);
     }
 
@@ -698,7 +702,8 @@ impl OwnerShellCore {
         self.idle_receives.reset();
         // #672: a stream tolerates a delimited frame that did not classify by
         // discarding it and staying Running, exactly as a datagram already
-        // does and as 1.x did (log-and-continue). Record one Ignored per
+        // does: an invalid frame is counted and discarded, and the session
+        // continues. Record one Ignored per
         // discarded frame so the discard stays observable; the session is
         // never poisoned for it.
         for _ in 0..self.state.buffers().take_discarded_malformed() {
@@ -815,8 +820,8 @@ impl OwnerShellCore {
         // The engine safely retries sequenced Sony work with its same
         // sequence; a raw command awaiting ACK is left to its own ACK deadline
         // (issue #671; the strict opt-in poisons instead) rather than being
-        // replayed. The pause mirrors 1.x's guard against hot-looping on an
-        // immediately failing transport; it grows with the run and is clamped
+        // replayed. The pause guards against hot-looping on an immediately
+        // failing transport; it grows with the run and is clamped
         // to the next scheduler deadline.
         let buffered = match driver.has_buffered_stream_input() {
             Ok(buffered) => buffered,
@@ -936,7 +941,7 @@ impl OwnerShellCore {
             return true;
         }
         let target = admission.request.context().target;
-        let lane = RequestLane::of(&admission.request);
+        let lane = admission.request.lane();
         let Some(validity) = admission.validity.as_ref() else {
             return true;
         };

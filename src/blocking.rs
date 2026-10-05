@@ -11,13 +11,7 @@
 //! its transport, but never emits a protocol STOP. [`Session::close`] is the
 //! deterministic release barrier.
 
-use std::{
-    fmt,
-    marker::PhantomData,
-    sync::Arc,
-    thread,
-    time::{Duration, Instant},
-};
+use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
     camera::{IdleWait, MotionQuery},
@@ -27,17 +21,12 @@ use crate::{
         ClassSelection,
     },
     request::builtin::PanTiltStop,
-    runtime::owner::{
-        ensure_before_deadline, sample_positions_blocking, BlockingOperationReceipt,
-        BlockingOwnerHandle, BlockingTransportAdapter,
-    },
+    runtime::owner::{BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter},
     stop_request::pan_tilt_stop_request,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache, SubmissionClass,
 };
-
-const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
 
 pub use crate::OperationId;
 
@@ -64,7 +53,7 @@ pub use crate::OperationId;
 /// observation and nothing else. The owner keeps the protocol state, never
 /// interprets handle drop as cancellation, and no STOP is written, so an early
 /// `?` return or a panic unwinding past a live handle leaves physical movement
-/// running until something ends it. This matches 1.x.
+/// running until something ends it.
 ///
 /// To bound movement by a scope, write a small guard whose own `Drop` submits
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
@@ -130,8 +119,9 @@ where
     ///
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
-    /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
-    /// the only built-in profile in that position — the owner refuses with
+    /// standard VISCA socket-cancel command; without it — the built-in
+    /// PTZOptics profiles ([`PtzOpticsG2`], [`PtzOpticsG3`] and
+    /// [`PtzOptics30X`]) are in that position — the owner refuses with
     /// [`Error::NotSupported`] and leaves the original request scheduled,
     /// retryable, and able to complete. The handle is unaffected and can
     /// still wait for it. A refusal does not stop the camera; a moving axis
@@ -143,6 +133,8 @@ where
     /// own outcome.
     ///
     /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    /// [`PtzOpticsG3`]: crate::profiles::PtzOpticsG3
+    /// [`PtzOptics30X`]: crate::profiles::PtzOptics30X
     pub fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
         self.receipt.cancel(None)
     }
@@ -191,10 +183,7 @@ where
     K: completion::Kind,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Operation")
-            .field("id", &self.id())
-            .finish()
+        self.receipt.fmt_public_handle(formatter)
     }
 }
 
@@ -282,7 +271,7 @@ pub use construction::{CameraConfig, Connect};
 #[derive(Clone)]
 pub struct Session {
     owner: BlockingOwnerHandle,
-    config: Arc<SessionConfig>,
+    config: Arc<crate::session_config::ValidatedSessionConfig>,
 }
 
 impl fmt::Debug for Session {
@@ -303,6 +292,18 @@ impl Session {
     /// failure, including a failed thread spawn, drops the transport and
     /// returns the error; no worker is left running.
     pub fn open<T>(transport: T, config: SessionConfig) -> Result<Self, Error>
+    where
+        T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
+        Self::open_validated(transport, config.validated()?)
+    }
+
+    /// [`Self::open`] for a configuration whose session policy is already
+    /// validated, so each open validates it exactly once.
+    pub(crate) fn open_validated<T>(
+        transport: T,
+        config: crate::session_config::ValidatedSessionConfig,
+    ) -> Result<Self, Error>
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
@@ -330,16 +331,7 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
-        let target = self.config.sole_target().ok_or_else(|| {
-            if self.config.target_count() == 0 {
-                Error::InvalidState("session has no registered target".into())
-            } else {
-                Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_for".into(),
-                )
-            }
-        })?;
-        self.camera_for::<P>(target)
+        self.camera_for::<P>(self.config.sole_target_for("camera_for")?)
     }
 
     /// Returns a target-specific statically checked camera view.
@@ -347,13 +339,18 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
-        let profile = self.config.profile_arc_for_compile_time::<P>(target)?;
-        Ok(Camera::from_core(BlockingCameraCore {
+        let profile = self.config.registered_profile_for::<P>(target)?;
+        Ok(Camera::from_core(self.core(target, profile)))
+    }
+
+    /// The erased view of `target`, registered with `profile`.
+    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+        BlockingCameraCore {
             owner: self.owner.clone(),
             target,
             profile,
             class: ClassSelection::Request,
-        }))
+        }
     }
 
     /// Returns the runtime-profile camera view for the sole registered target.
@@ -416,9 +413,7 @@ impl Session {
     /// ```
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
-        Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.camera_core()?,
-        ))
+        self.camera_dyn_for(self.config.sole_target_for("camera_dyn_for")?)
     }
 
     /// Returns a target-specific runtime-profile camera view.
@@ -427,38 +422,10 @@ impl Session {
         &self,
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
+        let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.camera_core_for(target)?,
+            self.core(target, profile),
         ))
-    }
-
-    #[cfg(feature = "dyn-api")]
-    fn camera_core(&self) -> Result<BlockingCameraCore, Error> {
-        let target = self.config.sole_target().ok_or_else(|| {
-            if self.config.target_count() == 0 {
-                Error::InvalidState("session has no registered target".into())
-            } else {
-                Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_dyn_for"
-                        .into(),
-                )
-            }
-        })?;
-        self.camera_core_for(target)
-    }
-
-    #[cfg(feature = "dyn-api")]
-    fn camera_core_for(&self, target: CameraId) -> Result<BlockingCameraCore, Error> {
-        let profile = self
-            .config
-            .profile_arc(target)
-            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
-        Ok(BlockingCameraCore {
-            owner: self.owner.clone(),
-            target,
-            profile,
-            class: ClassSelection::Request,
-        })
     }
 
     /// Returns the operational tuning this session is currently preparing
@@ -486,10 +453,10 @@ impl Session {
     /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
     /// engine derives its absolute phase deadlines from that stamp; nothing is
     /// re-timed underneath an [`Operation`] a caller is already holding. This
-    /// is the one deliberate difference from 1.2.0's
-    /// `Camera::set_timeout_config`, which recomputed deadlines on every
-    /// housekeeping pass and therefore also covered work in flight. To widen a
-    /// deadline for a command that is already running, cancel it and resubmit.
+    /// is deliberate: a deadline that moved after submission would change the
+    /// contract of work a caller has already observed, so tuning applies only
+    /// to requests prepared after the call. To widen a deadline for a command
+    /// that is already running, cancel it and resubmit.
     ///
     /// The update is not a merge: a field left unset returns to its profile
     /// default rather than keeping the value a previous call installed.
@@ -601,15 +568,8 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
-        let profile = session.config.profile_arc(target).ok_or_else(|| {
-            Error::InvalidState("single-camera session lost its registered target".into())
-        })?;
-        let camera = Camera::from_core(BlockingCameraCore {
-            owner: session.owner.clone(),
-            target,
-            profile,
-            class: ClassSelection::Request,
-        });
+        let profile = session.config.registered_profile(target)?;
+        let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
     }
 
@@ -623,8 +583,8 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        let target = config.camera_id;
-        Self::from_session(Session::open(transport, config.session_config()?)?, target)
+        let session = Session::open_validated(transport, config.validated_session_config()?)?;
+        Self::from_session(session, config.camera_id)
     }
 
     /// Returns this session's compile-time bound camera view.
@@ -841,37 +801,21 @@ impl BlockingCameraCore {
     /// independently under a common deadline. The report retains each axis's
     /// outcome even when another axis fails.
     pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        let started = Instant::now();
+        let started = self.owner.now();
         let prepared =
             crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
         self.owner.halt(prepared, started)
     }
 
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let mut observation = crate::prepared::MotionWindow::new(query)?;
+        let window = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
             self.target,
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
         )?;
-        let deadline = self
-            .owner
-            .deadline_after(observation.budget(MOTION_QUERY_OBSERVER_BUDGET)?)?;
-
-        let baseline = sample_positions_blocking(&self.owner, &queries, deadline)?;
-        let final_not_before = observation.observe_baseline(baseline, Instant::now(), deadline)?;
-        loop {
-            let now = Instant::now();
-            if now >= final_not_before {
-                break;
-            }
-            thread::sleep(final_not_before.saturating_duration_since(now));
-        }
-        ensure_before_deadline(deadline)?;
-        let started_at = Instant::now();
-        let next = sample_positions_blocking(&self.owner, &queries, deadline)?;
-        observation.observe_final(next, started_at)
+        self.owner.observe_motion(window, &queries)
     }
 
     /// Waits for exactly the selected, profile-supported axes to become idle.
@@ -884,35 +828,7 @@ impl BlockingCameraCore {
     pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
         let queries =
             prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
-        let deadline = self.owner.deadline_after(wait.timeout)?;
-        let mut detector = crate::prepared::MotionDetector::new(wait.axes, wait.tolerance);
-
-        let baseline = sample_positions_blocking(&self.owner, &queries, deadline)?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
-        }
-
-        loop {
-            ensure_before_deadline(deadline)?;
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return Err(Error::query_timeout());
-            }
-            thread::sleep(wait.interval.min(remaining));
-            ensure_before_deadline(deadline)?;
-            let snapshot = sample_positions_blocking(&self.owner, &queries, deadline)?;
-            match detector.observe(snapshot)? {
-                crate::prepared::MotionState::Settled => return Ok(()),
-                crate::prepared::MotionState::Moving => {}
-                crate::prepared::MotionState::NeedSample => {
-                    return Err(Error::InvalidState(
-                        "movement detector lost its baseline snapshot".into(),
-                    ));
-                }
-            }
-        }
+        self.owner.wait_until_idle(wait, &queries)
     }
 
     fn pan_tilt_stop_request(&self) -> Result<PanTiltStop, Error> {
@@ -963,89 +879,7 @@ impl<P: CompileTimeProfile> Camera<P> {
         &self.core
     }
 
-    /// Returns this view's fixed camera target.
-    #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.core.target()
-    }
-
-    /// Returns this view's validated profile facts.
-    #[must_use]
-    pub fn profile(&self) -> &ProfileSpec {
-        self.core.profile()
-    }
-
-    /// Returns this view's validated runtime capability inventory.
-    ///
-    /// This is the runtime discovery view of the same facts the compile-time
-    /// marker traits gate: it reports what the profile documents, not
-    /// permission to call a typed API.
-    #[must_use]
-    pub fn capabilities(&self) -> &crate::capabilities::Capabilities {
-        self.core.profile().capabilities()
-    }
-
-    /// Returns a cheap live read-only view of this camera's target-local state.
-    #[must_use]
-    pub fn state_cache(&self) -> StateCache {
-        self.core.state_cache()
-    }
-
-    /// Returns this handle's submission-class default, if it carries one.
-    ///
-    /// `None` — the initial value — means every request uses its intrinsic
-    /// [`crate::ControlClass`]. See
-    /// [`set_submission_class`](Self::set_submission_class).
-    #[must_use]
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.core.submission_class()
-    }
-
-    /// Derives a camera view whose ordinary work uses `class`.
-    ///
-    /// The original view is unchanged. Commands, inquiries, operations, and
-    /// noun methods submitted through the returned view all inherit this
-    /// class; intrinsically urgent stops remain urgent.
-    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
-        let mut selected = self.clone();
-        selected.set_submission_class(Some(class));
-        selected
-    }
-
-    /// Sets the ordinary-work [`SubmissionClass`] every later submission from
-    /// *this handle* uses, or clears it with `None`.
-    ///
-    /// The owner dispatches ready work from the highest occupied class first
-    /// and FIFO within a class, so lowering this default makes the handle's
-    /// traffic yield the transport to other handles' ordinary work, and
-    /// raising it makes the handle's traffic overtake work that is still
-    /// **queued**. It never interrupts, cancels, or reorders a request that
-    /// has already been written to the transport, and it does not change the
-    /// class of requests submitted before the call.
-    ///
-    /// The default is a property of *this handle*, not of the camera or the
-    /// session: another view onto the same target keeps its own value, and a
-    /// [`clone`](Clone::clone) copies the current value and then diverges. It
-    /// applies to every request the handle submits — commands,
-    /// inquiries, and operations, including the ones the noun accessors submit
-    /// — with exactly one exception.
-    ///
-    /// # Urgent requests are never demoted
-    ///
-    /// A request the crate classifies [`crate::ControlClass::Urgent`] — the typed
-    /// stops [`PanTiltStop`], [`ZoomStop`](crate::request::builtin::ZoomStop), [`FocusStop`](crate::request::builtin::FocusStop), and owner-issued
-    /// protocol cancellation — ignores this default and stays urgent. A handle demoted to
-    /// [`SubmissionClass::Background`] for telemetry polling therefore still
-    /// preempts with an emergency stop. Per-submission overrides obey the same
-    /// safety floor, and [`SubmissionClass`] deliberately has no urgent
-    /// variant for callers to manufacture.
-    ///
-    /// Owner-internal traffic that no caller submitted — the settlement
-    /// polling behind [`Operation::settled`] and the observation inquiries
-    /// behind `motion()` — keeps its own built-in class.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.core.set_submission_class(class);
-    }
+    crate::camera_view::camera_view_getters!();
 
     /// Executes a plain command through this camera's shared owner.
     ///
@@ -1176,7 +1010,7 @@ mod tests {
             &mut self,
             dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<crate::transport::ReceiveOutcome, Error> {
             self.inner.recv_into_with_timeout(dst, timeout)
         }
 
@@ -1218,15 +1052,11 @@ mod tests {
     }
 
     fn partial_motion_core(session: &Session) -> BlockingCameraCore {
-        BlockingCameraCore {
-            owner: session.owner.clone(),
-            target: CameraId::CAMERA_1,
-            profile: session
-                .config
-                .profile_arc(CameraId::CAMERA_1)
-                .expect("registered partial motion profile"),
-            class: ClassSelection::Request,
-        }
+        let profile = session
+            .config
+            .registered_profile(CameraId::CAMERA_1)
+            .expect("registered partial motion profile");
+        session.core(CameraId::CAMERA_1, profile)
     }
 
     /// Two views taken from the same session drive its one owned transport,
@@ -1261,6 +1091,44 @@ mod tests {
             "both views wrote their zoom stop through the one owned transport"
         );
         session.shutdown().unwrap();
+    }
+
+    /// Issue #805: an operation's `Debug` output is its identity only, the
+    /// same on both facades (the async facade used to print its receipt).
+    #[test]
+    fn operation_debug_shows_only_its_identity() {
+        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let session = Session::open(
+            transport,
+            SessionConfig::new(partial_motion_profile(true, false)),
+        )
+        .expect("zoom session");
+        let mut operation = partial_motion_core(&session)
+            .submit::<completion::AppliedOnly, _>(&crate::request::builtin::ZoomStop)
+            .expect("admitted");
+        assert_eq!(
+            format!("{operation:?}"),
+            format!("Operation {{ id: {:?} }}", operation.id())
+        );
+        operation.applied().expect("applied");
+        session.shutdown().expect("session shutdown");
+    }
+
+    /// Issue #805: tuning is validated once, when the session opens, before
+    /// any write: an open that would send the Sony RESET writes nothing.
+    #[test]
+    fn session_open_rejects_invalid_tuning_before_any_write() {
+        let transport = ScriptedBlockingTransport::new([]);
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true)
+            .with_tuning(OperationalTuning::new().maximum_command_sockets(u8::MAX));
+        assert!(matches!(
+            Session::open(transport, config),
+            Err(Error::InvalidRequest(_) | Error::InvalidParameter { .. })
+        ));
+        assert!(probe.sent().is_empty());
     }
 
     #[test]

@@ -5,10 +5,7 @@
 
 use std::future::Future;
 
-use crate::{
-    transport::{datagram::exact_fill_outcome, ReceiveOutcome},
-    Error,
-};
+use crate::{transport::ReceiveOutcome, Error};
 
 /// Trait abstracting async read operations across different runtimes.
 ///
@@ -58,29 +55,17 @@ pub trait AsyncDatagram: Send + Sync {
     /// Returns the number of bytes written on success.
     fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send;
 
-    /// Receive data from the socket.
-    ///
-    /// Returns the number of bytes read on success.
-    fn recv(&self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send;
-
     /// Receive one datagram with its truncation status.
     ///
-    /// This is the metadata-aware companion to [`AsyncDatagram::recv`]. The
-    /// default cannot observe truncation, so it reports a buffer-filling
-    /// receive as [`ReceiveOutcome::PossiblyTruncated`] (see
-    /// [`crate::transport::datagram`]). Implementations backed by a runtime or
-    /// OS API that exposes truncation must override this method so an
-    /// exact-size datagram can remain valid.
-    fn recv_with_outcome<'a>(
+    /// Report [`ReceiveOutcome::complete`] only when the whole datagram
+    /// fitted in `buf`, [`ReceiveOutcome::truncated`] when the runtime or OS
+    /// reported a discarded tail, and [`ReceiveOutcome::possibly_truncated`]
+    /// when `buf` filled and truncation cannot be observed (see
+    /// [`crate::transport::datagram`]).
+    fn recv<'a>(
         &'a self,
         buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-        async move {
-            let capacity = buf.len();
-            let bytes = self.recv(buf).await?;
-            Ok(exact_fill_outcome(bytes, capacity))
-        }
-    }
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send;
 }
 
 /// Unified helper for writing data with proper flushing.

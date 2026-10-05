@@ -20,8 +20,8 @@ mod async_standard {
         profiles::{PtzOpticsG2, SonyFR7},
         runtime::Runtime,
         transport::{
-            AddressingMode, AsyncTransport, BufferConfig, HasTransportConfig, SendSemantics,
-            TransportConfig,
+            AddressingMode, AsyncTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
+            SendSemantics, TransportConfig,
         },
         Error, Executor,
     };
@@ -68,7 +68,7 @@ mod async_standard {
         fn recv_into<'a>(
             &'a mut self,
             _dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             std::future::pending()
         }
 
@@ -200,7 +200,7 @@ mod async_standard {
                 .buffer_config,
             BufferConfig::for_raw_ip()
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let session = CameraConfig::<PtzOpticsG2>::udp("camera.local")
@@ -213,7 +213,7 @@ mod async_standard {
                 .buffer_config,
             BufferConfig::for_udp()
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let session = CameraConfig::<SonyFR7>::udp("camera.local")
@@ -221,7 +221,7 @@ mod async_standard {
             .await
             .expect("fake Sony UDP owner session");
         assert_one_call(&calls, Kind::Udp, "camera.local:52381");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -238,7 +238,7 @@ mod async_standard {
             .await
             .expect("fake bracketed IPv6 owner session");
         assert_one_call(&calls, Kind::Tcp, "[2001:db8::1]:5678");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let error = CameraConfig::<PtzOpticsG2>::tcp("2001:db8::1")
@@ -297,8 +297,8 @@ mod async_standard {
             config.write_timeout = Duration::from_millis(23);
             config.buffer_config = {
                 let mut config = BufferConfig::default();
-                config.recv_buffer_size = 11;
-                config.max_buffer_size = 17;
+                config.recv_buffer_size = 31;
+                config.max_buffer_size = 37;
                 config
             };
             config.tcp_nodelay = Some(false);
@@ -317,7 +317,7 @@ mod async_standard {
         assert_eq!(call.config.buffer_config, transport_config.buffer_config);
         assert_eq!(call.config.tcp_nodelay, Some(false));
         assert_eq!(call.config.tcp_keepalive, transport_config.tcp_keepalive);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let udp_config = {
             let mut config = TransportConfig::default();
@@ -355,7 +355,7 @@ mod async_standard {
         assert_eq!(call.config.buffer_config, udp_config.buffer_config);
         assert_eq!(call.config.ttl, Some(59));
         assert_eq!(call.config.addressing, AddressingMode::Ip);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -374,7 +374,16 @@ mod async_standard {
                     config.max_buffer_size = 64;
                     config
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = BufferConfig::MIN_RECV_BUFFER_SIZE - 1;
+                    config.max_buffer_size = 64;
+                    config
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
                 {
@@ -432,7 +441,7 @@ mod async_standard {
         .await
         .expect("runtime-selected TCP transport");
         assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let session = Connect::open::<PtzOpticsG2, _>(
             grafton_visca::camera::TransportOptions::udp("camera.local"),
@@ -441,7 +450,7 @@ mod async_standard {
         .await
         .expect("runtime-selected UDP transport");
         assert_one_call(&calls, Kind::Udp, "camera.local:1259");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let error = Connect::open::<SonyFR7, _>(
             grafton_visca::camera::TransportOptions::tcp("camera.local"),
@@ -489,8 +498,8 @@ mod blocking_standard {
         command::CommandKind,
         profiles::PtzOpticsG2,
         transport::{
-            AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, SendSemantics,
-            TransportConfig,
+            AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
+            SendSemantics, TransportConfig,
         },
         CameraId, Error, SessionConfig,
     };
@@ -523,10 +532,9 @@ mod blocking_standard {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {

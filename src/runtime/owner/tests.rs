@@ -335,6 +335,18 @@ fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
         Some(known),
         "a malformed clear must not replace the known corner"
     );
+
+    // A limit clear is local to one corner like a limit set; one that names
+    // no corner is malformed, not a whole-key clear.
+    cache.apply(
+        AppliedStateProjection::clear(WriteOnlyState::PanTiltLimits),
+        1,
+    );
+    assert_eq!(
+        cache.get(WriteOnlyState::PanTiltLimits),
+        Some(known),
+        "a clear that names no corner must not replace the known corner"
+    );
 }
 
 /// Issue #571: the counters a field debugging session reaches for first.

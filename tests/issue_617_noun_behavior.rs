@@ -100,7 +100,9 @@ mod blocking_surface {
         },
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, UnitInterval},
         Error, ZoomDomain,
@@ -183,10 +185,9 @@ mod blocking_surface {
             &mut self,
             destination: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            destination[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, destination))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -535,15 +536,14 @@ mod async_surface {
         profile::ProfileSpec,
         profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, UnitInterval},
         Error, Result, Session, SessionConfig, TokioRuntime, ZoomDomain,
     };
 
-    #[cfg(feature = "dyn-api")]
-    use grafton_visca::dynapi::DynSessionCamera;
     #[cfg(feature = "dyn-api")]
     use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
 
@@ -627,15 +627,14 @@ mod async_surface {
         fn recv_into<'a>(
             &'a mut self,
             destination: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             let responses = self.responses.clone();
             async move {
                 let response = responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::connection_closed(None))?;
-                destination[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
+                Ok(ReceiveOutcome::copy_message(&response, destination))
             }
         }
 
@@ -723,7 +722,7 @@ mod async_surface {
         camera.menu().cancel().await.expect("menu cancel");
         assert_eq!(one_frame(&writes), MENU_CANCEL);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -744,7 +743,7 @@ mod async_surface {
         assert_eq!(one_frame(&writes), TALLY_GREEN_ON);
         camera.tally().green_off().await.expect("green tally off");
         assert_eq!(one_frame(&writes), TALLY_GREEN_OFF);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -798,7 +797,7 @@ mod async_surface {
             .expect("combined target applied");
         assert_eq!(one_frame(&writes), ZOOM_NORMALIZED_COMBINED_HALF);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -831,7 +830,7 @@ mod async_surface {
             .expect("BRC-300 relative applied");
         assert_eq!(one_frame(&writes), BRC300_RELATIVE_FASTEST);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -849,7 +848,7 @@ mod async_surface {
         assert!(!camera.menu().status().await.expect("menu inquiry"));
         assert_eq!(one_frame(&writes), MENU_STATUS_INQUIRY);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -878,7 +877,7 @@ mod async_surface {
             "rejected direct exposure-mode command must not reach the transport"
         );
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -907,7 +906,7 @@ mod async_surface {
             "rejected direct exposure-mode inquiry must not reach the transport"
         );
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -936,7 +935,7 @@ mod async_surface {
             "rejected direct iris control-status inquiry must not reach the transport"
         );
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "dyn-api")]
@@ -948,7 +947,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let error = camera
             .zoom()
             .set_digital_zoom(true)
@@ -962,7 +961,7 @@ mod async_surface {
             }
         ));
         assert!(writes.lock().expect("writes lock").is_empty());
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     /// PTZOptics G2 answers `81 09 00 02 FF` with an unsourced 2-byte payload,
@@ -977,7 +976,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         let error = camera
             .system()
@@ -995,7 +994,7 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "a refused version inquiry must not reach the transport"
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "dyn-api")]
@@ -1007,7 +1006,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         let error = camera
             .focus()
@@ -1029,7 +1028,7 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "a refused focus-zone value must not reach the transport"
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "dyn-api")]
@@ -1041,7 +1040,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         let error = camera
             .exposure()
@@ -1059,7 +1058,7 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "a rejected flicker inquiry must not reach the transport"
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "dyn-api")]
@@ -1071,7 +1070,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         let error = camera
             .exposure()
@@ -1089,7 +1088,7 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "a rejected dynamic iris control-status inquiry must not reach the transport"
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     /// Unsupported image rows remain unavailable whether a profile lacks the
@@ -1114,7 +1113,7 @@ mod async_surface {
         ] {
             let (transport, writes) = ProbeTransport::new();
             let session = open_session(transport, profile).await;
-            let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+            let camera = session.camera_dyn().expect("dynamic camera");
 
             for error in [
                 camera
@@ -1142,7 +1141,7 @@ mod async_surface {
                 writes.lock().expect("writes lock").is_empty(),
                 "refused {label} image rows must not reach the wire",
             );
-            session.shutdown().await.expect("shutdown");
+            session.shutdown().expect("shutdown");
         }
     }
 
@@ -1155,7 +1154,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         assert!(camera.image().backlight().await.expect("backlight inquiry"));
         assert_eq!(one_frame(&writes), BACKLIGHT_INQUIRY);
@@ -1166,7 +1165,7 @@ mod async_surface {
             .expect("backlight on");
         assert_eq!(one_frame(&writes), BACKLIGHT_ON);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     /// The FR7 exposes only the source-backed red/green tally rows.  Its
@@ -1181,7 +1180,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         for result in [
             camera.tally().bright_lo().await,
@@ -1201,7 +1200,7 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "rejected FR7 tally rows must not reach the wire",
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     /// The erased tally noun rejects both the Sony family and the independently
@@ -1215,7 +1214,7 @@ mod async_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         // The tally-mode opcodes are refused, not admitted through a vendor
         // fallback; the red row is independently refused as well.
@@ -1234,6 +1233,6 @@ mod async_surface {
             writes.lock().expect("writes lock").is_empty(),
             "refused tally rows must not reach the wire",
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

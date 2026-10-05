@@ -27,7 +27,8 @@ mod blocking_recovery {
         command::CommandKind,
         state_cache::StateEntry,
         transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error, ErrorKind, StateKey,
     };
@@ -106,14 +107,13 @@ mod blocking_recovery {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             if self.close_after_write {
                 // A zero-byte read is the peer closing the connection.
-                return Ok(0);
+                return Ok(ReceiveOutcome::complete(0));
             }
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -259,7 +259,8 @@ mod tokio_recovery {
     use grafton_visca::{
         runtime::TokioRuntime,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error, Session,
     };
@@ -328,15 +329,14 @@ mod tokio_recovery {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let bytes = self
                     .responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::RuntimeShutdown)?;
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
             }
         }
 
@@ -402,7 +402,7 @@ mod tokio_recovery {
             .multicast_on()
             .await
             .expect("the rebuilt session drives a command through to completion");
-        rebuilt.shutdown().await.expect("shutdown");
+        rebuilt.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -423,7 +423,7 @@ mod tokio_recovery {
             .await
             .expect("first command");
 
-        session.shutdown().await.expect("deliberate shutdown");
+        session.shutdown().expect("deliberate shutdown");
 
         let stopped = camera
             .advanced()

@@ -17,7 +17,8 @@ use grafton_visca::{
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     Error,
 };
@@ -64,13 +65,12 @@ impl BlockingTransport for BurstTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let Some(chunk) = self.pending.pop_front() else {
             std::thread::sleep(timeout.min(Duration::from_millis(5)));
             return Err(Error::io_timeout());
         };
-        dst[..chunk.len()].copy_from_slice(&chunk);
-        Ok(chunk.len())
+        Ok(ReceiveOutcome::copy_message(&chunk, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

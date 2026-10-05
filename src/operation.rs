@@ -34,7 +34,7 @@ use crate::{
 /// observation and nothing else. The owner keeps the protocol lifecycle,
 /// never reads a dropped handle as cancellation, and no STOP is emitted, so
 /// an early `?` return or a panic unwinding past a live handle leaves physical
-/// movement running until something ends it. This matches 1.x.
+/// movement running until something ends it.
 ///
 /// To bound movement by a scope, write a small guard whose own `Drop` submits
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
@@ -44,12 +44,20 @@ use crate::{
 /// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
 /// prove motion ended.
 #[must_use = "await, cancel, or explicitly detach this operation"]
-#[derive(Debug)]
 pub struct Operation<K>
 where
     K: completion::Kind,
 {
     receipt: AsyncOperationReceipt<K>,
+}
+
+impl<K> std::fmt::Debug for Operation<K>
+where
+    K: completion::Kind,
+{
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.receipt.fmt_public_handle(formatter)
+    }
 }
 
 impl<K> Operation<K>
@@ -102,8 +110,9 @@ where
     ///
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
-    /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
-    /// the only built-in profile in that position — the owner refuses with
+    /// standard VISCA socket-cancel command; without it — the built-in
+    /// PTZOptics profiles ([`PtzOpticsG2`], [`PtzOpticsG3`] and
+    /// [`PtzOptics30X`]) are in that position — the owner refuses with
     /// [`Error::NotSupported`] and leaves the original request scheduled,
     /// retryable, and able to complete. The handle is unaffected and can
     /// still wait for it. A refusal does not stop the camera; a moving axis
@@ -115,6 +124,8 @@ where
     /// own outcome.
     ///
     /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
+    /// [`PtzOpticsG3`]: crate::profiles::PtzOpticsG3
+    /// [`PtzOptics30X`]: crate::profiles::PtzOptics30X
     pub async fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
         self.receipt.cancel(None).await
     }

@@ -15,7 +15,7 @@ use crate::{
         builder::{AddressingMode, TransportConfig},
         connect::{connect_deadline, preflight, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
-        stream_read, BlockingTransport, HasTransportConfig,
+        stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -105,7 +105,7 @@ impl BlockingTransport for Tcp {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let read = read_once_bounded(
             &mut self.reader,
             arm_read,
@@ -113,7 +113,7 @@ impl BlockingTransport for Tcp {
             timeout,
             TimedIo::StreamSocketRead,
         )?;
-        stream_read(read, "peer closed connection")
+        stream_read(read, "peer closed connection").map(ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {

@@ -359,10 +359,12 @@ malformed, never `Unknown`. Variable data replies are reserved for socket 0
 with more than three bytes; the canonical three-byte `z0 50 FF` completion
 remains valid.
 
-UDP has an additional boundary check before this decode: a datagram that does
-not fit `recv_buffer_size` is discarded as `Error::ResponseTooLarge`. Its copied
-prefix is never treated as a complete frame, even when that prefix would itself
-be a valid ACK or completion.
+Datagram transports have an additional boundary check before this decode: every
+receive reports a `ReceiveOutcome`, and a datagram that is not complete (one the
+OS reported truncated, or one a custom transport could not prove fitted
+`recv_buffer_size`) is discarded as one malformed input on both facades. Its
+copied prefix is never treated as a complete frame, even when that prefix would
+itself be a valid ACK or completion.
 
 Decoding is classified by transport. On a byte stream, a frame that the framer
 has already delimited at its `FF` boundary but the strict decoder cannot
@@ -615,10 +617,11 @@ Every default keeps `max_buffer_size` at 8192. The two limits mean:
 - `recv_buffer_size` is the largest accepted reply frame — a raw VISCA frame
   including its terminator, a Sony header plus payload, or one UDP datagram —
   and the most bytes one transport read requests, so it is also the owner's
-  per-session read scratch. Lowering it below a profile's largest reply (16
-  bytes raw, 24 with a Sony header) turns that reply into
-  `Error::ResponseTooLarge`. An over-size datagram is rejected before framing
-  rather than silently truncated.
+  per-session read scratch. Validation requires at least
+  `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes: the largest VISCA reply, 16
+  bytes, behind Sony's 8-byte header), so every valid reply fits one read. An
+  over-size datagram is rejected before framing rather than silently
+  truncated.
 - `max_buffer_size` bounds the stream input carried from one read to the next:
   an incomplete frame, or complete frames the owner has not delivered yet. The
   framer always has room for one more full read on top of it, so a healthy

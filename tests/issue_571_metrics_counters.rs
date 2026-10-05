@@ -23,7 +23,8 @@ use grafton_visca::{
     profiles::{PtzOpticsG2, SonyFR7},
     request::builtin::ZoomDrive,
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     DiagnosticDeadline, DiagnosticEvent, Error, OperationalTuning, SessionConfig,
 };
@@ -54,7 +55,7 @@ impl BlockingTransport for SilentCamera {
         &mut self,
         _dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         // A read that found nothing, not a transport fault.
         Err(Error::io_timeout())
     }
@@ -94,8 +95,7 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
                 Duration::from_millis(2),
                 Duration::from_secs(30),
             ),
-    )
-    .expect("a caller-configured retry budget is valid operational tuning");
+    );
     Session::open(SilentCamera::default(), config).expect("session opens over a silent camera")
 }
 

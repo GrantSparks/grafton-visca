@@ -1309,7 +1309,7 @@ impl Session {
                     .filter(|(owner, _)| *owner == target)
                     .collect::<Vec<_>>(),
             );
-            if self.engine.ledger.lane_state(target, OwedLane::Command) == LaneState::Latched {
+            if self.engine.ledger.lane_state(target, Lane::Command) == LaneState::Latched {
                 self.coverage.latched_at_end += 1;
                 let owner = self
                     .engine

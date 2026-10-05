@@ -66,6 +66,18 @@ where
     pub(crate) fn id(&self) -> u64 {
         self.observation.id().get()
     }
+
+    /// The `Debug` output of both facades' public `Operation`: its identity
+    /// only, never owner or observation internals (#805).
+    pub(crate) fn fmt_public_handle(
+        &self,
+        formatter: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        formatter
+            .debug_struct("Operation")
+            .field("id", &crate::OperationId::from_raw(self.id()))
+            .finish()
+    }
 }
 
 /// What ended one wait for an observation slot.
@@ -95,24 +107,12 @@ impl ObservationWake {
         deadline: Instant,
     ) -> Result<RuntimeOutcome, Error> {
         match self {
-            Self::Terminal(Some(outcome)) => {
-                if outcome.at <= deadline {
-                    Ok(outcome.value)
-                } else {
-                    Err(super::observation_timeout(core.id))
-                }
-            }
+            Self::Terminal(Some(outcome)) => core.conclude(outcome, deadline),
             Self::Terminal(None) | Self::OwnerGone => core
-                .completion
-                .try_observed()
-                .filter(|event| event.at <= deadline)
-                .map(|event| event.value)
+                .observed_within(deadline)
                 .ok_or_else(|| owner.disconnected_error()),
             Self::Deadline => core
-                .completion
-                .try_observed()
-                .filter(|event| event.at <= deadline)
-                .map(|event| event.value)
+                .observed_within(deadline)
                 .ok_or_else(|| super::observation_timeout(core.id)),
             Self::Cancellation(_) => Err(Error::InvalidState(
                 "a receipt without a cancellation slot observed one".into(),
@@ -178,7 +178,7 @@ where
     ) -> ControlFlow<Result<T, Error>> {
         match wake {
             ObservationWake::Terminal(Some(outcome)) => {
-                let late = outcome.at > self.deadline;
+                let late = !outcome.within(self.deadline);
                 self.observation.record_terminal(outcome);
                 if late {
                     return ControlFlow::Break(
@@ -188,7 +188,7 @@ where
                 }
             }
             ObservationWake::Cancellation(Some(error)) => {
-                let late = error.at > self.deadline;
+                let late = !error.within(self.deadline);
                 self.observation.record_cancellation_failure(error);
                 if late {
                     return ControlFlow::Break(

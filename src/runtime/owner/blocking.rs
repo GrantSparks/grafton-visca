@@ -23,26 +23,20 @@
 
 use std::{
     collections::VecDeque,
-    ops::ControlFlow,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use crate::{completion, CancellationOutcome, Error};
+use crate::Error;
 
-use super::boundary::{CancellationBoundary, ControlBoundary, OwnerHandleCore};
-use super::receipt::{
-    observer_deadline, position_poll, settlement_budget, CommandReceipt, InquiryReceipt,
-    ObservationWake, OperationReceipt, OperationWait, PositionPoll,
-};
+use super::boundary::OwnerHandleCore;
+use super::receipt::{ObservationWake, OperationReceipt};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 use super::{
-    normalize_command_outcome, normalize_inquiry_outcome, CancellationObserver,
-    CancellationRequest, DiagnosticSubscription, OperationObservation, OwnerBuffers,
-    OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState, ReceiptCore, RetainedStreamInput,
-    RuntimeOutcome, RuntimeRequest, TerminalObserver, TransmissionMeta, WireWrite,
+    CancellationObserver, OwnerBuffers, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
+    RetainedStreamInput, TerminalObserver, TransmissionMeta, WireWrite,
 };
 use crate::runtime::engine::Effect;
 
@@ -278,17 +272,8 @@ impl BlockingOwnerWorker {
                 Ok(write) => driver.write(write),
                 Err(error) => Err(error),
             };
-            match turn {
-                Some(turn) => {
-                    self.core
-                        .finish_transmit_in_turn(turn, &staged, result, &mut effects);
-                }
-                None => {
-                    let finished_at = Instant::now();
-                    self.core
-                        .finish_transmit(&staged, result, finished_at, &mut effects);
-                }
-            }
+            self.core
+                .finish_transmit(turn, &staged, result, Instant::now(), &mut effects);
         }
     }
 }
@@ -408,8 +393,13 @@ impl BlockingOwnerHandle {
         })
     }
 
-    pub(crate) fn deadline_after(&self, timeout: Duration) -> Result<Instant, Error> {
-        observer_deadline(Instant::now(), timeout)
+    /// The owner clock every handle wait is measured against.
+    pub(crate) fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn sleep(&self, duration: Duration) {
+        thread::sleep(duration);
     }
 
     /// A wait for one boundary reply, or for the worker's disappearance.
@@ -436,246 +426,72 @@ impl BlockingOwnerHandle {
             })
     }
 
-    /// Send one control request and wait for its answer.
-    fn control_request<T>(
-        &self,
-        request: impl FnOnce(flume::Sender<T>) -> ControlBoundary,
-    ) -> Result<T, Error> {
-        let (reply, receiver) = flume::bounded(1);
-        self.core
-            .control
-            .send(request(reply))
-            .map_err(|_| self.core.disconnected_error())?;
-        self.reply(&receiver).wait()
+    fn boundary_reply<T>(&self, reply: &flume::Receiver<T>) -> Result<T, Error> {
+        self.reply(reply).wait()
     }
 
-    /// Class-specific typed admission seam for ordinary commands.
-    pub(crate) fn submit_command(
+    /// [`Self::boundary_reply`], or `None` once `deadline` passes first.
+    fn boundary_reply_until<T>(
         &self,
-        prepared: crate::prepared::PreparedCommand,
-    ) -> Result<CommandReceipt<Self>, Error> {
-        prepared.admit_with(|request, timeout| {
-            self.submit_with_timeout(request, timeout)
-                .map(|core| CommandReceipt {
-                    core,
-                    owner: self.clone(),
-                })
-        })
-    }
-
-    /// Class-specific typed admission seam retaining the external decoder.
-    pub(crate) fn submit_inquiry<R>(
-        &self,
-        prepared: crate::prepared::PreparedInquiry<R>,
-    ) -> Result<InquiryReceipt<R, Self>, Error> {
-        prepared.admit_with(|request, decoder, timeout| {
-            self.submit_with_timeout(request, timeout)
-                .map(|core| InquiryReceipt {
-                    core,
-                    decoder,
-                    owner: self.clone(),
-                })
-        })
-    }
-
-    fn submit_inquiry_until<R>(
-        &self,
-        prepared: crate::prepared::PreparedInquiry<R>,
+        reply: &flume::Receiver<T>,
         deadline: Instant,
-    ) -> Result<InquiryReceipt<R, Self>, Error> {
-        prepared.admit_with(|request, decoder, timeout| {
-            self.submit_with_timeout_until(request, timeout, deadline)
-                .map(|core| InquiryReceipt {
-                    core,
-                    decoder,
-                    owner: self.clone(),
-                })
-        })
+    ) -> Option<Result<T, Error>> {
+        self.reply(reply).wait_deadline(deadline).ok()
     }
 
-    /// Class-specific typed admission seam retaining operation semantics.
-    pub(crate) fn submit_operation<K>(
-        &self,
-        prepared: crate::prepared::PreparedOperation<K>,
-    ) -> Result<OperationReceipt<K, Self>, Error>
-    where
-        K: completion::Kind,
-    {
-        prepared.admit_with(|request, affected_axes, settlement, timeouts| {
-            self.submit_with_timeout(request, timeouts.applied)
-                .map(|core| OperationReceipt {
-                    observation: OperationObservation::new(core, timeouts.cancellation),
-                    affected_axes,
-                    settlement,
-                    owner: self.clone(),
-                })
-        })
+    fn send_lane<T>(&self, lane: &flume::Sender<T>, message: T) -> Result<(), Error> {
+        lane.send(message)
+            .map_err(|_| self.core.disconnected_error())
     }
 
-    /// Fails immediately when shared boundary/engine capacity is exhausted,
-    /// then returns as soon as the worker admits the request. Admission is
-    /// the success boundary: a transport write failure is reported through
-    /// the receipt's outcome (D24).
-    fn submit_with_timeout(
+    /// [`Self::send_lane`], or `None` once a full lane outlasts `deadline`.
+    fn send_lane_until<T>(
         &self,
-        request: RuntimeRequest,
-        configured_timeout: Duration,
-    ) -> Result<ReceiptCore, Error> {
-        let target = request.context().target;
-        let (completion, admission) = self.core.enqueue_admission(request, None)?;
-        let id = self.reply(&admission).wait()??;
-        Ok(ReceiptCore::admitted(
-            id,
-            target,
-            completion,
-            configured_timeout,
-        ))
-    }
-
-    fn submit_with_timeout_until(
-        &self,
-        request: RuntimeRequest,
-        configured_timeout: Duration,
+        lane: &flume::Sender<T>,
+        message: T,
         deadline: Instant,
-    ) -> Result<ReceiptCore, Error> {
-        let target = request.context().target;
-        let (completion, admission, validity) =
-            self.core
-                .enqueue_admission_until(request, deadline, Instant::now())?;
-        let reply = match self.reply(&admission).wait_deadline(deadline) {
-            Ok(reply) => reply,
-            Err(flume::select::SelectError::Timeout) => {
-                self.core.expire_admission(&validity)?;
-                // The worker claimed the boundary first, so its reply is
-                // authoritative; the caller observes it and may later detach
-                // its observer by the ordinary receipt path.
-                self.reply(&admission).wait()
-            }
-        };
-        let id = reply??;
-        Ok(ReceiptCore::admitted(
-            id,
-            target,
-            completion,
-            configured_timeout,
-        ))
-    }
-
-    pub(crate) fn halt(
-        &self,
-        prepared: crate::prepared::PreparedHalt,
-        started: Instant,
-    ) -> Result<crate::HaltReport, Error> {
-        let deadline = observer_deadline(started, prepared.budget)?;
-        let validity = super::boundary::AdmissionValidity::until(deadline);
-        let (reply, receiver) = flume::bounded(1);
-        let boundary = CancellationBoundary::Halt(super::halt::HaltBoundary {
-            prepared,
-            deadline,
-            validity: validity.clone(),
-            reply,
-        });
-        match self.core.cancellations.send_deadline(boundary, deadline) {
-            Ok(()) => {}
-            Err(flume::SendTimeoutError::Timeout(_)) => return Err(Error::admission_timeout()),
+    ) -> Option<Result<(), Error>> {
+        match lane.send_deadline(message, deadline) {
+            Ok(()) => Some(Ok(())),
+            Err(flume::SendTimeoutError::Timeout(_)) => None,
             Err(flume::SendTimeoutError::Disconnected(_)) => {
-                return Err(self.core.disconnected_error())
+                Some(Err(self.core.disconnected_error()))
             }
         }
-        let receipt = match self.reply(&receiver).wait_deadline(deadline) {
-            Ok(answer) => answer??,
-            Err(flume::select::SelectError::Timeout) => {
-                if validity.expire_before_admission() {
-                    return Err(Error::admission_timeout());
-                }
-                self.reply(&receiver).wait()??
-            }
-        };
-        let outcomes = receipt.slots.map(|slot| match slot {
-            None => crate::HaltOutcome::Unsupported,
-            Some(slot) => {
-                let result = slot.and_then(|core| {
-                    wait_core_until(&core, self, receipt.deadline)
-                        .and_then(normalize_command_outcome)
-                });
-                match result {
-                    Ok(()) => crate::HaltOutcome::Applied,
-                    Err(error) => crate::HaltOutcome::Failed(error),
-                }
-            }
-        });
-        Ok(super::halt::report(outcomes))
     }
 
-    /// Deliver one cancellation request to the worker and return its answer,
-    /// all before `deadline` (#777). A full cancellation lane is
-    /// backpressure; a closed one is the session's terminal error.
-    fn request_cancellation(
+    /// Waits for the next event on an operation's observation slots: the
+    /// terminal slot, the cancellation slot, worker liveness or the observer
+    /// deadline. Each arm only reads a slot, and the caller records every
+    /// wake before re-reading the verdict, so the order in which
+    /// simultaneous wakes are reported does not matter.
+    fn next_observation(
         &self,
-        request: CancellationRequest,
+        terminal: &TerminalObserver,
+        cancellation: Option<&CancellationObserver>,
         deadline: Instant,
-    ) -> Result<(), Error> {
-        let id = request.id;
-        let (reply, receiver) = flume::bounded(1);
-        match self
-            .core
-            .cancellations
-            .send_deadline(CancellationBoundary::Cancel { request, reply }, deadline)
-        {
-            Ok(()) => {}
-            Err(flume::SendTimeoutError::Timeout(_)) => {
-                return Err(super::observation_timeout(id));
-            }
-            Err(flume::SendTimeoutError::Disconnected(_)) => {
-                return Err(self.core.disconnected_error());
-            }
-        }
-        match self.reply(&receiver).wait_deadline(deadline) {
-            Ok(answer) => answer?,
-            Err(flume::select::SelectError::Timeout) => Err(super::observation_timeout(id)),
-        }
-    }
-
-    /// Reads scalar owner metrics through a dedicated bounded control request.
-    /// This path never clones the diagnostic ring.
-    pub(crate) fn metrics(&self) -> Result<crate::observability::MetricsSnapshot, Error> {
-        self.control_request(ControlBoundary::Metrics)?
-    }
-
-    pub(crate) fn subscribe_diagnostics(
-        &self,
-        capacity: usize,
-    ) -> Result<DiagnosticSubscription, Error> {
-        self.control_request(|reply| ControlBoundary::SubscribeDiagnostics { capacity, reply })?
-    }
-
-    /// Installs new session tuning through the owner's control boundary (#631).
-    ///
-    /// The worker applies the update on its own turn, so the write is ordered
-    /// against every other boundary message and against the scheduler itself,
-    /// and this call returns once the owner has applied it.
-    pub(crate) fn reconfigure(
-        &self,
-        validated_tuning: Result<crate::OperationalTuning, Error>,
-    ) -> Result<(), Error> {
-        self.control_request(|reply| ControlBoundary::Reconfigure {
-            validated_tuning: Box::new(validated_tuning),
-            reply,
-        })?
-    }
-
-    pub(crate) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
-        self.core.state_cache(target)
-    }
-
-    /// Reads the tuning the owner is currently preparing requests under.
-    pub(crate) fn tuning(&self) -> crate::OperationalTuning {
-        self.core.tuning()
-    }
-
-    /// Coalesced idempotent shutdown; see [`OwnerHandleCore::shutdown`].
-    pub(crate) fn shutdown(&self) -> Result<(), Error> {
-        self.core.shutdown()
+    ) -> ObservationWake {
+        let selector = flume::Selector::new()
+            .recv(terminal.receiver(), |outcome| {
+                ObservationWake::Terminal(
+                    resolve_selected_receive(terminal.receiver(), outcome).ok(),
+                )
+            })
+            // Nothing is ever sent on this lane. It fires when the worker has
+            // dropped its sender, including an unwind before it could publish
+            // a terminal owner error.
+            .recv(&self.core.actor_alive, |_| ObservationWake::OwnerGone);
+        let selector = match cancellation {
+            Some(observer) => selector.recv(observer.receiver(), |error| {
+                ObservationWake::Cancellation(
+                    resolve_selected_receive(observer.receiver(), error).ok(),
+                )
+            }),
+            None => selector,
+        };
+        selector
+            .wait_deadline(deadline)
+            .unwrap_or(ObservationWake::Deadline)
     }
 
     /// Request shutdown and wait for the worker to release its transport.
@@ -721,231 +537,11 @@ impl BlockingOwnerHandle {
 /// A blocking operation receipt, as the public blocking `Operation` holds it.
 pub(crate) type BlockingOperationReceipt<K> = OperationReceipt<K, BlockingOwnerHandle>;
 
-impl CommandReceipt<BlockingOwnerHandle> {
-    pub(crate) fn wait(self) -> Result<(), Error> {
-        let deadline = self.owner.deadline_after(self.core.configured_timeout())?;
-        wait_core_until(&self.core, &self.owner, deadline).and_then(normalize_command_outcome)
-    }
-}
-
-impl<T> InquiryReceipt<T, BlockingOwnerHandle> {
-    pub(crate) fn wait(self) -> Result<T, Error> {
-        let deadline = self.owner.deadline_after(self.core.configured_timeout())?;
-        self.wait_until(deadline)
-    }
-
-    fn wait_until(self, deadline: Instant) -> Result<T, Error> {
-        let outcome = wait_core_until(&self.core, &self.owner, deadline)?;
-        normalize_inquiry_outcome(outcome, &self.decoder)
-    }
-}
-
-impl<K> OperationReceipt<K, BlockingOwnerHandle>
-where
-    K: completion::Kind,
-{
-    /// Waits for application, within `timeout` or the configured observer
-    /// deadline.
-    pub(crate) fn applied(&mut self, timeout: Option<Duration>) -> Result<(), Error> {
-        let timeout = timeout.unwrap_or_else(|| self.observation.applied_timeout());
-        let deadline = self.owner.deadline_after(timeout)?;
-        self.applied_until(deadline)
-    }
-
-    fn applied_until(&mut self, deadline: Instant) -> Result<(), Error> {
-        observe_until(
-            &self.owner,
-            &mut self.observation,
-            deadline,
-            OperationObservation::applied,
-        )?
-    }
-
-    /// Cancels the operation and waits for the cancellation's conclusion,
-    /// within `timeout` or the configured cancellation deadline (#777).
-    ///
-    /// A known terminal outcome answers without sending anything. Otherwise
-    /// the handle's one cancellation intent is requested; a request for an
-    /// intent the owner already holds observes it instead of sending another.
-    /// A refusal leaves the operation running and this receipt intact.
-    pub(crate) fn cancel(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<CancellationOutcome, Error> {
-        let timeout = timeout.unwrap_or_else(|| self.observation.cancellation_timeout());
-        let deadline = self.owner.deadline_after(timeout)?;
-        if let Some(verdict) = self.observation.cancellation(deadline) {
-            return verdict;
-        }
-        let request = self.observation.cancellation_request();
-        if let Err(error) = self.owner.request_cancellation(request, deadline) {
-            // A terminal outcome that raced the refusal still decides.
-            return self
-                .observation
-                .cancellation(deadline)
-                .unwrap_or(Err(error));
-        }
-        observe_until(
-            &self.owner,
-            &mut self.observation,
-            deadline,
-            OperationObservation::cancellation,
-        )?
-    }
-}
-
-impl OperationReceipt<completion::Targeted, BlockingOwnerHandle> {
-    /// Waits for application and then the profile-selected settlement
-    /// condition, within `timeout` or the configured settlement budget.
-    ///
-    /// Application is cached, so a wait that times out during polling
-    /// restarts from it with a fresh two-sample proof.
-    pub(crate) fn settled(
-        &mut self,
-        timeout: Option<Duration>,
-    ) -> Result<crate::Settlement, Error> {
-        if let Some(cached) = self.observation.settled() {
-            return cached;
-        }
-        let budget = settlement_budget(&self.settlement, timeout)?;
-        let deadline = self.owner.deadline_after(budget)?;
-        self.applied_until(deadline)?;
-        if let Some(poll) = position_poll(&self.settlement, &self.observation, self.affected_axes)?
-        {
-            self.observation.check_settlement()?;
-            let result = poll_settlement(&self.owner, poll, deadline)
-                .map(|()| {
-                    crate::Settlement::observed_stable(poll.axes, poll.interval, poll.tolerance)
-                })
-                .map_err(|error| super::settlement_error(error, self.observation.id()));
-            self.observation.commit_settlement(result, true)
-        } else {
-            self.observation.commit_settlement(
-                Ok(crate::Settlement::profile_completion(self.affected_axes)),
-                false,
-            )
-        }
-    }
-}
-
-/// Proves settlement by position polling: one baseline snapshot, then
-/// snapshots every `interval` until the detector reports no movement, all
-/// before one absolute deadline. The worker keeps the session progressing
-/// between samples, so the caller only sleeps.
-fn poll_settlement(
-    owner: &BlockingOwnerHandle,
-    poll: PositionPoll<'_>,
-    deadline: Instant,
-) -> Result<(), Error> {
-    let mut detector = crate::prepared::MotionDetector::new(poll.axes, poll.tolerance);
-    let baseline = sample_positions_blocking(owner, poll.queries, deadline)?;
-    if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-        return Err(Error::InvalidState(
-            "new movement detector rejected its baseline snapshot".into(),
-        ));
-    }
-    loop {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(Error::query_timeout());
-        }
-        thread::sleep(poll.interval.min(remaining));
-        ensure_before_deadline(deadline)?;
-        let snapshot = sample_positions_blocking(owner, poll.queries, deadline)?;
-        match detector.observe(snapshot)? {
-            crate::prepared::MotionState::Settled => return Ok(()),
-            crate::prepared::MotionState::Moving => {}
-            crate::prepared::MotionState::NeedSample => {
-                return Err(Error::InvalidState(
-                    "movement detector lost its baseline snapshot".into(),
-                ));
-            }
-        }
-    }
-}
-
-/// Samples exactly the prepared position inquiries before one absolute
-/// deadline. This helper is shared by targeted settlement and the standalone
-/// owner-backed motion facade.
-pub(crate) fn sample_positions_blocking(
-    owner: &BlockingOwnerHandle,
-    queries: &crate::prepared::PositionQueryPlan,
-    deadline: Instant,
-) -> Result<crate::prepared::PositionSnapshot, Error> {
-    let mut snapshot = crate::prepared::PositionSnapshot::default();
-    if let Some(query) = &queries.pan_tilt {
-        snapshot.pan_tilt = Some(sample(owner, query, deadline)?);
-    }
-    if let Some(query) = &queries.zoom {
-        snapshot.zoom = Some(sample(owner, query, deadline)?);
-    }
-    if let Some(query) = &queries.focus {
-        snapshot.focus = Some(sample(owner, query, deadline)?);
-    }
-    if let Some(query) = &queries.iris {
-        snapshot.iris = Some(sample(owner, query, deadline)?);
-    }
-    if let Some(query) = &queries.nd_filter {
-        snapshot.nd_filter = Some(sample(owner, query, deadline)?);
-    }
-    Ok(snapshot)
-}
-
-/// One position inquiry, admitted and answered strictly before `deadline`.
-fn sample<R>(
-    owner: &BlockingOwnerHandle,
-    query: &crate::prepared::PreparedInquiryTemplate<R>,
-    deadline: Instant,
-) -> Result<R, Error> {
-    let sample = || {
-        ensure_before_deadline(deadline)?;
-        let receipt = owner.submit_inquiry_until(query.instantiate(), deadline)?;
-        let value = receipt.wait_until(deadline)?;
-        ensure_before_deadline(deadline)?;
-        Ok(value)
-    };
-    sample().map_err(Error::into_query_timeout)
-}
-
-/// Rechecks the monotonic clock at every admission/sample boundary. In
-/// particular, equality with the deadline is already too late for another
-/// inquiry to be enqueued.
-pub(crate) fn ensure_before_deadline(deadline: Instant) -> Result<(), Error> {
-    if Instant::now() >= deadline {
-        Err(Error::query_timeout())
-    } else {
-        Ok(())
-    }
-}
-
-/// Waits for the next event on an operation's observation slots: the
-/// terminal slot, the cancellation slot, worker liveness or the observer
-/// deadline. Each arm only reads a slot, and the caller records every wake
-/// before re-reading the verdict, so the order in which simultaneous wakes
-/// are reported does not matter.
-fn next_observation(
-    owner: &BlockingOwnerHandle,
-    terminal: &TerminalObserver,
-    cancellation: Option<&CancellationObserver>,
-    deadline: Instant,
-) -> ObservationWake {
-    let selector = flume::Selector::new()
-        .recv(terminal.receiver(), |outcome| {
-            ObservationWake::Terminal(resolve_selected_receive(terminal.receiver(), outcome).ok())
-        })
-        // Nothing is ever sent on this lane. It fires when the worker has
-        // dropped its sender, including an unwind before it could publish a
-        // terminal owner error.
-        .recv(&owner.core.actor_alive, |_| ObservationWake::OwnerGone);
-    let selector = match cancellation {
-        Some(observer) => selector.recv(observer.receiver(), |error| {
-            ObservationWake::Cancellation(resolve_selected_receive(observer.receiver(), error).ok())
-        }),
-        None => selector,
-    };
-    selector
-        .wait_deadline(deadline)
-        .unwrap_or(ObservationWake::Deadline)
+super::handle::owner_handle_methods! {
+    handle: BlockingOwnerHandle,
+    async: [],
+    await: [],
+    block: [],
 }
 
 /// A selector can observe Empty, then a final send followed by disconnection,
@@ -960,43 +556,6 @@ fn resolve_selected_receive<T>(
             .try_recv()
             .map_err(|_| flume::RecvError::Disconnected)
     })
-}
-
-/// Waits until `verdict` can be read from an operation's observation state;
-/// see [`OperationWait`].
-fn observe_until<T>(
-    owner: &BlockingOwnerHandle,
-    observation: &mut OperationObservation,
-    deadline: Instant,
-    verdict: impl Fn(&mut OperationObservation, Instant) -> Option<T>,
-) -> Result<T, Error> {
-    let mut wait = OperationWait::new(observation, verdict, deadline);
-    loop {
-        if let Some(value) = wait.verdict() {
-            return Ok(value);
-        }
-        let (terminal, cancellation) = wait.slots();
-        let wake = next_observation(owner, terminal, cancellation, deadline);
-        if let ControlFlow::Break(verdict) = wait.absorb(wake, &owner.core) {
-            return verdict;
-        }
-    }
-}
-
-/// Waits for a command or inquiry receipt's terminal outcome.
-fn wait_core_until(
-    core: &ReceiptCore,
-    owner: &BlockingOwnerHandle,
-    deadline: Instant,
-) -> Result<RuntimeOutcome, Error> {
-    if let Some(outcome) = core.completion.try_observed() {
-        return if outcome.at <= deadline {
-            Ok(outcome.value)
-        } else {
-            Err(super::observation_timeout(core.id))
-        };
-    }
-    next_observation(owner, &core.completion, None, deadline).conclude(core, &owner.core, deadline)
 }
 
 #[cfg(test)]
