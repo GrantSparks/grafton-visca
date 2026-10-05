@@ -379,29 +379,13 @@ python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/
 bash .github/scripts/test-validate-change-record.sh
 ```
 
-For historical 1.x behavior decisions, add or update a direct v2 regression or
-wire/decode golden in the production owner, engine, or parser path and update
-`docs/behavioral_parity_1x.md` when the decision is useful to future
-maintainers. Those direct v2 tests and goldens are authoritative and the twelve
-historical families are enforced by the executable 1.x provenance corpus. From
-a full (non-shallow) clone, run:
-
-```bash
-bash .github/scripts/validate-behavioral-parity.sh
-```
-
-The gate reads the pinned 1.x source object and checks every current mapping
-against validator-owned source, exact libtest-path, command,
-envelope/profile/receipt pins. It removes comments and literals before checking
-code evidence, then proves each exact path reported `ok` rather than accepting
-Cargo's zero-match, ignored-test, or suffix-collision exit status. This is
-audited traceability, not a protocol semantic model, so review the pinned test's
-assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
-substitute. A new behavior needs direct review in the implementation, tests,
-and changelog; update the corpus and its validator-pinned family and target sets
-together when it changes the covered 1.x contract. CI independently pins the
-expected family count and publishes the required-family, manifest-row, and
-mapped-v2-test-row counts in its job summary.
+When a change alters observable protocol behavior, add or update a direct
+regression or wire/decode golden in the production owner, engine, or parser
+path, and record the caller-visible consequence in `docs/migration_2_0.md` and
+`CHANGELOG.md`. Review the new behavior against the implementation and its
+tests directly; do not preserve a behavior merely because an earlier release
+had it if that would make correlation, framing, cancellation, or physical
+safety less certain.
 
 ### Code Documentation
 
@@ -454,7 +438,6 @@ mapped-v2-test-row counts in its job summary.
    - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
    - [ ] Formatted: `cargo +nightly fmt --all -- --check`
    - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
-   - [ ] 1.x provenance corpus passes from full Git history: `bash .github/scripts/validate-behavioral-parity.sh`
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)
    - [ ] Safety documented for movement commands
