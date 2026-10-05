@@ -246,7 +246,7 @@ impl WireEncode for Shutter {
             Self::SetSpeed(speed) => {
                 let mut builder = ConstCommandBuilder::<9>::new();
                 builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(speed.value());
+                builder.push_nibble_pair_mut(u16::from(speed.value()));
                 builder
                     .with_camera_id(camera_id)
                     .terminate()
@@ -800,7 +800,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_01,
-        Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x01)),
         &[
             0x81,
             0x01,
@@ -817,7 +817,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_05,
-        Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x05)),
         &[
             0x81,
             0x01,
@@ -834,7 +834,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_10,
-        Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x10)),
         &[
             0x81,
             0x01,
@@ -851,7 +851,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_11,
-        Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x11)),
         &[
             0x81,
             0x01,
@@ -868,9 +868,7 @@ mod tests {
     #[test]
     fn test_shutter_valid_values() {
         for value in 0x01..=0x11 {
-            let speed =
-                ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let _cmd = Shutter::SetSpeed(speed);
+            let _cmd = Shutter::SetSpeed(ShutterSpeed::new(value));
         }
     }
 

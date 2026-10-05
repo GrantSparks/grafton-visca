@@ -3,11 +3,14 @@
 //! This module provides strongly-typed units for camera parameters,
 //! enabling intuitive and type-safe API usage.
 
-use std::{borrow::Cow, convert::TryFrom};
+use std::{borrow::Cow, convert::TryFrom, fmt, str::FromStr};
 
 use crate::{
     error::Error,
-    types::{ColorTemp, FocusPosition, IrisLevel, PanSpeed, ShutterSpeed, TiltSpeed, ZoomPosition},
+    types::{
+        BrightnessLevel, ColorTemp, ContrastLevel, FocusPosition, GainLevel, HueLevel, IrisLevel,
+        PanSpeed, SaturationLevel, SharpnessLevel, TiltSpeed, ZoomPosition,
+    },
 };
 
 /// Position in degrees.
@@ -40,21 +43,42 @@ pub struct Percentage<T = f32>(pub T);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Raw<T>(pub T);
 
-/// Magnification factor (e.g., 1.0x, 10.0x).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Magnification<T = f32>(pub T);
-
 /// Color temperature in Kelvin.
+///
+/// Converts to the wire value through [`ColorTemp::from_kelvin`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Kelvin(pub u16);
 
-/// Shutter speed as a fraction (numerator, denominator).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Exposure time as a fraction of a second, such as `1/60`.
+///
+/// A `Fraction` is always stored in lowest terms with a nonzero denominator,
+/// so equality is value equality: `1/60 == 2/120`. Its text form, used by
+/// `Display`, `FromStr`, and serde, is `numerator/denominator`.
+///
+/// Shutter codes are camera-specific, so a fraction is converted to a code
+/// only through a profile's shutter table:
+/// [`Capabilities::shutter_speed_for`](crate::capabilities::Capabilities::shutter_speed_for).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "String", into = "String"))]
 pub struct Fraction {
-    /// Numerator of the fraction (e.g., 1 for 1/60).
-    pub numerator: u32,
-    /// Denominator of the fraction (e.g., 60 for 1/60).
-    pub denominator: u32,
+    numerator: u32,
+    denominator: u32,
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for Fraction {
+    fn schema_name() -> Cow<'static, str> {
+        Cow::Borrowed("Fraction")
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "pattern": "^[0-9]+/[0-9]*[1-9][0-9]*$",
+            "description": "Exposure time as `numerator/denominator` seconds, such as `1/60`.",
+        })
+    }
 }
 
 impl<T> Degrees<T> {
@@ -258,38 +282,77 @@ impl<T> Raw<T> {
     }
 }
 
-impl<T> Magnification<T> {
-    /// Create a new magnification value.
-    pub fn new(value: T) -> Self {
-        Self(value)
-    }
-
-    /// Get the inner value.
-    #[must_use]
-    pub fn value(&self) -> &T {
-        &self.0
-    }
-
-    /// Consume and return the inner value.
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
 impl Fraction {
-    /// Create a new fraction.
+    /// Creates a fraction in lowest terms, or `None` for a zero denominator.
     #[must_use]
-    pub fn new(numerator: u32, denominator: u32) -> Self {
-        Self {
-            numerator,
-            denominator,
+    pub const fn new(numerator: u32, denominator: u32) -> Option<Self> {
+        if denominator == 0 {
+            return None;
         }
+        let (mut a, mut b) = (numerator, denominator);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        Some(Self {
+            numerator: numerator / a,
+            denominator: denominator / a,
+        })
+    }
+
+    /// Returns the numerator in lowest terms.
+    #[must_use]
+    pub const fn numerator(self) -> u32 {
+        self.numerator
+    }
+
+    /// Returns the nonzero denominator in lowest terms.
+    #[must_use]
+    pub const fn denominator(self) -> u32 {
+        self.denominator
     }
 
     /// Get the decimal value of the fraction.
     #[must_use]
     pub fn as_decimal(&self) -> f64 {
-        self.numerator as f64 / self.denominator as f64
+        f64::from(self.numerator) / f64::from(self.denominator)
+    }
+}
+
+impl fmt::Display for Fraction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}/{}", self.numerator, self.denominator)
+    }
+}
+
+impl FromStr for Fraction {
+    type Err = Error;
+
+    /// Parses `numerator/denominator`, such as `1/60`, into lowest terms. The
+    /// denominator must be nonzero.
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let invalid = || Error::InvalidParameter {
+            parameter: "fraction",
+            value: Cow::Owned(text.to_owned()),
+            reason: Cow::Borrowed("expected `numerator/denominator` with a nonzero denominator"),
+        };
+        let (numerator, denominator) = text.split_once('/').ok_or_else(invalid)?;
+        let numerator = numerator.trim().parse().map_err(|_| invalid())?;
+        let denominator = denominator.trim().parse().map_err(|_| invalid())?;
+        Self::new(numerator, denominator).ok_or_else(invalid)
+    }
+}
+
+impl TryFrom<String> for Fraction {
+    type Error = Error;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        text.parse()
+    }
+}
+
+impl From<Fraction> for String {
+    fn from(fraction: Fraction) -> Self {
+        fraction.to_string()
     }
 }
 
@@ -307,196 +370,58 @@ impl From<Raw<u16>> for FocusPosition {
     }
 }
 
-impl TryFrom<Percentage<f32>> for IrisLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "iris percentage")?;
-        let value = (percentage / 100.0 * f32::from(IrisLevel::MAX.value())).round() as u8;
-        IrisLevel::new(value)
-    }
-}
-
-impl TryFrom<Fraction> for ShutterSpeed {
-    type Error = Error;
-
-    fn try_from(fraction: Fraction) -> Result<Self, Self::Error> {
-        let value = match (fraction.numerator, fraction.denominator) {
-            (1, 60) => 0x07,    // Actual 1/60
-            (1, 100) => 0x08,   // Actual 1/100
-            (1, 125) => 0x09,   // Close to 1/120
-            (1, 250) => 0x0A,   // Actual 1/250
-            (1, 500) => 0x0B,   // Actual 1/500
-            (1, 1000) => 0x0C,  // Actual 1/1000
-            (1, 2000) => 0x0D,  // Actual 1/2000
-            (1, 4000) => 0x0E,  // Actual 1/4000
-            (1, 10000) => 0x11, // Actual 1/10000
-            _ => {
-                return Err(Error::InvalidParameter {
-                    parameter: "shutter_speed",
-                    value: {
-                        let num = fraction.numerator;
-                        let den = fraction.denominator;
-                        Cow::Owned(format!("{num}/{den}"))
-                    },
-                    reason: Cow::Borrowed("Unsupported shutter speed value"),
-                })
-            }
-        };
-        ShutterSpeed::new(value as u16)
-    }
-}
-
 impl TryFrom<Kelvin> for ColorTemp {
     type Error = Error;
 
+    /// Converts through [`ColorTemp::from_kelvin`], the crate's single Kelvin
+    /// mapping.
     fn try_from(kelvin: Kelvin) -> Result<Self, Self::Error> {
-        if kelvin.0 < 2000 || kelvin.0 > 8000 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "color temperature",
-                value: kelvin.0 as i32,
-                min: 2000,
-                max: 8000,
-            });
-        }
-        let normalized = (kelvin.0 - 2000) as f32 / 6000.0;
-        let value = (normalized * 0x37 as f32) as u16;
-        ColorTemp::new(value)
+        ColorTemp::from_kelvin(kelvin.0)
     }
 }
 
-impl TryFrom<Percentage<f32>> for PanSpeed {
-    type Error = Error;
+/// Implements the checked `Percentage` and `Raw` conversions for value types
+/// whose domain starts at zero.
+///
+/// A percentage scales linearly onto `0..=MAX` and rounds to the nearest
+/// value. A raw value is validated exactly like the type's `new`; neither
+/// conversion clamps (#828: the former infallible `From<Raw<_>>` silently
+/// mapped an out-of-range raw value to `MIN`).
+macro_rules! scaled_value_conversions {
+    ($($ty:ty: $raw:ty => $parameter:literal),* $(,)?) => {
+        $(
+            impl TryFrom<Percentage<f32>> for $ty {
+                type Error = Error;
 
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "pan speed percentage")?;
-        let value = (percentage / 100.0 * f32::from(PanSpeed::MAX.value())).round() as u8;
-        PanSpeed::new(value)
-    }
+                fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
+                    let percentage = validate_percentage(percentage.0, $parameter)?;
+                    let value =
+                        (percentage / 100.0 * f32::from(<$ty>::MAX.value())).round() as $raw;
+                    <$ty>::new(value)
+                }
+            }
+
+            impl TryFrom<Raw<$raw>> for $ty {
+                type Error = Error;
+
+                fn try_from(raw: Raw<$raw>) -> Result<Self, Self::Error> {
+                    <$ty>::new(raw.0)
+                }
+            }
+        )*
+    };
 }
 
-impl TryFrom<Percentage<f32>> for TiltSpeed {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "tilt speed percentage")?;
-        let value = (percentage / 100.0 * f32::from(TiltSpeed::MAX.value())).round() as u8;
-        TiltSpeed::new(value)
-    }
-}
-
-impl From<Raw<u8>> for PanSpeed {
-    fn from(raw: Raw<u8>) -> Self {
-        PanSpeed::new(raw.0).unwrap_or(PanSpeed::MIN)
-    }
-}
-
-impl From<Raw<u8>> for TiltSpeed {
-    fn from(raw: Raw<u8>) -> Self {
-        TiltSpeed::new(raw.0).unwrap_or(TiltSpeed::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::GainLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "gain percentage")?;
-        let value =
-            (percentage / 100.0 * f32::from(crate::types::GainLevel::MAX.value())).round() as u8;
-        crate::types::GainLevel::new(value)
-    }
-}
-
-impl From<Raw<u8>> for crate::types::GainLevel {
-    fn from(raw: Raw<u8>) -> Self {
-        crate::types::GainLevel::new(raw.0).unwrap_or(crate::types::GainLevel::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::SharpnessLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "sharpness percentage")?;
-        let value = (percentage / 100.0 * f32::from(crate::types::SharpnessLevel::MAX.value()))
-            .round() as u8;
-        crate::types::SharpnessLevel::new(value)
-    }
-}
-
-impl From<Raw<u8>> for crate::types::SharpnessLevel {
-    fn from(raw: Raw<u8>) -> Self {
-        crate::types::SharpnessLevel::new(raw.0).unwrap_or(crate::types::SharpnessLevel::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::BrightnessLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "brightness percentage")?;
-        let value = (percentage / 100.0 * f32::from(crate::types::BrightnessLevel::MAX.value()))
-            .round() as u16;
-        crate::types::BrightnessLevel::new(value)
-    }
-}
-
-impl From<Raw<u16>> for crate::types::BrightnessLevel {
-    fn from(raw: Raw<u16>) -> Self {
-        crate::types::BrightnessLevel::new(raw.0).unwrap_or(crate::types::BrightnessLevel::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::ContrastLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "contrast percentage")?;
-        let value = (percentage / 100.0 * f32::from(crate::types::ContrastLevel::MAX.value()))
-            .round() as u8;
-        crate::types::ContrastLevel::new(value)
-    }
-}
-
-impl From<Raw<u8>> for crate::types::ContrastLevel {
-    fn from(raw: Raw<u8>) -> Self {
-        crate::types::ContrastLevel::new(raw.0).unwrap_or(crate::types::ContrastLevel::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::SaturationLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "saturation percentage")?;
-        let value = (percentage / 100.0 * f32::from(crate::types::SaturationLevel::MAX.value()))
-            .round() as u8;
-        crate::types::SaturationLevel::new(value)
-    }
-}
-
-impl From<Raw<u8>> for crate::types::SaturationLevel {
-    fn from(raw: Raw<u8>) -> Self {
-        crate::types::SaturationLevel::new(raw.0).unwrap_or(crate::types::SaturationLevel::MIN)
-    }
-}
-
-impl TryFrom<Percentage<f32>> for crate::types::HueLevel {
-    type Error = Error;
-
-    fn try_from(percentage: Percentage<f32>) -> Result<Self, Self::Error> {
-        let percentage = validate_percentage(percentage.0, "hue percentage")?;
-        let value =
-            (percentage / 100.0 * f32::from(crate::types::HueLevel::MAX.value())).round() as u8;
-        crate::types::HueLevel::new(value)
-    }
-}
-
-impl From<Raw<u8>> for crate::types::HueLevel {
-    fn from(raw: Raw<u8>) -> Self {
-        crate::types::HueLevel::new(raw.0).unwrap_or(crate::types::HueLevel::MIN)
-    }
+scaled_value_conversions! {
+    IrisLevel: u8 => "iris percentage",
+    PanSpeed: u8 => "pan speed percentage",
+    TiltSpeed: u8 => "tilt speed percentage",
+    GainLevel: u8 => "gain percentage",
+    SharpnessLevel: u8 => "sharpness percentage",
+    BrightnessLevel: u16 => "brightness percentage",
+    ContrastLevel: u8 => "contrast percentage",
+    SaturationLevel: u8 => "saturation percentage",
+    HueLevel: u8 => "hue percentage",
 }
 
 #[cfg(test)]
@@ -527,14 +452,59 @@ mod tests {
 
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn test_shutter_fraction_conversion() {
-        let fraction = Fraction::new(1, 60);
-        let shutter = ShutterSpeed::try_from(fraction).unwrap();
-        assert_eq!(shutter.value(), 0x07);
+    fn fraction_is_stored_in_lowest_terms_so_equality_is_value_equality() {
+        let sixtieth: Fraction = "1/60".parse().unwrap();
+        assert_eq!(Some(sixtieth), Fraction::new(1, 60));
+        assert_eq!(sixtieth.to_string(), "1/60");
+        assert_eq!(Fraction::new(2, 120), Some(sixtieth));
+        assert_eq!("2/120".parse::<Fraction>().unwrap(), sixtieth);
+        assert_ne!(Fraction::new(1, 50), Some(sixtieth));
+        let zero = Fraction::new(0, 7).unwrap();
+        assert_eq!((zero.numerator(), zero.denominator()), (0, 1));
+        assert_eq!(Fraction::new(1, 0), None);
+        for invalid in ["", "1", "1/0", "a/60", "1/60/2", "-1/60"] {
+            assert!(invalid.parse::<Fraction>().is_err(), "accepted {invalid:?}");
+        }
+    }
 
-        let fraction = Fraction::new(1, 1000);
-        let shutter = ShutterSpeed::try_from(fraction).unwrap();
-        assert_eq!(shutter.value(), 0x0C);
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn kelvin_conversion_is_color_temp_from_kelvin_and_round_trips_every_step() {
+        for kelvin in (ColorTemp::MIN_KELVIN..=ColorTemp::MAX_KELVIN).step_by(100) {
+            let via_try_from = ColorTemp::try_from(Kelvin(kelvin)).unwrap();
+            assert_eq!(via_try_from, ColorTemp::from_kelvin(kelvin).unwrap());
+            assert_eq!(via_try_from.to_kelvin(), kelvin, "{kelvin} K");
+        }
+        // 3200 K previously encoded as 0x0B (3600 K) through `TryFrom<Kelvin>`.
+        assert_eq!(ColorTemp::try_from(Kelvin(3200)).unwrap().value(), 0x07);
+        assert_eq!(ColorTemp::from_kelvin(3249).unwrap().to_kelvin(), 3200);
+        assert_eq!(ColorTemp::from_kelvin(3250).unwrap().to_kelvin(), 3300);
+        for out_of_range in [0, 2000, 2499, 8001, u16::MAX] {
+            assert!(matches!(
+                ColorTemp::try_from(Kelvin(out_of_range)),
+                Err(Error::ParameterOutOfRange {
+                    parameter: "kelvin",
+                    min: 2500,
+                    max: 8000,
+                    ..
+                })
+            ));
+        }
+        assert_eq!(ColorTemp::MAX_KELVIN, 8000);
+    }
+
+    /// #828 (M5): `Raw(0xFF)` previously became pan speed 1 and `Raw(200)`
+    /// gain 0 through an infallible `From`.
+    #[test]
+    fn raw_conversions_validate_instead_of_clamping() {
+        assert_eq!(
+            PanSpeed::try_from(Raw(0x18_u8)).ok().map(PanSpeed::value),
+            Some(0x18)
+        );
+        assert!(PanSpeed::try_from(Raw(0x19_u8)).is_err());
+        assert!(GainLevel::try_from(Raw(0x10_u8)).is_err());
+        assert!(BrightnessLevel::try_from(Raw(0x12_u16)).is_err());
+        assert!(IrisLevel::try_from(Raw(0x1F_u8)).is_err());
     }
 
     #[test]
@@ -566,36 +536,33 @@ mod tests {
             ),
             (
                 "gain",
-                crate::types::GainLevel::try_from(percentage).map(|value| u16::from(value.value())),
-                u16::from(crate::types::GainLevel::MAX.value()),
+                GainLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(GainLevel::MAX.value()),
             ),
             (
                 "sharpness",
-                crate::types::SharpnessLevel::try_from(percentage)
-                    .map(|value| u16::from(value.value())),
-                u16::from(crate::types::SharpnessLevel::MAX.value()),
+                SharpnessLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(SharpnessLevel::MAX.value()),
             ),
             (
                 "brightness",
-                crate::types::BrightnessLevel::try_from(percentage).map(|value| value.value()),
-                crate::types::BrightnessLevel::MAX.value(),
+                BrightnessLevel::try_from(percentage).map(|value| value.value()),
+                BrightnessLevel::MAX.value(),
             ),
             (
                 "contrast",
-                crate::types::ContrastLevel::try_from(percentage)
-                    .map(|value| u16::from(value.value())),
-                u16::from(crate::types::ContrastLevel::MAX.value()),
+                ContrastLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(ContrastLevel::MAX.value()),
             ),
             (
                 "saturation",
-                crate::types::SaturationLevel::try_from(percentage)
-                    .map(|value| u16::from(value.value())),
-                u16::from(crate::types::SaturationLevel::MAX.value()),
+                SaturationLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(SaturationLevel::MAX.value()),
             ),
             (
                 "hue",
-                crate::types::HueLevel::try_from(percentage).map(|value| u16::from(value.value())),
-                u16::from(crate::types::HueLevel::MAX.value()),
+                HueLevel::try_from(percentage).map(|value| u16::from(value.value())),
+                u16::from(HueLevel::MAX.value()),
             ),
         ];
 

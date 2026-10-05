@@ -13,7 +13,7 @@
 mod patterns;
 
 use grafton_visca::{
-    command::{FocusSpeed, PowerOn, PowerStandby},
+    command::{PowerOn, PowerStandby},
     request::builtin::{
         FocusDrive, FocusInfinity, FocusModeCommand, FocusStop, FocusTarget, PanTiltAbsolute,
         PanTiltDrive, PanTiltHome, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
@@ -21,7 +21,8 @@ use grafton_visca::{
         ZoomTarget,
     },
     types::{FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
-    CameraId, Error, PanTiltDirection, PanTiltLimitCorner, PresetNumber, ProfileSpec, Request,
+    CameraId, Error, FocusSpeed, PanTiltDirection, PanTiltLimitCorner, PresetNumber, ProfileSpec,
+    Request,
 };
 
 use patterns::{PAN_SPEED_MAX, TILT_SPEED_MAX};

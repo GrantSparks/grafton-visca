@@ -3,7 +3,7 @@
 use std::ops::RangeInclusive;
 
 // Re-export types that are used by multiple capability traits
-pub use crate::capabilities::exposure::ShutterSpeed;
+pub use crate::capabilities::exposure::ShutterSpeedEntry;
 
 /// Inclusive numeric bounds for profile capability metadata.
 ///

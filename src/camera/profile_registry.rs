@@ -350,7 +350,7 @@ macro_rules! __define_builtin_profiles {
                         speed_range: $zoom_speed_range:expr,
                         supports_direct: $supports_direct_zoom:expr,
                         supports_variable: $supports_variable_zoom:expr,
-                        magnification_to_units: $zoom_magnification_to_units:expr,
+                        optical_zoom_ratio: $optical_zoom_ratio:expr,
                     },
                     focus: {
                         near_limit: $focus_near_limit:expr,
@@ -514,7 +514,7 @@ macro_rules! __define_builtin_profiles {
                 const ZOOM_SPEED_RANGE: $crate::capabilities::CapabilityRange<u8> = $zoom_speed_range;
                 const SUPPORTS_DIRECT_ZOOM: bool = $supports_direct_zoom;
                 const SUPPORTS_VARIABLE_ZOOM: bool = $supports_variable_zoom;
-                const ZOOM_MAGNIFICATION_TO_UNITS: f32 = $zoom_magnification_to_units;
+                const OPTICAL_ZOOM_RATIO: Option<f32> = $optical_zoom_ratio;
             }
 
             impl $crate::capabilities::Focus for $profile {
@@ -535,7 +535,7 @@ macro_rules! __define_builtin_profiles {
                 const EXPOSURE_MODES: &'static [$crate::command::exposure::ExposureMode] =
                     $exposure_modes;
                 const IRIS_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $iris_range;
-                const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeed] =
+                const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeedEntry] =
                     $shutter_speeds;
                 const GAIN_RANGE: $crate::capabilities::CapabilityRange<u8> = $gain_range;
                 const BRIGHTNESS_RANGE: Option<$crate::capabilities::CapabilityRange<u16>> = $brightness_range;
@@ -757,10 +757,9 @@ macro_rules! __define_builtin_profiles {
                 }
             }
 
-            /// Returns the focus-zone values this built-in profile admits.
-            ///
-            /// Used to backfill persisted specs that predate the field.
-            #[cfg(any(feature = "serde", test))]
+            /// Returns the focus-zone values this built-in profile admits, for
+            /// the generated documentation table check.
+            #[cfg(test)]
             pub(crate) fn focus_zones(&self) -> &'static [$crate::command::FocusZone] {
                 match self {
                     $(ProfileId::$id => {
@@ -1288,7 +1287,7 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(caps.gain_range, P::GAIN_RANGE.as_inclusive());
                 assert_eq!(caps.shutter_speeds.len(), P::SHUTTER_SPEEDS.len());
                 for (runtime, static_speed) in caps.shutter_speeds.iter().zip(P::SHUTTER_SPEEDS) {
-                    assert_eq!(runtime.label, static_speed.label);
+                    assert_eq!(runtime.exposure, static_speed.exposure);
                     assert_eq!(runtime.value, static_speed.value);
                 }
                 assert_eq!(
@@ -1439,6 +1438,131 @@ macro_rules! __define_builtin_profiles {
                         ack + ambiguity,
                     );
                 )*
+            }
+
+            /// Every built-in unit conversion and shutter fact agrees with the
+            /// profile tables (#807, #808, #819, #828 M2): the public pan/tilt
+            /// helper equals the request path, every raw unit round-trips
+            /// through degrees, each advertised shutter code is constructible
+            /// and reachable by its exposure time, a profile's nominal optical
+            /// ratio reaches the end of its optical range, and each Kelvin step
+            /// round-trips.
+            #[test]
+            fn builtin_unit_conversions_agree_with_profile_tables() {
+                use $crate::capabilities::pan_tilt::PanTiltExt;
+
+                fn sweep(range: &std::ops::RangeInclusive<f32>) -> impl Iterator<Item = f32> + '_ {
+                    let steps = ((range.end() - range.start()) / 0.05).floor() as i32;
+                    (0..=steps).map(move |step| range.start() + step as f32 * 0.05)
+                }
+
+                fn assert_reachable(id: ProfileId, scale: $crate::capabilities::ZoomScale) {
+                    let max = scale.optical_max();
+                    let units = scale
+                        .units(scale.optical_ratio())
+                        .unwrap_or_else(|error| panic!("{id:?} nominal ratio: {error}"));
+                    assert!(
+                        units <= max && units >= max - 1,
+                        "{id:?} {}x maps to {units:#06X}, not the optical end {max:#06X}",
+                        scale.optical_ratio()
+                    );
+                }
+
+                fn assert_profile<P>(id: ProfileId)
+                where
+                    P: $crate::profile::CompileTimeProfile + Default,
+                {
+                    let camera = P::default();
+                    let spec = $crate::ProfileSpec::from_compile_time::<P>()
+                        .unwrap_or_else(|error| panic!("{id:?} ProfileSpec failed: {error}"));
+                    let caps = spec.capabilities();
+                    let conversion = spec.pan_tilt_coordinates().expect("pan/tilt conversion");
+
+                    for pan in sweep(&caps.pan_range_degrees) {
+                        let expected = camera
+                            .degrees_to_pan_units(pan)
+                            .zip(camera.degrees_to_tilt_units(0.0))
+                            .filter(|(pan, tilt)| {
+                                caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
+                            });
+                        assert_eq!(
+                            spec.convert_pan_tilt_degrees(pan, 0.0).ok(),
+                            expected,
+                            "{id:?} pan {pan}°"
+                        );
+                    }
+                    for tilt in sweep(&caps.tilt_range_degrees) {
+                        let expected = camera
+                            .degrees_to_pan_units(0.0)
+                            .zip(camera.degrees_to_tilt_units(tilt))
+                            .filter(|(pan, tilt)| {
+                                caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
+                            });
+                        assert_eq!(
+                            spec.convert_pan_tilt_degrees(0.0, tilt).ok(),
+                            expected,
+                            "{id:?} tilt {tilt}°"
+                        );
+                    }
+                    for units in caps.pan_range.clone() {
+                        assert_eq!(
+                            conversion.pan_units(conversion.pan_degrees(units)),
+                            Some(units),
+                            "{id:?} pan unit {units}"
+                        );
+                    }
+                    for units in caps.tilt_range.clone() {
+                        assert_eq!(
+                            conversion.tilt_units(conversion.tilt_degrees(units)),
+                            Some(units),
+                            "{id:?} tilt unit {units}"
+                        );
+                    }
+
+                    assert_eq!(caps.optical_zoom_ratio, P::OPTICAL_ZOOM_RATIO, "{id:?}");
+                    match (P::OPTICAL_ZOOM_RATIO, caps.zoom_scale()) {
+                        (Some(ratio), Ok(scale)) => {
+                            assert_eq!(scale.optical_ratio(), ratio, "{id:?}");
+                            assert_reachable(id, scale);
+                        }
+                        (None, Err($crate::Error::InvalidRequest(message))) => assert!(
+                            message.contains("zoom_scale_for_lens"),
+                            "{id:?}: {message}"
+                        ),
+                        (ratio, scale) => panic!("{id:?}: ratio {ratio:?} gave {scale:?}"),
+                    }
+
+                    for entry in &caps.shutter_speeds {
+                        let code = $crate::types::ShutterSpeed::new(entry.value);
+                        assert_eq!(
+                            caps.shutter_speed_for(entry.exposure).ok(),
+                            Some(code),
+                            "{id:?} {}",
+                            entry.exposure
+                        );
+                    }
+
+                    if let Some(range) = &caps.color_temp_range {
+                        for kelvin in (*range.start()..=*range.end()).step_by(100) {
+                            let color_temp = $crate::types::ColorTemp::from_kelvin(kelvin)
+                                .unwrap_or_else(|error| panic!("{id:?} {kelvin} K: {error}"));
+                            assert_eq!(color_temp.to_kelvin(), kelvin, "{id:?}");
+                        }
+                    }
+                }
+
+                $(
+                    assert_profile::<$profile>(ProfileId::$id);
+                )*
+
+                // The PTZOptics G2 family's lens is a camera fact: each bench
+                // lens (PT12X/PT20X/PT30X-NDI G2, §4.1) reaches its optical end.
+                let g2 = $crate::capabilities::Capabilities::from_profile::<PtzOpticsG2>();
+                assert_eq!(g2.optical_zoom_ratio, None);
+                for ratio in [12.0, 20.0, 30.0] {
+                    let scale = g2.zoom_scale_for_lens(ratio).expect("G2 lens");
+                    assert_reachable(ProfileId::PtzOpticsG2, scale);
+                }
             }
 
             /// The built-in registry's `image.base_support` fact emits both the
@@ -2315,7 +2439,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 862.3,
+                        // 12x, 20x and 30x lenses share this profile (§4.1): a lens fact.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -2330,7 +2455,7 @@ macro_rules! define_builtin_profiles {
                         near_limit_inquiry: false,
                     },
                     exposure: {
-                        modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
+                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 7),
@@ -2341,7 +2466,7 @@ macro_rules! define_builtin_profiles {
                         wdr: true,
                     },
                     white_balance: {
-                        modes: profile_constants::PTZ_OPTICS_WB_MODES,
+                        modes: profile_constants::COLOR_TEMP_WB_MODES,
                         one_push: true,
                         rg_tuning_range: Some(range!(i8, -10, 10)),
                         bg_tuning_range: Some(range!(i8, -10, 10)),
@@ -2508,7 +2633,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 862.3,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -2523,7 +2649,7 @@ macro_rules! define_builtin_profiles {
                         near_limit_inquiry: false,
                     },
                     exposure: {
-                        modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
+                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 7),
@@ -2534,7 +2660,7 @@ macro_rules! define_builtin_profiles {
                         wdr: true,
                     },
                     white_balance: {
-                        modes: profile_constants::PTZ_OPTICS_WB_MODES,
+                        modes: profile_constants::COLOR_TEMP_WB_MODES,
                         one_push: true,
                         rg_tuning_range: Some(range!(i8, -10, 10)),
                         bg_tuning_range: Some(range!(i8, -10, 10)),
@@ -2701,7 +2827,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 565.0,
+                        // PT30X-NDI: 30x optical, f4.42–132.6 mm (R3; docs/visca_reference.md §4.1).
+                        optical_zoom_ratio: Some(30.0),
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -2716,7 +2843,7 @@ macro_rules! define_builtin_profiles {
                         near_limit_inquiry: false,
                     },
                     exposure: {
-                        modes: profile_constants::PTZ_OPTICS_EXPOSURE_MODES,
+                        modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(range!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
                         gain_range: range!(u8, 0, 7),
@@ -2727,7 +2854,7 @@ macro_rules! define_builtin_profiles {
                         wdr: true,
                     },
                     white_balance: {
-                        modes: profile_constants::PTZ_OPTICS_WB_MODES,
+                        modes: profile_constants::COLOR_TEMP_WB_MODES,
                         one_push: true,
                         rg_tuning_range: Some(range!(i8, -10, 10)),
                         bg_tuning_range: Some(range!(i8, -10, 10)),
@@ -2898,7 +3025,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 1000.0,
+                        // Interchangeable-lens body: the ratio belongs to the mounted lens.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -3088,7 +3216,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 862.3,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -3114,7 +3243,7 @@ macro_rules! define_builtin_profiles {
                         wdr: true,
                     },
                     white_balance: {
-                        modes: profile_constants::SONY_COLOR_TEMP_WB_MODES,
+                        modes: profile_constants::COLOR_TEMP_WB_MODES,
                         one_push: true,
                         rg_tuning_range: Some(range!(i8, -7, 7)),
                         bg_tuning_range: Some(range!(i8, -7, 7)),
@@ -3264,7 +3393,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 862.3,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -3290,7 +3420,7 @@ macro_rules! define_builtin_profiles {
                         wdr: false,
                     },
                     white_balance: {
-                        modes: profile_constants::SONY_COLOR_TEMP_WB_MODES,
+                        modes: profile_constants::COLOR_TEMP_WB_MODES,
                         one_push: true,
                         rg_tuning_range: Some(range!(i8, -7, 7)),
                         bg_tuning_range: Some(range!(i8, -7, 7)),
@@ -3442,7 +3572,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 455.1,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -3611,7 +3742,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: true,
                         supports_variable: true,
-                        magnification_to_units: 455.1,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,
@@ -3773,7 +3905,8 @@ macro_rules! define_builtin_profiles {
                         speed_range: range!(u8, 0, 7),
                         supports_direct: false,
                         supports_variable: true,
-                        magnification_to_units: 1000.0,
+                        // No cited source states this model's optical ratio.
+                        optical_zoom_ratio: None,
                     },
                     focus: {
                         near_limit: 0x1000,

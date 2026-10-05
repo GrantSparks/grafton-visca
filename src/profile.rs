@@ -248,15 +248,69 @@ pub struct ProfileTimingBuilder {
 }
 
 /// Profile-specified pan/tilt coordinate conversion owned by a validated profile.
+///
+/// This is the crate's single implementation of the degrees ↔ raw-unit
+/// conversion. Request preparation, [`PanTiltExt`], the position types'
+/// profile-aware helpers, and the capability degree ranges all delegate here,
+/// so every path produces the same units for the same angle.
+///
+/// The conversion rule, for each axis with its signed units-per-degree scale:
+///
+/// * degrees → units: `degrees × scale` in `f32`, rounded to the nearest
+///   unit with halves rounded away from zero. Non-finite input, or a result
+///   outside `i32`, has no unit value.
+/// * units → degrees: `units ÷ scale` in `f32`.
+///
+/// For example, with the PTZOptics G2 profile's 14.4 units per degree,
+/// `10.05°` is `145` units.
+///
+/// Deserialization rejects a zero or non-finite scale.
+///
+/// [`PanTiltExt`]: crate::capabilities::pan_tilt::PanTiltExt
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(try_from = "PanTiltCoordinateConversionSerde")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltCoordinateConversion {
     coordinate_system: capabilities::CoordinateSystem,
-    #[cfg_attr(feature = "serde", serde(default))]
     wire_codec: capabilities::PanTiltWireCodec,
     pan_degrees_to_units: f32,
     tilt_degrees_to_units: f32,
+}
+
+/// Unvalidated wire form of [`PanTiltCoordinateConversion`].
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct PanTiltCoordinateConversionSerde {
+    coordinate_system: capabilities::CoordinateSystem,
+    wire_codec: capabilities::PanTiltWireCodec,
+    pan_degrees_to_units: f32,
+    tilt_degrees_to_units: f32,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<PanTiltCoordinateConversionSerde> for PanTiltCoordinateConversion {
+    type Error = Error;
+
+    fn try_from(value: PanTiltCoordinateConversionSerde) -> Result<Self> {
+        let valid = |scale: f32| scale.is_finite() && scale != 0.0;
+        if !valid(value.pan_degrees_to_units) || !valid(value.tilt_degrees_to_units) {
+            return Err(invalid_profile_fields(
+                &["pan_tilt_coordinates"],
+                "units-per-degree scales must be finite and nonzero",
+            ));
+        }
+        Ok(Self {
+            coordinate_system: value.coordinate_system,
+            wire_codec: value.wire_codec,
+            pan_degrees_to_units: value.pan_degrees_to_units,
+            tilt_degrees_to_units: value.tilt_degrees_to_units,
+        })
+    }
 }
 
 impl PanTiltCoordinateConversion {
@@ -290,11 +344,151 @@ impl PanTiltCoordinateConversion {
         self.tilt_degrees_to_units
     }
 
-    pub(crate) fn camera_coordinates(self, pan_degrees: f32, tilt_degrees: f32) -> (i32, i32) {
-        let pan = (pan_degrees * self.pan_degrees_to_units).round() as i32;
-        let tilt = (tilt_degrees * self.tilt_degrees_to_units).round() as i32;
-        (pan, tilt)
+    /// Returns the conversion a compile-time profile declares.
+    #[must_use]
+    pub const fn for_profile<P: capabilities::PanTilt + ?Sized>() -> Self {
+        Self {
+            coordinate_system: P::COORDINATE_SYSTEM,
+            wire_codec: P::PAN_TILT_WIRE_CODEC,
+            pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
+            tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
+        }
     }
+
+    /// Converts a pan angle to raw units, or `None` when the angle is not
+    /// finite or the result does not fit `i32`.
+    #[must_use]
+    pub fn pan_units(self, degrees: f32) -> Option<i32> {
+        degrees_to_units(degrees, self.pan_degrees_to_units)
+    }
+
+    /// Converts a tilt angle to raw units, or `None` when the angle is not
+    /// finite or the result does not fit `i32`.
+    #[must_use]
+    pub fn tilt_units(self, degrees: f32) -> Option<i32> {
+        degrees_to_units(degrees, self.tilt_degrees_to_units)
+    }
+
+    /// Converts raw pan units to degrees.
+    #[must_use]
+    pub fn pan_degrees(self, units: i32) -> f32 {
+        units as f32 / self.pan_degrees_to_units
+    }
+
+    /// Converts raw tilt units to degrees.
+    #[must_use]
+    pub fn tilt_degrees(self, units: i32) -> f32 {
+        units as f32 / self.tilt_degrees_to_units
+    }
+
+    /// Returns the ordered degree range covered by a raw pan unit range.
+    ///
+    /// A negative scale reverses the endpoints, so the result is always
+    /// ordered in the library's degree convention.
+    #[must_use]
+    pub fn pan_degree_range(
+        self,
+        units: &std::ops::RangeInclusive<i32>,
+    ) -> std::ops::RangeInclusive<f32> {
+        ordered_degrees(
+            self.pan_degrees(*units.start()),
+            self.pan_degrees(*units.end()),
+        )
+    }
+
+    /// Returns the ordered degree range covered by a raw tilt unit range.
+    ///
+    /// A negative scale reverses the endpoints, so the result is always
+    /// ordered in the library's degree convention.
+    #[must_use]
+    pub fn tilt_degree_range(
+        self,
+        units: &std::ops::RangeInclusive<i32>,
+    ) -> std::ops::RangeInclusive<f32> {
+        ordered_degrees(
+            self.tilt_degrees(*units.start()),
+            self.tilt_degrees(*units.end()),
+        )
+    }
+
+    /// Converts a raw position to degrees.
+    #[must_use]
+    pub fn to_degrees(
+        self,
+        position: crate::camera::PanTiltPosition,
+    ) -> crate::inquiry_conversions::PanTiltPositionDeg {
+        crate::inquiry_conversions::PanTiltPositionDeg::new(
+            crate::units::Degrees(self.pan_degrees(position.pan)),
+            crate::units::Degrees(self.tilt_degrees(position.tilt)),
+        )
+    }
+
+    /// Converts a position in degrees to raw units, or `None` when either
+    /// axis has no unit value. Range validation is the caller's profile check.
+    #[must_use]
+    pub fn to_units(
+        self,
+        position: crate::inquiry_conversions::PanTiltPositionDeg,
+    ) -> Option<crate::camera::PanTiltPosition> {
+        Some(crate::camera::PanTiltPosition::new(
+            self.pan_units(position.pan.0)?,
+            self.tilt_units(position.tilt.0)?,
+        ))
+    }
+}
+
+/// A profile's validated pan/tilt ranges, in degrees and in raw units.
+pub(crate) struct PanTiltRanges<'a> {
+    pub(crate) pan_degrees: &'a std::ops::RangeInclusive<f32>,
+    pub(crate) tilt_degrees: &'a std::ops::RangeInclusive<f32>,
+    pub(crate) pan_units: &'a std::ops::RangeInclusive<i32>,
+    pub(crate) tilt_units: &'a std::ops::RangeInclusive<i32>,
+}
+
+impl PanTiltCoordinateConversion {
+    /// Converts a position in degrees to raw units and checks it against a
+    /// profile's ranges; the one range-checked conversion that request
+    /// preparation and `PanTiltPositionDeg::to_raw_with_profile` share.
+    pub(crate) fn checked_units(
+        self,
+        position: crate::inquiry_conversions::PanTiltPositionDeg,
+        ranges: PanTiltRanges<'_>,
+    ) -> Result<crate::camera::PanTiltPosition> {
+        let (pan, tilt) = (position.pan.0, position.tilt.0);
+        if !pan.is_finite()
+            || !tilt.is_finite()
+            || !ranges.pan_degrees.contains(&pan)
+            || !ranges.tilt_degrees.contains(&tilt)
+        {
+            return Err(Error::InvalidRequest(
+                "pan/tilt degrees are outside the validated profile range".into(),
+            ));
+        }
+        self.to_units(position)
+            .filter(|units| {
+                ranges.pan_units.contains(&units.pan) && ranges.tilt_units.contains(&units.tilt)
+            })
+            .ok_or_else(|| {
+                Error::InvalidRequest(
+                    "converted pan/tilt units are outside the validated profile range".into(),
+                )
+            })
+    }
+}
+
+/// The single degrees → raw-unit rule documented on
+/// [`PanTiltCoordinateConversion`].
+fn degrees_to_units(degrees: f32, units_per_degree: f32) -> Option<i32> {
+    // `i32::MIN` and `2^31` are exact in `f32`; every `f32` in between that
+    // rounds to an integer fits `i32`.
+    const LOWER: f32 = i32::MIN as f32;
+    const UPPER: f32 = -(i32::MIN as f32);
+    let units = (degrees * units_per_degree).round();
+    (units.is_finite() && (LOWER..UPPER).contains(&units)).then_some(units as i32)
+}
+
+fn ordered_degrees(start: f32, end: f32) -> std::ops::RangeInclusive<f32> {
+    start.min(end)..=start.max(end)
 }
 
 impl ProfileTiming {
@@ -797,13 +991,15 @@ impl OperationalTuning {
 }
 
 /// Validated runtime form of compile-time and user-supplied profile facts.
+///
+/// With the `serde` feature a spec round-trips through JSON or another serde
+/// format. Deserialization requires every current field and validates the
+/// result: a spec saved by another release is refused with an instruction to
+/// regenerate it, and a built-in identity must match the current registry
+/// exactly.
 #[derive(Debug, Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(try_from = "ProfileSpecSerde", into = "ProfileSpecSerde")
-)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "ProfileSpecSerde"))]
 pub struct ProfileSpec {
     capabilities: capabilities::Capabilities,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
@@ -817,27 +1013,13 @@ pub struct ProfileSpec {
     position_inquiries: PositionInquirySupport,
 }
 
-/// Persisted capabilities plus whether `focus_zones` was present.
-///
-/// `Capabilities::focus_zones` defaults to empty when the key is absent, which
-/// on its own cannot tell a pre-#795 spec (no key: backfill the zones) from an
-/// explicit `"focus_zones": []` (validated as written). This wrapper consumes
-/// the key first, so `focus_zones` is `None` exactly when it was absent.
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-struct PersistedCapabilities {
-    #[serde(flatten)]
-    capabilities: capabilities::Capabilities,
-    #[serde(default, skip_serializing)]
-    focus_zones: Option<Vec<crate::command::FocusZone>>,
-}
-
+/// Serde shape of [`ProfileSpec`]; the spec itself keeps private fields so
+/// only validated values exist.
 #[cfg(feature = "serde")]
 #[derive(serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct ProfileSpecSerde {
-    capabilities: PersistedCapabilities,
+    capabilities: capabilities::Capabilities,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
     envelope: ProfileEnvelope,
@@ -853,10 +1035,7 @@ struct ProfileSpecSerde {
 impl From<ProfileSpec> for ProfileSpecSerde {
     fn from(spec: ProfileSpec) -> Self {
         Self {
-            capabilities: PersistedCapabilities {
-                capabilities: spec.capabilities,
-                focus_zones: None,
-            },
+            capabilities: spec.capabilities,
             pan_tilt_coordinates: spec.pan_tilt_coordinates,
             transports: spec.transports,
             envelope: spec.envelope,
@@ -870,34 +1049,24 @@ impl From<ProfileSpec> for ProfileSpecSerde {
     }
 }
 
+/// Instruction appended to every refused persisted spec.
 #[cfg(feature = "serde")]
-impl TryFrom<ProfileSpecSerde> for ProfileSpec {
-    type Error = Error;
+const REGENERATE_SPEC: &str = "the spec was saved by another release, so regenerate it with \
+     `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom \
+     profile with `ProfileSpec::builder`) and persist the result";
 
-    fn try_from(spec: ProfileSpecSerde) -> Result<Self> {
-        let PersistedCapabilities {
-            mut capabilities,
-            focus_zones,
-        } = spec.capabilities;
-        match focus_zones {
-            // An explicit list, even an empty one, is validated as written.
-            Some(zones) => capabilities.focus_zones = zones,
-            // Profiles persisted before `focus_zones` existed (2.0.0-rc.3)
-            // omit it. A built-in identity restores its registry list; a
-            // custom profile restores the documented zones, which is all it
-            // could send then.
-            None if capabilities.has_focus_zone => {
-                capabilities.focus_zones = capabilities
-                    .profile_id
-                    .map_or(capabilities::focus::DOCUMENTED_FOCUS_ZONES, |id| {
-                        id.focus_zones()
-                    })
-                    .to_vec();
-            }
-            None => capabilities.focus_zones.clear(),
-        }
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ProfileSpec {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        let spec = ProfileSpecSerde::deserialize(deserializer)
+            .map_err(|error| D::Error::custom(format_args!("{error}; {REGENERATE_SPEC}")))?;
         Self {
-            capabilities,
+            capabilities: spec.capabilities,
             pan_tilt_coordinates: spec.pan_tilt_coordinates,
             transports: spec.transports,
             envelope: spec.envelope,
@@ -909,6 +1078,18 @@ impl TryFrom<ProfileSpecSerde> for ProfileSpec {
             position_inquiries: spec.position_inquiries,
         }
         .validate()
+        .map_err(D::Error::custom)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for ProfileSpec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ProfileSpec")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        ProfileSpecSerde::json_schema(generator)
     }
 }
 
@@ -1001,27 +1182,22 @@ impl ProfileSpec {
         pan_degrees: f32,
         tilt_degrees: f32,
     ) -> Result<(i32, i32)> {
-        if !pan_degrees.is_finite()
-            || !tilt_degrees.is_finite()
-            || !self.capabilities.pan_range_degrees.contains(&pan_degrees)
-            || !self.capabilities.tilt_range_degrees.contains(&tilt_degrees)
-        {
-            return Err(Error::InvalidRequest(
-                "pan/tilt degrees are outside the validated profile range".into(),
-            ));
-        }
         let conversion = self.pan_tilt_coordinates.ok_or_else(|| {
             Error::InvalidRequest("profile has no pan/tilt coordinate conversion".into())
         })?;
-        let converted = conversion.camera_coordinates(pan_degrees, tilt_degrees);
-        if !self.capabilities.pan_range.contains(&converted.0)
-            || !self.capabilities.tilt_range.contains(&converted.1)
-        {
-            return Err(Error::InvalidRequest(
-                "converted pan/tilt units are outside the validated profile range".into(),
-            ));
-        }
-        Ok(converted)
+        let position = conversion.checked_units(
+            crate::inquiry_conversions::PanTiltPositionDeg::new(
+                crate::units::Degrees(pan_degrees),
+                crate::units::Degrees(tilt_degrees),
+            ),
+            PanTiltRanges {
+                pan_degrees: &self.capabilities.pan_range_degrees,
+                tilt_degrees: &self.capabilities.tilt_range_degrees,
+                pan_units: &self.capabilities.pan_range,
+                tilt_units: &self.capabilities.tilt_range,
+            },
+        )?;
+        Ok((position.pan, position.tilt))
     }
 
     /// Returns compatible standard transports.
@@ -1527,8 +1703,11 @@ impl ProfileSpec {
                 || !range_fits_domain(&self.capabilities.zoom_speed, |value| {
                     crate::types::ZoomSpeed::new(value).is_ok()
                 })
-                || !self.capabilities.zoom_magnification_to_units.is_finite()
-                || self.capabilities.zoom_magnification_to_units <= 0.0
+                || self.capabilities.optical_zoom_ratio.is_some_and(|ratio| {
+                    !ratio.is_finite()
+                        || ratio <= 1.0
+                        || *self.capabilities.zoom_range_optical.end() == 0
+                })
                 || self
                     .capabilities
                     .zoom_range_digital
@@ -1543,7 +1722,7 @@ impl ProfileSpec {
                     "capabilities.zoom_range_optical",
                     "capabilities.zoom_range_digital",
                     "capabilities.zoom_speed",
-                    "capabilities.zoom_magnification_to_units",
+                    "capabilities.optical_zoom_ratio",
                 ],
                 "zoom ranges, converter, and speeds are invalid",
             ));
@@ -1555,7 +1734,7 @@ impl ProfileSpec {
                 || self.capabilities.zoom_speed != (0..=0)
                 || self.capabilities.supports_direct_zoom
                 || self.capabilities.supports_variable_zoom
-                || self.capabilities.zoom_magnification_to_units != 1.0)
+                || self.capabilities.optical_zoom_ratio.is_some())
         {
             return Err(invalid_profile_fields(
                 &["capabilities.has_zoom", "capabilities"],
@@ -1863,16 +2042,12 @@ impl ProfileSpec {
         if capabilities
             .shutter_speeds
             .iter()
-            .any(|speed| speed.label.trim().is_empty())
-            || capabilities
-                .shutter_speeds
-                .iter()
-                .enumerate()
-                .any(|(index, speed)| {
-                    capabilities.shutter_speeds[..index]
-                        .iter()
-                        .any(|earlier| earlier.value == speed.value || earlier.label == speed.label)
+            .enumerate()
+            .any(|(index, speed)| {
+                capabilities.shutter_speeds[..index].iter().any(|earlier| {
+                    earlier.value == speed.value || earlier.exposure == speed.exposure
                 })
+            })
             || capabilities
                 .exposure_modes
                 .iter()
@@ -1896,7 +2071,7 @@ impl ProfileSpec {
                     "capabilities.white_balance_modes",
                     "capabilities.focus_zones",
                 ],
-                "shutter labels must be non-empty and inventories must be duplicate-free",
+                "shutter codes and exposure times, and every inventory, must be duplicate-free",
             ));
         }
         for surface in capabilities.typed_support.iter() {
@@ -2256,12 +2431,7 @@ impl ProfileSpecBuilder {
             capabilities,
             tcp_port_inferred: false,
             udp_port_inferred: false,
-            pan_tilt_coordinates: Some(PanTiltCoordinateConversion {
-                coordinate_system: P::COORDINATE_SYSTEM,
-                wire_codec: P::PAN_TILT_WIRE_CODEC,
-                pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
-                tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
-            }),
+            pan_tilt_coordinates: Some(PanTiltCoordinateConversion::for_profile::<P>()),
             pan_tilt_wire_codec: P::PAN_TILT_WIRE_CODEC,
             transports: Some(P::TRANSPORTS),
             envelope: Some(
@@ -2360,22 +2530,17 @@ impl ProfileSpecBuilder {
         self.capabilities.tilt_range = tilt_range.clone();
         self.capabilities.pan_speed = 1..=maximum_pan_speed;
         self.capabilities.tilt_speed = 1..=maximum_tilt_speed;
-        let pan_start_degrees = *pan_range.start() as f32 / pan_degrees_to_units;
-        let pan_end_degrees = *pan_range.end() as f32 / pan_degrees_to_units;
-        let tilt_start_degrees = *tilt_range.start() as f32 / tilt_degrees_to_units;
-        let tilt_end_degrees = *tilt_range.end() as f32 / tilt_degrees_to_units;
-        self.capabilities.pan_range_degrees =
-            pan_start_degrees.min(pan_end_degrees)..=pan_start_degrees.max(pan_end_degrees);
-        self.capabilities.tilt_range_degrees =
-            tilt_start_degrees.min(tilt_end_degrees)..=tilt_start_degrees.max(tilt_end_degrees);
-        self.capabilities.pan_tilt_simultaneous = simultaneous;
-        self.capabilities.has_pan_tilt = true;
-        self.pan_tilt_coordinates = Some(PanTiltCoordinateConversion {
+        let conversion = PanTiltCoordinateConversion {
             coordinate_system,
             wire_codec: self.pan_tilt_wire_codec,
             pan_degrees_to_units,
             tilt_degrees_to_units,
-        });
+        };
+        self.capabilities.pan_range_degrees = conversion.pan_degree_range(&pan_range);
+        self.capabilities.tilt_range_degrees = conversion.tilt_degree_range(&tilt_range);
+        self.capabilities.pan_tilt_simultaneous = simultaneous;
+        self.capabilities.has_pan_tilt = true;
+        self.pan_tilt_coordinates = Some(conversion);
         self
     }
 
@@ -2411,7 +2576,11 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets zoom range, speed, positioning, and conversion facts.
+    /// Sets zoom range, speed, positioning, and lens facts.
+    ///
+    /// `optical_zoom_ratio` is the lens's optical ratio (`Some(20.0)` for a
+    /// 20x lens), or `None` when the profile does not fix the lens; see
+    /// [`capabilities::Zoom::OPTICAL_ZOOM_RATIO`].
     #[must_use]
     pub fn zoom(
         mut self,
@@ -2420,7 +2589,7 @@ impl ProfileSpecBuilder {
         speed_range: std::ops::RangeInclusive<u8>,
         supports_direct: bool,
         supports_variable: bool,
-        magnification_to_units: f32,
+        optical_zoom_ratio: Option<f32>,
     ) -> Self {
         self.capabilities.zoom_range_optical = 0..=optical_maximum;
         self.capabilities.zoom_range_digital =
@@ -2428,7 +2597,7 @@ impl ProfileSpecBuilder {
         self.capabilities.zoom_speed = speed_range;
         self.capabilities.supports_direct_zoom = supports_direct;
         self.capabilities.supports_variable_zoom = supports_variable;
-        self.capabilities.zoom_magnification_to_units = magnification_to_units;
+        self.capabilities.optical_zoom_ratio = optical_zoom_ratio;
         self.capabilities.has_digital_zoom = digital_maximum.is_some();
         self.capabilities.has_zoom = true;
         self
@@ -2538,7 +2707,7 @@ impl ProfileSpecBuilder {
 mod tests {
     use super::*;
     use crate::{
-        capabilities::{Capabilities, RuntimeShutterSpeed, TypedSupportSet, TypedSupportSurface},
+        capabilities::{Capabilities, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface},
         request::builtin::PresetRecall,
         ExposureMode, OperationCommand, PresetNumber,
     };
@@ -2556,7 +2725,7 @@ mod tests {
         capabilities.has_zoom = true;
         capabilities.zoom_range_optical = 0..=1_000;
         capabilities.zoom_speed = 0..=7;
-        capabilities.zoom_magnification_to_units = 100.0;
+        capabilities.optical_zoom_ratio = Some(10.0);
         capabilities.has_focus = true;
         capabilities.focus_range = 0..=2_000;
         capabilities.focus_speed = 0..=7;
@@ -2796,8 +2965,8 @@ mod tests {
         let mut iris_metadata = valid_runtime_capabilities();
         iris_metadata.has_exposure = true;
         iris_metadata.exposure_modes.push(ExposureMode::Auto);
-        iris_metadata.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        iris_metadata.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         iris_metadata.gain_range = 0..=1;
@@ -2815,8 +2984,8 @@ mod tests {
         // requirement.
         let mut typed_iris_status = valid_runtime_capabilities();
         typed_iris_status.has_exposure = true;
-        typed_iris_status.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        typed_iris_status.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         typed_iris_status.gain_range = 0..=1;
@@ -2862,8 +3031,8 @@ mod tests {
         let exposure_capabilities = || {
             let mut capabilities = valid_runtime_capabilities();
             capabilities.has_exposure = true;
-            capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-                label: "1/60".into(),
+            capabilities.shutter_speeds.push(ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 1,
             });
             capabilities
@@ -2934,8 +3103,8 @@ mod tests {
     fn runtime_builder_allows_exposure_without_shared_ae_modes() {
         let mut capabilities = valid_runtime_capabilities();
         capabilities.has_exposure = true;
-        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        capabilities.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         capabilities.gain_range = 0..=1;
@@ -2946,12 +3115,31 @@ mod tests {
         assert!(profile.capabilities().exposure_modes.is_empty());
     }
 
+    #[cfg(feature = "serde")]
+    #[test]
+    fn pan_tilt_conversion_deserialization_rejects_unusable_scales() {
+        let json = |pan: &str| {
+            format!(
+                r#"{{"coordinate_system":"SignedCentered","wire_codec":"StandardVisca","pan_degrees_to_units":{pan},"tilt_degrees_to_units":14.4}}"#
+            )
+        };
+        let valid: PanTiltCoordinateConversion =
+            serde_json::from_str(&json("14.4")).expect("finite nonzero scale");
+        assert_eq!(valid.pan_units(10.05), Some(145));
+        for invalid in ["0.0", "-0.0"] {
+            let error = serde_json::from_str::<PanTiltCoordinateConversion>(&json(invalid))
+                .expect_err("unusable scale")
+                .to_string();
+            assert!(error.contains("finite and nonzero"), "{invalid}: {error}");
+        }
+    }
+
     #[test]
     fn runtime_builder_requires_mode_inventory_for_typed_shared_ae_support() {
         let mut capabilities = valid_runtime_capabilities();
         capabilities.has_exposure = true;
-        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        capabilities.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         capabilities.gain_range = 0..=1;
@@ -3532,8 +3720,8 @@ mod tests {
         let mut backlight = valid_runtime_capabilities();
         backlight.has_exposure = true;
         backlight.exposure_modes.push(ExposureMode::Auto);
-        backlight.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        backlight.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         backlight.gain_range = 0..=1;
@@ -3664,12 +3852,12 @@ mod tests {
         shutter.has_exposure = true;
         shutter.exposure_modes = vec![crate::ExposureMode::Auto];
         shutter.shutter_speeds = vec![
-            capabilities::RuntimeShutterSpeed {
-                label: "1/60".to_owned(),
+            capabilities::ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 1,
             },
-            capabilities::RuntimeShutterSpeed {
-                label: "1/60".to_owned(),
+            capabilities::ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 2,
             },
         ];
@@ -3758,8 +3946,8 @@ mod tests {
             ("zoom speed", |caps| caps.zoom_speed = 0..=1),
             ("direct zoom", |caps| caps.supports_direct_zoom = true),
             ("variable zoom", |caps| caps.supports_variable_zoom = true),
-            ("zoom converter", |caps| {
-                caps.zoom_magnification_to_units = 2.0
+            ("optical zoom ratio", |caps| {
+                caps.optical_zoom_ratio = Some(2.0)
             }),
         ];
         let baseline =
@@ -3903,48 +4091,42 @@ mod tests {
         assert!(serde_json::from_value::<ProfileSpec>(value).is_err());
     }
 
-    /// A profile persisted before `focus_zones` existed (2.0.0-rc.3) omits the
-    /// field. A built-in identity restores its registry list; a custom profile
-    /// restores the documented zones only, never the G2-family `Zone03`
-    /// extension, which needs explicit evidence (#795).
+    /// No older shape is upgraded: a spec without a current key, built-in or
+    /// custom, is refused with the regeneration instruction (#795).
     #[cfg(feature = "serde")]
     #[test]
-    fn profile_without_focus_zones_field_restores_the_documented_zones() {
-        use crate::command::FocusZone;
-
+    fn profile_without_a_current_key_is_refused_with_the_regeneration_instruction() {
         let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
-        assert!(g2.capabilities().supports_focus_zone(FocusZone::Zone03));
-        let mut value = serde_json::to_value(&g2).expect("serialize profile");
-        value["capabilities"]
-            .as_object_mut()
-            .expect("capabilities object")
-            .remove("focus_zones");
-        let restored: ProfileSpec =
-            serde_json::from_value(value).expect("rc.3 built-in profile shape");
-        assert_eq!(
-            restored, g2,
-            "a built-in identity restores its registry zones"
-        );
-
         let mut custom = g2.capabilities().clone();
         custom.profile_id = None;
-        let custom = ProfileSpec::builder(custom)
+        let custom = runtime_copy(&g2, custom);
+        for spec in [&g2, &custom] {
+            for (object, key) in [
+                ("capabilities", "focus_zones"),
+                ("capabilities", "optical_zoom_ratio"),
+                ("pan_tilt_coordinates", "wire_codec"),
+            ] {
+                let mut value = serde_json::to_value(spec).expect("serialize profile");
+                value[object].as_object_mut().expect("object").remove(key);
+                let error = serde_json::from_value::<ProfileSpec>(value)
+                    .expect_err("a missing current key must not load")
+                    .to_string();
+                assert!(error.contains(&format!("missing field `{key}`")), "{error}");
+                assert!(error.contains(REGENERATE_SPEC), "{error}");
+            }
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    fn runtime_copy(g2: &ProfileSpec, capabilities: Capabilities) -> ProfileSpec {
+        let coordinates = g2.pan_tilt_coordinates().expect("G2 coordinates");
+        ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .coordinate_system(),
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .pan_degrees_to_units(),
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .tilt_degrees_to_units(),
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
             )
-            .pan_tilt_wire_codec(
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .wire_codec(),
-            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
             .transports(g2.transports())
             .envelope(g2.envelope())
             .timing(g2.timing())
@@ -3954,67 +4136,18 @@ mod tests {
             .preset_recall_axes(g2.preset_recall_axes())
             .position_inquiries(g2.position_inquiries())
             .build()
-            .expect("custom copy of G2");
-        let mut value = serde_json::to_value(&custom).expect("serialize profile");
-        value["capabilities"]
-            .as_object_mut()
-            .expect("capabilities object")
-            .remove("focus_zones");
-        let restored: ProfileSpec = serde_json::from_value(value).expect("rc.3 profile shape");
-        assert_eq!(
-            restored.capabilities().focus_zones,
-            [FocusZone::Top, FocusZone::Center, FocusZone::Bottom]
-        );
-        assert!(!restored
-            .capabilities()
-            .supports_focus_zone(FocusZone::Zone03));
-
-        let fr7 = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
-        let mut value = serde_json::to_value(&fr7).expect("serialize profile");
-        value["capabilities"]
-            .as_object_mut()
-            .expect("capabilities object")
-            .remove("focus_zones");
-        let restored: ProfileSpec = serde_json::from_value(value).expect("rc.3 profile shape");
-        assert!(restored.capabilities().focus_zones.is_empty());
+            .expect("custom copy of G2")
     }
 
-    /// A present `focus_zones` key is never backfilled: an explicit empty list
-    /// is rejected when focus-zone selection is supported and accepted when it
-    /// is not (#795).
+    /// An explicit empty `focus_zones` list is rejected when focus-zone
+    /// selection is supported and accepted when it is not (#795).
     #[cfg(feature = "serde")]
     #[test]
     fn explicit_focus_zones_are_validated_as_written() {
         let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
         let mut custom = g2.capabilities().clone();
         custom.profile_id = None;
-        let custom = ProfileSpec::builder(custom)
-            .pan_tilt_coordinates(
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .coordinate_system(),
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .pan_degrees_to_units(),
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .tilt_degrees_to_units(),
-            )
-            .pan_tilt_wire_codec(
-                g2.pan_tilt_coordinates()
-                    .expect("G2 coordinates")
-                    .wire_codec(),
-            )
-            .transports(g2.transports())
-            .envelope(g2.envelope())
-            .timing(g2.timing())
-            .maximum_command_sockets(g2.maximum_command_sockets())
-            .supports_operation_complete(g2.supports_operation_complete())
-            .supports_command_cancel(g2.supports_command_cancel())
-            .preset_recall_axes(g2.preset_recall_axes())
-            .position_inquiries(g2.position_inquiries())
-            .build()
-            .expect("custom copy of G2");
+        let custom = runtime_copy(&g2, custom);
         let value = serde_json::to_value(&custom).expect("serialize profile");
         assert_eq!(
             value["capabilities"]["focus_zones"],
@@ -4022,19 +4155,7 @@ mod tests {
             "serialization writes the list once, from the capabilities"
         );
 
-        // Missing: backfilled with the documented zones.
-        let mut missing = value.clone();
-        missing["capabilities"]
-            .as_object_mut()
-            .expect("capabilities object")
-            .remove("focus_zones");
-        let restored: ProfileSpec = serde_json::from_value(missing).expect("legacy shape");
-        assert_eq!(
-            restored.capabilities().focus_zones,
-            capabilities::focus::DOCUMENTED_FOCUS_ZONES
-        );
-
-        // Explicit `[]` with focus-zone support: rejected, not backfilled.
+        // Explicit `[]` with focus-zone support: rejected.
         let mut empty = value.clone();
         empty["capabilities"]["focus_zones"] = serde_json::json!([]);
         let error = serde_json::from_value::<ProfileSpec>(empty)

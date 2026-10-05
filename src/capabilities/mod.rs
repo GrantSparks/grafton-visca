@@ -76,7 +76,7 @@ pub use presets::Presets;
 pub use tally::Tally;
 pub use variable_speed::VariableSpeedMetadata;
 pub use white_balance::WhiteBalance;
-pub use zoom::Zoom;
+pub use zoom::{Zoom, ZoomScale};
 
 // Supporting types
 mod types;
@@ -88,7 +88,7 @@ pub use validation::ValidationError;
 
 // Structured capabilities response
 mod discovery;
-pub use discovery::{Capabilities, RuntimeShutterSpeed};
+pub use discovery::Capabilities;
 
 /// Super-trait that encompasses all camera capabilities.
 ///

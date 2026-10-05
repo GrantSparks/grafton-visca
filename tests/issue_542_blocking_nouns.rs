@@ -26,7 +26,7 @@ use grafton_visca::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
         SonyBRCH900, SonyEVIH100, SonyFR7,
     },
-    CompileTimeProfile, Result,
+    CompileTimeProfile, MotionSyncSpeed, Result,
 };
 
 fn plain(_: Result<()>) {}
@@ -201,7 +201,7 @@ fn awb_gate<P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(camera: &Cam
 #[allow(dead_code)]
 fn motion_gate<P: CompileTimeProfile + HasMotionSync>(camera: &Camera<P>) {
     plain(camera.motion_sync().set_mode(MotionSyncMode::On));
-    plain(camera.motion_sync().set_preset(1));
+    plain(camera.motion_sync().set_speed(MotionSyncSpeed::SLOW));
 }
 
 #[allow(dead_code)]

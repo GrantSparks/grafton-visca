@@ -114,18 +114,55 @@ impl From<FStop> for IrisLevel {
     }
 }
 
-/// Shutter speed value for direct shutter control.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
+/// Shutter speed code for direct shutter control.
+///
+/// This is the byte carried by the `0p 0q` shutter field, so every `u8` is a
+/// well-formed code. Shutter codes are camera-specific: the same code selects
+/// a different exposure time on different models. The selected profile's
+/// shutter table (`Capabilities::shutter_speeds`) is the only authority for
+/// which codes a camera accepts; request preparation rejects a code the
+/// profile does not list. Use [`Capabilities::shutter_speed_for`] to look a
+/// code up by exposure time.
+///
+/// [`Capabilities::shutter_speed_for`]: crate::capabilities::Capabilities::shutter_speed_for
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "u16", into = "u16"))]
+#[cfg_attr(feature = "serde", serde(transparent))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(
-    valid_values = "[0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11]",
-    display_format = "hex",
-    display_prefix = "Shutter"
-)]
-pub struct ShutterSpeed(u16);
+pub struct ShutterSpeed(u8);
+
+impl ShutterSpeed {
+    /// Creates a shutter code.
+    #[must_use]
+    pub const fn new(code: u8) -> Self {
+        Self(code)
+    }
+
+    /// Returns the shutter code.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl From<u8> for ShutterSpeed {
+    fn from(code: u8) -> Self {
+        Self::new(code)
+    }
+}
+
+impl From<ShutterSpeed> for u8 {
+    fn from(speed: ShutterSpeed) -> Self {
+        speed.value()
+    }
+}
+
+impl fmt::Display for ShutterSpeed {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Shutter {:#04x}", self.0)
+    }
+}
 
 /// Brightness level for direct brightness control.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
@@ -476,25 +513,6 @@ pub enum NdiQuality {
 )]
 pub struct ZoomPosition(u16);
 
-impl ZoomPosition {
-    /// Get normalized position against a given maximum [0.0, 1.0].
-    ///
-    /// This is profile-aware: pass the profile's optical or digital zoom max
-    /// to get a normalized position within that range.
-    ///
-    /// # Returns
-    /// - `0.0` = wide end (0x0000)
-    /// - `1.0` = telephoto end at the given max
-    /// - Values > 1.0 possible if position exceeds the given max
-    #[must_use]
-    pub fn normalized_against(&self, max: u16) -> f64 {
-        if max == 0 {
-            return 0.0;
-        }
-        f64::from(self.value()) / f64::from(max)
-    }
-}
-
 /// Focus position value for direct focus control.
 ///
 /// This is a simple newtype wrapper around the raw VISCA focus position value.
@@ -564,28 +582,45 @@ impl fmt::Display for FocusPosition {
 pub struct ColorTemp(u16);
 
 impl ColorTemp {
+    /// Color temperature, in Kelvin, selected by wire value `0x00`.
+    pub const MIN_KELVIN: u16 = 2500;
+
+    /// Kelvin per wire step.
+    pub const KELVIN_STEP: u16 = 100;
+
+    /// Color temperature, in Kelvin, selected by the maximum wire value.
+    pub const MAX_KELVIN: u16 = Self::MIN_KELVIN + Self::MAX.value() * Self::KELVIN_STEP;
+
     /// Converts this VISCA color temperature value to Kelvin.
     ///
-    /// VISCA color temperature range 0x00-0x37 maps to 2500K-8000K.
+    /// The wire range `0x00..=0x37` maps linearly to
+    /// [`Self::MIN_KELVIN`]`..=`[`Self::MAX_KELVIN`] in [`Self::KELVIN_STEP`]
+    /// steps. This and [`Self::from_kelvin`] are the crate's only Kelvin
+    /// conversion; `TryFrom<Kelvin>` and profile validation use them.
     #[must_use]
-    pub fn to_kelvin(self) -> u16 {
-        2500 + (self.0 * 100)
+    pub const fn to_kelvin(self) -> u16 {
+        Self::MIN_KELVIN + self.0 * Self::KELVIN_STEP
     }
 
-    /// Creates a color temperature value from Kelvin (2500K-8000K).
+    /// Creates a color temperature value from Kelvin.
+    ///
+    /// A value between two steps rounds to the nearest step, with a half step
+    /// rounding up, so every multiple of [`Self::KELVIN_STEP`] round-trips
+    /// through [`Self::to_kelvin`] unchanged.
     ///
     /// # Errors
-    /// Returns an error if the Kelvin value is outside the supported range.
+    /// Returns [`Error::ParameterOutOfRange`] if `kelvin` is outside
+    /// [`Self::MIN_KELVIN`]`..=`[`Self::MAX_KELVIN`].
     pub fn from_kelvin(kelvin: u16) -> Result<Self, Error> {
-        if (2500..=8000).contains(&kelvin) {
-            Self::new((kelvin - 2500) / 100)
-        } else {
-            Err(Error::InvalidParameter {
+        if !(Self::MIN_KELVIN..=Self::MAX_KELVIN).contains(&kelvin) {
+            return Err(Error::ParameterOutOfRange {
                 parameter: "kelvin",
-                value: Cow::Owned(kelvin.to_string()),
-                reason: Cow::Borrowed("Color temperature must be between 2500K and 8000K"),
-            })
+                value: i32::from(kelvin),
+                min: i32::from(Self::MIN_KELVIN),
+                max: i32::from(Self::MAX_KELVIN),
+            });
         }
+        Self::new((kelvin - Self::MIN_KELVIN + Self::KELVIN_STEP / 2) / Self::KELVIN_STEP)
     }
 }
 
@@ -678,102 +713,6 @@ pub struct BlueTuning(i8);
 impl BlueTuning {
     /// Neutral blue tuning value (no adjustment).
     pub const NEUTRAL: Self = Self(0);
-}
-
-/// Pan position value for horizontal camera positioning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "i16", into = "i16"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "-2448", max = "2448", display_prefix = "Pan")]
-pub struct PanPosition(i16);
-
-impl PanPosition {
-    /// Center pan position (no horizontal offset).
-    pub const CENTER: Self = Self(0);
-
-    /// Converts this pan position to degrees (-170° left to +170° right).
-    #[must_use]
-    pub fn to_degrees(self) -> f32 {
-        (self.0 as f32) * 170.0 / 2448.0
-    }
-
-    /// Creates a pan position from degrees.
-    ///
-    /// # Errors
-    /// Returns an error if degrees are outside the valid range (-170° left to
-    /// +170° right).
-    pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
-        if !(-170.0..=170.0).contains(&degrees) {
-            return Err(Error::InvalidParameter {
-                parameter: "degrees",
-                value: Cow::Owned(degrees.to_string()),
-                reason: Cow::Borrowed("Pan degrees must be between -170° and +170°"),
-            });
-        }
-        Self::new((degrees * 2448.0 / 170.0).round() as i16)
-    }
-}
-
-impl TryFrom<f32> for PanPosition {
-    type Error = Error;
-    fn try_from(degrees: f32) -> Result<Self, Self::Error> {
-        Self::from_degrees(degrees)
-    }
-}
-
-/// Tilt position value for vertical camera positioning.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(try_from = "i16", into = "i16"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[visca_value(min = "-432", max = "1296", display_prefix = "Tilt")]
-pub struct TiltPosition(i16);
-
-impl TiltPosition {
-    /// Center tilt position (no vertical offset).
-    pub const CENTER: Self = Self(0);
-
-    /// Converts this tilt position to degrees.
-    ///
-    /// Tilt range is asymmetric: -30° (up) to +90° (down).
-    #[must_use]
-    pub fn to_degrees(self) -> f32 {
-        if self.0 >= 0 {
-            (self.0 as f32) * 90.0 / 1296.0
-        } else {
-            (self.0 as f32) * 30.0 / 432.0
-        }
-    }
-
-    /// Creates a tilt position from degrees.
-    ///
-    /// # Errors
-    /// Returns an error if degrees are outside the valid range (-30° to +90°).
-    pub fn from_degrees(degrees: f32) -> Result<Self, Error> {
-        if !(-30.0..=90.0).contains(&degrees) {
-            return Err(Error::InvalidParameter {
-                parameter: "degrees",
-                value: Cow::Owned(degrees.to_string()),
-                reason: Cow::Borrowed("Tilt degrees must be between -30° and +90°"),
-            });
-        }
-        let value = if degrees >= 0.0 {
-            (degrees * 1296.0 / 90.0).round() as i16
-        } else {
-            (degrees * 432.0 / 30.0).round() as i16
-        };
-        Self::new(value)
-    }
-}
-
-impl TryFrom<f32> for TiltPosition {
-    type Error = Error;
-    fn try_from(degrees: f32) -> Result<Self, Self::Error> {
-        Self::from_degrees(degrees)
-    }
 }
 
 /// Pan speed value for horizontal camera movement speed.
@@ -999,20 +938,16 @@ impl MotionSyncSpeed {
 
     /// Fast motion sync speed (typically 24).
     pub const FAST: Self = Self(24);
+}
 
-    /// Creates a motion sync speed from a preset speed.
-    pub fn from_preset(speed: crate::MotionSyncPreset) -> Self {
+impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
+    /// The one preset → speed mapping: slow 8, normal 16, fast 24.
+    fn from(speed: crate::MotionSyncPreset) -> Self {
         match speed {
             crate::MotionSyncPreset::Slow => Self::SLOW,
             crate::MotionSyncPreset::Normal => Self::NORMAL,
             crate::MotionSyncPreset::Fast => Self::FAST,
         }
-    }
-}
-
-impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
-    fn from(speed: crate::MotionSyncPreset) -> Self {
-        Self::from_preset(speed)
     }
 }
 
@@ -1178,15 +1113,15 @@ mod tests {
 
         // Test from preset
         assert_eq!(
-            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Slow).value(),
+            MotionSyncSpeed::from(crate::MotionSyncPreset::Slow).value(),
             8
         );
         assert_eq!(
-            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Normal).value(),
+            MotionSyncSpeed::from(crate::MotionSyncPreset::Normal).value(),
             16
         );
         assert_eq!(
-            MotionSyncSpeed::from_preset(crate::MotionSyncPreset::Fast).value(),
+            MotionSyncSpeed::from(crate::MotionSyncPreset::Fast).value(),
             24
         );
 
@@ -1194,31 +1129,6 @@ mod tests {
         assert_eq!(MotionSyncSpeed::try_from(15).unwrap().value(), 15);
         assert!(MotionSyncSpeed::try_from(0).is_err());
         assert!(MotionSyncSpeed::try_from(30).is_err());
-    }
-
-    #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_position_types() {
-        assert!(PanPosition::new(-2448).is_ok());
-        assert!(PanPosition::new(2448).is_ok());
-        assert!(PanPosition::new(-2449).is_err());
-        assert!(PanPosition::new(2449).is_err());
-
-        let pan_center = PanPosition::CENTER;
-        assert_eq!(pan_center.to_degrees(), 0.0);
-
-        let pan_from_degrees = PanPosition::from_degrees(45.0).unwrap();
-        assert!((pan_from_degrees.to_degrees() - 45.0).abs() < 1.0);
-
-        assert!(TiltPosition::new(-432).is_ok());
-        assert!(TiltPosition::new(1296).is_ok());
-        assert!(TiltPosition::new(-433).is_err());
-        assert!(TiltPosition::new(1297).is_err());
-
-        let tilt_center = TiltPosition::CENTER;
-        assert_eq!(tilt_center.to_degrees(), 0.0);
-        let tilt_from_degrees = TiltPosition::from_degrees(45.0).unwrap();
-        assert!((tilt_from_degrees.to_degrees() - 45.0).abs() < 1.0);
     }
 
     #[test]

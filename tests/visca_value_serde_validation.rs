@@ -4,12 +4,11 @@
 mod serde_validation {
     use grafton_visca::{
         capabilities::CapabilityRange,
-        command::{FocusSpeed as CommandFocusSpeed, PresetRecallSpeed},
+        command::PresetRecallSpeed,
         types::{
-            ExposureCompensationLevel, GainLevel, NoiseReduction2DLevel, PanPosition, ShutterSpeed,
-            ZoomPosition,
+            ExposureCompensationLevel, GainLevel, NoiseReduction2DLevel, ShutterSpeed, ZoomPosition,
         },
-        PresetNumber, ViscaValue,
+        FocusSpeed, PresetNumber, ViscaValue,
     };
 
     grafton_visca::visca_range_type! {
@@ -38,7 +37,7 @@ mod serde_validation {
     struct BuiltinRangeSchemaContainer {
         preset: PresetNumber,
         recall: PresetRecallSpeed,
-        focus: CommandFocusSpeed,
+        focus: FocusSpeed,
     }
 
     #[test]
@@ -90,17 +89,12 @@ mod serde_validation {
         assert_eq!(zoom_max.value(), 0x7fff);
         assert!(serde_json::from_str::<ZoomPosition>("32768").is_err());
 
-        let shutter_min: ShutterSpeed = serde_json::from_str("1").expect("minimum shutter");
-        let shutter_max: ShutterSpeed = serde_json::from_str("17").expect("maximum shutter");
-        assert_eq!(shutter_min.value(), 1);
-        assert_eq!(shutter_max.value(), 0x11);
-        assert!(serde_json::from_str::<ShutterSpeed>("0").is_err());
-
-        let pan_min: PanPosition = serde_json::from_str("-2448").expect("minimum pan");
-        let pan_max: PanPosition = serde_json::from_str("2448").expect("maximum pan");
-        assert_eq!(pan_min.value(), -2448);
-        assert_eq!(pan_max.value(), 2448);
-        assert!(serde_json::from_str::<PanPosition>("2449").is_err());
+        // The `0p 0q` shutter field (#819).
+        let shutter_min: ShutterSpeed = serde_json::from_str("0").expect("minimum shutter");
+        let shutter_max: ShutterSpeed = serde_json::from_str("255").expect("maximum shutter");
+        assert_eq!(shutter_min.value(), 0);
+        assert_eq!(shutter_max.value(), 0xFF);
+        assert!(serde_json::from_str::<ShutterSpeed>("256").is_err());
     }
 
     #[test]
@@ -141,11 +135,11 @@ mod serde_validation {
         assert!(serde_json::from_str::<PresetRecallSpeed>("0").is_err());
         assert!(serde_json::from_str::<PresetRecallSpeed>("25").is_err());
 
-        let focus_min: CommandFocusSpeed = serde_json::from_str("0").expect("minimum focus speed");
-        let focus_max: CommandFocusSpeed = serde_json::from_str("7").expect("maximum focus speed");
+        let focus_min: FocusSpeed = serde_json::from_str("0").expect("minimum focus speed");
+        let focus_max: FocusSpeed = serde_json::from_str("7").expect("maximum focus speed");
         assert_eq!(focus_min.value(), 0);
         assert_eq!(focus_max.value(), 7);
-        assert!(serde_json::from_str::<CommandFocusSpeed>("8").is_err());
+        assert!(serde_json::from_str::<FocusSpeed>("8").is_err());
 
         let full_domain: PresetNumber =
             serde_json::from_str("255").expect("full-domain preset remains valid");
@@ -201,7 +195,7 @@ mod serde_validation {
 
         assert_integer_schema::<ExposureCompensationLevel>();
         assert_integer_schema::<PresetRecallSpeed>();
-        assert_integer_schema::<CommandFocusSpeed>();
+        assert_integer_schema::<FocusSpeed>();
     }
 
     #[cfg(feature = "schemars")]
@@ -211,10 +205,10 @@ mod serde_validation {
 
         assert!(!PresetNumber::inline_schema());
         assert!(!PresetRecallSpeed::inline_schema());
-        assert!(!CommandFocusSpeed::inline_schema());
+        assert!(!FocusSpeed::inline_schema());
         assert_eq!(PresetNumber::schema_name(), "PresetNumber");
         assert_eq!(PresetRecallSpeed::schema_name(), "PresetRecallSpeed");
-        assert_eq!(CommandFocusSpeed::schema_name(), "FocusSpeed");
+        assert_eq!(FocusSpeed::schema_name(), "FocusSpeed");
 
         let schema = schemars::schema_for!(BuiltinRangeSchemaContainer);
         let json = serde_json::to_value(schema).expect("serialize range container schema");
@@ -250,7 +244,7 @@ mod serde_validation {
             json.pointer("/$defs/FocusSpeed/description")
                 .and_then(serde_json::Value::as_str)
                 .map(|docs| docs.lines().next()),
-            Some(Some("Variable focus speed."))
+            Some(Some("Focus speed value for camera focus control."))
         );
 
         // These are the u8 schema's bounds, not the macro's validation bounds.
@@ -273,7 +267,7 @@ mod serde_validation {
         let exposure = ExposureCompensationLevel::export_to_string(&cfg)
             .expect("export ExposureCompensationLevel");
         let recall = PresetRecallSpeed::export_to_string(&cfg).expect("export PresetRecallSpeed");
-        let focus = CommandFocusSpeed::export_to_string(&cfg).expect("export FocusSpeed");
+        let focus = FocusSpeed::export_to_string(&cfg).expect("export FocusSpeed");
 
         assert!(exposure.contains("export type ExposureCompensationLevel = number;"));
         assert!(recall.contains("export type PresetRecallSpeed = number;"));

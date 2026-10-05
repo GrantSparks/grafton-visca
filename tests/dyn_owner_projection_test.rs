@@ -9,7 +9,7 @@ use std::{future::Future, sync::Arc};
 
 use grafton_visca::{
     capabilities::{
-        Capabilities, InquirySupport, RuntimeShutterSpeed, TypedSupportSet, TypedSupportSurface,
+        Capabilities, InquirySupport, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface,
     },
     dynapi::{DynSessionCamera, DynSessionCameraNouns},
     profile::{PositionInquirySupport, ProfileSpec},
@@ -151,7 +151,7 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
     capabilities.zoom_range_digital = Some(0x4000..=0x7000);
     capabilities.zoom_speed = 0..=7;
     capabilities.supports_direct_zoom = true;
-    capabilities.zoom_magnification_to_units = 1.0;
+    capabilities.optical_zoom_ratio = None;
     capabilities.inquiry_support = InquirySupport::None;
     capabilities.typed_support = if digital_range_permission {
         TypedSupportSet::from_surfaces(&[
@@ -196,8 +196,8 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
         Capabilities::runtime_baseline("Documented Exposure Modes", 1).expect("baseline profile");
     capabilities.has_exposure = true;
     capabilities.exposure_modes = vec![ExposureMode::Auto];
-    capabilities.shutter_speeds = vec![RuntimeShutterSpeed {
-        label: "1/60".into(),
+    capabilities.shutter_speeds = vec![ShutterSpeedEntry {
+        exposure: grafton_visca::units::Fraction::new(1, 60).expect("nonzero denominator"),
         value: 1,
     }];
     capabilities.gain_range = 0..=1;

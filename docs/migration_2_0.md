@@ -285,7 +285,7 @@ The old duration-only movement helpers map mechanically to `IdleWait` values:
 
 Raw pan/tilt coordinates are `i32` in 2.0 so the BRC-300's documented signed
 20-bit pan field can be represented without truncation. This changes
-`PanTiltPosition`, `PanTiltPositionRaw`, the pan/tilt field of
+`PanTiltPosition`, the pan/tilt field of
 `MovementTolerance`, inquiry payloads, `PanTiltExt::{validate_pan,validate_tilt}`,
 `ProfileSpecBuilder::pan_tilt`, `Capabilities::{pan_range,tilt_range}`, and
 `PanTilt::{PAN_RANGE,TILT_RANGE}` (including every built-in profile constant).
@@ -310,7 +310,7 @@ Optional typed controls now name the exact evidence boundary:
 | PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
 | Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
 | USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
-| `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to every persisted runtime `capabilities.typed_support` list; a runtime profile saved by 2.0.0-rc.3 still loads but its `version()` fails with `FeatureNotSupported` until the tag is added (#795). |
+| `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to the runtime `capabilities.typed_support` list before persisting it; a spec saved by 2.0.0-rc.3 does not load and must be rebuilt (see below) (#795). |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
 | `SonyBRC300` in 2.0.0-rc.1 advertised typed backlight support but could not construct `image()` | Upgrade to rc.2, which restores `camera.image().backlight()` and `camera.image().set_backlight(...)` while keeping every other image row independently capability-gated. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
@@ -823,7 +823,7 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Raw normalized floats, root normalized helpers, `ZoomPosition` float conversions | Checked public values such as `UnitInterval::new/try_from`, `ZoomPosition`, and profile-aware noun methods. |
-| `inquiry_conversions` module (`ZoomDomain`, `ZoomPositionExt`, `PanTiltPositionRaw`, `PanTiltPositionDeg`, `zoom_from_normalized`) | Preserved: the `grafton_visca::inquiry_conversions` module and those exports remain, so raw↔degrees and normalized↔units conversions port unchanged. Prefer the profile-aware noun methods when a profile is in hand. |
+| `inquiry_conversions` module (`ZoomDomain`, `ZoomPositionExt`, `PanTiltPositionRaw`, `PanTiltPositionDeg`, `zoom_from_normalized`) | `ZoomDomain`, `PanTiltPositionDeg` and `zoom_from_normalized` remain. `ZoomPositionExt::normalize_with_max` is the inherent `ZoomPosition::normalize_with_max`, and `ZoomPositionExt::from_normalized` is `zoom_from_normalized`. `PanTiltPositionRaw` is `camera::PanTiltPosition`. The profile-less `as_degrees()` / `PanTiltPositionDeg::to_raw()` / `PanPosition::{from_degrees,to_degrees}` helpers applied PTZOptics G2 geometry (14.4 units per degree) to every camera and are removed: use `PanTiltPosition::as_degrees_with_profile`, `PanTiltPositionDeg::to_raw_with_profile`, or `PanTiltCoordinateConversion` from `ProfileSpec::pan_tilt_coordinates()`. |
 | `capabilities::Capabilities` runtime discovery (`from_profile::<P>()`, `supports_typed`, zoom/magnification helpers) | Preserved: `Capabilities` stays at `grafton_visca::capabilities::Capabilities`. Reach it with `camera.capabilities()` (static or dynamic) or `Capabilities::from_profile::<P>()`; build a runtime profile from `Capabilities::runtime_baseline(..)` plus `ProfileSpec::builder`. |
 | Model-aware constructors that embed a profile in a value | Plain checked values plus the profile-gated camera noun; profile validation belongs at preparation. |
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
@@ -882,6 +882,21 @@ Retained public protocol values also changed shape:
 | Earlier 2.0 RC matching on `FrameSequence::Lower16(value)` | Match `FrameSequence::MaybeTruncated(value)`. A zero upper half does not prove truncation; the new name preserves that uncertainty while `value()` still returns the numeric value. |
 | Tuple construction or one-field matching of `ZoomTarget(position)` | `ZoomTarget::new(position)` for a raw target, or `ZoomTarget::from_normalized(value, domain, profile)?` when normalization provenance must survive until profile validation. |
 | `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
+| `command::FocusSpeed` (a second focus-speed type) | `grafton_visca::FocusSpeed` (also `types::FocusSpeed`), the one type `Focus::FarWithSpeed`, `FocusDrive`, and `focus().far_variable(..)` take. Out-of-range values now report `ParameterOutOfRange`. |
+| `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `command::VersionInfo` and `command::TallyStatusState`, which the accessors return; the unused `NightDayMode`/`IrisControl` enums are removed. `InquiryData::Version { info }` and `InquiryData::TallyStatus { state }` carry those structs instead of repeating their fields. |
+| `SetMotionSyncPreset::new(u8)?`, `SetMotionSyncPreset::from_preset`, `MotionSyncSpeed::from_preset`, and the `motion_sync().set_preset(u8)` accessor | `motion_sync().set_speed(MotionSyncSpeed)`; `SetMotionSyncPreset::new(MotionSyncSpeed)` and `speed() -> MotionSyncSpeed`. `MotionSyncSpeed::new(u8)?` owns the `1..=24` range and `MotionSyncSpeed::from(MotionSyncPreset)` is the one preset mapping. |
+| `ShutterSpeed::try_from(Fraction)` | `capabilities.shutter_speed_for(fraction)?`: shutter codes are camera-specific, and the removed table matched no built-in profile. `ShutterSpeed` wraps the `0p 0q` field's byte: `ShutterSpeed::new(u8)` is infallible and `value()` returns `u8`; the profile's table decides which codes a camera accepts. |
+| `Fraction { numerator, denominator }` literals and `Fraction::new(n, d)` returning `Self` | `Fraction::new(n, d)` returns `Option<Fraction>` (`None` for a zero denominator) in lowest terms, so `==` is value equality; read it with `numerator()`/`denominator()`. Its text and serde form is `"1/60"`. |
+| `capabilities::ShutterSpeed { label, value }`, `RuntimeShutterSpeed { label, value }`, and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `Capabilities::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
+| `ColorTemp::try_from(Kelvin(k))` (a second, `2000..=8000` K formula) | Unchanged call; it is now `ColorTemp::from_kelvin(k)` (`2500..=8000` K, nearest 100 K step, `ParameterOutOfRange` outside). `3200` K encodes `0x07`, not `0x0B`. |
+| `From<Raw<_>>` for speed and level wrappers (silently clamped to `MIN`, #828) | `T::try_from(Raw(value))?`, which rejects a value outside the type's domain. |
+| `PanTiltExt::degrees_to_{pan,tilt}_units(degrees) -> i32` (truncating) | `-> Option<i32>`, rounded like request preparation (`10.05°` on a G2 is `145`, not `144`); `None` for non-finite input. |
+| `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Only `PtzOptics30X` (30x, R3) fixes its lens; the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
+| `camera::PanTiltPosition::as_degrees_with_profile` returning `(f64, f64)` | Returns `PanTiltPositionDeg`. |
+| `types::{PanPosition, TiltPosition}`, `PanTilt::{AbsolutePositionRaw, RelativePositionRaw, LimitSetRaw}` | `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take the raw `i16` wire words directly (an unsigned-centered word `w` is `w as i16`); the value types restated PTZOptics G2 ranges as if they were protocol limits. Profile-aware requests take `Degrees`. |
+| `units::Magnification<T>` | Removed; it had no consumer. `ZoomScale::units(f32)` and `ZoomScale::magnification(u16) -> Option<f32>` name the quantity in the method. |
+| `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use `FStop` → `IrisLevel` and the profile's `iris_range`. |
+| `camera::profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `gain_range`/preset count. |
 
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
@@ -894,19 +909,17 @@ declared by `visca_range_type!` deserialize through their checked `TryFrom`/
 `new` paths, so an out-of-range scalar is rejected rather than constructing an
 invalid wrapper.
 
-#### Persisted `ProfileSpec` values with a built-in identity (#795)
+#### Persisted `ProfileSpec` values from earlier releases (#795, #807, #808)
 
-A serialized `ProfileSpec` whose `capabilities.profile_id` names a built-in
-profile must match the current built-in registry exactly; it is never
-silently upgraded, because a stale spec could misdescribe what the camera
-supports. Specs saved by 2.0.0-rc.3 or earlier for `SonyFR7`, `SonyBRCH900`,
-`SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and `GenericVisca` lack the
-`"version-inquiry"` typed-support tag and therefore fail to deserialize with
-`Error::InvalidRequest` (wrapped in the `serde_json` error). The message names
-the profile, the surfaces that differ, and the fix, for example:
+`ProfileSpec` deserialization requires every current field and validates the
+result; no older shape is upgraded. A spec saved by 2.0.0-rc.3 or earlier
+lacks `capabilities.focus_zones` and `capabilities.optical_zoom_ratio`, and its
+shutter entries carry a `label` string instead of an `exposure` fraction, so
+it fails to deserialize. The error names the first missing field and the fix,
+for example:
 
 ```text
-Invalid request: profile fields `capabilities.profile_id`, `capabilities.typed_support`: built-in profile `SonyFR7`: the stored typed-support set differs from the current built-in registry (missing: VersionInquiry; not in registry: none); the spec was saved by another release, so regenerate it with `ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()` and persist the result
+missing field `exposure` at line 112 column 5; the spec was saved by another release, so regenerate it with `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom profile with `ProfileSpec::builder`) and persist the result
 ```
 
 Regenerate each stored built-in spec from the current registry and persist the
@@ -916,14 +929,14 @@ new value:
 use grafton_visca::{profiles::SonyFR7, ProfileSpec};
 
 let spec = ProfileSpec::from_compile_time::<SonyFR7>()?;
-let json = serde_json::to_string(&spec)?; // replace the stored rc.3 value
+let json = serde_json::to_string(&spec)?; // replace the stored value
 ```
 
-Specs saved for `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` still load:
-their typed-support sets did not change, and the missing `focus_zones` field
-is restored from the registry. Custom runtime profiles (no `profile_id`) are
-not affected by this check; see the `HasVersionInquiry` row above for the tag
-they need to keep `version()`.
+Rebuild a custom runtime profile with `ProfileSpec::builder`. A spec in the
+current shape whose `capabilities.profile_id` names a built-in profile must
+still match the current registry exactly; a stale typed-support set is refused
+with `Error::InvalidRequest` naming the profile, the differing surfaces, and
+the `from_compile_time` constructor that regenerates it.
 
 ### Transport defaults, connect errors and serial startup (#797–#800, #828)
 

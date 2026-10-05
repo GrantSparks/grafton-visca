@@ -458,7 +458,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
   `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as
-  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. Other typed
+  `ZoomPosition::normalize_with_max` and `zoom_from_normalized`. Other typed
   control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
   values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting

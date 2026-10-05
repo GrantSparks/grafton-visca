@@ -981,9 +981,7 @@ pub use crate::{
         PictureEffectMode, PresetNumber, WhiteBalanceMode,
     },
     error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
-    inquiry_conversions::{
-        zoom_from_normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain, ZoomPositionExt,
-    },
+    inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
     types::{Coarse, FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,
     visca_socket::ViscaSocket,

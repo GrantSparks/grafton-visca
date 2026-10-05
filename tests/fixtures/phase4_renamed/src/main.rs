@@ -590,7 +590,7 @@ impl Zoom for DownstreamProfile {
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: capabilities::CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
     const SUPPORTS_DIRECT_ZOOM: bool = false;
-    const ZOOM_MAGNIFICATION_TO_UNITS: f32 = <Base as Zoom>::ZOOM_MAGNIFICATION_TO_UNITS;
+    const OPTICAL_ZOOM_RATIO: Option<f32> = <Base as Zoom>::OPTICAL_ZOOM_RATIO;
 }
 
 impl Focus for DownstreamProfile {
@@ -604,7 +604,7 @@ impl Exposure for DownstreamProfile {
     const EXPOSURE_MODES: &'static [visca_renamed::ExposureMode] =
         <Base as Exposure>::EXPOSURE_MODES;
     const IRIS_RANGE: Option<capabilities::CapabilityRange<u16>> = <Base as Exposure>::IRIS_RANGE;
-    const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeed] =
+    const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeedEntry] =
         <Base as Exposure>::SHUTTER_SPEEDS;
     const GAIN_RANGE: capabilities::CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
     const BRIGHTNESS_RANGE: Option<capabilities::CapabilityRange<u16>> =

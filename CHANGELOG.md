@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (#806): one public `FocusSpeed`.** `grafton_visca::FocusSpeed`
+  (`types::FocusSpeed`) is the type every focus-speed API takes;
+  out-of-range values report `ParameterOutOfRange`.
+
+- **BREAKING (#806):** `SetMotionSyncPreset::new(MotionSyncSpeed)` and
+  `speed() -> MotionSyncSpeed`; `motion_sync().set_speed` is the setter.
+  `InquiryData::Version { info: VersionInfo }` and
+  `InquiryData::TallyStatus { state: TallyStatusState }` carry the canonical
+  structs.
+
+- **BREAKING (#808): one degrees↔units conversion per profile geometry.**
+  `PanTiltExt::degrees_to_{pan,tilt}_units` returns `Option<i32>` and rounds
+  half away from zero exactly like request preparation (G2 10.05° is now 145
+  units, was 144); `as_degrees_with_profile` returns `PanTiltPositionDeg`;
+  `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take raw `i16`
+  words; all conversions use `f32`.
+
+- **BREAKING (#808, #828): magnification follows the installed lens.**
+  `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` replace the
+  per-profile magnification scale; `ZoomScale`, `Capabilities::zoom_scale()`
+  and `Capabilities::zoom_scale_for_lens(ratio)` convert between
+  magnification and zoom units. Only `PtzOptics30X` fixes its lens; the
+  PTZOptics G2 family (12x/20x/30x on one protocol profile) needs the lens
+  declared, and an undeclared lens fails with an `InvalidRequest` saying how.
+
+- **BREAKING (#807, #819):** `Fraction` is stored in lowest terms with private
+  fields (`new` returns `Option`, equality is value equality);
+  `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` replaces
+  `capabilities::ShutterSpeed` and `RuntimeShutterSpeed`; `types::ShutterSpeed`
+  wraps a `u8` covering the whole `0p 0q` wire field, and each profile's
+  shutter table alone decides which codes a camera accepts.
+
 - **BREAKING (#795): raw VISCA byte streams correlate every frame through one
   write-ordered ledger per camera.** Every written request that still owes a
   first answer is an entry in write order, and each frame resolves against
@@ -27,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer per request, socket naming in completions learned per session) and
   the cost when a camera violates them are documented in
   `docs/architecture_2_0.md`.
+
 - **BREAKING (scheduling, #795):** a raw `CompletionOnly` command is exclusive
   on its camera until its completion or rejection arrives; inquiries and
   ordinary commands queue behind it, and one STOP may wait behind it. A
@@ -34,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   owed command answer and fails `CommandCorrelationLost` once that lane
   latches, and a `CompletionOnly` command behind an unsettled `NoReply` fails
   the same way instead of timing out.
+
 - **BREAKING (#795): no command is written again after its ACK**, on raw and
   Sony envelopes alike. A camera error after an ACK is reported as
   `Error::CommandFailedAfterAck { source }` (`Terminal`/`Unconfirmed`, not
@@ -43,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unacknowledged command at once (the PTZOptics G2 rejects focus STOP in
   auto focus this way), so a G2 halt reports focus `CommandNotExecutable`
   promptly instead of after a 0.5 s ACK deadline and 1 s hold.
+
 - **BREAKING (#795): `Error::MotionSuperseded` gains
   `context: FailureContext`** with exact certainty (`NotAccepted` when the
   superseded motion was never written), and `Error::motion_superseded` takes
@@ -61,6 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `if_clear_on_connect`), drops `camera_address`, and defaults to the
   `for_serial()` 5 s timeouts. Startup input is discarded before the
   session sees it.
+
 - **BREAKING (#798): one IP connect pipeline for every facade.** An
   unresolvable host is `InvalidAddress` on blocking, Tokio and smol (async
   was `Io`); exhausting every resolved TCP address gives
@@ -69,12 +105,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within the deadline) and is shared across resolved addresses so an
   unroutable first address cannot starve the next. `declare_net_transport!`
   is replaced by generic `Tcp<S>` / `Udp<S>`.
+
 - **BREAKING (#799): `TransportConfig::for_tcp/for_udp/for_serial` are the
   only transport defaults.** `Transport::tcp()` / `udp()` reply limits rise
   from 128 bytes to 256 (TCP) and 1024 (UDP), matching every other entry
   point; `CameraConfig::transport_config` uses the supplied config as given
   (a default buffer is no longer treated as unset); `for_udp` / `for_serial`
   carry no TCP fields and `tcp_nodelay: None` keeps the OS default.
+
 - **BREAKING (#800): one bounded blocking I/O policy.** Every syscall arms its
   own timeout, so timeouts are no longer saved and restored; failing to arm
   a timeout is `Io` on every transport; an unrepresentable timeout is
@@ -97,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   implement `HasVersionInquiry` and list `TypedSupportSurface::VersionInquiry`
   in `TYPED_SUPPORT`; persisted runtime profiles must add `"version-inquiry"`
   to `typed_support` (see `docs/migration_2_0.md`).
+
 - **BREAKING (#795): `FocusZone` is now `#[non_exhaustive]` and gains
   `FocusZone::Zone03`.** Every camera on the G2 bench reports focus zone
   `03` and accepts `81 01 04 AA 03 FF`, a value no vendor source documents;
@@ -106,15 +145,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PtzOptics30X` allow `Zone03`, `PtzOpticsG3` allows only the documented
   Top/Center/Bottom, and decoding an inquiry reply of `03` is accepted
   everywhere so a read value can always be set back where it is supported.
-- **BREAKING (#795): built-in Sony and `GenericVisca` `ProfileSpec`s saved by
-  an earlier 2.0 prerelease are refused on load**, because their stored
-  typed-support set lacks `VersionInquiry` and built-in identities must match
-  the current registry exactly. The `InvalidRequest` message names the
-  profile, the missing surfaces, and the regeneration call
-  (`ProfileSpec::from_compile_time::<P>()`). Saved PTZOptics specs still load
-  and gain their focus-zone list.
+
+- **BREAKING (#795): a `ProfileSpec` or `TypedSupportSet` persisted by an
+  earlier 2.0 prerelease is refused on load.** Every current field
+  (`focus_zones`, `optical_zoom_ratio`, `wire_codec`, shutter `exposure`) is
+  required and built-in identities must match the current registry exactly,
+  so older built-in specs (which lack `VersionInquiry` and these fields) and
+  older custom specs fail with an `InvalidRequest` naming the profile and the
+  regeneration call (`ProfileSpec::from_compile_time::<P>()` for a built-in,
+  `ProfileSpec::builder` for a custom profile). No older shape is backfilled.
 
 ### Removed
+
+- **BREAKING (#806):** `command::{FocusSpeed, Version, TallyStatus,
+  NightDayMode, IrisControl}`, `SetMotionSyncPreset::from_preset`,
+  `MotionSyncSpeed::from_preset` and the `motion_sync().set_preset(u8)`
+  accessor.
+
+- **BREAKING (#807):** `TryFrom<Fraction> for ShutterSpeed` (its table matched
+  no profile) and `Fraction::same_value`.
+
+- **BREAKING (#808):** the profile-less G2-geometry helpers
+  (`PanTiltPosition::as_degrees`, `PanTiltPositionDeg::to_raw`),
+  `PanTiltPositionRaw`, `types::{PanPosition, TiltPosition}`, the
+  `PanTilt::*Raw` variants, `ZoomPositionExt` (now inherent),
+  `ZoomPosition::normalized_against`, `units::Magnification`, and the
+  magnification methods on `Capabilities` and `ZoomExt`.
+
+- **BREAKING (#819):** `camera::profiles::{G2Gain, G2PresetId}` (`G2Gain`
+  offered 24 dB, which the G2 profile rejects),
+  `ExposureExt::find_shutter_speed` and the orphan `exposure_constants.rs`.
+
+- **BREAKING (#828):** `ExposureExt::fstop_to_iris_units`, an uncalibrated
+  placeholder that returned the minimum iris for a NaN f-stop.
 
 - **BREAKING (#798, #799):** `TransportBuilderExt`,
   `BufferConfig::for_sony_ip`, `NetTransportBuilder::{udp_buffers,
@@ -124,10 +187,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BREAKING (#807): `ColorTemp::try_from(Kelvin)` uses the single
+  `ColorTemp::from_kelvin` mapping** (2500–8000 K, nearest 100 K step), so
+  3200 K encodes `0x07` instead of `0x0B`.
+
+- **BREAKING (#828):** the speed/level `From<Raw<_>>` conversions, which
+  silently clamped invalid values to the minimum, are now `TryFrom<Raw<_>>`
+  returning the type's range error.
+
+- (#819) Shutter code `0x00` (the generic 1/30 s step) is constructible,
+  encodes as `81 01 04 4A 00 00 00 00 FF` and decodes on every generic-table
+  profile.
+
+- (#808) `PanTiltCoordinateConversion` deserialization rejects zero or
+  non-finite scales, and `PtzOptics30X` at 30x now reaches the optical
+  maximum `0x4000` (its previous scale made 30x unreachable).
+
 - **BREAKING (#828): `CameraConfig` serial opens no longer broadcast I/F
   Clear by default.** Startup writes are selected with
   `CameraConfig::serial_startup(Startup)` / `serial::Config::startup`, and
   every entry point documents what it writes on open.
+
 - **#828:** `BufferConfig::recv_buffer_size` is the largest accepted frame and
   the per-read size, and `max_buffer_size` bounds input carried between
   reads with room for one more read, so a burst of valid replies can no
@@ -152,8 +232,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Capabilities::shutter_speed_for(Fraction)` and `Fraction`
+  `Display`/`FromStr`/serde (#807);
+  `PanTiltCoordinateConversion::{for_profile, pan_units, tilt_units,
+  pan_degrees, tilt_degrees, pan_degree_range, tilt_degree_range,
+  to_degrees, to_units}`, `ZoomScale`, `Capabilities::{zoom_scale,
+  zoom_scale_for_lens}` (#808).
+
 - `Error::CommandCorrelationLost { camera }` and
   `Error::CommandFailedAfterAck { source }` with their constructors (#795).
+
 - `transport::AddressedBus` and `HasTransportConfig::addressed_bus()` (#828).
   When serial Address Set ran, every `Session::open` (blocking and async,
   including caller-built transports) rejects a registered camera the chain

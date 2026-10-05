@@ -3312,28 +3312,28 @@ mod tests {
 
             assert_eq!(
                 prepared_absolute.wire.as_bytes(),
-                encoded(&PanTilt::AbsolutePositionRaw {
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
+                encoded(&PanTilt::AbsolutePosition {
+                    pan: 0x8249_u16 as i16,
+                    tilt: 0x7f3d_u16 as i16,
                     pan_speed,
                     tilt_speed,
                 })
             );
             assert_eq!(
                 prepared_relative.wire.as_bytes(),
-                encoded(&PanTilt::RelativePositionRaw {
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
+                encoded(&PanTilt::RelativePosition {
+                    pan: 0x8249_u16 as i16,
+                    tilt: 0x7f3d_u16 as i16,
                     pan_speed,
                     tilt_speed,
                 })
             );
             assert_eq!(
                 prepared_limit.wire.as_bytes(),
-                encoded(&PanTilt::LimitSetRaw {
+                encoded(&PanTilt::LimitSet {
                     corner: PanTiltLimitCorner::UpRight,
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
+                    pan: 0x8249_u16 as i16,
+                    tilt: 0x7f3d_u16 as i16,
                 })
             );
             assert!(matches!(
@@ -3403,9 +3403,9 @@ mod tests {
         .expect("prepared signed absolute");
         assert_eq!(
             prepared.wire.as_bytes(),
-            encoded(&PanTilt::AbsolutePositionRaw {
-                pan_u16: 0x02d0,
-                tilt_u16: 0xff10,
+            encoded(&PanTilt::AbsolutePosition {
+                pan: 0x02d0_u16 as i16,
+                tilt: 0xff10_u16 as i16,
                 pan_speed,
                 tilt_speed,
             })

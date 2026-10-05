@@ -493,7 +493,7 @@ fn validate_numeric_exposure(profile: &crate::ProfileSpec) -> Result<(), Error> 
     require(profile.capabilities().has_exposure, "exposure control")
 }
 
-fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u16>) -> Result<(), Error> {
+fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
     validate_numeric_exposure(profile)?;
     if let Some(value) = value {
         if !profile
@@ -602,7 +602,7 @@ fn validate_tuning(profile: &crate::ProfileSpec, value: i8, red: bool) -> Result
 
 fn validate_color_temperature(
     profile: &crate::ProfileSpec,
-    value: Option<u16>,
+    value: Option<crate::types::ColorTemp>,
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
@@ -618,9 +618,8 @@ fn validate_color_temperature(
             .ok_or(Error::FeatureNotSupported {
                 feature: "color-temperature range",
             })?;
-        // ColorTemp values are represented in VISCA steps, while profile
-        // metadata is expressed in Kelvin.
-        let kelvin = 2_500_u16.saturating_add(value.saturating_mul(100));
+        // Profile metadata is expressed in Kelvin.
+        let kelvin = value.to_kelvin();
         if !range.contains(&kelvin) {
             return Err(invalid_value("color temperature", kelvin));
         }
@@ -732,7 +731,10 @@ fn validate_motion_sync(profile: &crate::ProfileSpec) -> Result<(), Error> {
     )
 }
 
-fn validate_motion_sync_speed(profile: &crate::ProfileSpec, speed: u8) -> Result<(), Error> {
+fn validate_motion_sync_speed(
+    profile: &crate::ProfileSpec,
+    speed: crate::types::MotionSyncSpeed,
+) -> Result<(), Error> {
     validate_motion_sync(profile)?;
     let maximum =
         profile
@@ -741,10 +743,11 @@ fn validate_motion_sync_speed(profile: &crate::ProfileSpec, speed: u8) -> Result
             .ok_or(Error::FeatureNotSupported {
                 feature: "motion sync speed",
             })?;
-    if speed == 0 || speed > maximum {
+    let speed = speed.value();
+    if speed > maximum {
         return Err(Error::ParameterOutOfRange {
             parameter: "motion sync speed",
-            value: speed as i32,
+            value: i32::from(speed),
             min: 1,
             max: maximum as i32,
         });
@@ -898,7 +901,7 @@ impl BuiltinValidation for crate::command::color::ColorTemperature {
         validate_color_temperature(
             profile,
             match self {
-                Self::SetTemperature(value) => Some(value.value()),
+                Self::SetTemperature(value) => Some(*value),
                 _ => None,
             },
         )
@@ -3633,9 +3636,9 @@ pub enum FocusDrive {
     /// Drive focus nearer at standard speed.
     Near,
     /// Drive focus farther at a variable speed.
-    FarVariable(crate::command::FocusSpeed),
+    FarVariable(crate::types::FocusSpeed),
     /// Drive focus nearer at a variable speed.
-    NearVariable(crate::command::FocusSpeed),
+    NearVariable(crate::types::FocusSpeed),
 }
 
 impl_request!(
@@ -5807,7 +5810,7 @@ mod tests {
         ));
         assert_exact_request_size(&crate::command::Shutter::Reset);
         assert_exact_request_size(&crate::command::Shutter::SetSpeed(
-            crate::types::ShutterSpeed::new(1).expect("valid shutter"),
+            crate::types::ShutterSpeed::new(1),
         ));
         assert_exact_request_size(&crate::command::Brightness::Reset);
         assert_exact_request_size(&crate::command::Brightness::SetLevel(

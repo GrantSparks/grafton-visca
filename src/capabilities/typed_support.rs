@@ -324,13 +324,11 @@ mod tests {
 
     #[cfg(feature = "serde")]
     #[test]
-    fn serde_preserves_the_historical_wire_contract_and_appends_new_surfaces(
-    ) -> Result<(), serde_json::Error> {
+    fn serde_pins_every_current_wire_name() -> Result<(), serde_json::Error> {
         // This table is intentionally independent of `TypedSupportSurface::ALL`
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
-        // accepted tag, or a surface added only to `ALL` cannot pass by merely
-        // agreeing with the aggregate fixtures below.
+        // accepted tag, or a surface added only to `ALL` cannot pass.
         const WIRE_SURFACES: [(&str, TypedSupportSurface); 56] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
@@ -447,21 +445,6 @@ mod tests {
             ("version-inquiry", TypedSupportSurface::VersionInquiry),
         ];
 
-        // These wire fixtures deliberately do not derive from the surface list
-        // or serde's rename rules. They preserve the 47 surviving historical
-        // tags and their canonical order; the unsupported aggregate
-        // noise-reduction was intentionally not retained in the 2.0 surface.
-        const LEGACY_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality"]"#;
-        const PREVIOUS_CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode"]"#;
-        const CURRENT_JSON: &str = r#"["direct-zoom","digital-zoom-toggle","digital-zoom-range","iris-control","one-push-focus","ptz-optics-snap-focus","focus-lock","push-auto-focus","focus-zone","auto-focus-sensitivity","focus-near-limit-inquiry","backlight-compensation","wide-dynamic-range","exposure-compensation","brightness-control","one-push-white-balance","auto-tracking-white-balance","auto-white-balance-sensitivity","color-temperature","rgb-gain","rgb-tuning","image-flip","image-mirror","combined-image-flip","contrast-control","sharpness-control","saturation-control","hue-control","luminance-control","gamma-control","noise-reduction2-d","noise-reduction3-d","picture-effect","tally","direct-menu","nd-filter","variable-speed","motion-sync","focus-zone-inquiry","usb-audio","ptz-optics-anti-flicker","ptz-optics-settings-save","ptz-optics-preset-recall-speed","sony-spotlight","sony-auto-slow-shutter","ptz-optics-multicast-streaming","ptz-optics-ndi-quality","exposure-mode","iris-control-inquiry"]"#;
-        const CONTROL_JSON: &str = r#"["noise-reduction2-d-control","noise-reduction3-d-control"]"#;
-        const ROW_SCOPED_JSON: &str =
-            r#"["image-freeze","defog-level","tally-brightness","ptz-optics-tally"]"#;
-        // Appended after 2.0.0-rc.3: the Sony-format version inquiry became an
-        // explicit typed surface once the PTZOptics G2 bench (#795) showed its reply
-        // is not that layout.
-        const VERSION_JSON: &str = r#"["version-inquiry"]"#;
-
         assert_eq!(TypedSupportSurface::ALL.len(), 56);
         assert_eq!(WIRE_SURFACES.len(), 56);
         for (wire_name, surface) in WIRE_SURFACES {
@@ -479,116 +462,21 @@ mod tests {
             );
         }
 
-        assert_eq!(
-            PREVIOUS_CURRENT_JSON,
-            format!(
-                r#"{},"exposure-mode"]"#,
-                &LEGACY_JSON[..LEGACY_JSON.len() - 1]
-            )
+        // The full set serializes every tag once, in the table's canonical order.
+        let all = TypedSupportSet::from_surfaces(
+            &WIRE_SURFACES
+                .iter()
+                .map(|(_, surface)| *surface)
+                .collect::<Vec<_>>(),
         );
-        assert_eq!(
-            CURRENT_JSON,
-            format!(
-                r#"{},"iris-control-inquiry"]"#,
-                &PREVIOUS_CURRENT_JSON[..PREVIOUS_CURRENT_JSON.len() - 1]
-            )
-        );
-
-        let legacy: TypedSupportSet = serde_json::from_str(LEGACY_JSON)?;
-        assert_eq!(legacy.iter().count(), 47);
-        assert!(!legacy.contains(TypedSupportSurface::ExposureMode));
-        assert!(!legacy.contains(TypedSupportSurface::IrisControlInquiry));
-        assert!(!legacy.contains(TypedSupportSurface::NoiseReduction2DControl));
-        assert!(!legacy.contains(TypedSupportSurface::NoiseReduction3DControl));
-        assert_eq!(
-            legacy,
-            TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..47]
-                    .iter()
-                    .map(|(_, surface)| *surface)
-                    .collect::<Vec<_>>(),
-            )
-        );
-        assert_eq!(serde_json::to_string(&legacy)?, LEGACY_JSON);
-
-        let previous_current: TypedSupportSet = serde_json::from_str(PREVIOUS_CURRENT_JSON)?;
-        assert_eq!(previous_current.iter().count(), 48);
-        assert!(previous_current.contains(TypedSupportSurface::ExposureMode));
-        assert!(!previous_current.contains(TypedSupportSurface::IrisControlInquiry));
-        assert!(!previous_current.contains(TypedSupportSurface::NoiseReduction2DControl));
-        assert!(!previous_current.contains(TypedSupportSurface::NoiseReduction3DControl));
-        assert_eq!(
-            previous_current,
-            TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..48]
-                    .iter()
-                    .map(|(_, surface)| *surface)
-                    .collect::<Vec<_>>(),
-            )
-        );
-        assert_eq!(
-            serde_json::to_string(&previous_current)?,
-            PREVIOUS_CURRENT_JSON
-        );
-
-        let current: TypedSupportSet = serde_json::from_str(CURRENT_JSON)?;
-        assert_eq!(current.iter().count(), 49);
-        assert!(current.contains(TypedSupportSurface::ExposureMode));
-        assert!(current.contains(TypedSupportSurface::IrisControlInquiry));
-        assert!(!current.contains(TypedSupportSurface::NoiseReduction2DControl));
-        assert!(!current.contains(TypedSupportSurface::NoiseReduction3DControl));
-        assert_eq!(
-            current,
-            TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES[..49]
-                    .iter()
-                    .map(|(_, surface)| *surface)
-                    .collect::<Vec<_>>(),
-            )
-        );
-        assert_eq!(serde_json::to_string(&current)?, CURRENT_JSON);
-        assert_eq!(
-            current,
-            previous_current.union(TypedSupportSet::from_surface(
-                TypedSupportSurface::IrisControlInquiry
-            ))
-        );
-
-        let controls: TypedSupportSet = serde_json::from_str(CONTROL_JSON)?;
-        assert!(controls.contains(TypedSupportSurface::NoiseReduction2DControl));
-        assert!(controls.contains(TypedSupportSurface::NoiseReduction3DControl));
-        assert_eq!(serde_json::to_string(&controls)?, CONTROL_JSON);
-
-        let row_scoped: TypedSupportSet = serde_json::from_str(ROW_SCOPED_JSON)?;
-        assert!(row_scoped.contains(TypedSupportSurface::ImageFreeze));
-        assert!(row_scoped.contains(TypedSupportSurface::DefogLevel));
-        assert!(row_scoped.contains(TypedSupportSurface::TallyBrightness));
-        assert!(row_scoped.contains(TypedSupportSurface::PtzOpticsTally));
-        assert_eq!(serde_json::to_string(&row_scoped)?, ROW_SCOPED_JSON);
-
-        let version: TypedSupportSet = serde_json::from_str(VERSION_JSON)?;
-        assert!(version.contains(TypedSupportSurface::VersionInquiry));
-        assert_eq!(version.iter().count(), 1);
-        assert_eq!(serde_json::to_string(&version)?, VERSION_JSON);
-
-        let final_current = current.union(controls).union(row_scoped).union(version);
-        assert_eq!(final_current.iter().count(), 56);
-        assert_eq!(
-            final_current,
-            TypedSupportSet::from_surfaces(
-                &WIRE_SURFACES
-                    .iter()
-                    .map(|(_, surface)| *surface)
-                    .collect::<Vec<_>>(),
-            )
-        );
-        assert_eq!(
-            serde_json::to_string(&final_current)?,
-            format!(
-                r#"{},"noise-reduction2-d-control","noise-reduction3-d-control","image-freeze","defog-level","tally-brightness","ptz-optics-tally","version-inquiry"]"#,
-                &CURRENT_JSON[..CURRENT_JSON.len() - 1]
-            )
-        );
+        let all_json = serde_json::to_string(
+            &WIRE_SURFACES
+                .iter()
+                .map(|(wire_name, _)| *wire_name)
+                .collect::<Vec<_>>(),
+        )?;
+        assert_eq!(serde_json::to_string(&all)?, all_json);
+        assert_eq!(serde_json::from_str::<TypedSupportSet>(&all_json)?, all);
 
         assert!(serde_json::from_str::<TypedSupportSet>(r#"["noise-reduction"]"#).is_err());
         Ok(())

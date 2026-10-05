@@ -1206,8 +1206,8 @@ fn compiled_registry_inventory_counts_remain_readable() {
     let (command_rows, inquiry_rows, helper_rows) = table_row_counts(&table);
     assert_eq!(command_rows, 146); // 146 command-method rows
     assert_eq!(inquiry_rows, 62); // 62 inquiry rows
-    assert_eq!(helper_rows, 9); // 9 empty-ID helper rows
-    assert_eq!(command_rows + inquiry_rows + helper_rows, 217); // 217 total rows
+    assert_eq!(helper_rows, 8); // 8 empty-ID helper rows
+    assert_eq!(command_rows + inquiry_rows + helper_rows, 216); // 216 total rows
 
     #[cfg(all(feature = "dyn-api", feature = "async"))]
     {

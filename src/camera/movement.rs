@@ -224,7 +224,18 @@ impl From<Duration> for IdleWait {
 }
 
 /// Raw pan/tilt position returned by the VISCA inquiry.
+///
+/// This is the crate's one raw position type. Raw units per degree differ by
+/// camera, so angles are obtained only through a profile:
+/// [`Self::as_degrees_with_profile`] for a compile-time profile, or
+/// [`PanTiltCoordinateConversion::to_degrees`] with
+/// [`ProfileSpec::pan_tilt_coordinates`] for a runtime profile.
+///
+/// [`PanTiltCoordinateConversion::to_degrees`]: crate::PanTiltCoordinateConversion::to_degrees
+/// [`ProfileSpec::pan_tilt_coordinates`]: crate::ProfileSpec::pan_tilt_coordinates
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltPosition {
     /// Pan position in raw VISCA units.
     pub pan: i32,
@@ -238,42 +249,18 @@ impl PanTiltPosition {
         Self { pan, tilt }
     }
 
-    /// Converts a position in the library's standard VISCA degree ranges.
-    ///
-    /// This conversion is only meaningful for the standard `i16` pan/tilt
-    /// coordinate ranges. An out-of-range axis returns `NaN` rather than
-    /// silently treating a profile-specific coordinate as the center position.
-    /// Use [`Self::as_degrees_with_profile`] for a typed camera inquiry.
-    #[must_use]
-    pub fn as_degrees(&self) -> (f64, f64) {
-        use crate::types::{PanPosition, TiltPosition};
-
-        let pan = i16::try_from(self.pan)
-            .ok()
-            .and_then(|value| PanPosition::new(value).ok())
-            .map_or(f64::NAN, |value| f64::from(value.to_degrees()));
-        let tilt = i16::try_from(self.tilt)
-            .ok()
-            .and_then(|value| TiltPosition::new(value).ok())
-            .map_or(f64::NAN, |value| f64::from(value.to_degrees()));
-        (pan, tilt)
-    }
-
-    /// Converts the position using a typed camera profile's signed,
-    /// profile-specified units per degree.
+    /// Converts the position to degrees with a compile-time profile's signed
+    /// units-per-degree scales.
     ///
     /// This preserves profile-specific coordinates such as Sony BRC-300's
-    /// signed 20-bit pan position returned by a typed inquiry, including a
-    /// profile whose raw axis polarity is reverse to the library convention.
+    /// signed 20-bit pan position, including a profile whose raw axis
+    /// polarity is reverse to the library convention.
     #[must_use]
     pub fn as_degrees_with_profile<P: crate::capabilities::Profile>(
         &self,
         _profile: &P,
-    ) -> (f64, f64) {
-        (
-            f64::from(self.pan) / f64::from(P::PAN_DEGREES_TO_UNITS),
-            f64::from(self.tilt) / f64::from(P::TILT_DEGREES_TO_UNITS),
-        )
+    ) -> crate::inquiry_conversions::PanTiltPositionDeg {
+        crate::PanTiltCoordinateConversion::for_profile::<P>().to_degrees(*self)
     }
 
     /// Returns the raw `(pan, tilt)` values.
@@ -328,22 +315,18 @@ mod tests {
         use crate::profiles::SonyBRC300;
 
         let left_up = PanTiltPosition::new(0x08A58, 0x493D);
-        let (pan, tilt) = left_up.as_degrees_with_profile(&SonyBRC300);
-        assert!(pan < 0.0);
-        assert!(tilt < 0.0);
-        assert!((pan + f64::from(0x08A58) / 208.0).abs() < f64::EPSILON);
-        assert!((tilt + f64::from(0x493D) / 208.0).abs() < f64::EPSILON);
+        let degrees = left_up.as_degrees_with_profile(&SonyBRC300);
+        assert!(degrees.pan.0 < 0.0);
+        assert!(degrees.tilt.0 < 0.0);
+        assert_eq!(degrees.pan.0, -(0x08A58 as f32) / 208.0);
+        assert_eq!(degrees.tilt.0, -(0x493D as f32) / 208.0);
 
         let right_down = PanTiltPosition::new(-0x08A58, -0x186A);
-        let (pan, tilt) = right_down.as_degrees_with_profile(&SonyBRC300);
-        assert!(pan > 0.0);
-        assert!(tilt > 0.0);
-        assert!((pan - f64::from(0x08A58) / 208.0).abs() < f64::EPSILON);
-        assert!((tilt - f64::from(0x186A) / 208.0).abs() < f64::EPSILON);
-
-        let (standard_pan, standard_tilt) = left_up.as_degrees();
-        assert!(standard_pan.is_nan());
-        assert!(standard_tilt.is_nan());
+        let degrees = right_down.as_degrees_with_profile(&SonyBRC300);
+        assert!(degrees.pan.0 > 0.0);
+        assert!(degrees.tilt.0 > 0.0);
+        assert_eq!(degrees.pan.0, 0x08A58 as f32 / 208.0);
+        assert_eq!(degrees.tilt.0, 0x186A as f32 / 208.0);
     }
 
     #[test]
