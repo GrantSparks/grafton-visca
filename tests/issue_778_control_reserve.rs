@@ -6,6 +6,12 @@
 //! saturate a capacity-1 session with a running zoom and show that a second
 //! ordinary request is refused while the STOP is admitted, written, and
 //! applied.
+//!
+//! The zoom must be acknowledged before the STOP is submitted. A raw STOP that
+//! crosses a still-unacknowledged command creates the documented two-candidate
+//! state (#714), in which neither ACK binds and the STOP may end
+//! `UnsequencedCommandUnconfirmed`. Each test therefore waits until the owner
+//! has read the zoom's ACK, never for an elapsed time.
 
 #![allow(clippy::expect_used)]
 
@@ -26,12 +32,36 @@ mod profile_fixtures;
         any(feature = "runtime-tokio", feature = "runtime-smol")
     )
 ))]
-mod wire {
+mod scenario {
+    use std::{num::NonZeroUsize, time::Duration};
+
+    use grafton_visca::{profile::ProfileSpec, OperationalTuning, SessionConfig};
+
+    pub use super::profile_fixtures::NonDefaultCompileTimeProfile as Raw;
+
     pub const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
     pub const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
     pub const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
     pub const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
     pub const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
+
+    /// How long a scripted reply may take to reach the owner and how long a
+    /// test waits for an owner write or read before failing.
+    pub const OWNER_PROGRESS_BOUND: Duration = Duration::from_secs(5);
+
+    /// A capacity-1 session for the raw three-axis fixture.
+    ///
+    /// Every scripted ACK is pushed only after the owner has written its
+    /// frame, so the test never races the camera. The fixture's 100 ms ACK
+    /// deadline would still race the owner's scheduling on a loaded host; the
+    /// deadline is not what these tests exercise, so it is widened to
+    /// [`OWNER_PROGRESS_BOUND`].
+    pub fn saturated_config() -> SessionConfig {
+        SessionConfig::new(ProfileSpec::from_compile_time::<Raw>().expect("raw three-axis profile"))
+            .with_admission_capacity(NonZeroUsize::MIN)
+            .with_tuning(OperationalTuning::new().ack_timeout(OWNER_PROGRESS_BOUND))
+            .expect("a widened ACK deadline is valid tuning")
+    }
 }
 
 #[cfg(all(
@@ -41,7 +71,6 @@ mod wire {
 mod asynchronous {
     use std::{
         future::Future,
-        num::NonZeroUsize,
         sync::{
             atomic::{AtomicUsize, Ordering},
             Arc, Mutex,
@@ -51,13 +80,12 @@ mod asynchronous {
 
     use grafton_visca::{
         completion::AppliedOnly,
-        profile::ProfileSpec,
         request::builtin::{ZoomDrive, ZoomStop},
         transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        Error, Executor, Session, SessionConfig,
+        Error, Executor, Session,
     };
 
-    use super::{profile_fixtures::NonDefaultCompileTimeProfile as Raw, wire::*};
+    use super::scenario::*;
 
     #[derive(Debug)]
     struct ScriptedTransport {
@@ -85,7 +113,7 @@ mod asynchronous {
         }
 
         async fn await_writes<E: Executor>(&self, executor: &E, count: usize) {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + OWNER_PROGRESS_BOUND;
             while self.writes().len() < count {
                 assert!(
                     Instant::now() < deadline,
@@ -95,8 +123,11 @@ mod asynchronous {
             }
         }
 
+        /// Waits until the owner has read `count` scripted frames. The actor
+        /// applies a frame in the turn that read it, so once this returns the
+        /// frame's correlation precedes any later boundary request.
         async fn await_reads<E: Executor>(&self, executor: &E, count: usize) {
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + OWNER_PROGRESS_BOUND;
             while self.reads.load(Ordering::Acquire) < count {
                 assert!(
                     Instant::now() < deadline,
@@ -151,11 +182,7 @@ mod asynchronous {
             responses,
             probe: probe.clone(),
         };
-        let config = SessionConfig::new(
-            ProfileSpec::from_compile_time::<Raw>().expect("raw three-axis profile"),
-        )
-        .with_admission_capacity(NonZeroUsize::MIN);
-        let session = Session::open(transport, config, executor.clone())
+        let session = Session::open(transport, saturated_config(), executor.clone())
             .await
             .expect("owner session");
         (session, probe)
@@ -257,28 +284,82 @@ mod asynchronous {
 mod blocking {
     use std::{
         collections::VecDeque,
-        num::NonZeroUsize,
-        sync::{Arc, Mutex},
+        sync::{Arc, Condvar, Mutex, MutexGuard},
         time::Duration,
     };
 
     use grafton_visca::{
-        blocking::{Session, SessionConfig},
+        blocking::Session,
         command::CommandKind,
         completion::AppliedOnly,
-        profile::ProfileSpec,
         request::builtin::{ZoomDrive, ZoomStop},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
         Error,
     };
 
-    use super::{profile_fixtures::NonDefaultCompileTimeProfile as Raw, wire::*};
+    use super::scenario::*;
+
+    /// The scripted camera's side of the wire, shared with the test thread.
+    ///
+    /// Submission returns at admission and the owner worker writes and reads
+    /// afterwards, so the test waits here for the owner's progress.
+    #[derive(Debug, Default)]
+    struct Wire {
+        state: Mutex<WireState>,
+        changed: Condvar,
+    }
+
+    #[derive(Debug, Default)]
+    struct WireState {
+        responses: VecDeque<Vec<u8>>,
+        writes: Vec<Vec<u8>>,
+        reads: usize,
+    }
+
+    impl Wire {
+        fn lock(&self) -> MutexGuard<'_, WireState> {
+            self.state.lock().expect("wire lock")
+        }
+
+        fn update(&self, change: impl FnOnce(&mut WireState)) {
+            change(&mut self.lock());
+            self.changed.notify_all();
+        }
+
+        fn push(&self, bytes: &[u8]) {
+            self.update(|state| state.responses.push_back(bytes.to_vec()));
+        }
+
+        fn writes(&self) -> Vec<Vec<u8>> {
+            self.lock().writes.clone()
+        }
+
+        /// Waits, bounded, until `ready` holds for the wire state.
+        fn await_owner(&self, what: &str, ready: impl Fn(&WireState) -> bool) {
+            let (_state, timeout) = self
+                .changed
+                .wait_timeout_while(self.lock(), OWNER_PROGRESS_BOUND, |state| !ready(state))
+                .expect("wire lock");
+            assert!(!timeout.timed_out(), "timed out awaiting {what}");
+        }
+
+        fn await_writes(&self, count: usize) {
+            self.await_owner("owner writes", |state| state.writes.len() >= count);
+        }
+
+        /// Waits until the owner worker has read `count` scripted frames. The
+        /// worker applies a frame in the turn that read it, before it serves
+        /// another boundary request, so once this returns the frame's
+        /// correlation precedes any later submission.
+        fn await_reads(&self, count: usize) {
+            self.await_owner("owner reads", |state| state.reads >= count);
+        }
+    }
 
     #[derive(Debug)]
     struct ScriptedTransport {
         config: TransportConfig,
-        responses: Arc<Mutex<VecDeque<Vec<u8>>>>,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+        wire: Arc<Wire>,
     }
 
     impl HasTransportConfig for ScriptedTransport {
@@ -294,10 +375,7 @@ mod blocking {
             _kind: CommandKind,
             _timeout: Duration,
         ) -> Result<(), Error> {
-            self.writes
-                .lock()
-                .expect("writes lock")
-                .push(bytes.to_vec());
+            self.wire.update(|state| state.writes.push(bytes.to_vec()));
             Ok(())
         }
 
@@ -306,12 +384,20 @@ mod blocking {
             dst: &mut [u8],
             timeout: Duration,
         ) -> Result<usize, Error> {
-            let next = self.responses.lock().expect("responses lock").pop_front();
-            let Some(bytes) = next else {
-                std::thread::sleep(timeout.min(Duration::from_millis(1)));
+            let (mut state, _) = self
+                .wire
+                .changed
+                .wait_timeout_while(self.wire.lock(), timeout, |state| {
+                    state.responses.is_empty()
+                })
+                .expect("wire lock");
+            let Some(bytes) = state.responses.pop_front() else {
                 return Err(Error::io_timeout());
             };
             dst[..bytes.len()].copy_from_slice(&bytes);
+            state.reads += 1;
+            drop(state);
+            self.wire.changed.notify_all();
             Ok(bytes.len())
         }
 
@@ -322,33 +408,24 @@ mod blocking {
 
     #[test]
     fn blocking_stop_passes_a_saturated_session() {
-        let responses = Arc::new(Mutex::new(VecDeque::new()));
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        let push = |bytes: &[u8]| {
-            responses
-                .lock()
-                .expect("responses lock")
-                .push_back(bytes.to_vec());
-        };
+        let wire = Arc::new(Wire::default());
         let transport = ScriptedTransport {
             config: TransportConfig::default(),
-            responses: Arc::clone(&responses),
-            writes: Arc::clone(&writes),
+            wire: Arc::clone(&wire),
         };
-        let config = SessionConfig::new(
-            ProfileSpec::from_compile_time::<Raw>().expect("raw three-axis profile"),
-        )
-        .with_admission_capacity(NonZeroUsize::MIN);
-        let session = Session::open(transport, config).expect("owner session");
+        let session = Session::open(transport, saturated_config()).expect("owner session");
         let camera = session.camera::<Raw>().expect("raw camera");
 
-        // The running zoom holds the session's only ordinary slot. A short
-        // wait pumps its ACK, so the zoom is executing on socket one before
-        // the STOP is written.
+        // The running zoom holds the session's only ordinary slot. Its ACK is
+        // answered after the owner writes it and read before the STOP is
+        // submitted, so the zoom is executing on socket one when the STOP is
+        // written.
         let mut zoom = camera
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("ordinary zoom admitted");
-        push(ACK_SOCKET_ONE);
+        wire.await_writes(1);
+        wire.push(ACK_SOCKET_ONE);
+        wire.await_reads(1);
         assert!(matches!(
             zoom.applied_with_timeout(Duration::from_millis(20)),
             Err(Error::ObservationTimeout { .. })
@@ -365,13 +442,11 @@ mod blocking {
         let mut stop = camera
             .submit::<AppliedOnly, _>(&ZoomStop)
             .expect("the typed STOP uses camera 1's control reserve");
-        push(ACK_SOCKET_TWO);
-        push(COMPLETE_SOCKET_TWO);
+        wire.await_writes(2);
+        wire.push(ACK_SOCKET_TWO);
+        wire.push(COMPLETE_SOCKET_TWO);
         stop.applied().expect("the STOP applies");
-        assert_eq!(
-            writes.lock().expect("writes lock").clone(),
-            vec![ZOOM_TELE.to_vec(), ZOOM_STOP.to_vec()]
-        );
+        assert_eq!(wire.writes(), vec![ZOOM_TELE.to_vec(), ZOOM_STOP.to_vec()]);
 
         let metrics = session.metrics().expect("metrics");
         assert_eq!(metrics.control_reserve_admitted, 1);
