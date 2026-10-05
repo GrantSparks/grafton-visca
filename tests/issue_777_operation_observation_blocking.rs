@@ -22,7 +22,9 @@ use grafton_visca::{
     completion::{AppliedOnly, Targeted},
     profile::ProfileSpec,
     request::builtin::{PanTiltHome, ZoomDrive, ZoomStop},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Certainty, Error, FailureContext, FailureStage,
 };
 
@@ -149,7 +151,7 @@ impl BlockingTransport for ScriptedTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let next = self
             .probe
             .responses
@@ -161,8 +163,7 @@ impl BlockingTransport for ScriptedTransport {
             std::thread::sleep(timeout.min(Duration::from_millis(1)));
             return Err(Error::io_timeout());
         };
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

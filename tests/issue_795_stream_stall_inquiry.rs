@@ -34,7 +34,8 @@ use grafton_visca::{
     command::{CommandKind, FocusMode},
     profile::ProfileSpec,
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, Certainty, Error, FailureContext, FailureStage,
 };
@@ -136,7 +137,7 @@ impl BlockingTransport for StallingTransport {
         &mut self,
         destination: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         if !self.queued.is_empty() && !self.fault.load(Ordering::SeqCst) {
             let since = *self.clear_since.get_or_insert_with(Instant::now);
             if since.elapsed() >= RETRANSMIT_AFTER {
@@ -144,10 +145,7 @@ impl BlockingTransport for StallingTransport {
             }
         }
         match self.replies.pop_front() {
-            Some(reply) => {
-                destination[..reply.len()].copy_from_slice(&reply);
-                Ok(reply.len())
-            }
+            Some(reply) => Ok(ReceiveOutcome::copy_message(&reply, destination)),
             None => {
                 thread::sleep(timeout.min(Duration::from_millis(5)));
                 Err(Error::io_timeout())

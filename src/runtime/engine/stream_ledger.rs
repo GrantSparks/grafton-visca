@@ -85,7 +85,7 @@ use smallvec::SmallVec;
 
 use crate::{CameraId, ViscaSocket};
 
-use super::{GenerationTicket, InquiryRoute, RequestId};
+use super::{GenerationTicket, InquiryRoute, Lane, RequestId};
 
 /// Debts at which a camera's correlation is lost.
 ///
@@ -182,16 +182,6 @@ impl Owes {
             _ => true,
         }
     }
-}
-
-/// A camera's independently latched kinds of work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Lane {
-    /// Inquiries (and `CompletionOnly` commands, whose unkeyed completion an
-    /// inquiry hold also filters).
-    Inquiry,
-    /// Ordinary ACK-bearing and `CompletionOnly` commands.
-    Command,
 }
 
 /// Whether a lane of a camera owes an answer.

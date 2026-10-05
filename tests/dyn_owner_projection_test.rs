@@ -11,10 +11,12 @@ use grafton_visca::{
     capabilities::{
         Capabilities, InquirySupport, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface,
     },
-    dynapi::{DynSessionCamera, DynSessionCameraNouns},
+    dynapi::DynSessionCameraNouns,
     profile::{PositionInquirySupport, ProfileSpec},
     profiles::{SonyBRC300, SonyFR7},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     types::ZoomPosition,
     units::UnitInterval,
     CameraId, CommandTimeouts, Error, ExposureMode, ProfileEnvelope, ProfileTiming, Session,
@@ -71,15 +73,14 @@ impl AsyncTransport for ScriptedTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -251,7 +252,7 @@ where
     )
     .await
     .expect("owner-backed session");
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
     assert_eq!(camera.target(), CameraId::CAMERA_1);
     assert_eq!(camera.profile(), &runtime_profile);
     let typed = camera
@@ -277,7 +278,7 @@ where
         assert!(writes[2].starts_with(&[0x81, 0x09, 0x06, 0x12]));
     }
 
-    session.shutdown().await.expect("session shutdown");
+    session.shutdown().expect("session shutdown");
 }
 
 async fn dynamic_combined_normalized_zoom_respects_typed_permission<E>(runtime: E)
@@ -294,8 +295,9 @@ where
     )
     .await
     .expect("partial-profile session");
-    let partial_camera =
-        DynSessionCamera::from_session(&partial_session).expect("partial dynamic camera");
+    let partial_camera = partial_session
+        .camera_dyn()
+        .expect("partial dynamic camera");
 
     // Both values map within the documented numeric range; the midpoint also
     // falls inside the optical range. Neither may infer permission from that
@@ -355,7 +357,6 @@ where
     );
     partial_session
         .shutdown()
-        .await
         .expect("partial session shutdown");
 
     // A profile that grants the same typed digital-range permission admits
@@ -370,8 +371,9 @@ where
     )
     .await
     .expect("supported-profile session");
-    let supported_camera =
-        DynSessionCamera::from_session(&supported_session).expect("supported dynamic camera");
+    let supported_camera = supported_session
+        .camera_dyn()
+        .expect("supported dynamic camera");
     for position in [midpoint, UnitInterval::ONE] {
         supported_camera
             .zoom()
@@ -392,7 +394,6 @@ where
     );
     supported_session
         .shutdown()
-        .await
         .expect("supported session shutdown");
 }
 
@@ -418,7 +419,7 @@ where
     )
     .await
     .expect("Sony FR7 session");
-    let fr7_camera = DynSessionCamera::from_session(&fr7_session).expect("Sony FR7 camera");
+    let fr7_camera = fr7_session.camera_dyn().expect("Sony FR7 camera");
     let fr7_nouns: &dyn DynSessionCameraNouns = &fr7_camera;
 
     let error = fr7_nouns
@@ -449,10 +450,7 @@ where
         fr7_writes.lock().expect("Sony FR7 writes lock").is_empty(),
         "both rejected Sony FR7 exposure-mode noun calls must stay preflight"
     );
-    fr7_session
-        .shutdown()
-        .await
-        .expect("Sony FR7 session shutdown");
+    fr7_session.shutdown().expect("Sony FR7 session shutdown");
 
     // This is mutation-sensitive: the runtime profile has every discovery
     // fact that makes the shared mode family physically plausible, but omits
@@ -472,8 +470,9 @@ where
     )
     .await
     .expect("partial exposure-mode session");
-    let partial_camera =
-        DynSessionCamera::from_session(&partial_session).expect("partial exposure-mode camera");
+    let partial_camera = partial_session
+        .camera_dyn()
+        .expect("partial exposure-mode camera");
     let partial_nouns: &dyn DynSessionCameraNouns = &partial_camera;
 
     let error = partial_nouns
@@ -509,7 +508,6 @@ where
     );
     partial_session
         .shutdown()
-        .await
         .expect("partial exposure-mode session shutdown");
 }
 

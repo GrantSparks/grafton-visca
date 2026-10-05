@@ -1,110 +1,23 @@
-//! Async production transport adapter for the Phase-6 owner.
+//! Async production transport driver for the owner actor. Only the native
+//! send and read calls live here; everything else is [`TransportAdapter`]'s.
 
-use std::{future::Future, num::NonZeroUsize};
+use std::future::Future;
 
 use crate::{
-    profile::{OperationalTuning, ProfileSpec},
-    runtime::engine::{RawPrefixEvidence, TransmissionMeta},
+    runtime::engine::TransmissionMeta,
     transport::{AsyncTransport, HasTransportConfig},
-    CameraId, Error,
+    Error,
 };
-
-#[cfg(test)]
-use crate::{protocol::framer::RawIncompletePrefix, ViscaSocket};
 
 use super::{
-    adapter::AdapterFraming, AsyncOwnerDriver, OwnerBuffers, OwnerPolicy, OwnerReceive,
-    RetainedStreamInput, WireWrite,
+    adapter::{AsyncIo, TransportAdapter},
+    AsyncOwnerDriver, OwnerBuffers, OwnerReceive, WireWrite,
 };
 
-/// Async owner driver over exactly one production `AsyncTransport`.
-#[derive(Debug)]
-pub(crate) struct AsyncTransportAdapter<T> {
-    transport: T,
-    framing: AdapterFraming,
-    policy: OwnerPolicy,
-}
-
-impl<T> AsyncTransportAdapter<T>
+impl<T> TransportAdapter<T, AsyncIo>
 where
     T: AsyncTransport + HasTransportConfig,
 {
-    /// Build an owner adapter from validated profile facts and transport
-    /// configuration.  Construction performs no transport I/O.
-    // Test-only single-target convenience; production uses `new_with_targets`.
-    #[cfg(test)]
-    pub(crate) fn new(
-        transport: T,
-        profile: &ProfileSpec,
-        target: CameraId,
-    ) -> Result<Self, Error> {
-        Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
-    }
-
-    /// Build an owner adapter using immutable session tuning.
-    // Test-only single-target convenience; production uses `new_with_targets`.
-    #[cfg(test)]
-    pub(crate) fn new_with_tuning(
-        transport: T,
-        profile: &ProfileSpec,
-        target: CameraId,
-        tuning: OperationalTuning,
-    ) -> Result<Self, Error> {
-        Self::new_with_targets(
-            transport,
-            &[(target, profile)],
-            tuning,
-            crate::DEFAULT_ADMISSION_CAPACITY,
-            false,
-        )
-    }
-
-    /// Build an owner adapter for several immutable target/profile pairs; see
-    /// [`AdapterFraming::for_targets`].
-    pub(crate) fn new_with_targets(
-        transport: T,
-        profiles: &[(CameraId, &ProfileSpec)],
-        tuning: OperationalTuning,
-        admission_capacity: NonZeroUsize,
-        strict_unconfirmed_poison: bool,
-    ) -> Result<Self, Error> {
-        let (framing, policy) = AdapterFraming::for_targets(
-            &transport,
-            transport.addressing_mode_hint(),
-            transport.send_semantics(),
-            profiles,
-            tuning,
-            admission_capacity,
-            strict_unconfirmed_poison,
-        )?;
-        Ok(Self {
-            transport,
-            framing,
-            policy,
-        })
-    }
-
-    /// Alias emphasizing that the profile pairs form an immutable registry.
-    pub(crate) fn new_with_profile_registry(
-        transport: T,
-        profiles: &[(CameraId, &ProfileSpec)],
-        tuning: OperationalTuning,
-        admission_capacity: NonZeroUsize,
-        strict_unconfirmed_poison: bool,
-    ) -> Result<Self, Error> {
-        Self::new_with_targets(
-            transport,
-            profiles,
-            tuning,
-            admission_capacity,
-            strict_unconfirmed_poison,
-        )
-    }
-
-    pub(crate) fn policy(&self) -> &OwnerPolicy {
-        &self.policy
-    }
-
     /// Send Sony's sequence-number RESET before the owner actor starts.
     pub(crate) async fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
@@ -114,7 +27,7 @@ where
     }
 }
 
-impl<T> AsyncOwnerDriver for AsyncTransportAdapter<T>
+impl<T> AsyncOwnerDriver for TransportAdapter<T, AsyncIo>
 where
     T: AsyncTransport + HasTransportConfig,
 {
@@ -140,82 +53,12 @@ where
         frame_limit: usize,
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async move {
-            if let Some(buffered) = self.framing.drain_buffered(buffers, frame_limit)? {
-                return Ok(OwnerReceive::Frames(buffered));
+            if let Some(buffered) = self.buffered(buffers, frame_limit)? {
+                return Ok(buffered);
             }
-            // An ordinary failed read consumed nothing, so the framer is
-            // untouched and the owner still gets to decide whether the session
-            // survives. A non-complete datagram outcome below is the deliberate
-            // exception: it consumed one rejected datagram and therefore takes
-            // the decode-error path.
-            let received = match self
-                .transport
-                .recv_into_with_outcome(buffers.receive_mut())
-                .await
-            {
-                // A UDP receive that reached this point consumed one whole
-                // datagram, even though only a prefix fit in the owner buffer.
-                // Return a decode error rather than a transport fault: the
-                // actor will discard this one malformed datagram and continue,
-                // while a Fault would classify it as a failed read and could
-                // retry work against an already-consumed response.
-                Ok(outcome) if !outcome.is_complete() => {
-                    return Err(Error::ResponseTooLarge {
-                        max_size: self.policy.limits.receive_bytes,
-                    });
-                }
-                Ok(outcome) => outcome.copied_len(),
-                // A legacy wrapper may forward only `recv_into`; built-in UDP
-                // then maps its consumed truncated datagram to this legacy
-                // error spelling. Preserve the datagram-discard semantics even
-                // when that wrapper has not yet forwarded the richer outcome.
-                Err(error @ Error::ResponseTooLarge { .. })
-                    if self.policy.protocol.transport
-                        == crate::runtime::engine::TransportKind::Datagram =>
-                {
-                    return Err(error);
-                }
-                // An expired idle read timeout means no bytes arrived, not that
-                // the read failed. The blocking adapter has always normalized
-                // this; doing it here too keeps a transport with an internal
-                // read timeout — the shape the trait documents — from burning
-                // every in-flight retry budget (#625, #637).
-                Err(error) if super::receive_reported_no_data(&error) => {
-                    return Ok(OwnerReceive::NoData);
-                }
-                Err(error) => return Ok(OwnerReceive::Fault(error)),
-            };
-            // Only a zero-length read means the peer closed. A short read that
-            // carried bytes decodes to an empty batch when it did not finish a
-            // frame, which is routine on byte-stream transports.
-            if received == 0 {
-                return Ok(OwnerReceive::Closed);
-            }
-            self.framing
-                .decode(buffers, received, frame_limit)
-                .map(OwnerReceive::Frames)
+            let read = self.transport.recv_into(buffers.receive_mut()).await;
+            self.classify_read(buffers, frame_limit, read)
         }
-    }
-}
-
-impl<T> RetainedStreamInput for AsyncTransportAdapter<T>
-where
-    T: AsyncTransport + HasTransportConfig,
-{
-    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-        self.framing.has_buffered_stream_input()
-    }
-
-    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
-        self.framing.buffered_stream_input_len()
-    }
-
-    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        self.framing.buffered_raw_prefix_evidence()
-    }
-
-    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
-        self.framing.discard_buffered_stream_input()
     }
 }
 
@@ -226,9 +69,13 @@ mod tests {
     use crate::{
         profile::{OperationalTuning, ProfileSpec},
         profiles::{GenericVisca, SonyFR7},
-        transport::{
-            buffer::BufferConfig, builder::TransportConfig, ReceiveOutcome, SendSemantics,
+        protocol::framer::RawIncompletePrefix,
+        runtime::{
+            engine::RawPrefixEvidence,
+            owner::{AsyncTransportAdapter, RetainedStreamInput},
         },
+        transport::{builder::TransportConfig, ReceiveOutcome, SendSemantics},
+        CameraId, ViscaSocket,
     };
 
     #[derive(Debug)]
@@ -239,36 +86,35 @@ mod tests {
         semantics: SendSemantics,
     }
 
+    /// A custom datagram transport that cannot observe truncation: it copies
+    /// what fits of each datagram and reports a buffer-filling read as
+    /// possibly truncated, as the receive contract requires.
     #[derive(Debug)]
-    struct TruncatedDatagramTransport {
+    struct UnobservedTruncation {
         config: TransportConfig,
-        prefix: Vec<u8>,
+        datagrams: std::collections::VecDeque<Vec<u8>>,
     }
 
-    impl HasTransportConfig for TruncatedDatagramTransport {
+    impl HasTransportConfig for UnobservedTruncation {
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
     }
 
-    impl AsyncTransport for TruncatedDatagramTransport {
+    impl AsyncTransport for UnobservedTruncation {
         async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
             Ok(())
         }
 
-        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            let copied = self.prefix.len().min(dst.len());
-            dst[..copied].copy_from_slice(&self.prefix[..copied]);
-            Ok(copied)
-        }
-
-        async fn recv_into_with_outcome(
-            &mut self,
-            dst: &mut [u8],
-        ) -> Result<ReceiveOutcome, Error> {
-            let copied = self.prefix.len().min(dst.len());
-            dst[..copied].copy_from_slice(&self.prefix[..copied]);
-            Ok(ReceiveOutcome::Truncated { copied })
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+            let datagram = self.datagrams.pop_front().ok_or_else(Error::io_timeout)?;
+            let copied = datagram.len().min(dst.len());
+            dst[..copied].copy_from_slice(&datagram[..copied]);
+            Ok(if copied == dst.len() {
+                ReceiveOutcome::possibly_truncated(copied)
+            } else {
+                ReceiveOutcome::complete(copied)
+            })
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -288,11 +134,9 @@ mod tests {
             Ok(())
         }
 
-        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let next = self.receives.pop_front().unwrap_or(Ok(Vec::new()))?;
-            let n = next.len().min(dst.len());
-            dst[..n].copy_from_slice(&next[..n]);
-            Ok(n)
+            Ok(ReceiveOutcome::copy_message(&next, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -351,46 +195,17 @@ mod tests {
         );
     }
 
+    /// A consumed over-size datagram reports a truncated outcome; its valid
+    /// ACK prefix must never be decoded.
     #[test]
     fn truncated_datagram_prefix_is_rejected_before_visca_decode() {
-        let transport = TruncatedDatagramTransport {
-            config: TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 3,
-                    ..BufferConfig::default()
-                },
-                ..TransportConfig::default()
-            },
-            // This is a valid three-byte ACK only if the trailing byte is
-            // ignored, which must never happen for a UDP datagram.
-            prefix: vec![0x90, 0x41, 0xff],
-        };
-        let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
-        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
-
-        assert!(matches!(
-            received,
-            Err(Error::ResponseTooLarge { max_size: 3 })
-        ));
-    }
-
-    #[test]
-    fn legacy_datagram_response_too_large_is_still_a_decode_error() {
+        let config = TransportConfig::default();
+        let mut oversized = vec![0x90, 0x41, 0xff];
+        oversized.resize(config.buffer_config.recv_buffer_size + 1, 0);
         let transport = ScriptedTransport {
-            config: TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 3,
-                    ..BufferConfig::default()
-                },
-                ..TransportConfig::default()
-            },
+            config,
             sent: Vec::new(),
-            receives: [Err(Error::ResponseTooLarge { max_size: 3 })]
-                .into_iter()
-                .collect(),
+            receives: [Ok(oversized)].into_iter().collect(),
             semantics: SendSemantics::Datagram,
         };
         let mut adapter =
@@ -401,7 +216,44 @@ mod tests {
 
         assert!(matches!(
             received,
-            Err(Error::ResponseTooLarge { max_size: 3 })
+            Err(Error::ResponseTooLarge { max_size })
+                if max_size == config.buffer_config.recv_buffer_size
+        ));
+    }
+
+    /// Issue #804: a custom datagram transport whose read exactly fills the
+    /// owner buffer cannot prove the datagram fitted. Both owners discard it
+    /// through one classification (the blocking owner used to decode its
+    /// prefix), and the next datagram decodes.
+    #[test]
+    fn an_unobservable_exact_fill_is_discarded_like_the_blocking_owner() {
+        let config = TransportConfig::default();
+        let capacity = config.buffer_config.recv_buffer_size;
+        let mut oversized = vec![0x90, 0x41, 0xff];
+        oversized.resize(capacity + 1, 0);
+        let mut adapter = AsyncTransportAdapter::new(
+            UnobservedTruncation {
+                config,
+                datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
+            },
+            &profile(),
+            CameraId::CAMERA_1,
+        )
+        .unwrap();
+        let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
+
+        let discarded = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+        assert!(matches!(
+            discarded,
+            Err(Error::ResponseTooLarge { max_size }) if max_size == capacity
+        ));
+        let next = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let OwnerReceive::Frames(frames) = next else {
+            panic!("the next datagram must decode, got {next:?}");
+        };
+        assert!(matches!(
+            frames[..],
+            [ref ack] if matches!(ack.response, crate::runtime::engine::DecodedResponse::Ack { .. })
         ));
     }
 

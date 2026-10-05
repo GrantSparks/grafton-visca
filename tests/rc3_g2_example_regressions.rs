@@ -20,7 +20,9 @@ use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     command::CommandKind,
     profile::ProfileSpec,
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Error, HaltOutcome,
 };
 
@@ -82,12 +84,9 @@ impl BlockingTransport for ScriptedG2 {
         &mut self,
         destination: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         match self.replies.pop_front() {
-            Some(reply) => {
-                destination[..reply.len()].copy_from_slice(&reply);
-                Ok(reply.len())
-            }
+            Some(reply) => Ok(ReceiveOutcome::copy_message(&reply, destination)),
             None => {
                 thread::sleep(timeout.min(Duration::from_millis(5)));
                 Err(Error::io_timeout())

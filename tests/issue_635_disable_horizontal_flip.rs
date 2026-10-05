@@ -77,7 +77,9 @@ mod blocking_surface {
         profile::ProfileSpec,
         profiles::{PtzOpticsG2, SonyFR7},
         state_cache::StateEntry,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Error, StateKey,
     };
 
@@ -138,10 +140,9 @@ mod blocking_surface {
             &mut self,
             destination: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            destination[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, destination))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -241,7 +242,8 @@ mod async_surface {
         profile::ProfileSpec,
         profiles::SonyFR7,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error, Session, SessionConfig, TokioRuntime,
     };
@@ -306,15 +308,14 @@ mod async_surface {
         fn recv_into<'a>(
             &'a mut self,
             destination: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let response = self
                     .responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::connection_closed(None))?;
-                destination[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
+                Ok(ReceiveOutcome::copy_message(&response, destination))
             }
         }
 
@@ -368,7 +369,7 @@ mod async_surface {
             .expect("mirror off");
         assert_eq!(one_frame(&writes), MIRROR_OFF);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }
 
@@ -376,7 +377,7 @@ mod async_surface {
 mod dyn_surface {
     use grafton_visca::{
         command::FlipState,
-        dynapi::{DynSessionCamera, DynSessionCameraNouns},
+        dynapi::DynSessionCameraNouns,
         profile::ProfileSpec,
         profiles::{PtzOpticsG2, SonyFR7},
         state_cache::StateEntry,
@@ -396,7 +397,7 @@ mod dyn_surface {
             ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         nouns
@@ -413,7 +414,7 @@ mod dyn_surface {
             .expect("mirror off");
         assert_eq!(one_frame(&writes), MIRROR_OFF);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -424,7 +425,7 @@ mod dyn_surface {
             ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         nouns.image().set_flip_both().await.expect("combined flip");
@@ -448,6 +449,6 @@ mod dyn_surface {
             StateEntry::Unknown,
         );
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

@@ -24,7 +24,8 @@ use grafton_visca::{
     profile::ProfileSpec,
     request::builtin::{ZoomStop, ZoomTarget},
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     types::ZoomPosition,
     CameraId, Certainty, Error, FailureStage, OperationalTuning,
@@ -115,7 +116,7 @@ impl BlockingTransport for ProbeTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let Some(next) = self.reads.pop_front() else {
             if self.wait_when_idle && !timeout.is_zero() {
                 std::thread::sleep(timeout);
@@ -123,8 +124,7 @@ impl BlockingTransport for ProbeTransport {
             return Err(Error::io_timeout());
         };
         let bytes = next?;
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -216,8 +216,7 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
             Duration::from_millis(10),
             Duration::from_millis(10),
             Duration::from_secs(1),
-        ))
-        .expect("short bounded retry timing");
+        ));
     let transport = ProbeTransport::new(vec![
         vec![
             Ok(ACK_SOCKET_ONE.to_vec()),

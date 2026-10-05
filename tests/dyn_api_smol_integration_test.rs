@@ -8,11 +8,13 @@ use std::{
 };
 
 use grafton_visca::{
-    dynapi::{DynSessionCamera, DynSessionCameraNouns},
+    dynapi::DynSessionCameraNouns,
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
     state_cache::StateEntry,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CameraId, Error, Session, SessionConfig, SmolRuntime, StateKey,
 };
 
@@ -59,15 +61,14 @@ impl AsyncTransport for SmolTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -110,7 +111,7 @@ fn smol_dynamic_noun_targeted_and_applied_handles_share_owner() {
         let session = Session::open(transport, SessionConfig::new(profile()), runtime)
             .await
             .expect("owner-backed smol session");
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         nouns
@@ -130,7 +131,7 @@ fn smol_dynamic_noun_targeted_and_applied_handles_share_owner() {
             .await
             .expect("targeted operation completion");
 
-        session.shutdown().await.expect("smol shutdown");
+        session.shutdown().expect("smol shutdown");
     });
 }
 
@@ -142,7 +143,7 @@ fn smol_dynamic_motion_view_delegates_to_same_owner() {
         let session = Session::open(transport, SessionConfig::new(profile()), runtime)
             .await
             .expect("owner-backed smol session");
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
 
         camera
             .motion()
@@ -151,7 +152,7 @@ fn smol_dynamic_motion_view_delegates_to_same_owner() {
             .expect("motion safety delegation")
             .into_result()
             .expect("each supported STOP applied");
-        session.shutdown().await.expect("smol shutdown");
+        session.shutdown().expect("smol shutdown");
     });
 }
 
@@ -163,7 +164,7 @@ fn smol_dynamic_unsupported_gate_and_target_selection_are_preflighted() {
         let session = Session::open(first_transport, SessionConfig::new(profile()), runtime)
             .await
             .expect("owner-backed smol session");
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let error = camera
             .zoom()
             .set_digital_zoom(true)
@@ -177,7 +178,7 @@ fn smol_dynamic_unsupported_gate_and_target_selection_are_preflighted() {
             }
         ));
         assert!(writes.lock().expect("writes lock").is_empty());
-        session.shutdown().await.expect("smol shutdown");
+        session.shutdown().expect("smol shutdown");
 
         let (transport, writes) = transport(true);
         let mut config = SessionConfig::new(profile());
@@ -187,15 +188,13 @@ fn smol_dynamic_unsupported_gate_and_target_selection_are_preflighted() {
         let session = Session::open(transport, config, SmolRuntime::new())
             .await
             .expect("multi-target smol session");
-        assert!(matches!(
-            DynSessionCamera::from_session(&session),
-            Err(Error::InvalidState(_))
-        ));
-        let selected = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
+        assert!(matches!(session.camera_dyn(), Err(Error::InvalidState(_))));
+        let selected = session
+            .camera_dyn_for(CameraId::CAMERA_2)
             .expect("explicit target selection");
         assert_eq!(selected.target(), CameraId::CAMERA_2);
         assert!(writes.lock().expect("writes lock").is_empty());
-        session.shutdown().await.expect("smol shutdown");
+        session.shutdown().expect("smol shutdown");
     });
 }
 
@@ -210,11 +209,14 @@ fn smol_dynamic_cache_views_share_and_isolate_owner_state() {
         let session = Session::open(transport, config, SmolRuntime::new())
             .await
             .expect("multi-target smol session");
-        let first = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
+        let first = session
+            .camera_dyn_for(CameraId::CAMERA_1)
             .expect("camera 1 view");
-        let same = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_1)
+        let same = session
+            .camera_dyn_for(CameraId::CAMERA_1)
             .expect("same-target view");
-        let second = DynSessionCamera::from_session_target(&session, CameraId::CAMERA_2)
+        let second = session
+            .camera_dyn_for(CameraId::CAMERA_2)
             .expect("camera 2 view");
         assert_eq!(
             first.state_cache().value(StateKey::MulticastStreaming),
@@ -244,6 +246,6 @@ fn smol_dynamic_cache_views_share_and_isolate_owner_state() {
             second.state_cache().value(StateKey::MulticastStreaming),
             StateEntry::Unknown
         );
-        session.shutdown().await.expect("smol shutdown");
+        session.shutdown().expect("smol shutdown");
     });
 }

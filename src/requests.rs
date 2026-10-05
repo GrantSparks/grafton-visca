@@ -133,31 +133,33 @@ pub enum ControlClass {
     /// Opportunistic background work: telemetry polling, warm-up reads, and
     /// anything that should yield the transport to everything else.
     ///
-    /// This is 1.x's `Priority::Low`.
+    /// It is the lowest class: it is scheduled only when nothing more urgent is
+    /// ready.
     Background,
     /// Ordinary camera control traffic, and the class of every built-in
     /// inquiry.
     ///
-    /// This is 1.x's `Priority::Normal`, and the class a request gets when it
-    /// says nothing else.
+    /// This is the class a request gets when it says nothing else.
     Normal,
     /// Direct user interaction: drives, absolute moves, preset recalls, and the
     /// other commands a person is waiting on.
     ///
-    /// This is 1.x's `Priority::High`.
+    /// It is scheduled ahead of [`ControlClass::Normal`] and
+    /// [`ControlClass::Background`] work, so a person's input is not queued
+    /// behind polling.
     User,
     /// Time-sensitive control work that must reach the camera ahead of queued
     /// traffic: the typed stops and socket cancellation.
     ///
-    /// This is 1.x's `Priority::Critical`. It is an immutable safety floor:
+    /// It is an immutable safety floor:
     /// caller-selected submission QoS can neither create nor demote it.
     Urgent,
 }
 
 /// Caller-selected quality-of-service class for ordinary submissions.
 ///
-/// This preserves 1.x's useful background/normal/interactive scheduling
-/// controls without exposing the owner's safety lane. When a request's
+/// This exposes background, normal and interactive scheduling to callers
+/// without exposing the owner's safety lane. When a request's
 /// intrinsic [`ControlClass`] is [`ControlClass::Urgent`], this value is
 /// ignored and the request remains urgent. For every other request it selects
 /// the ready lane used at admission.

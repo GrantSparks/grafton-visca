@@ -36,8 +36,8 @@ use grafton_visca::{
     profiles::GenericVisca,
     request::builtin::ZoomStop,
     transport::{
-        AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, SendSemantics,
-        TransportConfig,
+        AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
+        SendSemantics, TransportConfig,
     },
     Error,
 };
@@ -100,16 +100,14 @@ impl BlockingTransport for StreamCamera {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         if self.sent.lock().expect("sent lock").is_empty() {
             return Err(Error::io_timeout());
         }
         let Some(chunk) = self.reads.pop_front() else {
             return Err(Error::io_timeout());
         };
-        let n = chunk.len().min(dst.len());
-        dst[..n].copy_from_slice(&chunk[..n]);
-        Ok(n)
+        Ok(ReceiveOutcome::copy_message(&chunk, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

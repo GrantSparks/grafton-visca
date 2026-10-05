@@ -116,7 +116,8 @@ mod async_registry {
         camera::TransportKind,
         request,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         ControlClass, Request, RetryClass, TimeoutClass,
     };
@@ -240,7 +241,7 @@ mod async_registry {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             self.counts.reads.fetch_add(1, Ordering::SeqCst);
             async move {
                 let response = self
@@ -248,8 +249,7 @@ mod async_registry {
                     .recv_async()
                     .await
                     .map_err(|_| Error::connection_closed(None))?;
-                dst[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
+                Ok(ReceiveOutcome::copy_message(&response, dst))
             }
         }
 
@@ -373,7 +373,7 @@ mod async_registry {
         assert_eq!(first.expect("camera 1 inquiry"), vec![1, 2]);
         assert_eq!(second.expect("camera 2 inquiry"), vec![1, 2]);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
         assert_eq!(counts.writes.load(Ordering::SeqCst), 4);
         let writes = writes.lock().expect("writes lock");
         assert_eq!(writes[0][0], CameraId::CAMERA_1.to_address_byte());
@@ -469,7 +469,7 @@ mod async_registry {
                     .await;
             one.expect("camera 1 command");
             two.expect("camera 2 command");
-            session.shutdown().await.expect("shutdown");
+            session.shutdown().expect("shutdown");
             assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
         });
     }
@@ -549,7 +549,7 @@ mod async_registry {
         .await
         .expect("explicit custom serial opt-in");
         assert!(counts.config_reads.load(Ordering::SeqCst) > 0);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-smol")]
@@ -566,7 +566,7 @@ mod async_registry {
             .await
             .expect("explicit custom serial opt-in");
             assert!(counts.config_reads.load(Ordering::SeqCst) > 0);
-            session.shutdown().await.expect("shutdown");
+            session.shutdown().expect("shutdown");
         });
     }
 
@@ -619,8 +619,7 @@ mod async_registry {
             SessionConfig::new(base)
                 .with_target(CameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
-                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120)))
-                .expect("strict session pacing"),
+                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120))),
             runtime,
         )
         .await
@@ -640,7 +639,7 @@ mod async_registry {
             .expect("second command");
         assert!(started.elapsed() >= Duration::from_millis(110));
         assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -676,7 +675,8 @@ mod blocking_registry {
         camera::TransportKind,
         command::CommandKind,
         transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
     };
 
@@ -740,11 +740,10 @@ mod blocking_registry {
             )
         }
 
-        fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        fn receive(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             self.counts.reads.fetch_add(1, Ordering::SeqCst);
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
     }
 
@@ -786,7 +785,7 @@ mod blocking_registry {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             self.receive(dst)
         }
 
@@ -931,8 +930,7 @@ mod blocking_registry {
             SessionConfig::new(base)
                 .with_target(CameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
-                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120)))
-                .expect("strict session pacing"),
+                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120))),
         )
         .expect("session");
         session
@@ -961,7 +959,8 @@ mod coexistence {
         blocking::Session as BlockingSession,
         command::CommandKind,
         transport::{
-            AsyncTransport, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AsyncTransport, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
     };
 
@@ -992,10 +991,9 @@ mod coexistence {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let bytes = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
         fn send_semantics(&self) -> SendSemantics {
             SendSemantics::Datagram
@@ -1032,15 +1030,14 @@ mod coexistence {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let bytes = self
                     .replies
                     .recv_async()
                     .await
                     .map_err(|_| Error::RuntimeShutdown)?;
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
             }
         }
         fn send_semantics(&self) -> SendSemantics {
@@ -1100,6 +1097,6 @@ mod coexistence {
             .applied()
             .await
             .unwrap();
-        async_session.shutdown().await.expect("async shutdown");
+        async_session.shutdown().expect("async shutdown");
     }
 }

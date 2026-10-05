@@ -40,7 +40,9 @@ mod blocking {
         completion::AppliedOnly,
         profile::ProfileSpec,
         request::builtin::ZoomDrive,
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         CancellationOutcome, Error,
     };
 
@@ -138,10 +140,9 @@ mod blocking {
             &mut self,
             destination: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
-            destination[..reply.len()].copy_from_slice(&reply);
-            Ok(reply.len())
+            Ok(ReceiveOutcome::copy_message(&reply, destination))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -250,7 +251,8 @@ mod asynchronous {
         profile::ProfileSpec,
         request::builtin::ZoomDrive,
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         CancellationOutcome, Error, Session, SessionConfig, TokioRuntime,
     };
@@ -339,14 +341,13 @@ mod asynchronous {
             }
         }
 
-        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let reply = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            destination[..reply.len()].copy_from_slice(&reply);
-            Ok(reply.len())
+            Ok(ReceiveOutcome::copy_message(&reply, destination))
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -401,7 +402,7 @@ mod asynchronous {
             assert_eq!(writes.len(), 3, "two commands and one socket cancellation");
             assert_eq!(writes[2], CANCEL_SOCKET_ONE);
         }
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -444,6 +445,6 @@ mod asynchronous {
             let writes = writes.lock().expect("writes lock");
             assert_eq!(writes.len(), 2, "two commands and B's normal S1 completion");
         }
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

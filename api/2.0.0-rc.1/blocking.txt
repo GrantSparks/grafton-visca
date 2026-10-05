@@ -53,7 +53,7 @@ pub fn grafton_visca::blocking::Camera<P>::image(&self) -> grafton_visca::blocki
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
 pub fn grafton_visca::blocking::Camera<P>::menu(&self) -> grafton_visca::blocking::MenuAccessor<'_, P> where P: grafton_visca::capabilities::HasMenuControl
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
-pub fn grafton_visca::blocking::Camera<P>::motion(&self) -> grafton_visca::blocking::MotionAccessor<'_, P>
+pub fn grafton_visca::blocking::Camera<P>::motion(&self) -> grafton_visca::blocking::MotionAccessor<'_>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
 pub fn grafton_visca::blocking::Camera<P>::motion_sync(&self) -> grafton_visca::blocking::MotionSyncAccessor<'_, P> where P: grafton_visca::capabilities::HasMotionSync
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
@@ -102,7 +102,7 @@ pub fn grafton_visca::camera::CameraConfig<P>::udp(impl core::convert::Into<allo
 pub const fn grafton_visca::camera::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
-pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
+pub const fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
@@ -317,21 +317,21 @@ impl<'view, P> core::marker::Unpin for grafton_visca::blocking::MenuAccessor<'vi
 impl<'view, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MenuAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::UnsafeUnpin
 impl<'view, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MenuAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::RefUnwindSafe
 impl<'view, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::UnwindSafe
-pub struct grafton_visca::blocking::MotionAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
-impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MotionAccessor<'view, P>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::is_moving(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
-impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, P>
-pub fn grafton_visca::blocking::MotionAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'view, P> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
-impl<'view, P> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Send
-impl<'view, P> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Sync
-impl<'view, P> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Unpin
-impl<'view, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::UnsafeUnpin
-impl<'view, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::RefUnwindSafe
-impl<'view, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::blocking::MotionAccessor<'view>
+impl grafton_visca::blocking::MotionAccessor<'_>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
+impl core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'view> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view>
 pub struct grafton_visca::blocking::MotionSyncAccessor<'view, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync>
 impl<'view, P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasMotionSync> grafton_visca::blocking::MotionSyncAccessor<'view, P>
 pub fn grafton_visca::blocking::MotionSyncAccessor<'view, P>::mode(&self) -> grafton_visca::Result<grafton_visca::MotionSyncMode>
@@ -508,7 +508,7 @@ pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::n
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
-pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl core::clone::Clone for grafton_visca::SessionConfig
 pub fn grafton_visca::SessionConfig::clone(&self) -> grafton_visca::SessionConfig
 impl core::default::Default for grafton_visca::SessionConfig
@@ -2222,7 +2222,7 @@ pub fn grafton_visca::camera::CameraConfig<P>::udp(impl core::convert::Into<allo
 pub const fn grafton_visca::camera::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
-pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
+pub const fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
@@ -12202,7 +12202,7 @@ pub fn grafton_visca::blocking::Camera<P>::image(&self) -> grafton_visca::blocki
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
 pub fn grafton_visca::blocking::Camera<P>::menu(&self) -> grafton_visca::blocking::MenuAccessor<'_, P> where P: grafton_visca::capabilities::HasMenuControl
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
-pub fn grafton_visca::blocking::Camera<P>::motion(&self) -> grafton_visca::blocking::MotionAccessor<'_, P>
+pub fn grafton_visca::blocking::Camera<P>::motion(&self) -> grafton_visca::blocking::MotionAccessor<'_>
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
 pub fn grafton_visca::blocking::Camera<P>::motion_sync(&self) -> grafton_visca::blocking::MotionSyncAccessor<'_, P> where P: grafton_visca::capabilities::HasMotionSync
 impl<P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::Camera<P>
@@ -12251,7 +12251,7 @@ pub fn grafton_visca::camera::CameraConfig<P>::udp(impl core::convert::Into<allo
 pub const fn grafton_visca::camera::CameraConfig<P>::with_admission_capacity(self, core::num::nonzero::NonZeroUsize) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::camera::CameraConfig<P>::with_strict_unconfirmed_poison(self, bool) -> Self
-pub fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
+pub const fn grafton_visca::camera::CameraConfig<P>::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
 pub fn grafton_visca::camera::CameraConfig<P>::open(&self) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>>
 impl<P> grafton_visca::camera::CameraConfig<P> where P: grafton_visca::profile::CompileTimeProfile
@@ -12735,21 +12735,21 @@ impl core::marker::Unpin for grafton_visca::observability::MetricsSnapshot
 impl core::marker::UnsafeUnpin for grafton_visca::observability::MetricsSnapshot
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::MetricsSnapshot
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::MetricsSnapshot
-pub struct grafton_visca::prelude::blocking::MotionAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
-impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::MotionAccessor<'view, P>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::is_moving(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
-pub fn grafton_visca::blocking::MotionAccessor<'view, P>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
-impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_, P>
-pub fn grafton_visca::blocking::MotionAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<'view, P> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
-impl<'view, P> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Send
-impl<'view, P> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Sync
-impl<'view, P> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Unpin
-impl<'view, P> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::UnsafeUnpin
-impl<'view, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::RefUnwindSafe
-impl<'view, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::UnwindSafe
+pub struct grafton_visca::prelude::blocking::MotionAccessor<'view>
+impl grafton_visca::blocking::MotionAccessor<'_>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
+impl core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'view> core::marker::Freeze for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Send for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Sync for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::Unpin for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::marker::UnsafeUnpin for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocking::MotionAccessor<'view>
+impl<'view> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MotionAccessor<'view>
 #[non_exhaustive] pub struct grafton_visca::prelude::blocking::MotionQuery
 pub grafton_visca::prelude::blocking::MotionQuery::axes: grafton_visca::AffectedAxes
 pub grafton_visca::prelude::blocking::MotionQuery::tolerance: grafton_visca::camera::MovementTolerance
@@ -13828,7 +13828,7 @@ pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::n
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
-pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl core::clone::Clone for grafton_visca::SessionConfig
 pub fn grafton_visca::SessionConfig::clone(&self) -> grafton_visca::SessionConfig
 impl core::default::Default for grafton_visca::SessionConfig
@@ -18370,7 +18370,7 @@ impl core::fmt::Debug for grafton_visca::transport::BlockingTransportHandle
 pub fn grafton_visca::transport::BlockingTransportHandle::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl grafton_visca::transport::BlockingTransport for grafton_visca::transport::BlockingTransportHandle
 pub fn grafton_visca::transport::BlockingTransportHandle::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
-pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<usize, grafton_visca::Error>
+pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub fn grafton_visca::transport::BlockingTransportHandle::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::transport::BlockingTransportHandle::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::transport::BlockingTransportHandle
@@ -18405,6 +18405,36 @@ impl core::marker::Unpin for grafton_visca::transport::FrameSequence
 impl core::marker::UnsafeUnpin for grafton_visca::transport::FrameSequence
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::FrameSequence
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::FrameSequence
+#[non_exhaustive] pub enum grafton_visca::transport::ReceiveOutcome
+#[non_exhaustive] pub grafton_visca::transport::ReceiveOutcome::Complete
+pub grafton_visca::transport::ReceiveOutcome::Complete::bytes: usize
+#[non_exhaustive] pub grafton_visca::transport::ReceiveOutcome::PossiblyTruncated
+pub grafton_visca::transport::ReceiveOutcome::PossiblyTruncated::copied: usize
+#[non_exhaustive] pub grafton_visca::transport::ReceiveOutcome::Truncated
+pub grafton_visca::transport::ReceiveOutcome::Truncated::copied: usize
+impl grafton_visca::transport::ReceiveOutcome
+pub const fn grafton_visca::transport::ReceiveOutcome::complete(usize) -> Self
+pub const fn grafton_visca::transport::ReceiveOutcome::copied_len(self) -> usize
+pub fn grafton_visca::transport::ReceiveOutcome::copy_message(&[u8], &mut [u8]) -> Self
+pub const fn grafton_visca::transport::ReceiveOutcome::is_complete(self) -> bool
+pub const fn grafton_visca::transport::ReceiveOutcome::possibly_truncated(usize) -> Self
+pub const fn grafton_visca::transport::ReceiveOutcome::truncated(usize) -> Self
+impl core::clone::Clone for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::clone(&self) -> grafton_visca::transport::ReceiveOutcome
+impl core::cmp::Eq for grafton_visca::transport::ReceiveOutcome
+impl core::cmp::PartialEq for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::eq(&self, &grafton_visca::transport::ReceiveOutcome) -> bool
+impl core::fmt::Debug for grafton_visca::transport::ReceiveOutcome
+pub fn grafton_visca::transport::ReceiveOutcome::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::transport::ReceiveOutcome
+impl core::marker::StructuralPartialEq for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Freeze for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Send for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Sync for grafton_visca::transport::ReceiveOutcome
+impl core::marker::Unpin for grafton_visca::transport::ReceiveOutcome
+impl core::marker::UnsafeUnpin for grafton_visca::transport::ReceiveOutcome
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::ReceiveOutcome
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::ReceiveOutcome
 #[non_exhaustive] pub enum grafton_visca::transport::SendSemantics
 pub grafton_visca::transport::SendSemantics::Datagram
 pub grafton_visca::transport::SendSemantics::Stream
@@ -18450,6 +18480,7 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::Addresse
 pub grafton_visca::transport::BufferConfig::max_buffer_size: usize
 pub grafton_visca::transport::BufferConfig::recv_buffer_size: usize
 impl grafton_visca::transport::BufferConfig
+pub const grafton_visca::transport::BufferConfig::MIN_RECV_BUFFER_SIZE: usize
 pub fn grafton_visca::transport::BufferConfig::for_raw_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_serial() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_udp() -> Self
@@ -18630,12 +18661,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::Trans
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::TransportConfig
 pub trait grafton_visca::transport::BlockingTransport: core::marker::Send
 pub fn grafton_visca::transport::BlockingTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
-pub fn grafton_visca::transport::BlockingTransport::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<usize, grafton_visca::Error>
+pub fn grafton_visca::transport::BlockingTransport::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub fn grafton_visca::transport::BlockingTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::transport::BlockingTransport::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 impl grafton_visca::transport::BlockingTransport for grafton_visca::transport::BlockingTransportHandle
 pub fn grafton_visca::transport::BlockingTransportHandle::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
-pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<usize, grafton_visca::Error>
+pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub fn grafton_visca::transport::BlockingTransportHandle::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::transport::BlockingTransportHandle::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 pub trait grafton_visca::transport::Envelope: grafton_visca::transport::envelope::private::Sealed + core::marker::Send + core::marker::Sync + 'static
@@ -21896,7 +21927,7 @@ pub const fn grafton_visca::SessionConfig::with_admission_capacity(self, core::n
 pub const fn grafton_visca::SessionConfig::with_sony_sequence_reset_on_connect(self, bool) -> Self
 pub const fn grafton_visca::SessionConfig::with_strict_unconfirmed_poison(self, bool) -> Self
 pub fn grafton_visca::SessionConfig::with_target(self, grafton_visca::CameraId, grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<Self>
-pub fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::SessionConfig::with_tuning(self, grafton_visca::profile::OperationalTuning) -> Self
 impl core::clone::Clone for grafton_visca::SessionConfig
 pub fn grafton_visca::SessionConfig::clone(&self) -> grafton_visca::SessionConfig
 impl core::default::Default for grafton_visca::SessionConfig

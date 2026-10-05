@@ -60,7 +60,6 @@ mod scenario {
         SessionConfig::new(ProfileSpec::from_compile_time::<Raw>().expect("raw three-axis profile"))
             .with_admission_capacity(NonZeroUsize::MIN)
             .with_tuning(OperationalTuning::new().ack_timeout(OWNER_PROGRESS_BOUND))
-            .expect("a widened ACK deadline is valid tuning")
     }
 }
 
@@ -81,7 +80,9 @@ mod asynchronous {
     use grafton_visca::{
         completion::AppliedOnly,
         request::builtin::{ZoomDrive, ZoomStop},
-        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Error, Executor, Session,
     };
 
@@ -154,15 +155,14 @@ mod asynchronous {
             async { Ok(()) }
         }
 
-        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let bytes = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
             self.probe.reads.fetch_add(1, Ordering::AcqRel);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -226,16 +226,14 @@ mod asynchronous {
         assert_eq!(metrics.admission_rejected, 1);
 
         zoom.detach();
-        session.shutdown().await.expect("owner shutdown");
+        session.shutdown().expect("owner shutdown");
     }
 
     /// The dynamic projection reaches the same reserve.
     #[cfg(feature = "dyn-api")]
     async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
-        use grafton_visca::dynapi::DynSessionCamera;
-
         let (session, probe) = saturated_session(&executor).await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let zoom = camera
             .submit_applied(&ZoomDrive::Tele)
             .await
@@ -258,7 +256,7 @@ mod asynchronous {
         stop.applied().await.expect("the STOP applies");
 
         zoom.detach();
-        session.shutdown().await.expect("owner shutdown");
+        session.shutdown().expect("owner shutdown");
     }
 
     async fn contract<E: Executor>(executor: E) {
@@ -293,7 +291,9 @@ mod blocking {
         command::CommandKind,
         completion::AppliedOnly,
         request::builtin::{ZoomDrive, ZoomStop},
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         Error,
     };
 
@@ -383,7 +383,7 @@ mod blocking {
             &mut self,
             dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let (mut state, _) = self
                 .wire
                 .changed
@@ -394,11 +394,10 @@ mod blocking {
             let Some(bytes) = state.responses.pop_front() else {
                 return Err(Error::io_timeout());
             };
-            dst[..bytes.len()].copy_from_slice(&bytes);
             state.reads += 1;
             drop(state);
             self.wire.changed.notify_all();
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
 
         fn send_semantics(&self) -> SendSemantics {

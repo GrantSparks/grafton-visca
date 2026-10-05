@@ -101,8 +101,8 @@ record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
   'self.fail(Error::MaxRetriesExceeded);'
 record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
-record_construction InvalidState src/async_session.rs \
-  'Error::InvalidState("session has no registered target".into())'
+record_construction InvalidState src/runtime/owner/blocking.rs \
+  'Err(Error::InvalidState("blocking owner worker panicked".into()))'
 record_construction RuntimeShutdown src/runtime/engine/mod.rs \
   'self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)'
 record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \

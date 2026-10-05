@@ -421,6 +421,182 @@ fn is_visca_address(byte: u8) -> bool {
     (0x81..=0x88).contains(&byte)
 }
 
+/// The policy accessors every raw request value exposes, written once for
+/// the four raw types (#817). `$subject` names the value in the docs; the
+/// optional `reply_shape` arm adds the reply-shape accessor the command and
+/// operation types carry.
+macro_rules! raw_policy_accessors {
+    ($subject:literal $(, $reply_shape:ident)?) => {
+        #[doc = concat!("Returns ", $subject, "'s explicit policy.")]
+        #[must_use]
+        pub const fn policy(&self) -> Policy {
+            self.policy
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit timeout class.")]
+        #[must_use]
+        pub const fn timeout_class(&self) -> TimeoutClass {
+            self.policy.timeout_class()
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit retry class.")]
+        #[must_use]
+        pub const fn retry_class(&self) -> RetryClass {
+            self.policy.retry_class()
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit control class.")]
+        #[must_use]
+        pub const fn control_class(&self) -> ControlClass {
+            self.policy.control_class()
+        }
+
+        $(
+            #[doc = concat!("Returns ", $subject, "'s declared reply shape.")]
+            #[must_use]
+            pub const fn $reply_shape(&self) -> RawReplyShape {
+                self.policy.reply_shape()
+            }
+        )?
+    };
+}
+
+/// The [`Request`] items every raw request value forwards to its policy and
+/// wire, written once for the four raw types (#817). The policy constants are
+/// the given unread fallbacks, documented as such.
+macro_rules! raw_request_forwarding {
+    ($timeout:ident, $retry:ident, $control:ident) => {
+        const MAX_SIZE: usize = MAX_BYTES;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::timeout_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::$timeout;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::retry_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const RETRY_CLASS: RetryClass = RetryClass::$retry;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::control_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const CONTROL_CLASS: ControlClass = ControlClass::$control;
+
+        fn timeout_class(&self) -> TimeoutClass {
+            self.policy.timeout_class()
+        }
+
+        fn retry_class(&self) -> RetryClass {
+            self.policy.retry_class()
+        }
+
+        fn control_class(&self) -> ControlClass {
+            self.policy.control_class()
+        }
+
+        fn encoded_size(&self) -> usize {
+            self.wire.len()
+        }
+
+        fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            self.wire.write_into(buffer)
+        }
+    };
+}
+
+/// A raw operation type of one completion kind, written once for
+/// [`Targeted`] and [`AppliedOnly`] (#817).
+macro_rules! raw_operation {
+    (
+        $(#[$type_doc:meta])*
+        $name:ident: $kind:ty, $noun:literal, $lifecycle:literal
+    ) => {
+        $(#[$type_doc])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name {
+            wire: Wire,
+            axes: AffectedAxes,
+            policy: Policy,
+        }
+
+        impl $name {
+            #[doc = concat!(
+                "Creates a bounded raw ", $noun,
+                " operation that moves `axes`, with an explicit protocol policy."
+            )]
+            pub fn new(
+                bytes: impl AsRef<[u8]>,
+                axes: AffectedAxes,
+                timeout: TimeoutClass,
+                retry: RetryClass,
+                control: ControlClass,
+            ) -> Result<Self> {
+                Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
+            }
+
+            /// [`Self::new`] with an explicit [`Policy`] value.
+            ///
+            #[doc = concat!(
+                "A policy whose reply shape is [`RawReplyShape::NoReply`] is rejected: a ",
+                $noun, " operation's ", $lifecycle,
+                " lifecycle requires terminal camera evidence, not merely a successful local write."
+            )]
+            pub fn with_policy(
+                bytes: impl AsRef<[u8]>,
+                axes: AffectedAxes,
+                policy: Policy,
+            ) -> Result<Self> {
+                validate_operation_reply_shape(policy.reply_shape())?;
+                Ok(Self {
+                    wire: Wire::new(bytes)?,
+                    axes,
+                    policy,
+                })
+            }
+
+            /// Returns the exact frame bytes retained by this value.
+            #[must_use]
+            pub fn bytes(&self) -> &[u8] {
+                self.wire.as_bytes()
+            }
+
+            /// Returns this operation's explicit affected axes.
+            #[must_use]
+            pub const fn affected_axes(&self) -> AffectedAxes {
+                self.axes
+            }
+
+            raw_policy_accessors!("this operation", reply_shape);
+        }
+
+        impl Request for $name {
+            type Class = request::Operation<$kind>;
+            raw_request_forwarding!(Quick, Never, User);
+
+            fn reply_shape(&self) -> RawReplyShape {
+                self.policy.reply_shape()
+            }
+
+            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
+                if profile.supports_axes(self.axes) {
+                    Ok(())
+                } else {
+                    Err(Error::FeatureNotSupported {
+                        feature: concat!("raw ", $noun, " operation axes"),
+                    })
+                }
+            }
+        }
+
+        impl OperationCommand<$kind> for $name {
+            fn affected_axes(&self) -> AffectedAxes {
+                self.axes
+            }
+        }
+    };
+}
+
 /// A raw plain command with no operation lifecycle handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plain {
@@ -463,74 +639,19 @@ impl Plain {
         self.wire.as_bytes()
     }
 
-    /// Returns this value's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this value's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this value's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this value's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this value's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
+    raw_policy_accessors!("this value", reply_shape);
 }
 
 impl Request for Plain {
     type Class = request::Plain;
-
-    // The trait retains associated constants for fixed built-in/downstream
-    // request types. Raw values override the instance accessors below because
-    // their policy is intentionally selected at construction.
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn motion_axes(&self) -> Option<AffectedAxes> {
-        self.motion_axes
-    }
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
+    raw_request_forwarding!(Quick, Never, Normal);
 
     fn reply_shape(&self) -> RawReplyShape {
         self.policy.reply_shape()
     }
 
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
+    fn motion_axes(&self) -> Option<AffectedAxes> {
+        self.motion_axes
     }
 }
 
@@ -636,29 +757,7 @@ impl<R> Inquiry<R> {
         self.route
     }
 
-    /// Returns this inquiry's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this inquiry's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this inquiry's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this inquiry's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
+    raw_policy_accessors!("this inquiry");
 }
 
 impl<R> fmt::Debug for Inquiry<R> {
@@ -689,30 +788,7 @@ where
     R: Send + 'static,
 {
     type Class = request::Inquiry;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
+    raw_request_forwarding!(Inquiry, Inquiry, Normal);
 }
 
 impl<R> InquiryRequest for Inquiry<R>
@@ -730,266 +806,17 @@ where
     }
 }
 
-/// A raw operation with a meaningful target state and profile-selected protocol
-/// settlement.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Targeted {
-    wire: Wire,
-    axes: AffectedAxes,
-    policy: Policy,
+raw_operation! {
+    /// A raw operation with a meaningful target state and profile-selected
+    /// protocol settlement.
+    Targeted: completion::Targeted, "targeted", "`applied()`/`settled()`"
 }
 
-impl Targeted {
-    /// Creates a bounded raw targeted operation with explicit non-empty axes
-    /// and protocol policy.
-    pub fn new(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
-    }
-
-    /// Creates a raw targeted operation from an explicit policy value.
-    ///
-    /// [`RawReplyShape::NoReply`] is rejected because a targeted operation's
-    /// `applied()`/`settled()` lifecycle requires terminal camera evidence, not
-    /// merely a successful local write.
-    pub fn with_policy(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        policy: Policy,
-    ) -> Result<Self> {
-        validate_operation_reply_shape(policy.reply_shape())?;
-        Ok(Self {
-            wire: Wire::new(bytes)?,
-            axes,
-            policy,
-        })
-    }
-
-    /// Returns the exact frame bytes retained by this value.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        self.wire.as_bytes()
-    }
-
-    /// Returns this operation's explicit affected axes.
-    #[must_use]
-    pub const fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-
-    /// Returns this operation's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this operation's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this operation's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this operation's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this operation's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-}
-
-impl Request for Targeted {
-    type Class = request::Operation<completion::Targeted>;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-    const RETRY_CLASS: RetryClass = RetryClass::Movement;
-    const CONTROL_CLASS: ControlClass = ControlClass::User;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
-
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
-        if profile.supports_axes(self.axes) {
-            Ok(())
-        } else {
-            Err(Error::FeatureNotSupported {
-                feature: "raw targeted operation axes",
-            })
-        }
-    }
-}
-
-impl OperationCommand<completion::Targeted> for Targeted {
-    fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-}
-
-/// A raw operation whose terminal protocol application is its only lifecycle
-/// observation. It intentionally has no `settled` method or target inference.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedOnly {
-    wire: Wire,
-    axes: AffectedAxes,
-    policy: Policy,
-}
-
-impl AppliedOnly {
-    /// Creates a bounded raw applied-only operation with explicit non-empty
-    /// axes and protocol policy.
-    pub fn new(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
-    }
-
-    /// Creates a raw applied-only operation from an explicit policy value.
-    ///
-    /// [`RawReplyShape::NoReply`] is rejected because an applied-only
-    /// operation's `applied()` lifecycle requires terminal camera evidence, not
-    /// merely a successful local write.
-    pub fn with_policy(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        policy: Policy,
-    ) -> Result<Self> {
-        validate_operation_reply_shape(policy.reply_shape())?;
-        Ok(Self {
-            wire: Wire::new(bytes)?,
-            axes,
-            policy,
-        })
-    }
-
-    /// Returns the exact frame bytes retained by this value.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        self.wire.as_bytes()
-    }
-
-    /// Returns this operation's explicit affected axes.
-    #[must_use]
-    pub const fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-
-    /// Returns this operation's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this operation's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this operation's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this operation's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this operation's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-}
-
-impl Request for AppliedOnly {
-    type Class = request::Operation<completion::AppliedOnly>;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::User;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
-
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
-        if profile.supports_axes(self.axes) {
-            Ok(())
-        } else {
-            Err(Error::FeatureNotSupported {
-                feature: "raw applied-only operation axes",
-            })
-        }
-    }
-}
-
-impl OperationCommand<completion::AppliedOnly> for AppliedOnly {
-    fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
+raw_operation! {
+    /// A raw operation whose terminal protocol application is its only
+    /// lifecycle observation. It intentionally has no `settled` method or
+    /// target inference.
+    AppliedOnly: completion::AppliedOnly, "applied-only", "`applied()`"
 }
 
 fn validate_inquiry_reply_shape(reply_shape: RawReplyShape) -> Result<()> {

@@ -21,7 +21,9 @@ use grafton_visca::{
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
     request::builtin::{FocusDrive, FocusModeCommand, ZoomDrive, ZoomStop},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error, Executor, Session, SessionConfig, SubmissionClass,
 };
 
@@ -112,16 +114,14 @@ impl AsyncTransport for LaneTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .responses
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            let length = bytes.len();
-            dst[..length].copy_from_slice(&bytes);
-            Ok(length)
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -217,7 +217,7 @@ async fn background_yields_to_a_later_user_submission<E: Executor>(executor: E) 
     second.detach();
     user.detach();
     background.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The handle default demotes one handle's traffic; a sibling clone keeps the
@@ -305,7 +305,7 @@ async fn handle_default_and_derived_view_override<E: Executor>(executor: E) {
     ordinary.detach();
     raised.detach();
     later.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A typed stop retains its urgent safety class under both QoS override forms.
@@ -378,7 +378,7 @@ async fn urgent_cannot_be_demoted_by_any_submission_override<E: Executor>(execut
     stop.detach();
     protected_stop.detach();
     later.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The classified plain-command and inquiry routes reach the same owner.
@@ -408,19 +408,17 @@ async fn classified_execute_reaches_the_wire<E: Executor>(executor: E) {
     result.expect("handle default plain command still executes");
 
     assert_eq!(probe.writes().len(), 2);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The erased projection carries the same submission-class surface.
 #[cfg(feature = "dyn-api")]
 async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
-    use grafton_visca::DynSessionCamera;
-
     let (transport, probe) = LaneTransport::new();
     let session = Session::open(transport, g2_config(), executor.clone())
         .await
         .expect("owner session");
-    let dynamic = DynSessionCamera::from_session(&session).expect("dynamic view");
+    let dynamic = session.camera_dyn().expect("dynamic view");
 
     let first = dynamic
         .submit_applied(&ZoomDrive::Tele)
@@ -470,7 +468,7 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
     second.detach();
     demoted.detach();
     ordinary.detach();
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 #[cfg(feature = "runtime-tokio")]

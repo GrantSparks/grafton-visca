@@ -7,7 +7,7 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let harness = harness();
     let frames = harness.frames.clone();
     let admission = handle.try_submit(command()).unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
@@ -48,7 +48,7 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
         .await;
     assert_eq!(outcome, TurnOutcome::Stop);
 
-    let error = handle.shutdown().await.unwrap_err();
+    let error = handle.shutdown().unwrap_err();
     assert!(matches!(error, Error::ConnectionClosed { .. }));
     assert!(
         actor.core.receivers.shutdown.is_empty(),
@@ -70,7 +70,7 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
         }]))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor.run(harness.driver).await;
     let frame = snapshot
         .diagnostics
@@ -117,7 +117,7 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
         ]))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     gates
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
@@ -211,7 +211,7 @@ async fn actor_disconnect_without_terminal_result_fails_closed() {
     ));
     assert!(actor_task.await.is_err(), "the test driver must panic");
 
-    let error = handle.shutdown().await.unwrap_err();
+    let error = handle.shutdown().unwrap_err();
     assert!(matches!(
         error,
         Error::InvalidState(message)
@@ -245,7 +245,7 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
         Error::InvalidState(message)
             if message.contains("without publishing a terminal result")
     ));
-    let published = handle.shutdown().await.unwrap_err();
+    let published = handle.shutdown().unwrap_err();
     assert_eq!(queued_error.to_string(), published.to_string());
     assert_eq!(
         handle.core.permits.available(),
@@ -275,9 +275,8 @@ async fn active_receipt_actor_disconnect_fails_closed() {
 
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        wait_core_until(
+        handle.wait_core_until(
             &receipt,
-            &handle,
             handle.deadline_after(Duration::from_secs(5)).unwrap(),
         ),
     )
@@ -313,9 +312,8 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
     // fails closed; the cancellation observer is never resolved.
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        wait_core_until(
+        handle.wait_core_until(
             &receipt,
-            &handle,
             handle.deadline_after(Duration::from_secs(5)).unwrap(),
         ),
     )

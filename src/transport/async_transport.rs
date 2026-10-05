@@ -6,10 +6,7 @@
 use std::future::Future;
 
 use crate::{
-    transport::{
-        datagram::{exact_fill_outcome, ReceiveOutcome},
-        AddressingMode, SendSemantics,
-    },
+    transport::{AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
 
@@ -29,8 +26,12 @@ use crate::{
 ///         async move { Ok(()) }
 ///     }
 ///
-///     fn recv_into<'a>(&'a mut self, dst: &'a mut [u8]) -> impl Future<Output = Result<usize, Error>> + Send {
-///         async move { Ok(0) }
+///     fn recv_into<'a>(
+///         &'a mut self,
+///         dst: &'a mut [u8],
+///     ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
+///         // Nothing arrived before this transport's own idle timeout.
+///         async move { Err(Error::io_timeout()) }
 ///     }
 /// }
 /// ```
@@ -55,8 +56,9 @@ pub trait AsyncTransport: Send {
     ///   [`Error::ConnectionClosed`]) into a plain per-request
     ///   [`Error::TransportError`]: a caller must never be told to open a new
     ///   session by an error raised on one that is still running. Report a
-    ///   genuinely dead socket from [`AsyncTransport::recv_into`], which is the
-    ///   side the runtime treats as authoritative about session death.
+    ///   genuinely dead socket from [`AsyncTransport::recv_into`],
+    ///   which is the side the runtime treats as authoritative about session
+    ///   death.
     ///
     /// # Timeout and cancellation
     ///
@@ -71,31 +73,53 @@ pub trait AsyncTransport: Send {
     /// allows); futures built from the standard async socket writers already are.
     fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send;
 
-    /// Receive raw bytes from the device into the provided buffer.
+    /// Receive raw bytes from the device into `dst`, reporting whether
+    /// everything received fitted.
     ///
     /// This method reads the next available chunk of bytes from the transport
-    /// into the provided buffer and returns the number of bytes read.
-    /// It may return partial frames, complete frames, or multiple frames.
-    /// The runtime is responsible for aggregating chunks and extracting frames.
+    /// into the provided buffer. It may return partial frames, complete
+    /// frames, or multiple frames. The runtime is responsible for aggregating
+    /// chunks and extracting frames.
+    ///
+    /// # Receive outcome
+    ///
+    /// The [`ReceiveOutcome`] is the transport's own statement about what it
+    /// copied; the runtime never infers it from the byte count. See
+    /// [`ReceiveOutcome`] for the datagram policy.
+    ///
+    /// - A byte stream always reports [`ReceiveOutcome::complete`]: a short
+    ///   read is routine and the runtime buffers the remainder.
+    /// - A datagram transport reports [`ReceiveOutcome::complete`] only when
+    ///   the whole datagram fitted, [`ReceiveOutcome::truncated`] when its
+    ///   runtime or OS reported a discarded tail, and
+    ///   [`ReceiveOutcome::possibly_truncated`] when it filled `dst` and
+    ///   cannot tell. The runtime discards a datagram that is not complete as
+    ///   one malformed input and keeps the session; it never decodes its
+    ///   prefix. A byte stream that reports one ends the session, because
+    ///   bytes it consumed were lost.
+    /// - A datagram transport never reports zero bytes for an empty datagram
+    ///   (zero bytes is end of stream): it skips the empty datagram and keeps
+    ///   reading within the same deadline. One that reports
+    ///   [`ReceiveOutcome::possibly_truncated`] for every exact fill needs a
+    ///   `recv_buffer_size` of at least
+    ///   [`BufferConfig::MIN_RECV_BUFFER_SIZE`](crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE)
+    ///   ` + 1`; see [`ReceiveOutcome`].
     ///
     /// # Error contract
     ///
     /// The runtime never guesses: the value this method returns decides whether
     /// the session lives, and whether every command still waiting for its ACK
-    /// is retransmitted. An ordinary failed read must consume nothing, so that
-    /// the runtime's framing state stays intact. The one exception is a UDP
-    /// `Error::ResponseTooLarge`: that legacy spelling means the transport
-    /// deliberately discarded one consumed over-size datagram. Owners use
-    /// [`AsyncTransport::recv_into_with_outcome`] to preserve that distinction.
+    /// is retransmitted. A failed read must consume nothing, so that the
+    /// runtime's framing state stays intact.
     ///
-    /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
-    ///   whole frame is normal and is not an error; the runtime buffers the
-    ///   remainder until a later read completes the frame.
-    /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
-    ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
-    ///   yet"; that is the one signal reserved for EOF. Returning
-    ///   `Err(Error::ConnectionClosed)` for EOF is also accepted and ends the
-    ///   session the same way, but `Ok(0)` is canonical.
+    /// - `Ok(outcome)` with a non-zero [`ReceiveOutcome::copied_len`] — bytes
+    ///   were read. Returning fewer bytes than a whole frame is normal and is
+    ///   not an error.
+    /// - `Ok(ReceiveOutcome::complete(0))` — end of stream: the peer closed.
+    ///   The runtime ends the session with [`Error::ConnectionClosed`]. Never
+    ///   report zero bytes to mean "no data yet"; that is the one signal
+    ///   reserved for EOF. Returning `Err(Error::ConnectionClosed)` for EOF is
+    ///   also accepted and ends the session the same way.
     /// - `Err(Error::io_timeout())` — an idle read timeout expired and no bytes
     ///   arrived. This is the recommended shape for a transport that must not
     ///   block indefinitely. The runtime treats it as "no data": the session
@@ -138,39 +162,15 @@ pub trait AsyncTransport: Send {
     /// cancellation-safe; futures built from the standard async socket readers
     /// already are. A transport that *does* enforce its own internal timeout and
     /// returns `Err(Error::io_timeout())` also works and composes with this bound.
+    ///
+    /// # Forwarding wrappers
+    ///
+    /// A transport that wraps another must forward this method to the inner
+    /// transport, which is the authority on its own datagram boundaries.
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send;
-
-    /// Receive raw bytes together with whether a datagram fitted in `dst`.
-    ///
-    /// This supplements [`AsyncTransport::recv_into`] without changing its
-    /// signature. Existing implementations remain source-compatible: the
-    /// default calls `recv_into`, and a full destination buffer from a
-    /// datagram transport is conservatively returned as
-    /// [`ReceiveOutcome::PossiblyTruncated`]. A custom datagram transport that
-    /// can observe its runtime's truncation indication should override this
-    /// method, returning [`ReceiveOutcome::Complete`] for a known exact fit
-    /// and [`ReceiveOutcome::Truncated`] when a tail was discarded.
-    ///
-    /// Wrappers must forward this method to their inner transport, just as
-    /// they forward [`AsyncTransport::recv_into`] and
-    /// [`AsyncTransport::send_semantics`].
-    fn recv_into_with_outcome<'a>(
-        &'a mut self,
-        dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-        async move {
-            let capacity = dst.len();
-            let bytes = self.recv_into(dst).await?;
-            Ok(if self.send_semantics() == SendSemantics::Datagram {
-                exact_fill_outcome(bytes, capacity)
-            } else {
-                ReceiveOutcome::Complete { bytes }
-            })
-        }
-    }
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send;
 
     /// Return a side-effect-free hint for the transport's VISCA addressing mode.
     ///

@@ -32,7 +32,8 @@ use grafton_visca::{
     profiles::SonyFR7,
     request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, CancellationOutcome, Error,
 };
@@ -201,10 +202,9 @@ impl BlockingTransport for FaultTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let bytes = self.reads.pop_front().ok_or(Error::io_timeout())??;
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

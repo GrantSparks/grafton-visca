@@ -9,6 +9,7 @@ use crate::{
         builder::TransportConfig,
         serial::SERIAL_PORT_CLOSED,
         stream_read, AddressedBus, AddressingMode, AsyncTransport, HasTransportConfig,
+        ReceiveOutcome,
     },
     Error,
 };
@@ -63,8 +64,8 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Serial<S> {
         self.stream.write_all(bytes).await
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        stream_read(self.stream.read(dst).await?, SERIAL_PORT_CLOSED)
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        stream_read(self.stream.read(dst).await?, SERIAL_PORT_CLOSED).map(ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {

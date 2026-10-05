@@ -235,9 +235,13 @@ impl TransportConfig {
             }
             crate::timeout::instant_after(now, timeout, parameter)?;
         }
-        if self.buffer_config.recv_buffer_size == 0 {
+        if self.buffer_config.recv_buffer_size < BufferConfig::MIN_RECV_BUFFER_SIZE {
             return Err(Error::InvalidRequest(
-                "transport receive buffer must be non-zero".into(),
+                format!(
+                    "transport receive buffer must hold the largest VISCA reply ({} bytes)",
+                    BufferConfig::MIN_RECV_BUFFER_SIZE
+                )
+                .into(),
             ));
         }
         if self.buffer_config.max_buffer_size == 0 {

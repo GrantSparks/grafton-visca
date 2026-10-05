@@ -12,7 +12,7 @@ use crate::{
         async_io::AsyncDatagram,
         builder::TransportConfig,
         connect::preflight,
-        datagram::{deliverable, delivered_len},
+        datagram::deliverable,
         socket_options::UdpSocketConfig,
         AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
     },
@@ -112,18 +112,13 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        let outcome = self.recv_into_with_outcome(dst).await?;
-        delivered_len(outcome, dst.len())
-    }
-
-    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         // Empty datagrams are skipped (see `transport::datagram`), yielding
         // before polling again. A non-complete outcome describes a datagram
         // the socket already consumed: return it so the owner discards the
         // whole datagram rather than decoding its prefix.
         loop {
-            let outcome = self.socket.recv_with_outcome(dst).await?;
+            let outcome = self.socket.recv(dst).await?;
             if let Some(outcome) = deliverable(outcome, dst.len())? {
                 return Ok(outcome);
             }
@@ -173,11 +168,6 @@ mod tests {
         receives: ReceiveQueue,
     }
 
-    #[derive(Debug)]
-    struct LegacyDatagram {
-        payload: Vec<u8>,
-    }
-
     impl ScriptedDatagram {
         fn new(receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>) -> Self {
             Self {
@@ -208,27 +198,8 @@ mod tests {
             ready(Ok(buf.len()))
         }
 
-        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-            Ok(self.receive(buf)?.copied_len())
-        }
-
-        async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        async fn recv(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             self.receive(buf)
-        }
-    }
-
-    // Deliberately implements only the original `recv` requirement. This is
-    // the source-compatible custom-socket shape; its exact-fill result must be
-    // treated conservatively until it adopts `recv_with_outcome`.
-    impl AsyncDatagram for LegacyDatagram {
-        fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send {
-            ready(Ok(buf.len()))
-        }
-
-        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-            let copied = self.payload.len().min(buf.len());
-            buf[..copied].copy_from_slice(&self.payload[..copied]);
-            Ok(copied)
         }
     }
 
@@ -263,8 +234,8 @@ mod tests {
 
         let received = block_on(transport.recv_into(&mut dst)).expect("valid datagram");
 
-        assert_eq!(received, 5);
-        assert_eq!(&dst[..received], b"valid");
+        assert_eq!(received, ReceiveOutcome::complete(5));
+        assert_eq!(&dst[..5], b"valid");
     }
 
     #[test]
@@ -282,7 +253,7 @@ mod tests {
             assert_eq!(counting_waker.wake_count(), 1);
 
             match receive.as_mut().poll(&mut context) {
-                Poll::Ready(Ok(received)) => received,
+                Poll::Ready(Ok(received)) => received.copied_len(),
                 other => panic!("expected valid datagram after cooperative yield, got {other:?}"),
             }
         };
@@ -306,7 +277,7 @@ mod tests {
             assert_eq!(counting_waker.wake_count(), 2);
 
             match receive.as_mut().poll(&mut context) {
-                Poll::Ready(Ok(received)) => received,
+                Poll::Ready(Ok(received)) => received.copied_len(),
                 other => panic!("expected valid datagram after cooperative yields, got {other:?}"),
             }
         };
@@ -320,9 +291,9 @@ mod tests {
         let mut transport = Udp::new(socket, TransportConfig::default());
         let mut dst = [0; 3];
 
-        let error = block_on(transport.recv_into(&mut dst)).expect_err("truncated datagram");
+        let truncated = block_on(transport.recv_into(&mut dst)).expect("consumed datagram");
 
-        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+        assert_eq!(truncated, ReceiveOutcome::truncated(3));
         assert_eq!(dst, [0x90, 0x41, 0xff]);
     }
 
@@ -334,22 +305,8 @@ mod tests {
 
         let received = block_on(transport.recv_into(&mut dst)).expect("exact-fit datagram");
 
-        assert_eq!(received, 3);
+        assert_eq!(received, ReceiveOutcome::complete(3));
         assert_eq!(dst, [0x90, 0x41, 0xff]);
-    }
-
-    #[test]
-    fn legacy_datagram_implementation_fails_closed_on_an_exact_fill() {
-        let socket = LegacyDatagram {
-            payload: vec![0x90, 0x41, 0xff],
-        };
-        let mut transport = Udp::new(socket, TransportConfig::default());
-        let mut dst = [0; 3];
-
-        let error = block_on(transport.recv_into(&mut dst))
-            .expect_err("legacy datagram cannot certify an exact fit");
-
-        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
     }
 }
 
@@ -399,7 +356,7 @@ mod os_truncation {
             sender.send(datagram).expect("send datagram");
             let mut destination = vec![0; capacity];
             let outcome = receiver
-                .recv_with_outcome(&mut destination)
+                .recv(&mut destination)
                 .await
                 .expect("receive datagram");
             assert_eq!(outcome, expected, "datagram {datagram:02X?}");

@@ -6,22 +6,18 @@
 //! datagram transport never hands bytes to the protocol decoder unless the
 //! whole datagram fitted in the caller's buffer:
 //!
+//! - Every transport receive reports a [`ReceiveOutcome`]; nothing infers
+//!   completeness from a byte count.
 //! - Built-in UDP transports learn truncation from the operating system
 //!   ([`recv_datagram`]): on Unix a one-byte sentinel extends the destination,
 //!   on Windows Winsock reports `WSAEMSGSIZE`. An exact-size datagram is
 //!   therefore accepted.
-//! - A receiver that cannot observe truncation (a custom
-//!   [`AsyncDatagram`](crate::transport::async_io::AsyncDatagram) or
-//!   [`AsyncTransport`](crate::transport::AsyncTransport) using the default
-//!   method) cannot tell an exact fill from a truncated one, so
-//!   [`exact_fill_outcome`] conservatively reports a buffer-filling receive as
-//!   possibly truncated.
+//! - A custom receiver that cannot observe truncation reports a
+//!   buffer-filling receive as [`ReceiveOutcome::PossiblyTruncated`].
 //! - Empty datagrams are skipped without extending the receive's deadline,
-//!   because `Ok(0)` is reserved for stream end-of-file
-//!   ([`deliverable`]).
-//! - A non-complete outcome surfaces as [`Error::ResponseTooLarge`] from the
-//!   length-returning receive methods ([`delivered_len`]), which owners treat
-//!   as one discarded datagram, never as a dead session.
+//!   because zero bytes is reserved for stream end-of-file ([`deliverable`]).
+//! - The owner discards a datagram whose outcome is not complete as one
+//!   malformed input, never as a dead session, on both facades.
 
 #[cfg(any(
     feature = "blocking",
@@ -35,6 +31,22 @@ use crate::Error;
 /// A byte stream always reports [`ReceiveOutcome::Complete`]. Datagram
 /// transports must not hand bytes to the protocol decoder unless the outcome
 /// is complete: a valid-looking prefix is not a complete datagram.
+///
+/// # Datagram receive policy
+///
+/// - Report [`Self::Complete`] only when the whole datagram fitted, and never
+///   for zero bytes from a datagram: zero bytes means end of stream. Skip an
+///   empty datagram and keep reading within the same deadline.
+/// - Report [`Self::Truncated`] when the runtime or OS reported a discarded
+///   tail, and [`Self::PossiblyTruncated`] when the datagram filled the buffer
+///   and truncation cannot be observed. The owner discards such a datagram as
+///   one malformed input and never decodes its prefix.
+/// - A transport that reports [`Self::PossiblyTruncated`] for every exact fill
+///   needs a [`recv_buffer_size`](crate::transport::BufferConfig::recv_buffer_size)
+///   of at least
+///   [`MIN_RECV_BUFFER_SIZE`](crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE)
+///   ` + 1`, so that the largest valid reply never fills the buffer and is
+///   never discarded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use = "a receive outcome must be classified before its bytes are decoded"]
 #[non_exhaustive]
@@ -54,14 +66,9 @@ pub enum ReceiveOutcome {
     /// A datagram receiver filled the supplied buffer but cannot report
     /// whether a tail was discarded.
     ///
-    /// This is deliberately rejected just like [`Self::Truncated`].
-    /// Implementations that can distinguish an exact fit from truncation
-    /// should override
-    #[cfg_attr(
-        feature = "async",
-        doc = "[`AsyncTransport::recv_into_with_outcome`](crate::transport::AsyncTransport::recv_into_with_outcome)."
-    )]
-    #[cfg_attr(not(feature = "async"), doc = "`recv_into_with_outcome`.")]
+    /// This is deliberately rejected just like [`Self::Truncated`]. A receiver
+    /// that can distinguish an exact fit from truncation reports
+    /// [`Self::Complete`] or [`Self::Truncated`] instead.
     #[non_exhaustive]
     PossiblyTruncated {
         /// Number of payload bytes copied.
@@ -69,13 +76,6 @@ pub enum ReceiveOutcome {
     },
 }
 
-#[cfg_attr(
-    all(not(feature = "async"), not(test)),
-    expect(
-        dead_code,
-        reason = "the constructors serve custom async transports; the blocking facade does not export the type"
-    )
-)]
 impl ReceiveOutcome {
     /// Reports a complete payload copied into the receive buffer.
     pub const fn complete(bytes: usize) -> Self {
@@ -90,6 +90,26 @@ impl ReceiveOutcome {
         Self::PossiblyTruncated { copied }
     }
 
+    /// Copies one whole received `message` into `dst` and reports what fitted.
+    ///
+    /// This is the receive outcome of a transport whose source yields whole
+    /// messages (a datagram, or a channel of replies): the message is
+    /// [`Self::Complete`] when it fitted and [`Self::Truncated`] when its tail
+    /// did not, in which case only the prefix that fitted was copied.
+    ///
+    /// An empty `message` reports `complete(0)`, which the owner reads as end
+    /// of stream: a datagram source must skip an empty datagram rather than
+    /// copy it.
+    pub fn copy_message(message: &[u8], dst: &mut [u8]) -> Self {
+        let copied = message.len().min(dst.len());
+        dst[..copied].copy_from_slice(&message[..copied]);
+        if copied < message.len() {
+            Self::Truncated { copied }
+        } else {
+            Self::Complete { bytes: copied }
+        }
+    }
+
     /// Number of payload bytes copied into the supplied buffer.
     pub const fn copied_len(self) -> usize {
         match self {
@@ -102,17 +122,6 @@ impl ReceiveOutcome {
     /// Whether all payload bytes are known to have been copied.
     pub const fn is_complete(self) -> bool {
         matches!(self, Self::Complete { .. })
-    }
-}
-
-/// The outcome of a receive that copied `bytes` into a `capacity`-byte buffer
-/// without truncation information: an exact fill may have been truncated.
-#[cfg(feature = "async")]
-pub(crate) const fn exact_fill_outcome(bytes: usize, capacity: usize) -> ReceiveOutcome {
-    if bytes == capacity {
-        ReceiveOutcome::PossiblyTruncated { copied: bytes }
-    } else {
-        ReceiveOutcome::Complete { bytes }
     }
 }
 
@@ -141,24 +150,6 @@ pub(crate) fn deliverable(
         Ok(None)
     } else {
         Ok(Some(outcome))
-    }
-}
-
-/// The byte count a length-returning receive reports for `outcome`.
-///
-/// A datagram that did not fit is reported as [`Error::ResponseTooLarge`]:
-/// the socket already consumed it, and its copied prefix must be discarded.
-#[cfg(any(
-    feature = "blocking",
-    feature = "runtime-tokio",
-    feature = "runtime-smol"
-))]
-pub(crate) fn delivered_len(outcome: ReceiveOutcome, capacity: usize) -> Result<usize, Error> {
-    match outcome {
-        ReceiveOutcome::Complete { bytes } => Ok(bytes),
-        ReceiveOutcome::Truncated { .. } | ReceiveOutcome::PossiblyTruncated { .. } => {
-            Err(Error::ResponseTooLarge { max_size: capacity })
-        }
     }
 }
 
@@ -245,6 +236,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_copied_message_is_complete_only_when_it_fits() {
+        let mut dst = [0_u8; 3];
+        assert_eq!(
+            ReceiveOutcome::copy_message(&[1, 2], &mut dst),
+            ReceiveOutcome::complete(2)
+        );
+        assert_eq!(
+            ReceiveOutcome::copy_message(&[1, 2, 3], &mut dst),
+            ReceiveOutcome::complete(3)
+        );
+        assert_eq!(
+            ReceiveOutcome::copy_message(&[4, 5, 6, 7], &mut dst),
+            ReceiveOutcome::truncated(3)
+        );
+        assert_eq!(dst, [4, 5, 6]);
+    }
+
+    #[test]
     fn empty_complete_datagrams_are_skipped_and_others_delivered() {
         assert_eq!(deliverable(ReceiveOutcome::complete(0), 4).ok(), Some(None));
         for outcome in [
@@ -259,29 +268,5 @@ mod tests {
             deliverable(ReceiveOutcome::complete(5), 4),
             Err(Error::InvalidResponse { .. })
         ));
-    }
-
-    #[test]
-    fn only_complete_outcomes_deliver_bytes() {
-        assert_eq!(delivered_len(ReceiveOutcome::complete(3), 4).ok(), Some(3));
-        for outcome in [
-            ReceiveOutcome::truncated(4),
-            ReceiveOutcome::possibly_truncated(4),
-        ] {
-            assert!(matches!(
-                delivered_len(outcome, 4),
-                Err(Error::ResponseTooLarge { max_size: 4 })
-            ));
-        }
-    }
-
-    #[cfg(feature = "async")]
-    #[test]
-    fn an_exact_fill_without_truncation_information_is_possibly_truncated() {
-        assert_eq!(exact_fill_outcome(3, 4), ReceiveOutcome::complete(3));
-        assert_eq!(
-            exact_fill_outcome(4, 4),
-            ReceiveOutcome::possibly_truncated(4)
-        );
     }
 }

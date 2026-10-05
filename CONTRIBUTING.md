@@ -54,8 +54,8 @@ the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the canonical local/release validation matrix. CI runs equivalent
-# feature-matrix entries as separate jobs; it does not invoke this script.
+# Run the canonical local/release validation matrix. CI builds one job per
+# feature shape from this script's `list-json` mode, so both share one list.
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
@@ -448,7 +448,8 @@ safety less certain.
 
 4. **Checklist**: Before submitting:
    - [ ] Declared cfg-aware matrix passes: `bash .github/scripts/test-all-features.sh`
-   - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
+   - [ ] No clippy warnings in any supported feature shape: `bash .github/scripts/test-all-features.sh clippy`
+   - [ ] Rustdoc builds without warnings in every supported feature shape: `bash .github/scripts/test-all-features.sh doc`
    - [ ] Formatted: `cargo +nightly fmt --all -- --check`
    - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
    - [ ] Documentation updated

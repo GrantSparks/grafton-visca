@@ -16,7 +16,8 @@ use grafton_visca::{
     command::CommandKind,
     profile::ProfileSpec,
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     Error,
 };
@@ -73,7 +74,7 @@ impl BlockingTransport for ProbeTransport {
         &mut self,
         _dst: &mut [u8],
         timeout: std::time::Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         // An idle peer: the owner worker reads continuously, so a read must
         // honor its timeout rather than report end of stream.
         self.counts.reads.fetch_add(1, Ordering::SeqCst);

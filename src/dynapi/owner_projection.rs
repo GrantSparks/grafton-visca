@@ -10,27 +10,28 @@
 use std::{fmt, time::Duration};
 
 use crate::{
-    async_session::{AsyncCameraCore, Camera, Session},
-    camera::{IdleWait, MotionQuery},
+    async_session::{AsyncCameraCore, Camera},
     capabilities::{Capabilities, TypedSupportSurface},
     completion::{AppliedOnly, Targeted},
     operation::Operation,
     CameraId, CancellationOutcome, CompileTimeProfile, Error, Inquiry, OperationCommand,
-    OperationId, PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
+    OperationId, PlainCommand, ProfileSpec, Result, StateCache,
 };
-
-use super::DynFuture;
 
 /// The lifecycle methods every dynamic operation handle shares with the root
 /// [`Operation`] it wraps. Each projection adds only what its completion kind
 /// allows, so the dynamic layer never re-implements lifecycle behaviour.
 macro_rules! dyn_operation_lifecycle {
     ($handle:ident, $kind:ty) => {
-        impl $handle {
-            pub(crate) fn from_operation(inner: Operation<$kind>) -> Self {
-                Self { inner }
-            }
+        impl DynKind for $kind {
+            type Handle = $handle;
 
+            fn erase(inner: Operation<Self>) -> $handle {
+                $handle { inner }
+            }
+        }
+
+        impl $handle {
             /// Returns the operation's opaque owner-assigned identity.
             #[must_use]
             pub fn id(&self) -> OperationId {
@@ -73,6 +74,17 @@ macro_rules! dyn_operation_lifecycle {
             }
         }
     };
+}
+
+/// A completion kind and the dynamic handle that erases its root
+/// [`Operation`], so the erased submission paths are written once over the
+/// kind (#817).
+pub(crate) trait DynKind: crate::completion::Kind + Sized {
+    /// The dynamic handle for an operation of this kind.
+    type Handle;
+
+    /// Wraps an admitted root operation in its dynamic handle.
+    fn erase(inner: Operation<Self>) -> Self::Handle;
 }
 
 /// A dynamically projected targeted operation.
@@ -155,45 +167,7 @@ impl DynSessionCamera {
         Self { core }
     }
 
-    /// Creates a dynamic view for the session's default target.
-    pub fn from_session(session: &Session) -> Result<Self> {
-        Ok(Self::new(session.camera_core()?))
-    }
-
-    /// Creates a dynamic view for one registered target.
-    pub fn from_session_target(session: &Session, target: CameraId) -> Result<Self> {
-        Ok(Self::new(session.camera_core_for(target)?))
-    }
-
-    /// Returns the fixed target selected by this view.
-    #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.core.target()
-    }
-
-    /// Returns this view's validated runtime profile facts.
-    #[must_use]
-    pub fn profile(&self) -> &ProfileSpec {
-        self.core.profile()
-    }
-
-    /// Returns the validated runtime capability inventory for this target.
-    #[must_use]
-    pub fn capabilities(&self) -> &Capabilities {
-        self.profile().capabilities()
-    }
-
-    /// Returns whether this target supports one typed static surface.
-    #[must_use]
-    pub fn supports_typed(&self, surface: TypedSupportSurface) -> bool {
-        self.capabilities().supports_typed(surface)
-    }
-
-    /// Returns a cheap target-local read-only view of the owner's state cache.
-    #[must_use]
-    pub fn state_cache(&self) -> StateCache {
-        self.core.state_cache()
-    }
+    crate::camera_view::camera_view_getters!(runtime_profile);
 
     /// Projects this dynamic view into a statically checked profile view.
     ///
@@ -204,39 +178,6 @@ impl DynSessionCamera {
         P: CompileTimeProfile,
     {
         self.core.clone().into_typed::<P>()
-    }
-
-    /// Returns this view's submission-class default, if it carries one.
-    ///
-    /// This is the erased projection of [`Camera::submission_class`].
-    #[must_use]
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.core.submission_class()
-    }
-
-    /// Derives a runtime-profile view whose ordinary work uses `class`.
-    ///
-    /// The original view is unchanged. Commands, inquiries, operations, and
-    /// dynamic noun methods submitted through the returned view all inherit
-    /// this class; intrinsically urgent stops remain urgent.
-    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
-        let mut selected = self.clone();
-        selected.set_submission_class(Some(class));
-        selected
-    }
-
-    /// Sets the ordinary-work [`SubmissionClass`] every later submission from
-    /// *this view* uses, or clears it with `None`.
-    ///
-    /// This is the erased projection of [`Camera::set_submission_class`] and
-    /// carries exactly its semantics, including the rule that a request the
-    /// crate classifies [`crate::ControlClass::Urgent`] is never demoted by a handle
-    /// default. The value belongs to this view: a
-    /// [`clone`](Clone::clone) copies it and then diverges, and a typed
-    /// [`camera`](Self::camera) projected out of this view starts from the
-    /// same value.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.core.set_submission_class(class);
     }
 
     /// Executes a plain command through the shared owner.
@@ -265,10 +206,7 @@ impl DynSessionCamera {
     where
         O: OperationCommand<Targeted> + Sync + ?Sized,
     {
-        self.core
-            .submit::<Targeted, O>(operation)
-            .await
-            .map(DynTargetedOperation::from_operation)
+        self.submit_erased(operation).await
     }
 
     /// Submits any typed applied-only request through the same preparation and
@@ -277,10 +215,17 @@ impl DynSessionCamera {
     where
         O: OperationCommand<AppliedOnly> + Sync + ?Sized,
     {
-        self.core
-            .submit::<AppliedOnly, O>(operation)
-            .await
-            .map(DynAppliedOperation::from_operation)
+        self.submit_erased(operation).await
+    }
+
+    /// Submits `operation` through the typed admission path and erases the
+    /// returned root handle into its kind's dynamic handle.
+    pub(crate) async fn submit_erased<K, O>(&self, operation: &O) -> Result<K::Handle, Error>
+    where
+        K: DynKind,
+        O: OperationCommand<K> + Sync + ?Sized,
+    {
+        self.core.submit::<K, O>(operation).await.map(K::erase)
     }
 
     /// Returns the canonical owner-backed motion safety and observation view.
@@ -296,23 +241,6 @@ impl DynSessionCamera {
     /// preparation and admission through its crate-private methods.
     pub(crate) fn core(&self) -> &AsyncCameraCore {
         &self.core
-    }
-
-    /// Stops all motion by delegating to the owner-backed camera view.
-    pub(crate) fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>> {
-        Box::pin(self.core.stop_all_motion())
-    }
-
-    /// Observes exactly the selected motion axes through the owner-backed
-    /// camera view.
-    pub(crate) fn is_moving(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>> {
-        Box::pin(self.core.is_moving(query))
-    }
-
-    /// Waits for exactly the selected motion axes through the owner-backed
-    /// camera view.
-    pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>> {
-        Box::pin(self.core.wait_until_idle(wait))
     }
 }
 

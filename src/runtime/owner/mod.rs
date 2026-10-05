@@ -20,6 +20,8 @@ mod blocking_transport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod boundary;
 #[cfg(any(feature = "async", feature = "blocking"))]
+mod handle;
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod receipt;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod shell;
@@ -28,16 +30,14 @@ mod turn;
 #[cfg(feature = "async")]
 #[allow(unused_imports)]
 pub(crate) use async_actor::*;
-#[cfg(feature = "async")]
-#[allow(unused_imports)]
-pub(crate) use async_transport::*;
 #[cfg(feature = "blocking")]
 #[allow(unused_imports)]
 pub(crate) use blocking::*;
-#[cfg(feature = "blocking")]
-#[allow(unused_imports)]
-pub(crate) use blocking_transport::*;
 
+#[cfg(feature = "async")]
+pub(crate) use adapter::AsyncTransportAdapter;
+#[cfg(feature = "blocking")]
+pub(crate) use adapter::BlockingTransportAdapter;
 #[allow(unused_imports)]
 pub(crate) use adapter::{
     decode_response_target, owner_policy_for_targets_with_tuning, profile_supports_transport,
@@ -76,7 +76,7 @@ use super::engine::{
     AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
     DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
+    InputTurn, Lane, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
     RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
     Transmission, TransmissionId, TransmissionMeta,
 };
@@ -332,8 +332,8 @@ pub(crate) struct OwnerMetrics {
     pub(crate) received_frames: u64,
     pub(crate) ignored_unmatched_sequenced_replies: u64,
     /// Delimited frames a byte stream discarded as malformed while staying
-    /// Running (#672). 1.x logged and continued on the same frames; this counter
-    /// makes the otherwise lossy-diagnostics-only signal a durable metric.
+    /// Running (#672). The session continues past these frames; this counter makes
+    /// the otherwise lossy-diagnostics-only signal a durable metric.
     pub(crate) ignored_malformed_frames: u64,
     pub(crate) dropped_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
@@ -348,7 +348,7 @@ pub(crate) struct OwnerMetrics {
 /// transient camera-side backpressure: command buffer full (`0x03`), no socket
 /// available (`0x05`), and not executable in the current state (`0x41`).
 ///
-/// 1.x bucketed `0x03 | 0x04` here instead. `0x04` is the cancellation reply,
+/// `0x04` is deliberately not in this set: it is the cancellation reply,
 /// which this engine consumes as the confirmation of a cancel rather than as a
 /// failure, so counting it as a busy error would make every successful
 /// cancellation look like camera backpressure.
@@ -358,23 +358,6 @@ const fn error_code_is_busy(code: u8) -> bool {
 
 /// The cancellation reply code, which is an answer rather than a fault.
 const CANCELLATION_REPLY_CODE: u8 = 0x04;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestLane {
-    Command,
-    Inquiry,
-}
-
-impl RequestLane {
-    /// The lane `request` is admitted and reported on.
-    pub(crate) fn of(request: &RuntimeRequest) -> Self {
-        if request.is_inquiry() {
-            Self::Inquiry
-        } else {
-            Self::Command
-        }
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseDiagnostic {
@@ -414,7 +397,7 @@ pub(crate) enum CancellationDiagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
     target: CameraId,
-    lane: RequestLane,
+    lane: Lane,
     timeout: TimeoutPolicy,
     retry: RetryPolicy,
     control: ControlClass,
@@ -426,7 +409,7 @@ impl RequestSummary {
         let context = request.context();
         Self {
             target: context.target,
-            lane: RequestLane::of(request),
+            lane: request.lane(),
             timeout: context.timeout,
             retry: context.retry,
             control: context.control.class,
@@ -442,7 +425,7 @@ pub(crate) enum DiagnosticEvent {
     Admitted {
         id: RequestId,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         timeout: TimeoutPolicy,
         retry: RetryPolicy,
         control: ControlClass,
@@ -450,7 +433,7 @@ pub(crate) enum DiagnosticEvent {
     },
     AdmissionRejected {
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: ErrorKind,
     },
     FrameReceived {
@@ -537,24 +520,21 @@ impl TargetStateCache {
         // The cache stores the public semantic discriminator, not a
         // profile-specific wire variant. `PanTiltLimitCorner` has only the
         // two Standard VISCA values documented for this opcode: down-left
-        // (`0x00`) and up-right (`0x01`). Refuse a malformed projection before
-        // it can replace a previously known limit update.
+        // (`0x00`) and up-right (`0x01`). A limit set and a limit clear are
+        // both local to one corner, so each must name a valid one; refuse a
+        // malformed projection before it can replace a previously known limit
+        // update.
         let invalid_limit_corner = match projection {
             AppliedStateProjection::Set {
+                key: WriteOnlyState::PanTiltLimits,
+                value,
+            }
+            | AppliedStateProjection::Clear {
                 key: WriteOnlyState::PanTiltLimits,
                 value,
             } => !matches!(
                 value.values[0..value.value_count as usize].first(),
                 Some(0 | 1)
-            ),
-            // A value-less clear remains the legacy whole-key clear. A
-            // corner-local clear must use the same discriminator as a set.
-            AppliedStateProjection::Clear {
-                key: WriteOnlyState::PanTiltLimits,
-                value,
-            } => matches!(
-                value.values[0..value.value_count as usize].first(),
-                Some(value) if !matches!(value, 0 | 1)
             ),
             _ => false,
         };
@@ -824,6 +804,15 @@ pub(crate) struct Observed<T> {
     pub(crate) value: T,
 }
 
+impl<T> Observed<T> {
+    /// The observation deadline rule: a delivered value counts for a wait
+    /// only if the owner delivered it no later than the wait's deadline. A
+    /// value delivered exactly at the deadline still counts.
+    pub(crate) fn within(&self, deadline: Instant) -> bool {
+        self.at <= deadline
+    }
+}
+
 /// The result of attempting to settle one receipt observer.
 ///
 /// `ReceiverLost` is deliberately distinct from `AlreadyResolved`: only the
@@ -1028,6 +1017,40 @@ impl ReceiptCore {
         self.configured_timeout
     }
 
+    /// The verdict of a terminal outcome delivered to this receipt's wait
+    /// ending at `deadline`: its value when it counts, else an observation
+    /// timeout.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn conclude(
+        &self,
+        outcome: Observed<RuntimeOutcome>,
+        deadline: Instant,
+    ) -> Result<RuntimeOutcome, Error> {
+        if outcome.within(deadline) {
+            Ok(outcome.value)
+        } else {
+            Err(observation_timeout(self.id))
+        }
+    }
+
+    /// The terminal outcome already delivered, if any, judged against
+    /// `deadline`; `None` while the slot is still empty.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn try_conclude(&self, deadline: Instant) -> Option<Result<RuntimeOutcome, Error>> {
+        self.completion
+            .try_observed()
+            .map(|outcome| self.conclude(outcome, deadline))
+    }
+
+    /// The terminal outcome already delivered within `deadline`, if any.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn observed_within(&self, deadline: Instant) -> Option<RuntimeOutcome> {
+        self.completion
+            .try_observed()
+            .filter(|outcome| outcome.within(deadline))
+            .map(|outcome| outcome.value)
+    }
+
     // Consumed only by `async_actor::tests`, which additionally requires
     // `runtime-tokio` or `runtime-smol` (#636).
     #[cfg(all(
@@ -1176,7 +1199,7 @@ impl OperationObservation {
         self.poll();
         self.terminal
             .as_ref()
-            .filter(|event| event.at <= deadline)
+            .filter(|event| event.within(deadline))
             .map(|event| normalize_command_outcome(event.value.clone()))
     }
 
@@ -1188,12 +1211,16 @@ impl OperationObservation {
         deadline: Instant,
     ) -> Option<Result<CancellationOutcome, Error>> {
         self.poll();
-        match self.terminal.as_ref().filter(|event| event.at <= deadline) {
+        match self
+            .terminal
+            .as_ref()
+            .filter(|event| event.within(deadline))
+        {
             Some(terminal) => Some(cancellation_outcome(&terminal.value)),
             None => self
                 .cancellation_failure
                 .as_ref()
-                .filter(|event| event.at <= deadline)
+                .filter(|event| event.within(deadline))
                 .map(|event| Err(event.value.clone())),
         }
     }
@@ -1788,7 +1815,7 @@ impl OwnerState {
     pub(crate) fn record_admission_rejection(
         &mut self,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: &Error,
     ) {
         self.record_pre_admission_rejections(
@@ -1822,7 +1849,7 @@ impl OwnerState {
     pub(crate) fn record_admission_rejection_diagnostic(
         &mut self,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: ErrorKind,
     ) {
         self.record(DiagnosticEvent::AdmissionRejected {
@@ -2309,7 +2336,7 @@ impl OwnerState {
         let inquiry = self
             .active
             .get(&staged.request)
-            .is_some_and(|active| active.summary.lane == RequestLane::Inquiry);
+            .is_some_and(|active| active.summary.lane == Lane::Inquiry);
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
             #[cfg(all(
@@ -2812,11 +2839,10 @@ pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
 
 /// Whether one receive-side transport failure leaves the session usable.
 ///
-/// 1.x drew this line in the runtime loops: a `ConnectionClosed` read ended the
-/// session, and every other read error became a `NetworkError` that retried
-/// in-flight work and kept the loop alive. This keeps that contract and states
-/// the remaining fatal cases explicitly instead of inheriting them from
-/// [`ErrorKind`], which cannot separate "the peer went away" from "this read
+/// A `ConnectionClosed` read ends the session, and every other read error is a
+/// transient fault that retries in-flight work where that is safe and keeps
+/// the loop alive. The remaining fatal cases are stated explicitly instead of
+/// being inherited from [`ErrorKind`], which cannot separate "the peer went away" from "this read
 /// failed".
 ///
 /// Transient therefore includes the case the issue is about: a UDP `recv`

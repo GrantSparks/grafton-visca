@@ -30,7 +30,7 @@ use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     command::CommandKind,
     profile::ProfileSpec,
-    transport::{BlockingTransport, HasTransportConfig, TransportConfig},
+    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error, OperationalTuning,
 };
 
@@ -99,14 +99,13 @@ impl BlockingTransport for FakeCamera {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         if matches!(self.peer, Peer::Silent) {
             std::thread::sleep(timeout.min(Duration::from_millis(5)));
             return Err(Error::io_timeout());
         }
         let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 }
 
@@ -117,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Duration::from_millis(1),
             Duration::from_millis(500),
         ),
-    )?;
+    );
 
     // A RE-CALLABLE factory (`FnMut`, not `FnOnce`): a supervisor can call it on
     // every reconnect. Here the first transport is silent and later ones

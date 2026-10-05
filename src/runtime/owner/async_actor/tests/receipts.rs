@@ -56,7 +56,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
         "no position inquiry is written at the exact owner deadline"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.metrics.admitted, 1);
     assert_eq!(snapshot.active, 0);
@@ -143,7 +143,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
         "the stop ACK must not be discarded by the predecessor tombstone"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -193,7 +193,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
         snapshot.diagnostics,
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Inquiry,
+            lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }],
         "the caller-expiry winner records exactly one pre-admission rejection"
@@ -218,7 +218,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let terminal = actor_task.await.unwrap();
     assert_eq!(terminal.state, SessionState::Shutdown);
 }
@@ -247,7 +247,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Inquiry,
+            lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -303,7 +303,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Inquiry,
+            lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -385,7 +385,7 @@ async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
         receipt.terminal().await.unwrap(),
         RuntimeOutcome::Applied
     ));
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(snapshot.active, 0);
@@ -446,7 +446,7 @@ async fn capacity_rejection_is_pre_identity_and_cancel_full_waits_without_drop()
     drop((first_observation.unwrap(), second_observation.unwrap()));
     drop((first, second));
 
-    let (left, right) = tokio::join!(handle.shutdown(), handle.shutdown());
+    let (left, right) = (handle.shutdown(), handle.shutdown());
     left.unwrap();
     right.unwrap();
     let snapshot = actor_task.await.unwrap();
@@ -475,7 +475,7 @@ async fn ordinary_async_submit_is_fail_fast_at_capacity() {
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.metrics.admitted, 1);
 }
@@ -539,13 +539,13 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
         rejected,
         DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Command,
+            lane: crate::runtime::engine::Lane::Command,
             error: crate::ErrorKind::BufferFull,
         }
     );
 
     drop(first);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// The handle-side ingress is runtime-neutral. Exercise the same
@@ -578,7 +578,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Inquiry,
+            lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::BufferFull,
         }]
     );
@@ -597,12 +597,12 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
     let first = PreAdmissionRejection {
         target: CameraId::CAMERA_1,
-        lane: crate::runtime::owner::RequestLane::Command,
+        lane: crate::runtime::engine::Lane::Command,
         error: crate::ErrorKind::BufferFull,
     };
     let second = PreAdmissionRejection {
         target: CameraId::CAMERA_1,
-        lane: crate::runtime::owner::RequestLane::Inquiry,
+        lane: crate::runtime::engine::Lane::Inquiry,
         error: crate::ErrorKind::IoClosed,
     };
 
@@ -620,7 +620,7 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Inquiry,
+            lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::IoClosed,
         }],
         "the bounded queue retains the newest rejection fact"
@@ -657,7 +657,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
-            lane: crate::runtime::owner::RequestLane::Command,
+            lane: crate::runtime::engine::Lane::Command,
             error: crate::ErrorKind::NotExecutable,
         }]
     );
@@ -712,7 +712,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
         CancellationOutcome::Cancelled
     );
     assert!(cancellation.try_recv().is_none());
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().active, 0);
 }
 #[cfg(feature = "runtime-smol")]
@@ -745,7 +745,7 @@ fn smol_actor_has_the_same_admit_write_terminal_order() {
             receipt.terminal().await.unwrap(),
             RuntimeOutcome::Applied
         ));
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
         let snapshot = task.await;
         assert_eq!(snapshot.state, SessionState::Shutdown);
         assert_eq!(snapshot.active, 0);

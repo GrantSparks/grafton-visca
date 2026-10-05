@@ -82,7 +82,7 @@ mod timeout_tests {
 
         // Should receive the scripted response
         let mut buf = vec![0u8; 1024];
-        let n = transport.recv_into(&mut buf).await.unwrap();
+        let n = transport.recv_into(&mut buf).await.unwrap().copied_len();
         assert_eq!(&buf[..n], &[0x90, 0x41, 0xFF]);
 
         // Verify the command was recorded

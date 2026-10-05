@@ -14,7 +14,9 @@ use grafton_visca::{
     command::CommandKind,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Error,
 };
 
@@ -80,10 +82,9 @@ impl BlockingTransport for CancelCamera {
         &mut self,
         destination: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
-        destination[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        Ok(ReceiveOutcome::copy_message(&reply, destination))
     }
 
     fn send_semantics(&self) -> SendSemantics {

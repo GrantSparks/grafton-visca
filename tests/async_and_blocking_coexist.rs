@@ -124,7 +124,8 @@ mod runtime_coexistence {
         profiles::PtzOpticsG2,
         runtime::TokioRuntime,
         transport::{
-            AsyncTransport, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AsyncTransport, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         Error, Session as AsyncSession, SessionConfig as AsyncConfig,
     };
@@ -143,12 +144,11 @@ mod runtime_coexistence {
             }
         }
 
-        fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+        fn receive(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let Some(response) = self.responses.pop_front() else {
                 return Err(Error::io_timeout());
             };
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, dst))
         }
     }
 
@@ -174,7 +174,7 @@ mod runtime_coexistence {
             &mut self,
             dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             self.receive(dst)
         }
 
@@ -227,15 +227,14 @@ mod runtime_coexistence {
         fn recv_into<'a>(
             &'a mut self,
             dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
+        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
             async move {
                 let response = self
                     .responses
                     .recv_async()
                     .await
                     .map_err(|_| Error::connection_closed(None))?;
-                dst[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
+                Ok(ReceiveOutcome::copy_message(&response, dst))
             }
         }
 
@@ -297,8 +296,8 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
             profiles::PtzOpticsG2,
             runtime::SmolRuntime,
             transport::{
-                AsyncTransport, BlockingTransport, HasTransportConfig, SendSemantics,
-                TransportConfig,
+                AsyncTransport, BlockingTransport, HasTransportConfig, ReceiveOutcome,
+                SendSemantics, TransportConfig,
             },
             Error, Session as AsyncSession, SessionConfig as AsyncConfig,
         };
@@ -340,10 +339,9 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
                 &mut self,
                 dst: &mut [u8],
                 _timeout: Duration,
-            ) -> Result<usize, Error> {
+            ) -> Result<ReceiveOutcome, Error> {
                 let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-                dst[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
+                Ok(ReceiveOutcome::copy_message(&response, dst))
             }
 
             fn send_semantics(&self) -> SendSemantics {
@@ -395,15 +393,14 @@ fn smol_blocking_and_async_owners_open_use_and_close() {
             fn recv_into<'a>(
                 &'a mut self,
                 dst: &'a mut [u8],
-            ) -> impl Future<Output = Result<usize, Error>> + Send {
+            ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
                 async move {
                     let response = self
                         .responses
                         .recv_async()
                         .await
                         .map_err(|_| Error::connection_closed(None))?;
-                    dst[..response.len()].copy_from_slice(&response);
-                    Ok(response.len())
+                    Ok(ReceiveOutcome::copy_message(&response, dst))
                 }
             }
 

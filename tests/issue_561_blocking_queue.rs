@@ -24,7 +24,9 @@ use grafton_visca::{
     profile::ProfileSpec,
     profiles::SonyFR7,
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     types::{PanSpeed, TiltSpeed},
     Error, OperationalTuning,
 };
@@ -102,10 +104,9 @@ impl BlockingTransport for TwoSocketTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -259,10 +260,9 @@ impl BlockingTransport for FirstWriteFailureTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -358,10 +358,9 @@ impl BlockingTransport for PacingTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -411,9 +410,7 @@ fn a_third_operation_queues_until_a_socket_frees() {
 /// one completes.
 #[test]
 fn a_one_socket_target_queues_the_second_operation() {
-    let config = session_config()
-        .with_tuning(OperationalTuning::new().maximum_command_sockets(1))
-        .expect("one socket is within the profile limit");
+    let config = session_config().with_tuning(OperationalTuning::new().maximum_command_sockets(1));
     let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
     let session = Session::open(transport, config).expect("owner session");
     let camera = session

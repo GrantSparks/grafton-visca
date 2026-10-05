@@ -29,8 +29,16 @@ use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONIC
 use crate::runtime::SmolRuntime;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::TokioRuntime;
+#[cfg(feature = "runtime-tokio")]
+use crate::transport::ReceiveOutcome;
 
+#[cfg(feature = "runtime-tokio")]
+use super::super::boundary::{CancellationBoundary, ControlBoundary};
+#[cfg(feature = "runtime-tokio")]
+use super::super::ReceiptCore;
+use super::super::RuntimeOutcome;
 use super::*;
+use crate::{completion, CancellationOutcome};
 
 mod fairness;
 mod faults;
@@ -458,6 +466,7 @@ fn timed_out_inquiry() -> RuntimeRequest {
 /// `raw_inquiry_release_hold` deadline from the same instant), with the same
 /// release projection and #713 retained-prefix gate. Datagram fixtures keep
 /// the timeout, which remains the datagram contract.
+#[cfg(feature = "runtime-tokio")]
 fn raw_inquiry_rejection() -> DecodedFrame {
     DecodedFrame {
         target: CameraId::CAMERA_1,
@@ -881,7 +890,7 @@ where
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
 
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
     };
     let ((), snapshot) = future::zip(client, actor.run(harness.driver)).await;
     assert_eq!(snapshot.active, 0);
@@ -947,7 +956,7 @@ where
         assert_eq!(writes[1].1, writes[2].1);
         assert_eq!(writes[1].1, vec![0x81, 0x09, 0x04, 0x47, 0xff]);
         drop(writes);
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
     };
     let ((), snapshot) = future::zip(client, actor.run(harness.driver)).await;
     assert_eq!(snapshot.active, 0);
@@ -979,15 +988,13 @@ impl crate::transport::AsyncTransport for ChunkedStreamTransport {
             .map_err(|_| Error::RuntimeShutdown)
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         // An exhausted script parks instead of reporting end of stream, so
         // the test controls exactly when the transport closes.
         let Ok(chunk) = self.chunks.recv_async().await else {
             return future::pending().await;
         };
-        let len = chunk.len().min(dst.len());
-        dst[..len].copy_from_slice(&chunk[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&chunk, dst))
     }
 
     fn send_semantics(&self) -> crate::transport::SendSemantics {
@@ -1403,7 +1410,7 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1488,7 +1495,7 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1544,7 +1551,7 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
     // this test's value is specifically that it would otherwise stay
     // perpetually ready if the fence were removed.
     *harness.repeating_fault.lock().unwrap() = None;
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     // The actor may have started its ordinary post-write idle pacing sleep
     // just before the fixture was cleared; wake that sleep so the queued
     // shutdown boundary is observed without depending on wall clock.
@@ -1635,7 +1642,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1722,7 +1729,7 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1999,13 +2006,11 @@ impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
             .map_err(|_| Error::RuntimeShutdown)
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let Ok(datagram) = self.datagrams.recv_async().await else {
             return future::pending().await;
         };
-        let len = datagram.len().min(dst.len());
-        dst[..len].copy_from_slice(&datagram[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&datagram, dst))
     }
 
     fn send_semantics(&self) -> crate::transport::SendSemantics {
@@ -2057,11 +2062,7 @@ impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams 
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.next_receive(dst).map(|outcome| outcome.copied_len())
-    }
-
-    async fn recv_into_with_outcome(
+    async fn recv_into(
         &mut self,
         dst: &mut [u8],
     ) -> Result<crate::transport::ReceiveOutcome, Error> {
@@ -2095,7 +2096,7 @@ impl crate::transport::AsyncTransport for ClosedSendDatagramTransport {
         })
     }
 
-    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         future::pending().await
     }
 
@@ -2476,7 +2477,7 @@ async fn assert_babble_never_starves_boundaries<R>(
         .expect("admission rejected");
     // Shutdown enters its one-slot lane; the actor must then terminate — the
     // `close()` liveness the P0 is about — within a bound.
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
         .await
         .expect("a babbling peer must not starve shutdown/close")
@@ -2506,7 +2507,7 @@ async fn assert_stalled_write_never_parks_close<R>(
     .expect("admission rejected");
     // The write is abandoned at its 50 ms timeout, unparking the actor, so
     // shutdown/close is serviced rather than blocked behind the stalled peer.
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
         .await
         .expect("a stalled write must not park close")
@@ -2526,7 +2527,7 @@ async fn assert_nodata_never_hot_spins<R>(
     // Let the idle transport run for a bounded wall-clock window.
     Executor::sleep(&runtime, Duration::from_millis(500)).await;
     let observed = reads.load(Ordering::Relaxed);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let _ = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async()).await;
     // The escalating idle pause caps at 250 ms, so a correctly paced actor
     // does single digits of reads here; the unbounded spin does hundreds of
@@ -2673,7 +2674,7 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
                 drop(receipt);
             }
 
-            handle.shutdown().await.map_err(|error| error.to_string())?;
+            handle.shutdown().map_err(|error| error.to_string())?;
             let terminal = actor_task
                 .await
                 .map_err(|error| format!("actor task failed: {error}"))?;

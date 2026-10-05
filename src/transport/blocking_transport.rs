@@ -7,7 +7,7 @@ use core::time::Duration;
 
 use crate::{
     command::CommandKind,
-    transport::{builder::TransportConfig, AddressingMode, SendSemantics},
+    transport::{builder::TransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
 
@@ -67,7 +67,7 @@ impl BlockingTransport for BlockingTransportHandle {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         match self {
             BlockingTransportHandle::Tcp(transport) => {
                 transport.recv_into_with_timeout(dst, timeout)
@@ -159,7 +159,11 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///         Ok(())
 ///     }
 ///
-///     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize, Error> {
+///     fn recv_into_with_timeout(
+///         &mut self,
+///         dst: &mut [u8],
+///         timeout: Duration,
+///     ) -> Result<ReceiveOutcome, Error> {
 ///         // Receive implementation bounded by `timeout`.
 ///         Err(Error::io_timeout())
 ///     }
@@ -205,7 +209,8 @@ pub trait BlockingTransport: Send {
         timeout: Duration,
     ) -> Result<(), Error>;
 
-    /// Read raw bytes with a timeout (blocking).
+    /// Read raw bytes with a timeout (blocking), reporting whether everything
+    /// received fitted in `dst`.
     ///
     /// This method must block until some data is available, an error is known,
     /// or `timeout` expires. Implementations must use an OS/device timeout or
@@ -217,6 +222,29 @@ pub trait BlockingTransport: Send {
     /// * `dst` - The buffer to read data into
     /// * `timeout` - Maximum time to wait for data
     ///
+    /// # Receive outcome
+    ///
+    /// The [`ReceiveOutcome`] is the transport's own statement about what it
+    /// copied; the runtime never infers it from the byte count, and applies
+    /// the same rule as the async facade's receive.
+    ///
+    /// - A byte stream always reports [`ReceiveOutcome::complete`]: a short
+    ///   read is routine and the runtime buffers the remainder.
+    /// - A datagram transport reports [`ReceiveOutcome::complete`] only when
+    ///   the whole datagram fitted, [`ReceiveOutcome::truncated`] when its OS
+    ///   reported a discarded tail, and [`ReceiveOutcome::possibly_truncated`]
+    ///   when it filled `dst` and cannot tell. The runtime discards a datagram
+    ///   that is not complete as one malformed input and keeps the session; it
+    ///   never decodes its prefix. A byte stream that reports one ends the
+    ///   session, because bytes it consumed were lost.
+    /// - A datagram transport never reports zero bytes for an empty datagram
+    ///   (zero bytes is end of stream): it skips the empty datagram and keeps
+    ///   reading within the same deadline. One that reports
+    ///   [`ReceiveOutcome::possibly_truncated`] for every exact fill needs a
+    ///   `recv_buffer_size` of at least
+    ///   [`BufferConfig::MIN_RECV_BUFFER_SIZE`](crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE)
+    ///   ` + 1`; see [`ReceiveOutcome`].
+    ///
     /// # Error contract
     ///
     /// The runtime never guesses: the value this method returns decides whether
@@ -224,12 +252,13 @@ pub trait BlockingTransport: Send {
     /// retransmitted. A failed read must consume nothing, so that the runtime's
     /// framing state stays intact.
     ///
-    /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
-    ///   whole frame is normal and is not an error; the runtime buffers the
-    ///   remainder until a later read completes the frame.
-    /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
-    ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
-    ///   yet"; that is the one signal reserved for EOF.
+    /// - `Ok(outcome)` with a non-zero [`ReceiveOutcome::copied_len`] — bytes
+    ///   were read. Returning fewer bytes than a whole frame is normal and is
+    ///   not an error.
+    /// - `Ok(ReceiveOutcome::complete(0))` — end of stream: the peer closed.
+    ///   The runtime ends the session with [`Error::ConnectionClosed`]. Never
+    ///   report zero bytes to mean "no data yet"; that is the one signal
+    ///   reserved for EOF.
     /// - `Err(Error::io_timeout())` — `timeout` expired and no bytes arrived. The
     ///   runtime treats it as "no data": the session lives, framing state is
     ///   untouched, and no request's retry budget is spent. The raw I/O
@@ -240,11 +269,6 @@ pub trait BlockingTransport: Send {
     ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
-    /// - `Err(Error::ResponseTooLarge)` from a datagram transport — one
-    ///   oversized datagram was consumed and its copied prefix must be
-    ///   discarded before framing. The owner keeps the session running and
-    ///   accepts the next datagram. Custom datagram transports should use this
-    ///   spelling only for an already-consumed packet.
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
@@ -264,14 +288,11 @@ pub trait BlockingTransport: Send {
     ///   no sequence key, so it is left to its own ACK deadline and is never
     ///   replayed merely because of this fault. Do not use this class for idle
     ///   timeouts.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(n)` - Number of bytes read (0 = EOF)
-    /// * `Err(Error::io_timeout())` - If the timeout expires
-    /// * `Err(_)` - For other transport errors
-    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration)
-        -> Result<usize, Error>;
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<ReceiveOutcome, Error>;
 
     /// Return a side-effect-free hint for the transport's VISCA addressing mode.
     ///

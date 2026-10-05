@@ -20,7 +20,7 @@ use crate::{
             open_failed, port_builder, set_device_timeout, Config as SerialConfig, DevicePort,
             SERIAL_PORT_CLOSED,
         },
-        stream_read, AddressedBus, BlockingTransport, HasTransportConfig,
+        stream_read, AddressedBus, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
 };
 
@@ -147,7 +147,11 @@ impl BlockingTransport for SerialTransport {
         Ok(())
     }
 
-    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<ReceiveOutcome> {
         let read = read_once_bounded(
             &mut *self.port,
             set_device_timeout,
@@ -156,7 +160,7 @@ impl BlockingTransport for SerialTransport {
             TimedIo::Bounded,
         )?;
         trace!("Read {read} bytes from serial port");
-        stream_read(read, SERIAL_PORT_CLOSED)
+        stream_read(read, SERIAL_PORT_CLOSED).map(ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {

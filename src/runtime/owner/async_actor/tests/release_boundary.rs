@@ -53,7 +53,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
     );
 
     drop(second);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A receive sampled even one nanosecond after its correlated completion
@@ -109,7 +109,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
         RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Datagram input has no retained framer, but the pre-H idle/readiness
@@ -288,7 +288,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         SessionState::Running
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     runtime.advance(Duration::from_secs(1));
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
@@ -658,7 +658,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A tail ready at the exact raw tombstone expiry is decoded and made
@@ -696,7 +696,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
     ));
     assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Retained stream input survives a transient-fault turn. Even when both
@@ -739,7 +739,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// The idle/no-data classification also preserves a positively identified
@@ -776,7 +776,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// If no completing tail is ready at release, the old prefix is discarded
@@ -819,7 +819,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A decoder that claims to discard but retains the old prefix makes safe
@@ -904,7 +904,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
             .unwrap(),
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A completed tail can perform the due release from `finish_input_turn`,
@@ -1125,7 +1125,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A byte-stream release gives an ownerless prefix one real grace interval,
@@ -1208,7 +1208,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
             .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 }
@@ -1264,7 +1264,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
         "Z may write only after X's equal-boundary completion is correlated",
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// An already-buffered named S1 prefix is exact evidence for live X, not
@@ -1311,7 +1311,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Conversely, a named prefix for the releasing S2 is stale. It is
@@ -1368,7 +1368,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Raw serial holds are target-local. While camera C has a retained partial
@@ -1462,7 +1462,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A frame-limit batch can leave a complete camera-C reply ahead of an
@@ -1572,7 +1572,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 #[cfg(feature = "runtime-tokio")]
@@ -1652,7 +1652,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(
@@ -1756,7 +1756,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
         RuntimeOutcome::Applied
     ));
     assert_eq!(handle.snapshot().await.unwrap().active, 0);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
 }
@@ -1877,9 +1877,7 @@ async fn raw_stream_owed_split_reply_settles_before_the_window_and_reopens_after
     ));
     assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
 
-    within(handle.shutdown(), "shutdown is answered")
-        .await
-        .unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(
         within(actor_task, "the actor exits").await.unwrap().state,
         SessionState::Shutdown
@@ -1969,9 +1967,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    within(handle.shutdown(), "shutdown is answered")
-        .await
-        .unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(
         within(actor_task, "the actor exits").await.unwrap().state,
         SessionState::Shutdown
@@ -2028,9 +2024,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
         SessionState::Running
     );
 
-    within(handle.shutdown(), "shutdown is answered")
-        .await
-        .unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(
         within(actor_task, "the actor exits").await.unwrap().state,
         SessionState::Shutdown
@@ -2134,9 +2128,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    within(handle.shutdown(), "shutdown is answered")
-        .await
-        .unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(
         within(actor_task, "the actor exits").await.unwrap().state,
         SessionState::Shutdown

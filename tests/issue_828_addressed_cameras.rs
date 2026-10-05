@@ -10,7 +10,6 @@ use std::sync::{
 };
 
 use grafton_visca::{
-    command::CommandKind,
     profile::ProfileSpec,
     profiles::GenericVisca,
     transport::{AddressedBus, AddressingMode, HasTransportConfig, TransportConfig},
@@ -118,7 +117,8 @@ mod blocking {
     use super::*;
     use grafton_visca::{
         blocking::Session,
-        transport::{BlockingTransport, SendSemantics},
+        command::CommandKind,
+        transport::{BlockingTransport, ReceiveOutcome, SendSemantics},
     };
 
     impl BlockingTransport for BusTransport {
@@ -136,7 +136,7 @@ mod blocking {
             &mut self,
             _dst: &mut [u8],
             timeout: std::time::Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             std::thread::sleep(timeout.min(std::time::Duration::from_millis(5)));
             Err(Error::io_timeout())
         }
@@ -167,7 +167,7 @@ mod tokio_facade {
     use super::*;
     use grafton_visca::{
         runtime::TokioRuntime,
-        transport::{AsyncTransport, SendSemantics},
+        transport::{AsyncTransport, ReceiveOutcome, SendSemantics},
         Session,
     };
 
@@ -177,7 +177,7 @@ mod tokio_facade {
             Ok(())
         }
 
-        async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             std::future::pending().await
         }
 

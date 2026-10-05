@@ -29,7 +29,9 @@ use grafton_visca::{
     completion::{AppliedOnly, Targeted},
     profile::ProfileSpec,
     request::builtin::{PanTiltHome, ZoomDrive, ZoomStop},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Certainty, Error, Executor, FailureContext, FailureStage, Operation,
     Session, SessionConfig,
 };
@@ -179,15 +181,14 @@ impl AsyncTransport for ScriptedTransport {
         async { Ok(()) }
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let bytes = self
             .responses
             .recv_async()
             .await
             .map_err(|_| Error::connection_closed(None))?;
-        dst[..bytes.len()].copy_from_slice(&bytes);
         self.probe.reads.fetch_add(1, Ordering::AcqRel);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -267,7 +268,7 @@ async fn abandoned_waits_keep_the_handle_observing<E: Executor>(executor: E) {
         .applied_with_timeout(Duration::ZERO)
         .await
         .expect("a cached outcome needs no wait");
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
     moving
         .applied()
         .await
@@ -322,7 +323,7 @@ async fn application_then_settlement<E: Executor>(executor: E) {
     home.applied().await.expect("application is cached");
     assert_eq!(probe.writes().len(), polled, "cached waits poll nothing");
     assert_eq!(probe.commands(), vec![PAN_TILT_HOME.to_vec()]);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A failed outcome is cached like a success, and `cancel` after it reports
@@ -338,7 +339,7 @@ async fn a_failed_outcome_is_cached<E: Executor>(executor: E) {
     let cancelled = moving.cancel().await.expect_err("the failure decides");
     assert_eq!(debug(&first), debug(&cancelled));
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// One handle has one cancellation intent: a timed-out cancel, a dropped
@@ -382,7 +383,7 @@ async fn cancellation_is_one_idempotent_intent<E: Executor>(executor: E) {
         CancellationOutcome::Cancelled
     );
     assert_eq!(probe.writes().len(), 2);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// An outcome delivered before `cancel` answers it: nothing is written.
@@ -397,7 +398,7 @@ async fn cancel_after_the_outcome_sends_nothing<E: Executor>(executor: E) {
         CancellationOutcome::Completed
     );
     assert_eq!(probe.writes(), vec![ZOOM_TELE.to_vec()]);
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// A cancellation the owner accepted but could not conclude is an error from
@@ -435,7 +436,7 @@ async fn a_failed_cancellation_leaves_the_outcome_observable<E: Executor>(execut
         moving.cancel().await.expect("the outcome decides"),
         CancellationOutcome::Completed
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// An outcome delivered before the owner stopped still answers `cancel`, even
@@ -445,7 +446,7 @@ async fn cancel_after_shutdown_reports_the_delivered_outcome<E: Executor>(execut
     let mut moving = running_zoom(&executor, &session, &probe).await;
     probe.push(COMPLETE_SOCKET_ONE);
     probe.await_reads(&executor, 2).await;
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     assert_eq!(
         moving
@@ -463,7 +464,10 @@ async fn shutdown_ends_pending_waits<E: Executor>(executor: E) {
     let mut moving = running_zoom(&executor, &session, &probe).await;
 
     let (waited, shutdown) = executor
-        .timeout(LONG, future::zip(moving.applied(), session.shutdown()))
+        .timeout(
+            LONG,
+            future::zip(moving.applied(), async { session.shutdown() }),
+        )
         .await
         .expect("neither the wait nor shutdown hangs");
     shutdown.expect("owner shutdown");
@@ -500,16 +504,14 @@ async fn dropping_a_handle_mid_cancellation<E: Executor>(executor: E) {
             ZOOM_STOP.to_vec()
         ]
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The dynamic projection erases the completion marker, not the contract.
 #[cfg(feature = "dyn-api")]
 async fn dyn_handles_share_the_contract<E: Executor>(executor: E) {
-    use grafton_visca::dynapi::DynSessionCamera;
-
     let (session, probe) = open(&executor).await;
-    let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+    let camera = session.camera_dyn().expect("dynamic camera");
     let mut moving = camera
         .submit_applied(&ZoomDrive::Tele)
         .await
@@ -555,7 +557,7 @@ async fn dyn_handles_share_the_contract<E: Executor>(executor: E) {
     home.settled_with_timeout(Duration::ZERO)
         .await
         .expect("settlement is cached");
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 async fn later_admission_supersedes_polled_settlement<E: Executor>(executor: E) {
@@ -581,7 +583,7 @@ async fn later_admission_supersedes_polled_settlement<E: Executor>(executor: E) 
         .await
         .expect("supersession preserves application");
     later.detach();
-    session.shutdown().await.expect("shutdown");
+    session.shutdown().expect("shutdown");
 }
 
 async fn contract<E: Executor>(executor: E) {
@@ -623,7 +625,7 @@ async fn tokio_select_losing_branch_keeps_the_handle_observing() {
         result = moving.applied() => result.expect("the handle observes the completion"),
         () = tokio::time::sleep(LONG) => panic!("the completion was lost"),
     }
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 #[cfg(feature = "runtime-smol")]

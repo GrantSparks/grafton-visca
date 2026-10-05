@@ -483,7 +483,7 @@ mod tests {
         let config = Config::new("/dev/test")
             .startup(Startup::default().with_address_set(true))
             .buffer_config(BufferConfig {
-                recv_buffer_size: 8,
+                recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
                 max_buffer_size: 64,
             });
         let mut startup = startup(config);
@@ -491,7 +491,7 @@ mod tests {
         assert!(matches!(startup.next(now), Action::Write { .. }));
         startup.wrote(Ok(()));
         for chunk in [
-            &[0x55; 8][..],
+            &[0x55; BufferConfig::MIN_RECV_BUFFER_SIZE][..],
             &[0x90, 0x38],
             &[VISCA_TERMINATOR, 0x88, 0x30],
         ] {

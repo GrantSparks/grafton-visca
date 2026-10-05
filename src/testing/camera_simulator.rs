@@ -22,7 +22,7 @@ use std::{
 
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
     Error,
 };
 
@@ -821,7 +821,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         }
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let inner = self.inner.clone();
         let receiver = self.receiver.clone();
         let jitter = self.calculate_jitter();
@@ -854,10 +854,7 @@ impl AsyncTransport for ViscaCameraSimulator {
             }
         };
 
-        // Copy response data into the provided buffer
-        let len = response.len().min(dst.len());
-        dst[..len].copy_from_slice(&response[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 }
 

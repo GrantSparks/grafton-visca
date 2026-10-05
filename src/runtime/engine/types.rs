@@ -336,9 +336,8 @@ pub(crate) enum AppliedStateProjection {
     /// Record a known absence for the key.
     Clear {
         key: WriteOnlyState,
-        /// Optional bounded discriminator for a key-local clear operation.
-        /// Pan/tilt limit clears carry the corner byte here; a legacy whole-key
-        /// clear can still use an empty value.
+        /// Bounded discriminator naming what the clear is local to: a pan/tilt
+        /// limit clear names the corner it clears, exactly as a limit set does.
         value: AppliedStateValue,
     },
     /// Record that the key's value is unknown.
@@ -353,9 +352,9 @@ impl AppliedStateProjection {
         })
     }
 
-    // Value-less clear used by the engine and owner tests; production preparation
-    // builds clears through `clear_with_values` (#636).
-    #[allow(dead_code)]
+    // A value-less clear for engine tests; production preparation builds every
+    // clear with its discriminator through `clear_with_values`.
+    #[cfg(test)]
     pub(crate) const fn clear(key: WriteOnlyState) -> Self {
         Self::Clear {
             key,
@@ -389,6 +388,19 @@ impl AppliedStateProjection {
     pub(crate) const fn is_known(self) -> bool {
         matches!(self, Self::Set { .. } | Self::Clear { .. })
     }
+}
+
+/// The two kinds of protocol work a camera serves independently.
+///
+/// Commands and inquiries are admitted, queued, paced and reported on
+/// separate lanes, and the raw stream ledger latches each lane of a camera
+/// separately (a `CompletionOnly` command's debt holds both).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Lane {
+    /// Commands: ACK-bearing, `CompletionOnly` and `NoReply` alike.
+    Command,
+    /// Inquiries.
+    Inquiry,
 }
 
 /// The engine's only two protocol execution classes.
@@ -427,6 +439,14 @@ impl RuntimeRequest {
 
     pub(crate) const fn is_inquiry(&self) -> bool {
         matches!(self, Self::Inquiry { .. })
+    }
+
+    /// The lane this request is admitted, queued and reported on.
+    pub(crate) const fn lane(&self) -> Lane {
+        match self {
+            Self::Command { .. } => Lane::Command,
+            Self::Inquiry { .. } => Lane::Inquiry,
+        }
     }
 
     pub(crate) const fn inquiry_route(&self) -> Option<InquiryRoute> {
@@ -758,8 +778,8 @@ pub(crate) enum IgnoreReason {
 
 /// Which of a request's own protocol deadlines expired.
 ///
-/// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
-/// deadlines are deliberately not part of this vocabulary: they resolve the
+/// These are exactly the three deadlines that count as request timeouts.
+/// Cancellation deadlines are deliberately not part of this vocabulary: they resolve the
 /// separate cancellation lifecycle rather than the request's ordinary protocol
 /// progress, and they are already reported through
 /// [`Effect::CancellationObservation`].
@@ -953,8 +973,7 @@ pub(crate) enum Effect {
     /// the policy that motivated it: it is true exactly when the expiry produced
     /// a [`Effect::RetryScheduled`] for the same request. A subscriber therefore
     /// never has to infer the decision from a [`Effect::Transition`] plus the
-    /// absence of a retry, which is what 1.x's
-    /// `SchedulerAction::Timeout { will_retry }` carried directly.
+    /// absence of a retry: the event carries the decision directly.
     DeadlineExpired {
         id: RequestId,
         deadline: DeadlineKind,

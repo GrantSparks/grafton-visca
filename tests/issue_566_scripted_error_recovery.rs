@@ -112,13 +112,12 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
-    let config = session_config()
-        .with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
+    let config =
+        session_config().with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
             Duration::from_millis(1),
             Duration::from_millis(2),
             Duration::from_secs(30),
-        ))
-        .expect("a lowered retry budget is valid operational tuning");
+        ));
     let session = Session::open(transport, config).expect("owner session");
     (session, probe)
 }

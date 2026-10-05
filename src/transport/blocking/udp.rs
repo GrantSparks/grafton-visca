@@ -13,9 +13,9 @@ use crate::{
         blocking::{Arm, TimedIo},
         builder::{AddressingMode, TransportConfig},
         connect::{connect_deadline, preflight},
-        datagram::{deliverable, delivered_len, recv_datagram},
+        datagram::{deliverable, recv_datagram},
         socket_options::{apply_udp_socket_options, UdpSocketConfig},
-        BlockingTransport, HasTransportConfig, SendSemantics,
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
     },
     Error,
 };
@@ -120,7 +120,7 @@ impl BlockingTransport for Udp {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "read_timeout")?;
         // One deadline for the whole receive: empty datagrams are skipped
         // without granting a fresh timeout (see `transport::datagram`).
@@ -130,7 +130,7 @@ impl BlockingTransport for Udp {
             match recv_datagram(&self.socket, dst) {
                 Ok(outcome) => {
                     if let Some(outcome) = deliverable(outcome, dst.len())? {
-                        return delivered_len(outcome, dst.len());
+                        return Ok(outcome);
                     }
                 }
                 Err(error) if TimedIo::Bounded.ended_idle(&error) => {
@@ -270,8 +270,8 @@ mod tests {
             .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
             .expect("valid datagram");
 
-        assert_eq!(received, 5);
-        assert_eq!(&dst[..received], b"valid");
+        assert_eq!(received, ReceiveOutcome::complete(5));
+        assert_eq!(&dst[..5], b"valid");
     }
 
     #[test]
@@ -289,10 +289,10 @@ mod tests {
             config: TransportConfig::default(),
         };
         let mut dst = [0; 3];
-        let error = transport
+        let truncated = transport
             .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
-            .expect_err("an oversized datagram must not return its valid prefix");
-        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+            .expect("an oversized datagram is consumed");
+        assert_eq!(truncated, ReceiveOutcome::truncated(3));
 
         // The rejected packet is one atomic datagram; the next exact-fit ACK
         // must remain available and valid.
@@ -302,8 +302,8 @@ mod tests {
         let received = transport
             .recv_into_with_timeout(&mut dst, Duration::from_secs(1))
             .expect("next exact-fit datagram remains readable");
-        assert_eq!(received, 3);
-        assert_eq!(&dst[..received], &[0x90, 0x41, 0xff]);
+        assert_eq!(received, ReceiveOutcome::complete(3));
+        assert_eq!(dst, [0x90, 0x41, 0xff]);
     }
 
     #[test]

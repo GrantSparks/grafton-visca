@@ -98,7 +98,8 @@ python3 .github/scripts/validate-change-record.py "$previous_release_commit" "$r
 bash .github/scripts/test-validate-change-record.sh
 cargo +nightly-2026-08-26 fmt --all -- --check
 bash .github/scripts/test-all-features.sh
-cargo +1.98.0 clippy --all-targets --all-features -- -D warnings
+bash .github/scripts/test-all-features.sh clippy
+bash .github/scripts/test-all-features.sh doc
 
 RUSTDOCFLAGS="-D warnings" cargo +1.98.0 doc --no-deps --all-features
 cargo +1.98.0 test --doc --all-features

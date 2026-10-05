@@ -9,7 +9,13 @@
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use super::super::{canonical_owner_trace, BlockingTransportAdapter, CANONICAL_OWNER_TRACE};
+use std::ops::ControlFlow;
+
+use super::super::receipt::OperationWait;
+use super::super::{
+    canonical_owner_trace, BlockingTransportAdapter, OperationObservation, RuntimeOutcome,
+    RuntimeRequest, CANONICAL_OWNER_TRACE,
+};
 use super::*;
 use crate::{
     command::CommandKind,
@@ -25,7 +31,8 @@ use crate::{
         RequestContext, RetryPolicy, TimeoutPolicy,
     },
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     CameraId, OperationalTuning,
 };
@@ -39,6 +46,9 @@ const PROMPTLY: Duration = Duration::from_secs(2);
 /// One scripted transport read.
 enum Read {
     Bytes(Vec<u8>),
+    /// An oversized datagram: the prefix that fits is copied and the read
+    /// reports the rest as lost.
+    Truncated(Vec<u8>),
     EndOfStream,
     Fail(Error),
     Panic,
@@ -89,17 +99,19 @@ impl BlockingTransport for ChannelTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         self.read_calls.fetch_add(1, Ordering::Relaxed);
         if self.eager_idle {
             return Err(Error::io_timeout());
         }
         match self.reads.recv_timeout(timeout) {
-            Ok(Read::Bytes(bytes)) => {
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+            Ok(Read::Bytes(bytes)) => Ok(ReceiveOutcome::copy_message(&bytes, dst)),
+            Ok(Read::Truncated(prefix)) => {
+                let copied = prefix.len().min(dst.len());
+                dst[..copied].copy_from_slice(&prefix[..copied]);
+                Ok(ReceiveOutcome::truncated(copied))
             }
-            Ok(Read::EndOfStream) => Ok(0),
+            Ok(Read::EndOfStream) => Ok(ReceiveOutcome::complete(0)),
             Ok(Read::Fail(error)) => Err(error),
             Ok(Read::Panic) => panic!("injected transport panic"),
             Ok(Read::Callback(callback)) => {
@@ -482,7 +494,7 @@ fn observer_timeout_detaches_without_cancel_and_late_applied_still_caches() {
 
     // A deadline that has already passed: the wait times out at once.
     assert!(matches!(
-        wait_core_until(&receipt.core, &owner, Instant::now()),
+        owner.wait_core_until(&receipt.core, Instant::now()),
         Err(Error::ObservationTimeout { .. })
     ));
     drop(receipt);
@@ -576,7 +588,7 @@ fn an_undecodable_datagram_is_discarded_and_the_session_continues() {
     let (owner, peer) = Setup::datagram().spawn();
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
-    peer.send(Read::Fail(Error::ResponseTooLarge { max_size: 3 }));
+    peer.send(Read::Truncated(ACK.to_vec()));
     peer.reply(ACK);
     peer.reply(COMPLETION);
 
@@ -618,7 +630,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     peer.next_write();
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
-        wait_core_until(&first, &owner, deadline),
+        owner.wait_core_until(&first, deadline),
         Ok(RuntimeOutcome::Failed(Error::Timeout { .. }))
     ));
     let timed_out = Instant::now();
@@ -635,7 +647,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     peer.reply(&[0x90, 0x50, 0x03, 0xff]);
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
-        wait_core_until(&second, &owner, deadline),
+        owner.wait_core_until(&second, deadline),
         Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
     ));
     owner.close().unwrap();

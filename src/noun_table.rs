@@ -52,22 +52,22 @@
 //! context used by the all-rows projection; ordinary consumers strip it before
 //! expanding their rows.
 //!
-//! # What is *not* in the table
+//! # The motion view
 //!
 //! `MotionAccessor`/`DynMotion` is a safety and observation view rather than a
 //! ledger noun: its four methods — `stop_all_motion`, `is_moving`,
 //! `is_moving_axes` and `wait_until_idle` — reach the owner core directly and
-//! share no shape with a command row.  Those four stay hand-written on each
-//! facade and are named in the test-only [`crate::noun_parity`] checks, which
-//! compare them across the three surfaces.
+//! share no shape with a command row. [`motion_table!`] lists them, with their
+//! one rustdoc, for the same per-facade consumers (#816).
 
-// With no facade feature selected there is no consumer for this table: the
-// blocking, async and dyn-api facades are the only three, and CI's
-// `no-default pure engine/domain` leg switches all of them off.  The table is
+// With no facade feature selected there is no consumer for this table: only
+// the blocking and async facades (and the dyn-api projection, which requires
+// one of them) expand it, and CI's `no-default pure engine/domain` leg
+// switches them all off.  The table is
 // still parsed and still has to stay well formed in that configuration, so the
 // exemption is targeted at exactly that leg rather than left unconditional.
 #![cfg_attr(
-    not(any(feature = "blocking", feature = "async", feature = "dyn-api")),
+    not(any(feature = "blocking", feature = "async")),
     allow(unused_macros, unused_imports)
 )]
 
@@ -1030,3 +1030,65 @@ macro_rules! noun_table {
 }
 
 pub(crate) use noun_table;
+
+/// Hands the four motion-view methods to a consumer macro (#816).
+///
+/// Each row is `fn <name>(&self[, <arg>: <type>]) -> <value> =>
+/// <core method>(<core arguments>);`: the public method, the value its
+/// `Result` carries, and the owner-core call that implements it. Every facade
+/// — the blocking and async `MotionAccessor` and the object-safe `DynMotion` —
+/// expands these rows, so all of them expose the same names, arities and
+/// contracts.
+macro_rules! motion_table {
+    ($consumer:ident) => {
+        $consumer! {
+            /// Orders a halt of supported pan/tilt, zoom, and focus movement.
+            ///
+            /// The owner fences older declared motion at acceptance and
+            /// dispatches one STOP per supported axis under a common deadline,
+            /// respecting protocol gates. Inspect each supported axis in the
+            /// returned report: an applied STOP is protocol application, not
+            /// proof of physical rest. A STOP the camera refuses is reported
+            /// promptly and not resent: for example a PTZOptics G2 in
+            /// auto-focus mode answers the focus STOP with
+            /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable),
+            /// so `focus` is `Failed` while the lens is under auto-focus
+            /// control.
+            fn stop_all_motion(&self) -> crate::HaltReport => stop_all_motion();
+
+            /// Reports whether protocol position samples indicate movement on
+            /// any mechanical movement axis.
+            ///
+            /// This samples [`AffectedAxes::MOVEMENT`](crate::AffectedAxes::MOVEMENT)
+            /// with the default tolerance and observation window; use
+            /// `is_moving_axes` to pick the axes, the tolerance, or the
+            /// window. `false` means no movement was detected over the window,
+            /// not that the camera is physically at rest.
+            fn is_moving(&self) -> bool => is_moving(crate::camera::MotionQuery::default());
+
+            /// Reports whether two protocol position samples, separated by at
+            /// least [`MotionQuery::window`](crate::camera::MotionQuery::window),
+            /// indicate movement on the selected axes.
+            ///
+            /// `false` means no movement was detected over the window, not
+            /// that the camera is physically at rest. A zero window fails with
+            /// [`Error::InvalidParameter`](crate::Error::InvalidParameter)
+            /// before any inquiry, and a window that cannot elapse within the
+            /// observation deadline fails with
+            /// [`Error::Timeout`](crate::Error::Timeout) rather than reporting
+            /// no movement.
+            fn is_moving_axes(&self, query: crate::camera::MotionQuery) -> bool => is_moving(query);
+
+            /// Waits until the selected axes meet the protocol idle condition:
+            /// two consecutive position samples, taken every
+            /// [`IdleWait::interval`](crate::camera::IdleWait::interval),
+            /// agree within tolerance before
+            /// [`IdleWait::timeout`](crate::camera::IdleWait::timeout)
+            /// elapses, which otherwise fails with
+            /// [`Error::Timeout`](crate::Error::Timeout).
+            fn wait_until_idle(&self, wait: crate::camera::IdleWait) -> () => wait_until_idle(wait);
+        }
+    };
+}
+
+pub(crate) use motion_table;

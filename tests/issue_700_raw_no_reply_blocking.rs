@@ -13,7 +13,9 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     command::CommandKind,
     raw::{self, RawReplyShape},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     ControlClass, DiagnosticEvent, DiagnosticOutcome, Error, ProfileSpec, RetryClass, TimeoutClass,
 };
 
@@ -53,7 +55,7 @@ impl BlockingTransport for NoReplyTransport {
         &mut self,
         _dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         std::thread::sleep(timeout);
         Err(Error::io_timeout())
     }

@@ -43,7 +43,9 @@ mod blocking_surface {
         command::{CommandKind, NoiseReduction2DMode},
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{
+            BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+        },
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
         CompileTimeProfile, Error,
     };
@@ -117,10 +119,9 @@ mod blocking_surface {
             &mut self,
             destination: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            destination[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
+            Ok(ReceiveOutcome::copy_message(&response, destination))
         }
 
         fn send_semantics(&self) -> SendSemantics {
@@ -219,7 +220,8 @@ mod async_surface {
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
         transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
+            AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+            TransportConfig,
         },
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
         CompileTimeProfile, Error, Session, SessionConfig, TokioRuntime,
@@ -295,14 +297,13 @@ mod async_surface {
             }
         }
 
-        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<usize, Error> {
+        async fn recv_into(&mut self, destination: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let reply = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            destination[..reply.len()].copy_from_slice(&reply);
-            Ok(reply.len())
+            Ok(ReceiveOutcome::copy_message(&reply, destination))
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -359,7 +360,7 @@ mod async_surface {
             Ok(_) => camera.image().noise_reduction_3d().await,
             Err(error) => Err(error),
         };
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
         result
     }
 
@@ -400,7 +401,7 @@ mod async_surface {
             .expect("3D off");
         assert_eq!(one_frame(&writes), NR_3D_OFF);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[tokio::test]
@@ -425,7 +426,7 @@ mod dyn_surface {
     use grafton_visca::{
         capabilities::TypedSupportSurface,
         command::NoiseReduction2DMode,
-        dynapi::{DynSessionCamera, DynSessionCameraNouns},
+        dynapi::DynSessionCameraNouns,
         profile::ProfileSpec,
         profiles::PtzOpticsG2,
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
@@ -486,7 +487,7 @@ mod dyn_surface {
     async fn dynamic_nouns_encode_mode_set_and_off_at_their_absolute_frames() {
         let (transport, writes) = RecordingTransport::new();
         let session = open(transport).await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         nouns
@@ -520,7 +521,7 @@ mod dyn_surface {
             .expect("3D off");
         assert_eq!(one_frame(&writes), NR_3D_OFF);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[test]
@@ -538,7 +539,7 @@ mod dyn_surface {
             paired_noise_reduction_runtime_profile(),
         )
         .await;
-        let camera = DynSessionCamera::from_session(&session).expect("dynamic camera");
+        let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 
         let level = nouns
@@ -548,6 +549,6 @@ mod dyn_surface {
             .expect("runtime profiles decode the full public 3D NR domain");
         assert_eq!(level, NoiseReduction3DLevel::MAX);
 
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 }

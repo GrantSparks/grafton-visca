@@ -16,7 +16,6 @@
 use std::fmt;
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     capabilities::{
         HasAutoFocusSensitivity, HasAutoTrackingWhiteBalance, HasAutoWhiteBalanceSensitivity,
         HasBacklightCompensation, HasBrightnessControl, HasColorTemperature, HasCombinedImageFlip,
@@ -36,14 +35,14 @@ use crate::{
     },
     command,
     completion::{self, AppliedOnly, Targeted},
-    noun_table::noun_table,
+    noun_table::{motion_table, noun_table},
     request::builtin,
     types,
     units::{Degrees, UnitInterval},
     CompileTimeProfile, Inquiry, OperationCommand, PlainCommand, Result, ZoomDomain,
 };
 
-use super::{Camera, Operation};
+use super::{BlockingCameraCore, Camera, Operation};
 
 macro_rules! accessor_method {
     ($(#[$meta:meta])* $name:ident, $method:ident) => {
@@ -404,12 +403,16 @@ impl<P: CompileTimeProfile + HasMotionSync> fmt::Debug for MotionSyncAccessor<'_
 }
 
 /// Motion safety and observation methods kept separate from the pan/tilt noun.
+///
+/// The typed [`Camera`] and, with `dyn-api`, the runtime-profile
+/// `BlockingDynSessionCamera` both return this one view, so every blocking
+/// camera exposes the same motion surface.
 #[must_use]
-pub struct MotionAccessor<'view, P: CompileTimeProfile> {
-    camera: &'view Camera<P>,
+pub struct MotionAccessor<'view> {
+    core: &'view BlockingCameraCore,
 }
 
-impl<P: CompileTimeProfile> fmt::Debug for MotionAccessor<'_, P> {
+impl fmt::Debug for MotionAccessor<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("MotionAccessor")
@@ -417,54 +420,36 @@ impl<P: CompileTimeProfile> fmt::Debug for MotionAccessor<'_, P> {
     }
 }
 
-impl<P: CompileTimeProfile> Camera<P> {
-    /// Returns the separate motion safety and observation view.
-    pub fn motion(&self) -> MotionAccessor<'_, P> {
-        MotionAccessor { camera: self }
+impl<'view> MotionAccessor<'view> {
+    pub(crate) const fn new(core: &'view BlockingCameraCore) -> Self {
+        Self { core }
     }
 }
 
-impl<'view, P: CompileTimeProfile> MotionAccessor<'view, P> {
-    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
-    ///
-    /// Older declared motion is fenced at owner acceptance. STOPs share one
-    /// deadline and respect protocol gates; inspect each supported axis result
-    /// in the report. Applied STOPs do not prove physical rest. A STOP the
-    /// camera refuses is reported promptly and not resent: for example a
-    /// PTZOptics G2 in auto-focus mode answers the focus STOP with
-    /// [`Error::CommandNotExecutable`](crate::Error::CommandNotExecutable),
-    /// so `focus` is `Failed` while the lens is under auto-focus control.
-    pub fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        self.camera.core().stop_all_motion()
+impl<P: CompileTimeProfile> Camera<P> {
+    /// Returns the separate motion safety and observation view.
+    pub fn motion(&self) -> MotionAccessor<'_> {
+        MotionAccessor::new(self.core())
     }
+}
 
-    /// Reports whether protocol position samples indicate movement on any
-    /// mechanical movement axis.
-    ///
-    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance and
-    /// observation window; use [`Self::is_moving_axes`] to pick the axes, the
-    /// tolerance, or the window. `false` means no movement was detected over
-    /// the window, not that the camera is physically at rest.
-    ///
-    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
-    pub fn is_moving(&self) -> Result<bool> {
-        self.camera.core().is_moving(MotionQuery::default())
-    }
+/// Expands [`motion_table!`] rows into the synchronous motion methods.
+macro_rules! blocking_motion_methods {
+    ($(
+        $(#[$doc:meta])*
+        fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
+    )*) => {
+        $(
+            $(#[$doc])*
+            pub fn $name(&self $(, $arg: $ty)*) -> Result<$value> {
+                self.core.$core($($call),*)
+            }
+        )*
+    };
+}
 
-    /// Reports whether two protocol position samples, separated by at least
-    /// [`MotionQuery::window`], indicate movement on the selected axes.
-    ///
-    /// A zero window fails with `Error::InvalidParameter` before any inquiry,
-    /// and a window that cannot elapse within the observation deadline fails
-    /// with `Error::Timeout` rather than reporting no movement.
-    pub fn is_moving_axes(&self, query: MotionQuery) -> Result<bool> {
-        self.camera.core().is_moving(query)
-    }
-
-    /// Waits until the selected axes meet the protocol idle condition.
-    pub fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        self.camera.core().wait_until_idle(wait)
-    }
+impl MotionAccessor<'_> {
+    motion_table!(blocking_motion_methods);
 }
 
 fn execute<P, C>(camera: &Camera<P>, command: &C) -> Result<()>

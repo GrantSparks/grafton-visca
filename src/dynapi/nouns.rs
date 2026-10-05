@@ -15,9 +15,8 @@
 #![cfg(feature = "dyn-api")]
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     command,
-    noun_table::noun_table,
+    noun_table::{motion_table, noun_table},
     request::builtin,
     types,
     units::{Degrees, UnitInterval},
@@ -421,33 +420,36 @@ pub trait DynAdvanced: Send + Sync {
     noun_table!(Advanced => dyn_noun_declarations);
 }
 
+/// Expands [`motion_table!`] rows into object-safe declarations.
+macro_rules! dyn_motion_declarations {
+    ($(
+        $(#[$doc:meta])*
+        fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
+    )*) => {
+        $(
+            $(#[$doc])*
+            fn $name(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$value, Error>>;
+        )*
+    };
+}
+
+/// Expands [`motion_table!`] rows into the owner-backed implementation.
+macro_rules! dyn_motion_impls {
+    ($(
+        $(#[$doc:meta])*
+        fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
+    )*) => {
+        $(
+            fn $name(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$value, Error>> {
+                Box::pin(self.core().$core($($call),*))
+            }
+        )*
+    };
+}
+
 /// Object-safe motion safety and observation noun.
 pub trait DynMotion: Send + Sync {
-    /// Orders a halt of supported pan/tilt, zoom, and focus movement.
-    ///
-    /// The owner fences older declared motion and independently dispatches STOPs
-    /// under one deadline, respecting protocol gates. Inspect each supported axis
-    /// in the returned report; application alone does not prove physical rest.
-    fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>>;
-    /// Reports whether protocol position samples indicate movement on any
-    /// mechanical movement axis.
-    ///
-    /// This samples [`AffectedAxes::MOVEMENT`] with the default tolerance and
-    /// observation window; use [`Self::is_moving_axes`] to pick the axes, the
-    /// tolerance, or the window. `false` means no movement was detected over
-    /// the window, not that the camera is physically at rest.
-    ///
-    /// [`AffectedAxes::MOVEMENT`]: crate::AffectedAxes::MOVEMENT
-    fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>>;
-    /// Reports whether two protocol position samples, separated by at least
-    /// [`MotionQuery::window`], indicate movement on the selected axes.
-    ///
-    /// A zero window fails with `Error::InvalidParameter` before any inquiry,
-    /// and a window that cannot elapse within the observation deadline fails
-    /// with `Error::Timeout` rather than reporting no movement.
-    fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>>;
-    /// Waits until the selected axes meet the protocol idle condition.
-    fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>>;
+    motion_table!(dyn_motion_declarations);
 }
 
 /// Object-safe accessors for all final dynamic nouns.
@@ -661,21 +663,7 @@ impl DynAdvanced for DynSessionCamera {
 }
 
 impl DynMotion for DynSessionCamera {
-    fn stop_all_motion(&self) -> DynFuture<'_, Result<crate::HaltReport, Error>> {
-        self.stop_all_motion()
-    }
-
-    fn is_moving(&self) -> DynFuture<'_, Result<bool, Error>> {
-        DynSessionCamera::is_moving(self, MotionQuery::default())
-    }
-
-    fn is_moving_axes(&self, query: MotionQuery) -> DynFuture<'_, Result<bool, Error>> {
-        DynSessionCamera::is_moving(self, query)
-    }
-
-    fn wait_until_idle(&self, wait: IdleWait) -> DynFuture<'_, Result<(), Error>> {
-        self.wait_until_idle(wait)
-    }
+    motion_table!(dyn_motion_impls);
 }
 
 #[cfg(test)]

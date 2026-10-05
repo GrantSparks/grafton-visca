@@ -25,7 +25,9 @@ use grafton_visca::{
     profile::ProfileSpec,
     profiles::SonyFR7,
     request,
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     AffectedAxes, CameraId, CameraSession, ControlClass, Error, Executor, FailureStage, Inquiry,
     InquiryRoute, OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass,
     Session, SessionConfig, TimeoutClass,
@@ -140,15 +142,14 @@ impl AsyncTransport for SilentTransport {
     fn recv_into<'a>(
         &'a mut self,
         dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, Error>> + Send {
+    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
         async move {
             let bytes = self
                 .replies
                 .recv_async()
                 .await
                 .map_err(|_| Error::connection_closed(None))?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
+            Ok(ReceiveOutcome::copy_message(&bytes, dst))
         }
     }
 
@@ -226,7 +227,7 @@ async fn a_reconfigured_ack_timeout_governs_the_next_submission<E: Executor>(exe
         3,
         "no submission was retried, so each measures exactly one deadline"
     );
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The inquiry lane follows the same update, so this is session tuning rather
@@ -261,7 +262,7 @@ async fn a_widened_inquiry_timeout_governs_a_pre_existing_view<E: Executor>(exec
         "the pre-existing view must prepare under the new deadline, took {elapsed:?}"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// An update taken while an operation is in flight applies to the next prepared
@@ -312,7 +313,7 @@ async fn an_update_mid_flight_leaves_the_live_operation_alone<E: Executor>(execu
         "the request prepared after the update must use it, took {after:?}"
     );
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The installed value reads back through every clone, and a rejected update
@@ -378,7 +379,7 @@ async fn the_installed_tuning_reads_back_and_invalid_updates_are_rejected<E: Exe
         );
     }
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// Async parity for immutable strict policy and independently mutable tuning.
@@ -412,7 +413,7 @@ async fn strict_recovery_policy_is_separate_from_runtime_tuning<E: Executor>(exe
         OperationalTuning::new(),
         "clearing tuning does not claim to change immutable session policy"
     );
-    strict_session.shutdown().await.expect("owner shutdown");
+    strict_session.shutdown().expect("owner shutdown");
 }
 
 /// Two handles reconfiguring at once: the boundary serializes them, so the
@@ -455,7 +456,7 @@ async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(e
         );
     }
 
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 /// The single-camera session exposes the same capability without reaching for

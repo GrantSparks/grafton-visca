@@ -129,7 +129,7 @@ impl AsyncTransport for std::convert::Infallible {
         match *self {}
     }
 
-    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         match *self {}
     }
 }
@@ -195,21 +195,12 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
         }
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         match self {
             TransportHandle::Tcp(transport) => transport.recv_into(dst).await,
             TransportHandle::Udp(transport) => transport.recv_into(dst).await,
             #[cfg(feature = "transport-serial-tokio")]
             TransportHandle::Serial(transport) => transport.recv_into(dst).await,
-        }
-    }
-
-    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        match self {
-            TransportHandle::Tcp(transport) => transport.recv_into_with_outcome(dst).await,
-            TransportHandle::Udp(transport) => transport.recv_into_with_outcome(dst).await,
-            #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(transport) => transport.recv_into_with_outcome(dst).await,
         }
     }
 
@@ -271,6 +262,54 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
 }
 
 // Tokio runtime implementation
+/// Implements [`Executor`] for a built-in runtime by delegating every item to
+/// the executor it wraps in its `executor` field.
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+macro_rules! delegate_executor {
+    ($runtime:ty, $executor:ty) => {
+        impl Executor for $runtime {
+            type Join<T>
+                = <$executor as Executor>::Join<T>
+            where
+                T: Send + 'static;
+
+            type Detach = <$executor as Executor>::Detach;
+
+            fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+            where
+                F: Future + Send + 'static,
+                F::Output: Send + 'static,
+            {
+                self.executor.spawn_with_detach(fut)
+            }
+
+            fn block_on<F: Future>(&self, fut: F) -> F::Output {
+                self.executor.block_on(fut)
+            }
+
+            fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
+                self.executor.sleep(duration)
+            }
+
+            fn timeout<'a, F, T>(
+                &'a self,
+                duration: std::time::Duration,
+                fut: F,
+            ) -> impl Future<Output = Result<T, Error>> + Send + 'a
+            where
+                F: Future<Output = T> + Send + 'a,
+                T: Send + 'a,
+            {
+                self.executor.timeout(duration, fut)
+            }
+
+            fn now(&self) -> Instant {
+                self.executor.now()
+            }
+        }
+    };
+}
+
 #[cfg(feature = "runtime-tokio")]
 mod tokio_impl {
     use super::*;
@@ -315,46 +354,7 @@ mod tokio_impl {
     }
 
     // Implement Executor trait by delegating to inner executor
-    impl Executor for TokioRuntime {
-        type Join<T>
-            = <TokioExecutor as Executor>::Join<T>
-        where
-            T: Send + 'static;
-
-        type Detach = <TokioExecutor as Executor>::Detach;
-
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_with_detach(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.executor.block_on(fut)
-        }
-
-        fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
-            self.executor.sleep(duration)
-        }
-
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: std::time::Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            self.executor.timeout(duration, fut)
-        }
-
-        fn now(&self) -> Instant {
-            self.executor.now()
-        }
-    }
+    delegate_executor!(TokioRuntime, TokioExecutor);
 
     impl Runtime for TokioRuntime {
         type TcpTransport = TcpTransport;
@@ -618,46 +618,7 @@ mod smol_impl {
     }
 
     // Implement Executor trait by delegating to inner executor
-    impl Executor for SmolRuntime {
-        type Join<T>
-            = <SmolExecutor as Executor>::Join<T>
-        where
-            T: Send + 'static;
-
-        type Detach = <SmolExecutor as Executor>::Detach;
-
-        fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
-        where
-            F: Future + Send + 'static,
-            F::Output: Send + 'static,
-        {
-            self.executor.spawn_with_detach(fut)
-        }
-
-        fn block_on<F: Future>(&self, fut: F) -> F::Output {
-            self.executor.block_on(fut)
-        }
-
-        fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send + '_ {
-            self.executor.sleep(duration)
-        }
-
-        fn timeout<'a, F, T>(
-            &'a self,
-            duration: std::time::Duration,
-            fut: F,
-        ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-        where
-            F: Future<Output = T> + Send + 'a,
-            T: Send + 'a,
-        {
-            self.executor.timeout(duration, fut)
-        }
-
-        fn now(&self) -> Instant {
-            self.executor.now()
-        }
-    }
+    delegate_executor!(SmolRuntime, SmolExecutor);
 
     impl Runtime for SmolRuntime {
         type TcpTransport = TcpTransport;

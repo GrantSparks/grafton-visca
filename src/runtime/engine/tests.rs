@@ -466,7 +466,7 @@ fn stale_transmission_and_queue_tickets_are_inert() {
         .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::StaleTransmission))));
     let entry = engine.entry(id).unwrap();
     engine.inject_queue_ticket(
-        false,
+        Lane::Command,
         3,
         QueueTicket {
             request: id,
@@ -1165,6 +1165,25 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Some(Phase::AwaitingAck { .. })
     ));
     assert!(engine.entry(blocker_id).is_none());
+    engine.assert_invariants().unwrap();
+}
+
+/// Issue #803: the inquiry cooldown is pacing, encoded once in
+/// `candidate_send_at`. A ready inquiry is neither written nor woken for
+/// before the cooldown ends, and is written at exactly that instant.
+#[test]
+fn an_inquiry_is_not_dispatched_before_the_inquiry_cooldown_ends() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let cooldown_end = start + Duration::from_millis(25);
+    engine.inquiry_cooldown_until = Some(cooldown_end);
+    let (queued, id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    assert!(request_transmit_optional(&queued).is_none());
+    assert_eq!(engine.next_wake(), Some(cooldown_end));
+    let early = engine.advance(cooldown_end - Duration::from_millis(1));
+    assert!(request_transmit_optional(&early).is_none());
+    let due = engine.advance(cooldown_end);
+    assert_eq!(request_transmit(&due).1, id);
     engine.assert_invariants().unwrap();
 }
 
@@ -4828,9 +4847,10 @@ impl FuzzCoverage {
             self.tombstoned += 1;
         }
         if engine.policy.inquiry_capacity == 1
-            && engine.inquiries_inflight() == 1
             && engine.entries.values().any(|entry| {
-                entry.request.is_inquiry() && matches!(entry.phase, Phase::Ready { .. })
+                entry.request.is_inquiry()
+                    && matches!(entry.phase, Phase::Ready { .. })
+                    && engine.inquiries_inflight_for(entry.request.context().target) == 1
             })
         {
             self.single_flight_blocked += 1;
@@ -6021,7 +6041,7 @@ fn retry_backoff_must_fit_inside_total_budget() {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #565: 1.x transport fault tolerance.
+// Issue #565: transport fault tolerance.
 // ---------------------------------------------------------------------------
 
 fn ignored_reasons(effects: &[Effect]) -> Vec<IgnoreReason> {
@@ -6043,8 +6063,7 @@ fn socket_of(engine: &ProtocolEngine, id: RequestId) -> Option<ViscaSocket> {
 
 /// A transient receive fault retries every sequenced Sony command still
 /// awaiting an ACK and leaves the session running. Raw commands instead poison
-/// the session because their outcomes have no sequence key. Restores 1.x
-/// `SchedulerEvent::NetworkError` for the sequenced path.
+/// the session because their outcomes have no sequence key, so replay is unsafe.
 #[test]
 fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
     let start = Instant::now();
@@ -6099,8 +6118,8 @@ fn transient_receive_fault_retries_awaiting_ack_work_and_keeps_the_session() {
     engine.assert_invariants().unwrap();
 }
 
-/// An inquiry awaiting its reply is untouched, matching the 1.x command-only
-/// scan, and a request that cannot retry fails with the transport error
+/// An inquiry awaiting its reply is untouched, because the fault scan examines
+/// commands only, and a request that cannot retry fails with the transport error
 /// without ending the session.
 #[test]
 fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
@@ -6279,7 +6298,8 @@ fn datagram_write_failure_fails_exactly_one_request() {
     engine.assert_invariants().unwrap();
 }
 
-/// `90 40 FF` carries no socket nibble: 1.x assigned the first free socket.
+/// `90 40 FF` carries no socket nibble, so the ACK binds to the first free
+/// socket, the one the camera assigns next.
 #[test]
 fn socketless_ack_assigns_the_first_free_socket() {
     let start = Instant::now();
@@ -7564,8 +7584,8 @@ fn ack_timeout_retry(
     scheduled
 }
 
-/// Issue #566: the backoff is the 1.x exponential ceiling with an equal-jitter
-/// band under it, and the whole sequence is a pure function of the engine's
+/// Issue #566: the backoff is the exponential ceiling with an equal-jitter band
+/// under it, and the whole sequence is a pure function of the engine's
 /// seed, the request identity and the attempt number — no clock, no entropy.
 #[test]
 fn retry_backoff_follows_the_pinned_jitter_sequence() {
@@ -7701,8 +7721,8 @@ fn the_jitter_sequence_moves_with_the_seed() {
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #566: 1.x capped the ACK backoff exponent at five and left every
-/// other retry trigger uncapped. Only the ACK path stops doubling.
+/// Issue #566: the ACK backoff exponent is capped at five and every other
+/// retry trigger is uncapped. Only the ACK path stops doubling.
 #[test]
 fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
     let start = Instant::now();
@@ -13582,7 +13602,7 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
 fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
     engine
         .raw_hold(camera(target), RawHoldScope::InquiryUnkeyed)
-        .map(|_| engine.ledger.lane_state(camera(target), OwedLane::Inquiry))
+        .map(|_| engine.ledger.lane_state(camera(target), Lane::Inquiry))
 }
 
 /// Times out one written raw stream inquiry at `start`'s reply deadline and

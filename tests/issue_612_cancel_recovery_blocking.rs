@@ -19,7 +19,9 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     profile::ProfileSpec,
     profiles::PtzOpticsG2,
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     Error,
 };
 
@@ -107,15 +109,14 @@ impl BlockingTransport for ScriptedTransport {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let bytes = self
             .responses
             .lock()
             .expect("responses lock")
             .pop_front()
             .ok_or(Error::io_timeout())?;
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
+        Ok(ReceiveOutcome::copy_message(&bytes, dst))
     }
 
     fn send_semantics(&self) -> SendSemantics {

@@ -18,7 +18,7 @@ use std::{
 #[cfg(feature = "async")]
 use super::deterministic_executor::ExecutorExt;
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{builder::TransportConfig, HasTransportConfig};
+use crate::transport::{builder::TransportConfig, HasTransportConfig, ReceiveOutcome};
 use crate::Error;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Result;
@@ -349,7 +349,7 @@ where
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome> {
         let steps = self.steps.clone();
         let response_rx = self.response_rx.clone();
 
@@ -395,9 +395,7 @@ where
             next.await
         }?;
 
-        let len = outcome.len().min(dst.len());
-        dst[..len].copy_from_slice(&outcome[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&outcome, dst))
     }
 }
 
@@ -570,7 +568,11 @@ impl BlockingTransport for ScriptedBlockingTransport {
         Ok(())
     }
 
-    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize> {
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<ReceiveOutcome> {
         // Check for injected errors first
         {
             let mut steps = self
@@ -599,11 +601,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
         };
 
         match self.response_rx.recv_timeout(actual_timeout) {
-            Ok(Ok(response)) => {
-                let len = response.len().min(dst.len());
-                dst[..len].copy_from_slice(&response[..len]);
-                Ok(len)
-            }
+            Ok(Ok(response)) => Ok(ReceiveOutcome::copy_message(&response, dst)),
             Ok(Err(e)) => Err(e),
             Err(_) => Err(Error::io_timeout()),
         }
@@ -951,7 +949,8 @@ mod tests {
         let mut buffer = vec![0u8; 256];
         let n = transport
             .recv_into_with_timeout(&mut buffer, Duration::from_secs(1))
-            .unwrap();
+            .unwrap()
+            .copied_len();
         assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         let sent = transport.sent();
@@ -997,7 +996,7 @@ mod tests {
             .await
             .unwrap();
         let mut buffer = vec![0u8; 256];
-        let n = transport.recv_into(&mut buffer).await.unwrap();
+        let n = transport.recv_into(&mut buffer).await.unwrap().copied_len();
         assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
 
         let sent = transport.sent();
@@ -1067,7 +1066,10 @@ mod tests {
             clock.advance(Duration::from_millis(100));
             executor.drive_until_idle();
 
-            let n = recv_fut.await.expect("Delayed response should arrive");
+            let n = recv_fut
+                .await
+                .expect("Delayed response should arrive")
+                .copied_len();
             assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
         });
     }

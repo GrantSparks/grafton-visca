@@ -23,7 +23,9 @@ use grafton_visca::{
     profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, SessionConfig, TimeoutClass,
 };
 #[cfg(feature = "blocking")]
@@ -117,14 +119,13 @@ impl AsyncTransport for AsyncScriptTransport {
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let reply = self
             .replies
             .recv_async()
             .await
             .map_err(|_| Error::connection_closed(None))?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 
     #[cfg(feature = "blocking")]
@@ -154,9 +155,7 @@ fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
                 .expect("two-socket raw profile"),
         )
         .expect("second serial target");
-    config
-        .with_tuning(OperationalTuning::new().command_spacing(command_spacing))
-        .expect("test command spacing")
+    config.with_tuning(OperationalTuning::new().command_spacing(command_spacing))
 }
 
 fn ordinary_operation() -> raw::AppliedOnly {
@@ -240,7 +239,7 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
         .applied()
         .await
         .expect("ordinary successor settles after release");
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 
     // Urgent work crosses the pre-ACK candidate immediately. Every ACK queued
     // by the second send is read while both candidates are open and binds to
@@ -282,7 +281,7 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
         predecessor.applied().await,
         Err(Error::UnsequencedCommandUnconfirmed)
     ));
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
 
 #[cfg(feature = "blocking")]
@@ -324,7 +323,7 @@ mod parity {
             &mut self,
             _dst: &mut [u8],
             _timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             Err(Error::io_timeout())
         }
 
@@ -360,13 +359,12 @@ mod parity {
             &mut self,
             dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<ReceiveOutcome, Error> {
             let reply = self
                 .replies
                 .recv_timeout(timeout)
                 .map_err(|_| Error::io_timeout())?;
-            dst[..reply.len()].copy_from_slice(&reply);
-            Ok(reply.len())
+            Ok(ReceiveOutcome::copy_message(&reply, dst))
         }
 
         fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -499,7 +497,7 @@ mod parity {
             .expect("async urgent");
         wait_for_writes(&probe, 2, Duration::from_millis(50), &executor).await;
         let asynchronous = probe.writes();
-        session.shutdown().await.expect("async shutdown");
+        session.shutdown().expect("async shutdown");
 
         assert_eq!(asynchronous, blocking);
     }
@@ -567,7 +565,7 @@ mod parity {
             .expect("the urgent stop ACK is attributable and completes");
 
         let asynchronous = probe.writes();
-        session.shutdown().await.expect("async shutdown");
+        session.shutdown().expect("async shutdown");
         assert_eq!(
             asynchronous, blocking,
             "both owners must emit the identical #744 transcript"

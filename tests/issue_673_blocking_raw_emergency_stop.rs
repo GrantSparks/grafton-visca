@@ -35,7 +35,8 @@ use grafton_visca::{
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        TransportConfig,
     },
     AffectedAxes, CameraId, ControlClass, Error, OperationalTuning, RetryClass, TimeoutClass,
 };
@@ -176,7 +177,7 @@ impl BlockingTransport for RawProbeTransport {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         let reply = self
             .replies
             .recv_timeout(timeout)
@@ -184,8 +185,7 @@ impl BlockingTransport for RawProbeTransport {
                 flume::RecvTimeoutError::Timeout => Error::io_timeout(),
                 flume::RecvTimeoutError::Disconnected => Error::connection_closed(None),
             })?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 
     fn addressing_mode_hint(&self) -> Option<AddressingMode> {
@@ -213,9 +213,7 @@ fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
                 .expect("two-socket raw runtime profile"),
         )
         .expect("second serial target");
-    config
-        .with_tuning(OperationalTuning::new().command_spacing(command_spacing))
-        .expect("test command spacing")
+    config.with_tuning(OperationalTuning::new().command_spacing(command_spacing))
 }
 
 fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Session, Probe) {

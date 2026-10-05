@@ -234,7 +234,7 @@ impl RetainedRelease {
     }
 
     async fn shutdown(&self, actor_task: tokio::task::JoinHandle<OwnerSnapshot>) -> OwnerSnapshot {
-        self.handle.shutdown().await.unwrap();
+        self.handle.shutdown().unwrap();
         let snapshot = actor_task.await.unwrap();
         assert_eq!(snapshot.state, SessionState::Shutdown);
         assert_eq!(snapshot.active, 0);

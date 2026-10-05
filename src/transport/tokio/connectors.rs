@@ -186,11 +186,7 @@ impl AsyncDatagram for UdpSocket {
         Ok(UdpSocket::send(self, buf).await?)
     }
 
-    async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        Ok(UdpSocket::recv(self, buf).await?)
-    }
-
-    async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+    async fn recv(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         Ok(self
             .async_io(
                 tokio::io::Interest::READABLE | tokio::io::Interest::ERROR,
