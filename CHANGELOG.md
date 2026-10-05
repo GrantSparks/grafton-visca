@@ -288,6 +288,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixes the camera address at 1.
 - `RedTuning`/`BlueTuning` gain `to_protocol_value`; the three centred levels
   expose `WIRE_CENTER` (#809).
+- **BREAKING** (`test-utils`): the testkit's VISCA reply frames are built in
+  one module, shared with `ViscaCameraSimulator`, and Command Buffer Full has
+  one frame shape, the socketless `90 60 03 FF`. Accordingly
+  `testing::testkit::helpers::buffer_full()`,
+  `helpers::errors::syntax_error()` and
+  `helpers::errors::command_buffer_full()` no longer take a socket argument.
+  `helpers::VISCA_TERMINATOR` is removed; use
+  `grafton_visca::command::VISCA_TERMINATOR`. `helpers::sony_ack`,
+  `sony_complete`, `sony_ack_with_sequence` and `sony_complete_with_sequence`
+  are removed: build any Sony-enveloped reply with the new
+  `helpers::sony_reply(sequence, &frame)` (for example `sony_reply(seq,
+  &helpers::ack(1))`), and read a request's sequence with the new
+  `helpers::sony_sequence(&request)`, which returns `None` for raw VISCA and
+  panics on a malformed envelope. `helpers::inquiry_reply(&payload)` is new
+  and builds `90 50 <payload> FF`. (#827)
+- **BREAKING** (`test-utils`): the unused `logic_test!` and `timeout_test!`
+  macros are removed from the crate root. Integration tests that run one
+  scenario per runtime or facade use the suite's shared `runtime_matrix!` /
+  `facade_matrix!` harness instead. (#826)
+- `ScriptedTransport` and `ScriptedBlockingTransport` run one step queue. A
+  scripted receive error is only ever a `Step::InjectError` and reaches `recv`
+  unchanged on both facades (previously the async transport could map a queued
+  error to a timeout), a `Step::DynamicResponse` runs with the script unlocked
+  on both, and lock-poisoning panics name the transport that owns the script.
+  `ScriptedBlockingTransport::with_config` is added, matching the async
+  transport. (#827)
 
 ### Removed
 
@@ -370,6 +396,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `docs/observability_and_recovery.md`. This is a narrow, documented exception
   to the per-request #671 timeout rule; Raw UDP and Sony-encapsulated sessions
   are unchanged.
+- `ViscaCameraSimulator` honours `SimulatorBuilder::with_socket_count`; it
+  previously always modelled two sockets. Its busy reply is the socketless
+  Buffer Full frame. (#827)
 
 ### Added
 
@@ -428,6 +457,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The built-in inquiry table has one row grammar and one generator; response
   lifting has one body (#812).
 - The test-only auto-detect framing mode and its constructors are removed.
+- (#827) `DeterministicExecutor::block_on_bg` and `run_until` share one driver
+  loop with its tunables defined once;
+  `ExecutorExt::spawn_detached_ignore_result_with_logging` has one
+  implementation for every executor.
+- (#825) Integration tests share one fake camera
+  (`tests/common/fake_camera.rs`): the reply frames (the testkit's own frame
+  module, compiled through `#[path]`), a scripted `FakeCamera` with blocking
+  and async wires, and bounded wait helpers with one budget. Blocking fakes
+  share one documented idle-read model. About 55 hand-written fake transports,
+  the copied Sony envelope builders, wait helpers, `one_frame` and reply
+  constants are gone; the one remaining local fake states why.
+- (#826) Async/blocking twin test files are merged into single scenarios run
+  on both facades and on Tokio and smol (`tests/common/matrix.rs`); the
+  runtime matrix is defined once; tests that awaited several scenarios in one
+  case are split into one case per scenario per runtime; the smol dyn-api and
+  async-facade smoke files are folded into their Tokio counterparts over one
+  fixture.
 
 ## [2.0.0-rc.3] - 2026-10-04
 

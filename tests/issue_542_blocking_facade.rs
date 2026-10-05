@@ -2,103 +2,48 @@
 
 #![cfg(feature = "blocking")]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
-
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
 
 use grafton_visca::{
     blocking::{Camera, Session, SessionConfig},
     camera::{profiles::SonyFR7, TransportKind},
-    command::CommandKind,
     profile::ProfileSpec,
-    transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
+    transport::{AddressingMode, SendSemantics, TransportConfig},
     Error,
 };
 
+use fake_camera::{BlockingWire, FakeCamera};
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
-#[derive(Debug, Default)]
-struct ProbeCounts {
-    config_reads: AtomicUsize,
-    writes: AtomicUsize,
-    reads: AtomicUsize,
-}
-
-#[derive(Debug)]
-struct ProbeTransport {
-    config: TransportConfig,
-    standard_kind: Option<TransportKind>,
-    counts: Arc<ProbeCounts>,
-}
-
-impl ProbeTransport {
-    fn new(standard_kind: Option<TransportKind>, counts: Arc<ProbeCounts>) -> Self {
-        Self {
-            config: TransportConfig::default(),
-            standard_kind,
-            counts,
+/// A fake camera and the wire onto it: IP addressing and datagram semantics
+/// unless `kind` is serial, which selects serial addressing and stream
+/// semantics.
+fn wire(kind: Option<TransportKind>) -> (FakeCamera, BlockingWire) {
+    let camera = FakeCamera::silent();
+    let wire = camera.blocking_wire();
+    let wire = match kind {
+        Some(TransportKind::Serial) => {
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            wire.with_config(config)
+                .with_addressing(AddressingMode::Serial)
+                .with_semantics(SendSemantics::Stream)
         }
-    }
-}
-
-impl HasTransportConfig for ProbeTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        self.counts.config_reads.fetch_add(1, Ordering::SeqCst);
-        &self.config
-    }
-
-    fn standard_transport_kind(&self) -> Option<TransportKind> {
-        self.standard_kind
-    }
-}
-
-impl BlockingTransport for ProbeTransport {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: std::time::Duration,
-    ) -> Result<(), Error> {
-        self.counts.writes.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        _dst: &mut [u8],
-        timeout: std::time::Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        // An idle peer: the owner worker reads continuously, so a read must
-        // honor its timeout rather than report end of stream.
-        self.counts.reads.fetch_add(1, Ordering::SeqCst);
-        std::thread::sleep(timeout);
-        Err(Error::io_timeout())
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        if self.config.addressing == AddressingMode::Serial {
-            SendSemantics::Stream
-        } else {
-            SendSemantics::Datagram
-        }
-    }
+        _ => wire.with_addressing(AddressingMode::Ip),
+    };
+    let wire = match kind {
+        Some(kind) => wire.with_transport_kind(kind),
+        None => wire,
+    };
+    (camera, wire)
 }
 
 #[test]
 fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
-    let counts = Arc::new(ProbeCounts::default());
-    let transport = ProbeTransport::new(Some(TransportKind::Tcp), Arc::clone(&counts));
+    let (fake, transport) = wire(Some(TransportKind::Tcp));
     let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
 
     let error = Session::open(transport, SessionConfig::new(profile))
@@ -112,15 +57,14 @@ fn incompatible_standard_transport_fails_before_blocking_startup_or_io() {
             ..
         }
     ));
-    assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-    assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-    assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(fake.config_reads(), 0);
+    assert_eq!(fake.write_count(), 0);
+    assert_eq!(fake.receive_calls(), 0);
 }
 
 #[test]
 fn custom_transport_remains_an_explicit_unchecked_escape_hatch() {
-    let counts = Arc::new(ProbeCounts::default());
-    let transport = ProbeTransport::new(None, counts);
+    let (_camera, transport) = wire(None);
     let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
 
     Session::open(transport, SessionConfig::new(profile))
@@ -131,8 +75,7 @@ fn custom_transport_remains_an_explicit_unchecked_escape_hatch() {
 
 #[test]
 fn non_default_downstream_profile_projects_as_a_typed_camera() {
-    let counts = Arc::new(ProbeCounts::default());
-    let transport = ProbeTransport::new(None, Arc::clone(&counts));
+    let (fake, transport) = wire(None);
     let session = Session::open(
         transport,
         SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
@@ -144,19 +87,13 @@ fn non_default_downstream_profile_projects_as_a_typed_camera() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("exact non-default profile projection");
     assert_eq!(camera.target(), grafton_visca::CameraId::CAMERA_1);
-    assert_eq!(
-        counts.writes.load(Ordering::SeqCst),
-        0,
-        "a projection writes nothing"
-    );
+    assert_eq!(fake.write_count(), 0, "a projection writes nothing");
     session.shutdown().expect("shutdown");
 }
 
 #[test]
 fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() {
-    let counts = Arc::new(ProbeCounts::default());
-    let mut transport = ProbeTransport::new(Some(TransportKind::Serial), Arc::clone(&counts));
-    transport.config.addressing = AddressingMode::Serial;
+    let (fake, transport) = wire(Some(TransportKind::Serial));
     let mut config =
         SessionConfig::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("config");
     config
@@ -182,7 +119,7 @@ fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() {
         Err(Error::InvalidRequest(_))
     ));
     assert_eq!(
-        counts.writes.load(Ordering::SeqCst),
+        fake.write_count(),
         0,
         "a rejected projection admits and writes nothing"
     );

@@ -17,17 +17,17 @@
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::sync::Arc;
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::FakeCamera;
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
     request::builtin::ZoomStop,
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
     DiagnosticEvent, Error, ErrorKind, SessionStatus,
 };
 
@@ -36,58 +36,16 @@ use profile_fixtures::NonDefaultCompileTimeProfile;
 /// A raw datagram camera that fails the read pump following its first write, so
 /// a raw command left awaiting its ACK meets a receive fault — the trigger for
 /// the strict single-candidate poison.
-#[derive(Debug)]
-struct PoisonOnReadTransport {
-    config: TransportConfig,
-    sends: usize,
-    reads: VecDeque<Result<Vec<u8>, Error>>,
-}
-
-impl PoisonOnReadTransport {
-    fn new() -> Self {
-        Self {
-            config: TransportConfig::default(),
-            sends: 0,
-            reads: VecDeque::new(),
+fn poison_on_read_camera() -> FakeCamera {
+    let mut sends = 0_usize;
+    FakeCamera::new(move |_, answer| {
+        sends = sends.saturating_add(1);
+        if sends == 1 {
+            answer.fault(Error::Io(Arc::new(std::io::Error::from(
+                std::io::ErrorKind::ConnectionRefused,
+            ))));
         }
-    }
-}
-
-impl HasTransportConfig for PoisonOnReadTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for PoisonOnReadTransport {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.sends = self.sends.saturating_add(1);
-        if self.sends == 1 {
-            self.reads
-                .push_back(Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionRefused,
-                )))));
-        }
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let bytes = self.reads.pop_front().ok_or(Error::io_timeout())??;
-        Ok(ReceiveOutcome::copy_message(&bytes, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+    })
 }
 
 fn strict_session() -> Session {
@@ -96,7 +54,7 @@ fn strict_session() -> Session {
             .expect("raw runtime profile"),
     )
     .with_strict_unconfirmed_poison(true);
-    Session::open(PoisonOnReadTransport::new(), config).expect("owner session")
+    Session::open(poison_on_read_camera().blocking_wire(), config).expect("owner session")
 }
 
 /// Drive the strict opt-in poison and return the session, now terminated by the
@@ -214,57 +172,12 @@ fn engine_poison_drives_a_supervisor_rebuild() {
         .expect("the rebuilt session shuts down cleanly");
 }
 
-/// A camera that answers every command, for the rebuilt half of the recovery
-/// loop.
-#[derive(Debug)]
-struct HealthyTransport {
-    config: TransportConfig,
-    reads: VecDeque<Vec<u8>>,
-}
-
-impl HasTransportConfig for HealthyTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for HealthyTransport {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.reads.push_back(vec![0x90, 0x41, 0xff]);
-        self.reads.push_back(vec![0x90, 0x51, 0xff]);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let bytes = self.reads.pop_front().ok_or(Error::io_timeout())?;
-        Ok(ReceiveOutcome::copy_message(&bytes, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
-
 fn healthy_session() -> Session {
     let config = SessionConfig::new(
         ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("raw runtime profile"),
     );
-    Session::open(
-        HealthyTransport {
-            config: TransportConfig::default(),
-            reads: VecDeque::new(),
-        },
-        config,
-    )
-    .expect("healthy session")
+    // A camera that answers every command, for the rebuilt half of the
+    // recovery loop.
+    Session::open(FakeCamera::acking(1).blocking_wire(), config).expect("healthy session")
 }

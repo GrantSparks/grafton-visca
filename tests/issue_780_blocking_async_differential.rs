@@ -6,32 +6,30 @@
 //! same way, so the comparison is independent of scheduling: replies depend
 //! only on the bytes written, never on when the owner reads them.
 
-#![cfg(all(feature = "blocking", feature = "async", feature = "runtime-tokio"))]
+#![cfg(all(
+    feature = "blocking",
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
 #![allow(clippy::expect_used)]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
-use std::{
-    collections::VecDeque,
-    future::Future,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-
 use grafton_visca::{
-    command::CommandKind,
     completion::AppliedOnly,
     observability::MetricsSnapshot,
     profile::ProfileSpec,
     request::builtin::{FocusStop, ZoomDrive, ZoomStop},
-    transport::{
-        AsyncTransport, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
-    Error, SessionConfig, TokioRuntime,
+    Error, Executor, SessionConfig,
 };
 
+use fake_camera::{frames, FakeCamera};
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
 
 /// How the scripted camera answers the commands it accepts.
@@ -45,149 +43,57 @@ enum Completion {
     HoldPanTiltStop,
 }
 
-/// A deterministic raw VISCA camera with two command sockets.
-#[derive(Debug)]
-struct Camera {
-    completion: Completion,
-    /// A malformed datagram sent ahead of the first reply.
-    garbage_first: bool,
-    sockets: [bool; 2],
-    writes: Vec<Vec<u8>>,
-    replies: VecDeque<Vec<u8>>,
-}
-
-impl Camera {
-    fn new(completion: Completion, garbage_first: bool) -> Self {
-        Self {
-            completion,
-            garbage_first,
-            sockets: [false; 2],
-            writes: Vec::new(),
-            replies: VecDeque::new(),
-        }
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.writes.push(bytes.to_vec());
-        if std::mem::take(&mut self.garbage_first) {
-            self.replies.push_back(vec![0x90, 0x41]);
+/// A deterministic raw VISCA camera with two command sockets. Its replies
+/// depend only on the bytes written and on which sockets it holds busy.
+///
+/// With `garbage_first`, a malformed datagram is sent ahead of the first
+/// reply.
+fn scripted_camera(completion: Completion, garbage_first: bool) -> FakeCamera {
+    let mut garbage_first = garbage_first;
+    let mut sockets = [false; 2];
+    FakeCamera::new(move |bytes, answer| {
+        if std::mem::take(&mut garbage_first) {
+            answer.reply(vec![0x90, 0x41]);
         }
         match bytes {
             // Inquiry: answer the zoom position 0x1234.
-            [0x81, 0x09, ..] => self
-                .replies
-                .push_back(vec![0x90, 0x50, 0x01, 0x02, 0x03, 0x04, 0xff]),
+            [0x81, 0x09, ..] => {
+                answer.reply(frames::inquiry_reply(&[0x01, 0x02, 0x03, 0x04]));
+            }
             // Cancel of socket `s`: the command it held ends cancelled.
             [0x81, cancel, 0xff] if cancel & 0xf0 == 0x20 => {
                 let socket = cancel & 0x0f;
-                if let Some(busy) = self.sockets.get_mut(usize::from(socket) - 1) {
+                if let Some(busy) = sockets.get_mut(usize::from(socket) - 1) {
                     *busy = false;
                 }
-                self.replies
-                    .push_back(vec![0x90, 0x60 | socket, 0x04, 0xff]);
+                answer.reply(frames::canceled(socket));
             }
             [0x81, 0x01, rest @ ..] => {
-                let Some(index) = self.sockets.iter().position(|busy| !busy) else {
-                    self.replies.push_back(vec![0x90, 0x60, 0x03, 0xff]);
+                let Some(index) = sockets.iter().position(|busy| !busy) else {
+                    answer.reply(frames::buffer_full());
                     return;
                 };
                 let socket = u8::try_from(index + 1).expect("two sockets");
-                self.replies.push_back(vec![0x90, 0x40 | socket, 0xff]);
-                let held = (matches!(self.completion, Completion::HoldZoomDrive)
+                answer.reply(frames::ack(socket));
+                let held = (matches!(completion, Completion::HoldZoomDrive)
                     && matches!(rest, [0x04, 0x07, drive, 0xff] if *drive != 0x00))
-                    || (matches!(self.completion, Completion::HoldPanTiltStop)
+                    || (matches!(completion, Completion::HoldPanTiltStop)
                         && matches!(rest, [0x06, 0x01, _, _, 0x03, 0x03, 0xff]));
                 if held {
-                    self.sockets[index] = true;
+                    sockets[index] = true;
                 } else {
-                    self.replies.push_back(vec![0x90, 0x50 | socket, 0xff]);
-                    if matches!(self.completion, Completion::HoldPanTiltStop)
+                    answer.reply(frames::complete(socket));
+                    if matches!(completion, Completion::HoldPanTiltStop)
                         && matches!(rest, [0x04, 0x08, 0x00, 0xff])
                     {
-                        self.sockets[0] = false;
-                        self.replies.push_back(vec![0x90, 0x51, 0xff]);
+                        sockets[0] = false;
+                        answer.reply(frames::complete(1));
                     }
                 }
             }
             _ => {}
         }
-    }
-}
-
-type SharedCamera = Arc<Mutex<Camera>>;
-
-#[derive(Debug)]
-struct BlockingWire {
-    config: TransportConfig,
-    camera: SharedCamera,
-}
-
-impl HasTransportConfig for BlockingWire {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for BlockingWire {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.camera.lock().expect("camera lock").write(bytes);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        let next = self.camera.lock().expect("camera lock").replies.pop_front();
-        let Some(bytes) = next else {
-            std::thread::sleep(timeout.min(Duration::from_millis(1)));
-            return Err(Error::io_timeout());
-        };
-        Ok(ReceiveOutcome::copy_message(&bytes, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
-
-#[derive(Debug)]
-struct AsyncWire {
-    config: TransportConfig,
-    camera: SharedCamera,
-}
-
-impl HasTransportConfig for AsyncWire {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl AsyncTransport for AsyncWire {
-    fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-        self.camera.lock().expect("camera lock").write(bytes);
-        async { Ok(()) }
-    }
-
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        loop {
-            let next = self.camera.lock().expect("camera lock").replies.pop_front();
-            if let Some(bytes) = next {
-                return Ok(ReceiveOutcome::copy_message(&bytes, dst));
-            }
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        }
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+    })
 }
 
 /// What one facade observed for a scenario.
@@ -228,15 +134,6 @@ enum Scenario {
 }
 
 impl Scenario {
-    const ALL: [Self; 6] = [
-        Self::Sequential,
-        Self::QueuedSubmissions,
-        Self::Cancellation,
-        Self::UrgentStopWhileExecuting,
-        Self::MalformedDatagram,
-        Self::Halt,
-    ];
-
     /// The outcomes both facades must report, which anchors the comparison
     /// against a regression the two would share.
     fn expected_outcomes(self) -> Vec<&'static str> {
@@ -253,7 +150,7 @@ impl Scenario {
         }
     }
 
-    fn camera(self) -> SharedCamera {
+    fn camera(self) -> FakeCamera {
         let (completion, garbage) = match self {
             Self::Sequential | Self::QueuedSubmissions => (Completion::Immediate, false),
             Self::Cancellation | Self::UrgentStopWhileExecuting => {
@@ -262,19 +159,15 @@ impl Scenario {
             Self::MalformedDatagram => (Completion::Immediate, true),
             Self::Halt => (Completion::HoldPanTiltStop, false),
         };
-        Arc::new(Mutex::new(Camera::new(completion, garbage)))
+        scripted_camera(completion, garbage)
     }
 }
 
 fn run_blocking(scenario: Scenario) -> Run {
     use grafton_visca::blocking::Session;
 
-    let shared = scenario.camera();
-    let wire = BlockingWire {
-        config: TransportConfig::default(),
-        camera: Arc::clone(&shared),
-    };
-    let session = Session::open(wire, config()).expect("blocking session");
+    let fake = scenario.camera();
+    let session = Session::open(fake.blocking_wire(), config()).expect("blocking session");
     let camera = session.camera::<Raw>().expect("raw camera");
     let mut outcomes = Vec::new();
     match scenario {
@@ -318,7 +211,7 @@ fn run_blocking(scenario: Scenario) -> Run {
             let mut zoom = camera
                 .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
                 .expect("zoom admitted");
-            await_writes_blocking(&shared, 1);
+            fake.wait_for_writes(1);
             outcomes.push(outcome(
                 camera
                     .submit::<AppliedOnly, _>(&ZoomStop)
@@ -329,24 +222,18 @@ fn run_blocking(scenario: Scenario) -> Run {
     }
     let metrics = session.metrics().expect("metrics");
     session.close().expect("close joins the worker");
-    let writes = shared.lock().expect("camera lock").writes.clone();
     Run {
-        writes,
+        writes: fake.writes(),
         outcomes,
         metrics,
     }
 }
 
-async fn run_async(scenario: Scenario) -> Run {
+async fn run_async<E: Executor>(scenario: Scenario, executor: &E) -> Run {
     use grafton_visca::Session;
 
-    let shared = scenario.camera();
-    let wire = AsyncWire {
-        config: TransportConfig::default(),
-        camera: Arc::clone(&shared),
-    };
-    let executor = TokioRuntime::from_current().expect("Tokio runtime");
-    let session = Session::open(wire, config(), executor)
+    let fake = scenario.camera();
+    let session = Session::open(fake.async_wire(), config(), executor.clone())
         .await
         .expect("async session");
     let camera = session.camera::<Raw>().expect("raw camera");
@@ -386,16 +273,15 @@ async fn run_async(scenario: Scenario) -> Run {
                 .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
                 .await
                 .expect("zoom admitted");
-            await_writes_async(&shared, 1).await;
+            fake.wait_for_writes_async(executor, 1).await;
             outcomes.push(outcome(applied_async(&camera, &ZoomStop).await));
             outcomes.push(outcome(zoom.cancel().await));
         }
     }
     let metrics = session.metrics().await.expect("metrics");
     session.close().await.expect("close");
-    let writes = shared.lock().expect("camera lock").writes.clone();
     Run {
-        writes,
+        writes: fake.writes(),
         outcomes,
         metrics,
     }
@@ -412,100 +298,109 @@ where
         .await
 }
 
-fn written(shared: &SharedCamera) -> usize {
-    shared.lock().expect("camera lock").writes.len()
+/// Runs a blocking session on its own thread so the async side can wait for
+/// it without stalling the runtime, whichever runtime that is.
+async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> T {
+    let (done, result) = flume::bounded(1);
+    std::thread::spawn(move || {
+        // The receiver outlives the thread unless the test already failed.
+        let _ = done.send(work());
+    });
+    result
+        .recv_async()
+        .await
+        .expect("the blocking scenario thread finished")
 }
 
-fn await_writes_blocking(shared: &SharedCamera, count: usize) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while written(shared) < count {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "awaiting {count} writes"
-        );
-        std::thread::sleep(Duration::from_millis(1));
-    }
+/// One scenario on both facades: the same wire transcript, outcomes, and
+/// metrics.
+async fn agree_on<E: Executor>(scenario: Scenario, executor: E) {
+    let blocking = off_thread(move || run_blocking(scenario)).await;
+    let asynchronous = run_async(scenario, &executor).await;
+    assert!(
+        !blocking.writes.is_empty(),
+        "{scenario:?} wrote nothing on the blocking facade"
+    );
+    assert_eq!(
+        blocking.outcomes,
+        scenario.expected_outcomes(),
+        "{scenario:?} outcomes"
+    );
+    assert_eq!(blocking, asynchronous, "{scenario:?} diverged");
 }
 
-async fn await_writes_async(shared: &SharedCamera, count: usize) {
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while written(shared) < count {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "awaiting {count} writes"
-        );
-        tokio::time::sleep(Duration::from_millis(1)).await;
-    }
+async fn sequential_commands_then_an_inquiry<E: Executor>(executor: E) {
+    agree_on(Scenario::Sequential, executor).await;
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn blocking_and_async_owners_agree_on_every_scenario() {
-    for scenario in Scenario::ALL {
-        let blocking = tokio::task::spawn_blocking(move || run_blocking(scenario))
-            .await
-            .expect("blocking scenario");
-        let asynchronous = run_async(scenario).await;
-        assert!(
-            !blocking.writes.is_empty(),
-            "{scenario:?} wrote nothing on the blocking facade"
-        );
-        assert_eq!(
-            blocking.outcomes,
-            scenario.expected_outcomes(),
-            "{scenario:?} outcomes"
-        );
-        assert_eq!(blocking, asynchronous, "{scenario:?} diverged");
-    }
+async fn queued_submissions<E: Executor>(executor: E) {
+    agree_on(Scenario::QueuedSubmissions, executor).await;
 }
+
+async fn cancellation<E: Executor>(executor: E) {
+    agree_on(Scenario::Cancellation, executor).await;
+}
+
+async fn urgent_stop_while_executing<E: Executor>(executor: E) {
+    agree_on(Scenario::UrgentStopWhileExecuting, executor).await;
+}
+
+async fn malformed_datagram<E: Executor>(executor: E) {
+    agree_on(Scenario::MalformedDatagram, executor).await;
+}
+
+async fn halt<E: Executor>(executor: E) {
+    agree_on(Scenario::Halt, executor).await;
+}
+
+// The Tokio cases keep the multi-thread runtime the comparison has always run
+// on, so the async owner is also checked under work stealing.
+runtime_matrix!(
+    multi_thread:
+    sequential_commands_then_an_inquiry,
+    queued_submissions,
+    cancellation,
+    urgent_stop_while_executing,
+    malformed_datagram,
+    halt
+);
 
 #[cfg(feature = "dyn-api")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch() {
-    let blocking = tokio::task::spawn_blocking(|| {
-        let shared = Scenario::Halt.camera();
-        let session = grafton_visca::blocking::Session::open(
-            BlockingWire {
-                config: TransportConfig::default(),
-                camera: Arc::clone(&shared),
-            },
-            config(),
-        )
-        .expect("session");
+async fn dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch<E: Executor>(
+    executor: E,
+) {
+    let blocking = off_thread(|| {
+        let fake = Scenario::Halt.camera();
+        let session = grafton_visca::blocking::Session::open(fake.blocking_wire(), config())
+            .expect("session");
         let camera = session.camera_dyn().expect("dynamic blocking camera");
         let outcomes = vec![outcome(camera.motion().stop_all_motion())];
         let metrics = session.metrics().expect("metrics");
         session.close().expect("close");
-        let writes = shared.lock().expect("camera lock").writes.clone();
         Run {
-            writes,
+            writes: fake.writes(),
             outcomes,
             metrics,
         }
     })
-    .await
-    .expect("blocking scenario");
-    let shared = Scenario::Halt.camera();
-    let session = grafton_visca::Session::open(
-        AsyncWire {
-            config: TransportConfig::default(),
-            camera: Arc::clone(&shared),
-        },
-        config(),
-        TokioRuntime::from_current().expect("runtime"),
-    )
-    .await
-    .expect("session");
+    .await;
+    let fake = Scenario::Halt.camera();
+    let session = grafton_visca::Session::open(fake.async_wire(), config(), executor.clone())
+        .await
+        .expect("session");
     let camera = session.camera_dyn().expect("dynamic camera");
     let outcomes = vec![outcome(camera.motion().stop_all_motion().await)];
     let metrics = session.metrics().await.expect("metrics");
     session.shutdown().expect("shutdown");
-    let writes = shared.lock().expect("camera lock").writes.clone();
     let asynchronous = Run {
-        writes,
+        writes: fake.writes(),
         outcomes,
         metrics,
     };
     assert_eq!(blocking.outcomes, Scenario::Halt.expected_outcomes());
     assert_eq!(blocking, asynchronous);
-    assert_eq!(asynchronous, run_async(Scenario::Halt).await);
+    assert_eq!(asynchronous, run_async(Scenario::Halt, &executor).await);
 }
+
+#[cfg(feature = "dyn-api")]
+runtime_matrix!(multi_thread: dynamic_halt_reports_match_typed_facades_with_independent_stop_dispatch);

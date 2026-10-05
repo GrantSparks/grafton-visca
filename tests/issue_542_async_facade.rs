@@ -1,7 +1,20 @@
 //! Narrow async facade coverage for the single-owner vertical slice.
+//!
+//! Every scenario is generic over the executor and runs under each enabled
+//! runtime, as the cases `scenario::tokio` and `scenario::smol`. The smol-only
+//! leg therefore runs the same nine scenarios as the Tokio-only leg, among
+//! them `owner_admits_uses_and_closes`, the plain open/use/close smoke case.
 
-#![cfg(all(feature = "async", feature = "runtime-tokio"))]
+#![cfg(all(
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
@@ -24,15 +37,12 @@ use grafton_visca::{
     },
     profiles::{ProfileId, PtzOpticsG2, SonyFR7},
     request,
-    transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
+    transport::{AddressingMode, TransportConfig},
     Camera, CameraId, ControlClass, Error, Executor, Inquiry, InquiryRoute, Operation,
     OperationCommand, Request, ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
-    TokioExecutor, TokioRuntime,
 };
 
+use fake_camera::{frames, AsyncWire, FakeCamera};
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
 #[allow(dead_code)]
@@ -92,63 +102,36 @@ impl Inquiry for RawInquiry {
     }
 }
 
-#[derive(Debug)]
-struct ScriptedTransport {
-    config: TransportConfig,
-    standard_kind: Option<TransportKind>,
-    responses: tokio::sync::mpsc::Receiver<Vec<u8>>,
-    response_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
-    sent: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
-}
-
-impl HasTransportConfig for ScriptedTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-
-    fn standard_transport_kind(&self) -> Option<TransportKind> {
-        self.standard_kind
-    }
-}
-
-impl AsyncTransport for ScriptedTransport {
-    async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        self.sent.lock().expect("sent lock").push(bytes.to_vec());
-        let source = bytes
-            .first()
-            .map(|address| 0x80 | (address & 0x0f).saturating_add(8) << 4)
-            .unwrap_or(0x90);
-        if bytes.get(1) == Some(&0x09) {
-            self.response_tx
-                .try_send(vec![source, 0x50, 0x01, 0x02, 0xff])
-                .expect("inquiry response queue");
+/// A camera that answers each command with ACK and completion on socket 1 and
+/// each inquiry with the data `[1, 2]`, from the address of the camera the
+/// request was written to (camera `n` replies as `0x90 + 0x10 * (n - 1)`).
+fn camera() -> FakeCamera {
+    FakeCamera::new(|write, answer| {
+        let source = write.first().map_or(0x90, |address| {
+            0x80 | ((address & 0x0f).saturating_add(8) << 4)
+        });
+        let replies = if write.get(1) == Some(&0x09) {
+            vec![frames::inquiry_reply(&[0x01, 0x02])]
         } else {
-            self.response_tx
-                .try_send(vec![source, 0x41, 0xff])
-                .expect("ack queue");
-            self.response_tx
-                .try_send(vec![source, 0x51, 0xff])
-                .expect("completion queue");
+            vec![frames::ack(1), frames::complete(1)]
+        };
+        for mut reply in replies {
+            reply[0] = source;
+            answer.reply(reply);
         }
-        Ok(())
-    }
+    })
+}
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        let bytes = self
-            .responses
-            .recv()
-            .await
-            .ok_or(Error::connection_closed(None))?;
-        Ok(ReceiveOutcome::copy_message(&bytes, dst))
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        (self.standard_kind == Some(TransportKind::Serial)).then_some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+/// A wire onto `camera` that reports a standard serial transport with serial
+/// addressing.
+fn serial_wire(camera: &FakeCamera) -> AsyncWire {
+    let mut config = TransportConfig::default();
+    config.addressing = AddressingMode::Serial;
+    camera
+        .async_wire()
+        .with_config(config)
+        .with_addressing(AddressingMode::Serial)
+        .with_transport_kind(TransportKind::Serial)
 }
 
 fn generic_profile() -> ProfileSpec {
@@ -183,33 +166,20 @@ fn unsupported_focus_profile() -> ProfileSpec {
         .expect("unsupported profile")
 }
 
-fn transport() -> (ScriptedTransport, Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
-    let (response_tx, responses) = tokio::sync::mpsc::channel(16);
-    let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
-    (
-        ScriptedTransport {
-            config: TransportConfig::default(),
-            standard_kind: None,
-            responses,
-            response_tx,
-            sent: Arc::clone(&sent),
-        },
-        sent,
-    )
-}
-
+/// An executor that counts the tasks spawned through it and otherwise defers
+/// to the wrapped runtime.
 #[derive(Clone)]
-struct CountingExecutor {
-    inner: TokioExecutor,
+struct CountingExecutor<E> {
+    inner: E,
     spawned: Arc<AtomicUsize>,
 }
 
-impl Executor for CountingExecutor {
+impl<E: Executor> Executor for CountingExecutor<E> {
     type Join<T>
-        = <TokioExecutor as Executor>::Join<T>
+        = <E as Executor>::Join<T>
     where
         T: Send + 'static;
-    type Detach = <TokioExecutor as Executor>::Detach;
+    type Detach = <E as Executor>::Detach;
 
     fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
     where
@@ -245,13 +215,12 @@ impl Executor for CountingExecutor {
     }
 }
 
-#[tokio::test]
-async fn one_owner_admits_plain_inquiry_and_typed_operations() {
-    let (transport, sent) = transport();
+async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(executor: E) {
+    let fake = camera();
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::new(generic_profile()),
-        TokioRuntime::from_current().expect("runtime"),
+        executor,
     )
     .await
     .expect("session");
@@ -278,16 +247,15 @@ async fn one_owner_admits_plain_inquiry_and_typed_operations() {
         .expect("applied completion");
 
     session.shutdown().expect("shutdown");
-    assert_eq!(sent.lock().expect("sent lock").len(), 4);
+    assert_eq!(fake.write_count(), 4);
 }
 
-#[tokio::test]
-async fn unsupported_axis_fails_before_owner_admission_or_io() {
-    let (transport, sent) = transport();
+async fn unsupported_axis_fails_before_owner_admission_or_io<E: Executor>(executor: E) {
+    let fake = camera();
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::new(unsupported_focus_profile()),
-        TokioRuntime::from_current().expect("runtime"),
+        executor,
     )
     .await
     .expect("session");
@@ -295,27 +263,20 @@ async fn unsupported_axis_fails_before_owner_admission_or_io() {
         .camera::<PtzOpticsG2>()
         .expect_err("runtime profile mismatch must fail before projection");
     assert!(matches!(error, Error::InvalidRequest(_)));
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn raw_serial_multi_target_registration_routes_each_camera() {
-    let (mut transport, sent) = transport();
-    transport.standard_kind = Some(TransportKind::Serial);
-    transport.config.addressing = AddressingMode::Serial;
+async fn raw_serial_multi_target_registration_routes_each_camera<E: Executor>(executor: E) {
+    let fake = camera();
     let mut config = SessionConfig::new(generic_profile());
     config
         .register_target(CameraId::CAMERA_2, generic_profile())
         .expect("bounded registration");
 
-    let session = Session::open(
-        transport,
-        config,
-        TokioRuntime::from_current().expect("runtime"),
-    )
-    .await
-    .expect("raw serial multi-target startup");
+    let session = Session::open(serial_wire(&fake), config, executor)
+        .await
+        .expect("raw serial multi-target startup");
     assert!(matches!(
         session
             .camera::<PtzOpticsG2>()
@@ -337,24 +298,24 @@ async fn raw_serial_multi_target_registration_routes_each_camera() {
         .expect("camera 1 command");
 
     session.shutdown().expect("shutdown");
-    let sent = sent.lock().expect("sent lock");
+    let sent = fake.writes();
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[0][0], CameraId::CAMERA_2.to_address_byte());
     assert_eq!(sent[1][0], CameraId::CAMERA_1.to_address_byte());
 }
 
-#[tokio::test]
-async fn incompatible_standard_transport_fails_before_send_or_owner_spawn() {
-    let (mut transport, sent) = transport();
-    transport.standard_kind = Some(TransportKind::Tcp);
+async fn incompatible_standard_transport_fails_before_send_or_owner_spawn<E: Executor>(
+    executor: E,
+) {
+    let fake = camera();
     let spawned = Arc::new(AtomicUsize::new(0));
     let executor = CountingExecutor {
-        inner: TokioExecutor::from_current().expect("runtime"),
+        inner: executor,
         spawned: Arc::clone(&spawned),
     };
 
     let error = Session::open(
-        transport,
+        fake.async_wire().with_transport_kind(TransportKind::Tcp),
         SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile")),
         executor,
     )
@@ -369,17 +330,16 @@ async fn incompatible_standard_transport_fails_before_send_or_owner_spawn() {
             ..
         }
     ));
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
     assert_eq!(spawned.load(Ordering::SeqCst), 0);
 }
 
-#[tokio::test]
-async fn dropping_or_detaching_operation_is_observation_only() {
-    let (transport, sent) = transport();
+async fn dropping_or_detaching_operation_is_observation_only<E: Executor>(executor: E) {
+    let fake = camera();
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::new(generic_profile()),
-        TokioRuntime::from_current().expect("runtime"),
+        executor.clone(),
     )
     .await
     .expect("session");
@@ -387,23 +347,24 @@ async fn dropping_or_detaching_operation_is_observation_only() {
 
     let dropped = camera.zoom().stop().await.expect("operation admission");
     drop(dropped);
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    assert_eq!(sent.lock().expect("sent lock").len(), 1);
+    executor.sleep(Duration::from_millis(20)).await;
+    assert_eq!(fake.write_count(), 1);
 
     let detached = camera.zoom().stop().await.expect("operation admission");
     detached.detach();
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    assert!(!sent.lock().expect("sent lock").is_empty());
+    executor.sleep(Duration::from_millis(20)).await;
+    assert!(fake.write_count() > 0);
     session.shutdown().expect("shutdown request");
 }
 
-#[tokio::test]
-async fn shutdown_requests_actor_and_rejects_later_admission_without_join_claim() {
-    let (transport, sent) = transport();
+async fn shutdown_requests_actor_and_rejects_later_admission_without_join_claim<E: Executor>(
+    executor: E,
+) {
+    let fake = camera();
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::new(generic_profile()),
-        TokioRuntime::from_current().expect("runtime"),
+        executor,
     )
     .await
     .expect("session");
@@ -415,19 +376,20 @@ async fn shutdown_requests_actor_and_rejects_later_admission_without_join_claim(
         .await
         .expect_err("shutdown must reject new submissions");
     assert!(matches!(error, Error::RuntimeShutdown));
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
 }
 
-#[tokio::test]
-async fn non_default_downstream_profile_projects_and_clones_without_new_owner() {
-    let (transport, sent) = transport();
+async fn non_default_downstream_profile_projects_and_clones_without_new_owner<E: Executor>(
+    executor: E,
+) {
+    let fake = camera();
     let spawned = Arc::new(AtomicUsize::new(0));
     let executor = CountingExecutor {
-        inner: TokioExecutor::from_current().expect("runtime"),
+        inner: executor,
         spawned: Arc::clone(&spawned),
     };
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::from_compile_time::<NonDefaultCompileTimeProfile>()
             .expect("non-default profile config"),
         executor,
@@ -441,26 +403,21 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner() 
     let clone = camera.clone();
     assert_eq!(camera.target(), clone.target());
     assert_eq!(spawned.load(Ordering::SeqCst), 1);
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() {
-    let (mut transport, sent) = transport();
-    transport.standard_kind = Some(TransportKind::Serial);
-    transport.config.addressing = AddressingMode::Serial;
+async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io<E: Executor>(
+    executor: E,
+) {
+    let fake = camera();
     let mut config = SessionConfig::from_compile_time::<PtzOpticsG2>().expect("config");
     config
         .register_target(CameraId::CAMERA_2, generic_profile())
         .expect("second target");
-    let session = Session::open(
-        transport,
-        config,
-        TokioRuntime::from_current().expect("runtime"),
-    )
-    .await
-    .expect("session");
+    let session = Session::open(serial_wire(&fake), config, executor)
+        .await
+        .expect("session");
 
     assert!(matches!(
         session.camera::<PtzOpticsG2>(),
@@ -474,6 +431,42 @@ async fn wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io() 
         session.camera_for::<SonyFR7>(CameraId::CAMERA_2),
         Err(Error::InvalidRequest(_))
     ));
-    assert!(sent.lock().expect("sent lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
+
+async fn owner_admits_uses_and_closes<E: Executor>(executor: E) {
+    let session = Session::open(
+        FakeCamera::acking(1).async_wire(),
+        SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+        executor,
+    )
+    .await
+    .unwrap();
+
+    session
+        .camera::<PtzOpticsG2>()
+        .unwrap()
+        .zoom()
+        .stop()
+        .await
+        .unwrap()
+        .applied()
+        .await
+        .unwrap();
+
+    // Exercise the explicit close path as well as the operation path.
+    session.close().await.unwrap();
+}
+
+runtime_matrix!(
+    one_owner_admits_plain_inquiry_and_typed_operations,
+    unsupported_axis_fails_before_owner_admission_or_io,
+    raw_serial_multi_target_registration_routes_each_camera,
+    incompatible_standard_transport_fails_before_send_or_owner_spawn,
+    dropping_or_detaching_operation_is_observation_only,
+    shutdown_requests_actor_and_rejects_later_admission_without_join_claim,
+    non_default_downstream_profile_projects_and_clones_without_new_owner,
+    wrong_unregistered_and_ambiguous_targets_fail_before_admission_or_io,
+    owner_admits_uses_and_closes,
+);

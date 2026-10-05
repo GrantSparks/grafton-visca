@@ -3,6 +3,30 @@
 //! Standard-construction tests use a recording runtime rather than opening
 //! loopback sockets. This keeps endpoint/configuration assertions at the
 //! pre-I/O boundary while still starting and shutting down a real owner.
+//!
+//! The recording runtime hands out wires onto a silent `FakeCamera`. The
+//! standard-path scenarios run under each enabled runtime, as the cases
+//! `async_standard::standard_paths::{tokio,smol}` and
+//! `async_standard::bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection::{tokio,smol}`;
+//! the remaining async scenarios (preflight and options, buffer bounds,
+//! runtime-selected transports, serial buffer bounds) are Tokio-only.
+
+#[cfg(any(
+    feature = "blocking",
+    all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[cfg(all(
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 
 #[cfg(all(
     feature = "async",
@@ -19,12 +43,11 @@ mod async_standard {
         camera::{CameraConfig, Connect},
         profiles::{PtzOpticsG2, SonyFR7},
         runtime::Runtime,
-        transport::{
-            AddressingMode, AsyncTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
-            SendSemantics, TransportConfig,
-        },
+        transport::{AddressingMode, BufferConfig, TransportConfig},
         Error, Executor,
     };
+
+    use crate::fake_camera::{AsyncWire, FakeCamera};
 
     #[cfg(feature = "runtime-tokio")]
     use grafton_visca::OperationalTuning;
@@ -47,38 +70,13 @@ mod async_standard {
         config: TransportConfig,
     }
 
-    #[derive(Debug)]
-    struct ProbeTransport {
-        config: TransportConfig,
-    }
-
-    impl HasTransportConfig for ProbeTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for ProbeTransport {
-        #[allow(clippy::manual_async_fn)]
-        fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            async { Ok(()) }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            _dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-            std::future::pending()
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(AddressingMode::Ip)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
+    /// The wire the recording connectors hand out: an idle camera that
+    /// reports IP addressing and the connector's transport configuration.
+    fn probe_wire(config: TransportConfig) -> AsyncWire {
+        FakeCamera::silent()
+            .async_wire()
+            .with_config(config)
+            .with_addressing(AddressingMode::Ip)
     }
 
     #[derive(Debug, Clone)]
@@ -142,8 +140,8 @@ mod async_standard {
     }
 
     impl<E: Executor> Runtime for ProbeRuntime<E> {
-        type TcpTransport = ProbeTransport;
-        type UdpTransport = ProbeTransport;
+        type TcpTransport = AsyncWire;
+        type UdpTransport = AsyncWire;
         #[cfg(feature = "transport-serial-tokio")]
         type SerialTransport = std::convert::Infallible;
 
@@ -159,7 +157,7 @@ mod async_standard {
                     address: address.to_owned(),
                     config,
                 });
-                Ok(ProbeTransport { config })
+                Ok(probe_wire(config))
             }
         }
 
@@ -175,7 +173,7 @@ mod async_standard {
                     address: address.to_owned(),
                     config,
                 });
-                Ok(ProbeTransport { config })
+                Ok(probe_wire(config))
             }
         }
     }
@@ -189,7 +187,8 @@ mod async_standard {
         call
     }
 
-    async fn standard_paths<E: Runtime>(runtime: ProbeRuntime<E>) {
+    async fn standard_paths<E: Executor>(executor: E) {
+        let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
         let session = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
             .await
@@ -224,14 +223,8 @@ mod async_standard {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_standard_paths_record_defaults_and_grammar() {
-        let runtime = ProbeRuntime::new(
-            grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
-        );
-        standard_paths(runtime.clone()).await;
-
+    async fn bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection<E: Executor>(executor: E) {
+        let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
         let session = CameraConfig::<PtzOpticsG2>::tcp("[2001:db8::1]:5678")
             .open_async(runtime.clone())
@@ -249,14 +242,10 @@ mod async_standard {
         assert!(calls.lock().expect("calls lock").is_empty());
     }
 
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_standard_paths_record_defaults_and_start_owner() {
-        smol::block_on(async {
-            let runtime = ProbeRuntime::new(grafton_visca::runtime::SmolRuntime::new());
-            standard_paths(runtime).await;
-        });
-    }
+    runtime_matrix!(
+        standard_paths,
+        bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection
+    );
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
@@ -491,71 +480,34 @@ mod async_standard {
 
 #[cfg(feature = "blocking")]
 mod blocking_standard {
-    use std::{collections::VecDeque, time::Duration};
+    use std::time::Duration;
 
     use grafton_visca::{
         blocking::{CameraConfig, Session},
-        command::CommandKind,
         profiles::PtzOpticsG2,
-        transport::{
-            AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, ReceiveOutcome,
-            SendSemantics, TransportConfig,
-        },
+        transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
         CameraId, Error, SessionConfig,
     };
 
-    #[derive(Debug)]
-    struct ProbeTransport {
-        config: TransportConfig,
-        responses: VecDeque<Vec<u8>>,
-    }
+    use crate::fake_camera::{BlockingWire, FakeCamera};
 
-    impl HasTransportConfig for ProbeTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for ProbeTransport {
-        fn send_with_timeout(
-            &mut self,
-            _bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.responses.push_back(vec![0x90, 0x41, 0xff]);
-            self.responses.push_back(vec![0x90, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<ReceiveOutcome, Error> {
-            let response = self.responses.pop_front().ok_or(Error::io_timeout())?;
-            Ok(ReceiveOutcome::copy_message(&response, dst))
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(AddressingMode::Serial)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Stream
-        }
+    /// A camera that answers every command with ACK and completion, behind a
+    /// wire that reports serial addressing and stream semantics.
+    fn serial_wire(config: TransportConfig) -> BlockingWire {
+        FakeCamera::acking(1)
+            .blocking_wire()
+            .with_config(config)
+            .with_addressing(AddressingMode::Serial)
+            .with_semantics(SendSemantics::Stream)
     }
 
     #[test]
     fn custom_blocking_session_open_uses_one_owner_and_hint() {
-        let transport = ProbeTransport {
-            config: {
-                let mut config = TransportConfig::default();
-                config.addressing = AddressingMode::Serial;
-                config
-            },
-            responses: VecDeque::new(),
-        };
+        let transport = serial_wire({
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
+        });
         let config = SessionConfig::for_target(
             CameraId::CAMERA_1,
             grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
@@ -587,10 +539,7 @@ mod blocking_standard {
                 "transport write timeout must be non-zero",
             ),
         ] {
-            let transport = ProbeTransport {
-                config: transport_config,
-                responses: VecDeque::new(),
-            };
+            let transport = serial_wire(transport_config);
             let config = SessionConfig::for_target(
                 CameraId::CAMERA_1,
                 grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),

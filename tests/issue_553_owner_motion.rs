@@ -1,41 +1,50 @@
-//! Owner-backed motion surface coverage for the root async session camera.
+//! Owner-backed motion surface coverage for the root session camera.
+//!
+//! The motion view answers its queries from position inquiries, bounds its
+//! idle waits by their deadline, and reports each axis of a combined halt
+//! separately. The camera answers each position inquiry from a per-axis
+//! script and acknowledges and completes every command, except that the
+//! first pan/tilt stop may be refused with a transient Syntax Error.
+//!
+//! Every scenario runs on the blocking facade and on the async facade under
+//! each enabled runtime.
 
-#![cfg(all(
-    feature = "async",
-    any(feature = "runtime-tokio", feature = "runtime-smol")
+#![cfg(any(
+    feature = "blocking",
+    all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
 ))]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
     camera::{IdleWait, MotionQuery},
-    profile::{PositionInquirySupport, ProfileSpec},
+    profile::ProfileSpec,
     profiles::PtzOpticsG2,
-    transport::{
-        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
-    AffectedAxes, Certainty, Error, Executor, FailureContext, FailureStage, Session, SessionConfig,
+    AffectedAxes, Certainty, Error, FailureContext, FailureStage, HaltOutcome, SessionConfig,
 };
 
+use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use profile_fixtures::MotionOwnerCompileTimeProfile;
 
-#[derive(Debug, Clone, Copy)]
-enum InquiryAxis {
-    PanTilt,
-    Zoom,
-    Focus,
-}
+/// The zoom position inquiry, camera address 1.
+const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
 
+/// The positions the camera reports, one per inquiry, per axis. An exhausted
+/// axis reports zero.
 #[derive(Debug, Default)]
 struct PositionScript {
     pan_tilt: VecDeque<(i16, i16)>,
@@ -43,376 +52,210 @@ struct PositionScript {
     focus: VecDeque<u16>,
 }
 
-#[derive(Debug)]
-struct MotionTransport {
-    config: TransportConfig,
-    responses: flume::Receiver<Vec<u8>>,
-    response_tx: flume::Sender<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    positions: Arc<Mutex<PositionScript>>,
-    fail_first_pan_stop: Arc<AtomicBool>,
-}
-
-impl MotionTransport {
-    fn new(script: PositionScript, fail_first_pan_stop: bool) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let (response_tx, responses) = flume::unbounded();
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                config: TransportConfig::default(),
-                responses,
-                response_tx,
-                writes: Arc::clone(&writes),
-                positions: Arc::new(Mutex::new(script)),
-                fail_first_pan_stop: Arc::new(AtomicBool::new(fail_first_pan_stop)),
-            },
-            writes,
-        )
-    }
-
-    fn next_position(&self, axis: InquiryAxis) -> Vec<u8> {
-        let mut script = self.positions.lock().expect("position script lock");
-        match axis {
-            InquiryAxis::PanTilt => {
-                let (pan, tilt) = script.pan_tilt.pop_front().unwrap_or((0, 0));
-                position_frame_pan_tilt(pan, tilt)
-            }
-            InquiryAxis::Zoom => position_frame_value(script.zoom.pop_front().unwrap_or(0)),
-            InquiryAxis::Focus => position_frame_value(script.focus.pop_front().unwrap_or(0)),
+impl PositionScript {
+    fn zoom(positions: impl IntoIterator<Item = u16>) -> Self {
+        Self {
+            zoom: positions.into_iter().collect(),
+            ..Self::default()
         }
-    }
-
-    fn response_for(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
-        if bytes.starts_with(&[0x81, 0x09, 0x06, 0x12]) {
-            return vec![self.next_position(InquiryAxis::PanTilt)];
-        }
-        if bytes.starts_with(&[0x81, 0x09, 0x04, 0x47]) {
-            return vec![self.next_position(InquiryAxis::Zoom)];
-        }
-        if bytes.starts_with(&[0x81, 0x09, 0x04, 0x48]) {
-            return vec![self.next_position(InquiryAxis::Focus)];
-        }
-        if bytes.get(2) == Some(&0x06)
-            && bytes.get(3) == Some(&0x01)
-            && self.fail_first_pan_stop.swap(false, Ordering::AcqRel)
-        {
-            return vec![vec![0x90, 0x60, 0x02, 0xff]];
-        }
-        vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]
     }
 }
 
-impl HasTransportConfig for MotionTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl AsyncTransport for MotionTransport {
-    async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        self.writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
-        for response in self.response_for(bytes) {
-            self.response_tx
-                .send_async(response)
-                .await
-                .map_err(|_| Error::connection_closed(None))?;
+/// A camera that answers position inquiries from `script` and acknowledges
+/// and completes every command on socket 1. With `fail_first_pan_stop`, the
+/// first pan/tilt drive (a stop, in these scenarios) is refused with a
+/// Syntax Error instead.
+fn motion_camera(mut script: PositionScript, fail_first_pan_stop: bool) -> FakeCamera {
+    let mut fail_pan_stop = fail_first_pan_stop;
+    FakeCamera::visca(move |payload, answer| {
+        if payload.starts_with(&[0x81, 0x09, 0x06, 0x12]) {
+            let (pan, tilt) = script.pan_tilt.pop_front().unwrap_or((0, 0));
+            answer.reply(pan_tilt_position(pan, tilt));
+        } else if payload.starts_with(&[0x81, 0x09, 0x04, 0x47]) {
+            answer.reply(nibble_position(script.zoom.pop_front().unwrap_or(0)));
+        } else if payload.starts_with(&[0x81, 0x09, 0x04, 0x48]) {
+            answer.reply(nibble_position(script.focus.pop_front().unwrap_or(0)));
+        } else if payload.get(2) == Some(&0x06) && payload.get(3) == Some(&0x01) && fail_pan_stop {
+            fail_pan_stop = false;
+            answer.reply(frames::syntax_error());
+        } else {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
         }
-        Ok(())
-    }
-
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        let response = self
-            .responses
-            .recv_async()
-            .await
-            .map_err(|_| Error::connection_closed(None))?;
-        Ok(ReceiveOutcome::copy_message(&response, dst))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+    })
 }
 
-fn position_frame_pan_tilt(pan: i16, tilt: i16) -> Vec<u8> {
-    vec![
-        0x90,
-        0x50,
-        (pan as u16 >> 8) as u8,
-        pan as u8,
-        (tilt as u16 >> 8) as u8,
-        tilt as u8,
-        0xff,
-    ]
+fn pan_tilt_position(pan: i16, tilt: i16) -> Vec<u8> {
+    let [pan_high, pan_low] = pan.to_be_bytes();
+    let [tilt_high, tilt_low] = tilt.to_be_bytes();
+    frames::inquiry_reply(&[pan_high, pan_low, tilt_high, tilt_low])
 }
 
-fn position_frame_value(value: u16) -> Vec<u8> {
-    vec![
-        0x90,
-        0x50,
+fn nibble_position(value: u16) -> Vec<u8> {
+    frames::inquiry_reply(&[
         ((value >> 12) & 0x0f) as u8,
         ((value >> 8) & 0x0f) as u8,
         ((value >> 4) & 0x0f) as u8,
         (value & 0x0f) as u8,
-        0xff,
-    ]
+    ])
 }
 
-fn runtime_profile(
-    _position_inquiries: PositionInquirySupport,
-    supports_operation_complete: bool,
-) -> ProfileSpec {
-    let _ = supports_operation_complete;
-    ProfileSpec::from_compile_time::<MotionOwnerCompileTimeProfile>()
-        .expect("non-default runtime profile")
+fn motion_config() -> SessionConfig {
+    SessionConfig::new(
+        ProfileSpec::from_compile_time::<MotionOwnerCompileTimeProfile>()
+            .expect("non-default runtime profile"),
+    )
 }
 
-async fn run_motion_surface<E>(executor: E)
-where
-    E: Executor,
-{
-    let profile = runtime_profile(PositionInquirySupport::new(true, true, true), false);
-    let script = PositionScript {
-        zoom: [10, 10, 10, 10].into_iter().collect(),
-        ..PositionScript::default()
-    };
-    let (transport, writes) = MotionTransport::new(script, false);
-    let session = Session::open(transport, SessionConfig::new(profile), executor.clone())
-        .await
-        .expect("session");
-    let camera = session
-        .camera::<MotionOwnerCompileTimeProfile>()
-        .expect("camera");
-    assert!(!camera
-        .motion()
-        .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM))
-        .await
+facade_matrix! {
+    /// A settled zoom answers the motion query and the idle wait from zoom
+    /// position inquiries alone.
+    fn owner_motion_zoom_query_and_idle_wait_poll_only_zoom() {
+        let fake = motion_camera(PositionScript::zoom([10, 10, 10, 10]), false);
+        let session = open!(fake, motion_config()).expect("session");
+        let camera = session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera");
+        assert!(!wait!(camera
+            .motion()
+            .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM)))
         .expect("zoom motion query"));
-    camera
-        .motion()
-        .wait_until_idle(
+        wait!(camera.motion().wait_until_idle(
             IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1)).with_interval(Duration::ZERO),
-        )
-        .await
-        .expect("zoom idle wait");
-    {
-        let writes = writes.lock().expect("writes lock");
-        assert_eq!(writes.len(), 4);
-        assert!(writes
-            .iter()
-            .all(|bytes| bytes.starts_with(&[0x81, 0x09, 0x04, 0x47])));
-    }
-    session.shutdown().expect("shutdown");
-
-    let profile = runtime_profile(PositionInquirySupport::new(true, true, false), true);
-    let (transport, writes) = MotionTransport::new(PositionScript::default(), false);
-    let session = Session::open(transport, SessionConfig::new(profile), executor.clone())
-        .await
-        .expect("unsupported-axis session");
-    let camera = session
-        .camera::<MotionOwnerCompileTimeProfile>()
-        .expect("camera");
-    assert!(matches!(
-        camera
-            .motion()
-            .is_moving_axes(MotionQuery::new(AffectedAxes::ND_FILTER))
-            .await,
-        Err(Error::FeatureNotSupported { .. })
-    ));
-    assert!(matches!(
-        camera
-            .motion()
-            .wait_until_idle(IdleWait::new(
-                AffectedAxes::ND_FILTER,
-                Duration::from_secs(1)
-            ))
-            .await,
-        Err(Error::FeatureNotSupported { .. })
-    ));
-    assert!(writes.lock().expect("writes lock").is_empty());
-    session.shutdown().expect("shutdown");
-
-    let script = PositionScript {
-        zoom: [0, 100, 100].into_iter().collect(),
-        ..PositionScript::default()
-    };
-    let (transport, writes) = MotionTransport::new(script, false);
-    let session = Session::open(
-        transport,
-        SessionConfig::new(runtime_profile(
-            PositionInquirySupport::new(true, true, true),
-            false,
-        )),
-        executor.clone(),
-    )
-    .await
-    .expect("moving session");
-    session
-        .camera::<MotionOwnerCompileTimeProfile>()
-        .expect("camera")
-        .motion()
-        .wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1)).with_interval(Duration::ZERO),
-        )
-        .await
-        .expect("moving then settled");
-    assert_eq!(writes.lock().expect("writes lock").len(), 3);
-    session.shutdown().expect("shutdown");
-
-    let script = PositionScript {
-        zoom: [0].into_iter().collect(),
-        ..PositionScript::default()
-    };
-    let (transport, writes) = MotionTransport::new(script, false);
-    let session = Session::open(
-        transport,
-        SessionConfig::new(runtime_profile(
-            PositionInquirySupport::new(true, true, true),
-            false,
-        )),
-        executor.clone(),
-    )
-    .await
-    .expect("deadline session");
-    let result = session
-        .camera::<MotionOwnerCompileTimeProfile>()
-        .expect("camera")
-        .motion()
-        .wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(5))
-                .with_interval(Duration::from_secs(1)),
-        )
-        .await;
-    // An idle wait is a read-only query: its deadline is repeatable (D20).
-    assert_eq!(
-        result
-            .expect_err("the camera keeps moving")
-            .failure_context(),
-        Some(FailureContext::new(
-            FailureStage::Observation,
-            Certainty::NotAccepted
         ))
-    );
-    assert_eq!(writes.lock().expect("writes lock").len(), 1);
-    session.shutdown().expect("shutdown");
+        .expect("zoom idle wait");
+        let writes = fake.writes();
+        assert_eq!(writes.len(), 4);
+        assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+        session.shutdown().expect("shutdown");
+    }
 
-    let (transport, writes) = MotionTransport::new(PositionScript::default(), true);
-    let session = Session::open(
-        transport,
-        SessionConfig::new(runtime_profile(
-            PositionInquirySupport::new(true, true, true),
-            false,
-        )),
-        executor,
-    )
-    .await
-    .expect("stop session");
-    let report = session
-        .camera::<MotionOwnerCompileTimeProfile>()
-        .expect("camera")
-        .motion()
-        .stop_all_motion()
-        .await
+    /// An axis the profile cannot observe is refused before any wire I/O.
+    fn owner_motion_unsupported_axis_is_refused_before_the_wire() {
+        let fake = motion_camera(PositionScript::default(), false);
+        let session = open!(fake, motion_config()).expect("unsupported-axis session");
+        let camera = session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera");
+        assert!(matches!(
+            wait!(camera
+                .motion()
+                .is_moving_axes(MotionQuery::new(AffectedAxes::ND_FILTER))),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert!(matches!(
+            wait!(camera.motion().wait_until_idle(IdleWait::new(
+                AffectedAxes::ND_FILTER,
+                Duration::from_secs(1),
+            ))),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert!(fake.writes().is_empty());
+        session.shutdown().expect("shutdown");
+    }
+
+    /// An idle wait keeps polling while the position changes and returns once
+    /// it settles.
+    fn owner_motion_idle_wait_settles_after_motion() {
+        let fake = motion_camera(PositionScript::zoom([0, 100, 100]), false);
+        let session = open!(fake, motion_config()).expect("moving session");
+        wait!(session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera")
+            .motion()
+            .wait_until_idle(
+                IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1))
+                    .with_interval(Duration::ZERO),
+            ))
+        .expect("moving then settled");
+        assert_eq!(fake.write_count(), 3);
+        session.shutdown().expect("shutdown");
+    }
+
+    /// An idle wait is a read-only query: its deadline is repeatable (D20).
+    fn owner_motion_idle_wait_deadline_is_a_repeatable_observation() {
+        let fake = motion_camera(PositionScript::zoom([0]), false);
+        let session = open!(fake, motion_config()).expect("deadline session");
+        let result = wait!(session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera")
+            .motion()
+            .wait_until_idle(
+                IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(5))
+                    .with_interval(Duration::from_secs(1)),
+            ));
+        assert_eq!(
+            result
+                .expect_err("the camera keeps moving")
+                .failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Observation,
+                Certainty::NotAccepted
+            ))
+        );
+        assert_eq!(fake.write_count(), 1);
+        session.shutdown().expect("shutdown");
+    }
+
+    /// A combined halt reports each axis on its own: a refused pan/tilt stop
+    /// does not mask the zoom and focus stops that applied.
+    fn owner_motion_stop_all_reports_each_axis() {
+        let fake = motion_camera(PositionScript::default(), true);
+        let session = open!(fake, motion_config()).expect("stop session");
+        let report = wait!(session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera")
+            .motion()
+            .stop_all_motion())
         .expect("owner accepted halt");
-    assert!(
-        matches!(
-            report.pan_tilt,
-            grafton_visca::HaltOutcome::Failed(Error::SyntaxError)
-        ),
-        "{report:?}"
-    );
-    assert!(matches!(report.zoom, grafton_visca::HaltOutcome::Applied));
-    assert!(matches!(report.focus, grafton_visca::HaltOutcome::Applied));
-    {
-        let writes = writes.lock().expect("writes lock");
+        assert!(
+            matches!(report.pan_tilt, HaltOutcome::Failed(Error::SyntaxError)),
+            "{report:?}"
+        );
+        assert!(matches!(report.zoom, HaltOutcome::Applied));
+        assert!(matches!(report.focus, HaltOutcome::Applied));
+        let writes = fake.writes();
         assert_eq!(writes.len(), 3);
         assert!(writes[0].starts_with(&[0x81, 0x01, 0x06, 0x01]));
-        assert!(writes[1].starts_with(&[0x81, 0x01, 0x04, 0x07]));
-        assert!(writes[2].starts_with(&[0x81, 0x01, 0x04, 0x08]));
+        assert_eq!(writes[1], ZOOM_STOP);
+        assert_eq!(writes[2], FOCUS_STOP);
+        session.shutdown().expect("shutdown");
     }
-    session.shutdown().expect("shutdown");
-}
 
-/// #712 public-facade regression: the raw profile's physical 150 ms inquiry
-/// spacing remains, but a successful reply adds no one-second hold and cannot
-/// delay the safety lane.
-async fn run_raw_success_release_regression<E>(executor: E)
-where
-    E: Executor,
-{
-    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics profile");
-    let (transport, writes) = MotionTransport::new(PositionScript::default(), false);
-    let session = Session::open(transport, SessionConfig::new(profile), executor.clone())
-        .await
+    /// #712: the raw profile's physical 150 ms inquiry spacing remains, but a
+    /// successful reply adds no one-second hold and cannot delay the safety
+    /// lane.
+    fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
+        let fake = motion_camera(PositionScript::default(), false);
+        let session = open!(
+            fake,
+            SessionConfig::new(
+                ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics profile")
+            )
+        )
         .expect("raw session");
-    let camera = session.camera::<PtzOpticsG2>().expect("camera");
+        let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-    let polling_started = Instant::now();
-    for _ in 0..6 {
-        camera
-            .zoom()
-            .position()
-            .await
-            .expect("raw zoom position reply");
-    }
-    let polling_elapsed = polling_started.elapsed();
-    assert!(
-        polling_elapsed <= Duration::from_millis(1_200),
-        "six replies exceeded the 5 Hz floor: {polling_elapsed:?}"
-    );
-
-    let stop_started = Instant::now();
-    let mut stop = camera
-        .zoom()
-        .stop()
-        .await
-        .expect("urgent stop reaches the wire");
-    while writes.lock().expect("writes lock").len() < 7 {
+        let polling_started = Instant::now();
+        for _ in 0..6 {
+            wait!(camera.zoom().position()).expect("raw zoom position reply");
+        }
+        let polling_elapsed = polling_started.elapsed();
         assert!(
-            stop_started.elapsed() < Duration::from_millis(50),
-            "urgent stop did not reach the wire within 50 ms"
+            polling_elapsed <= Duration::from_millis(1_200),
+            "six replies exceeded the 5 Hz floor: {polling_elapsed:?}"
         );
-        executor.sleep(Duration::from_millis(1)).await;
+
+        let stop_started = Instant::now();
+        let mut stop = wait!(camera.zoom().stop()).expect("urgent stop reaches the wire");
+        wait_for_writes!(fake, 7);
+        let stop_latency = stop_started.elapsed();
+        assert!(
+            stop_latency < Duration::from_millis(50),
+            "matched inquiry delayed urgent stop by {stop_latency:?}"
+        );
+        wait!(stop.applied()).expect("urgent stop applies");
+
+        assert_eq!(fake.write_count(), 7);
+        session.shutdown().expect("shutdown");
     }
-    let stop_latency = stop_started.elapsed();
-    assert!(
-        stop_latency < Duration::from_millis(50),
-        "matched inquiry delayed urgent stop by {stop_latency:?}"
-    );
-    stop.applied().await.expect("urgent stop applies");
-
-    assert_eq!(writes.lock().expect("writes lock").len(), 7);
-    session.shutdown().expect("shutdown");
-}
-
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_owner_motion_surface_is_exact_and_deadline_bound() {
-    run_motion_surface(grafton_visca::TokioRuntime::from_current().expect("runtime")).await;
-}
-
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
-    run_raw_success_release_regression(
-        grafton_visca::TokioRuntime::from_current().expect("runtime"),
-    )
-    .await;
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_owner_motion_surface_is_exact_and_deadline_bound() {
-    smol::block_on(run_motion_surface(grafton_visca::SmolRuntime::new()));
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
-    smol::block_on(run_raw_success_release_regression(
-        grafton_visca::SmolRuntime::new(),
-    ));
 }

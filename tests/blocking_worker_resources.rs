@@ -28,6 +28,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::{frames, ZOOM_STOP, ZOOM_TELE};
 use grafton_visca::{
     blocking::{CameraSession, Connect},
     completion::AppliedOnly,
@@ -35,8 +39,6 @@ use grafton_visca::{
     request::builtin::{ZoomDrive, ZoomStop},
 };
 
-const ZOOM_TELE: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x02, 0xff];
-const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 const IDLE_SESSIONS: usize = 8;
 const IDLE_WINDOW: Duration = Duration::from_secs(2);
 const STOP_SAMPLES: usize = 100;
@@ -141,19 +143,19 @@ fn camera(peer: UdpSocket, arrivals: mpsc::Sender<Instant>) {
     let mut buffer = [0_u8; 64];
     while let Ok((length, from)) = peer.recv_from(&mut buffer) {
         let arrived = Instant::now();
-        let replies: &[&[u8]] = match &buffer[..length] {
-            ZOOM_TELE => &[&[0x90, 0x41, 0xff]],
+        let replies = match &buffer[..length] {
+            ZOOM_TELE => vec![frames::ack(1)],
             ZOOM_STOP => {
                 if arrivals.send(arrived).is_err() {
                     return;
                 }
-                &[&[0x90, 0x42, 0xff], &[0x90, 0x52, 0xff]]
+                vec![frames::ack(2), frames::complete(2)]
             }
             QUIT => return,
-            _ => &[],
+            _ => Vec::new(),
         };
         for reply in replies {
-            peer.send_to(reply, from).expect("camera reply");
+            peer.send_to(&reply, from).expect("camera reply");
         }
     }
 }

@@ -1,9 +1,9 @@
 //! Focused tests for timeout primitives and deterministic transport behavior.
 //!
 //! Category-to-deadline preparation is covered by the production-owned tests
-//! in `src/prepared.rs`; this integration test keeps the public category oracle
-//! and test transport behavior honest without pretending that a raw transport
-//! smoke test exercises owner deadline selection.
+//! in `src/prepared.rs`. This integration test pins the public category
+//! defaults and the scripted transport's timeout behaviour; it does not claim
+//! that a raw transport smoke test exercises owner deadline selection.
 
 #[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {

@@ -1,17 +1,31 @@
 //! Runtime validation for the owner-backed dynamic API.
 //!
-//! These tests intentionally use a tiny in-memory transport instead of the
-//! legacy test-kit camera.  That keeps the assertions at the final
-//! `Session`/`DynSessionCamera` boundary and makes it possible to prove that
-//! profile rejection and dynamic capability gates happen before a write.
+//! These tests drive the final `Session`/`DynSessionCamera` boundary over the
+//! suite's fake camera, which makes it possible to prove that profile
+//! rejection and dynamic capability gates happen before a write.
+//!
+//! Every scenario is generic over the executor and runs under each enabled
+//! runtime, as the cases `scenario::tokio` and `scenario::smol`. One fixture
+//! serves both runtimes: a command is answered with ACK (and completion when
+//! the fixture completes), an inquiry with a compact data reply, and a serial
+//! fixture reports serial addressing and stream semantics while an IP fixture
+//! reports datagram semantics.
 
-#![cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
+#![cfg(all(
+    feature = "dyn-api",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
+
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
-    future::Future,
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::Duration,
 };
 
@@ -26,13 +40,12 @@ use grafton_visca::{
     profiles::PtzOpticsG2,
     request::builtin::{PanTiltHome, ZoomStop},
     state_cache::StateEntry,
-    transport::{
-        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
-    CameraId, CancellationOutcome, Error, OperationalTuning, Session, SessionConfig, StateKey,
-    TokioRuntime,
+    transport::{AddressingMode, SendSemantics, TransportConfig},
+    CameraId, CancellationOutcome, Error, Executor, OperationalTuning, Session, SessionConfig,
+    StateKey,
 };
+
+use fake_camera::{frames, AsyncWire, FakeCamera};
 
 /// The dynamic noun methods return one boxed future.  Count only construction
 /// allocations and compare that with an explicitly boxed static future; this
@@ -91,123 +104,58 @@ fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOptics G2 profile")
 }
 
-/// In-memory owner transport.  A command receives the normal ACK and
-/// completion pair; an inquiry receives a compact valid response.  The
-/// transport records writes so preflight tests can assert that no I/O was
-/// attempted.
-#[derive(Debug)]
-struct ProbeTransport {
-    config: TransportConfig,
-    responses: flume::Receiver<Vec<u8>>,
-    response_tx: flume::Sender<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    complete: bool,
-}
-
-impl ProbeTransport {
-    fn new(complete: bool) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let (response_tx, responses) = flume::unbounded();
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                config: TransportConfig::default(),
-                responses,
-                response_tx,
-                writes: Arc::clone(&writes),
-                complete,
-            },
-            writes,
-        )
-    }
-
-    fn serial(complete: bool) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let (mut transport, writes) = Self::new(complete);
-        transport.config.addressing = AddressingMode::Serial;
-        (transport, writes)
-    }
-
-    fn source(&self, bytes: &[u8]) -> u8 {
-        let target = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-        match self.config.addressing {
-            AddressingMode::Serial => 0x80 | target.saturating_add(8) << 4,
+/// The fixture's fake camera. A command receives the normal ACK and, when
+/// `complete`, completion; an inquiry receives a compact valid response. Each
+/// reply comes from the addressed camera on a serial bus and from camera 1 on
+/// IP.
+fn probe_camera(addressing: AddressingMode, complete: bool) -> FakeCamera {
+    FakeCamera::new(move |write, answer| {
+        let target = write.first().copied().unwrap_or(0x81) & 0x0f;
+        let source = match addressing {
+            AddressingMode::Serial => 0x80 | (target.saturating_add(8) << 4),
             AddressingMode::Ip => 0x90,
+        };
+        let replies = if write.get(1) == Some(&0x09) {
+            vec![frames::inquiry_reply(&[])]
+        } else if complete {
+            vec![frames::ack(1), frames::complete(1)]
+        } else {
+            vec![frames::ack(1)]
+        };
+        for mut reply in replies {
+            reply[0] = source;
+            answer.reply(reply);
         }
-    }
+    })
 }
 
-impl HasTransportConfig for ProbeTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
+/// A wire onto `camera` that reports `addressing` and the send semantics that
+/// go with it: stream for serial, datagram for IP.
+fn probe_wire(camera: &FakeCamera, addressing: AddressingMode) -> AsyncWire {
+    let mut config = TransportConfig::default();
+    config.addressing = addressing;
+    let semantics = match addressing {
+        AddressingMode::Serial => SendSemantics::Stream,
+        AddressingMode::Ip => SendSemantics::Datagram,
+    };
+    camera
+        .async_wire()
+        .with_config(config)
+        .with_addressing(addressing)
+        .with_semantics(semantics)
 }
 
-impl AsyncTransport for ProbeTransport {
-    fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-        let bytes = bytes.to_vec();
-        let source = self.source(&bytes);
-        let complete = self.complete;
-        let response_tx = self.response_tx.clone();
-        self.writes
-            .lock()
-            .expect("probe writes lock")
-            .push(bytes.clone());
-        async move {
-            if bytes.get(1) == Some(&0x09) {
-                response_tx
-                    .send_async(vec![source, 0x50, 0xff])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-            } else {
-                response_tx
-                    .send_async(vec![source, 0x41, 0xff])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-                if complete {
-                    response_tx
-                        .send_async(vec![source, 0x51, 0xff])
-                        .await
-                        .map_err(|_| Error::connection_closed(None))?;
-                }
-            }
-            Ok(())
-        }
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn recv_into<'a>(
-        &'a mut self,
-        destination: &'a mut [u8],
-    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-        async move {
-            let response = self
-                .responses
-                .recv_async()
-                .await
-                .map_err(|_| Error::connection_closed(None))?;
-            Ok(ReceiveOutcome::copy_message(&response, destination))
-        }
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        match self.config.addressing {
-            AddressingMode::Serial => SendSemantics::Stream,
-            AddressingMode::Ip => SendSemantics::Datagram,
-        }
-    }
+/// A fake camera and the wire onto it. The camera records the writes.
+fn probe(addressing: AddressingMode, complete: bool) -> (FakeCamera, AsyncWire) {
+    let camera = probe_camera(addressing, complete);
+    let wire = probe_wire(&camera, addressing);
+    (camera, wire)
 }
 
-async fn open_session(transport: ProbeTransport, config: SessionConfig) -> Session {
-    Session::open(
-        transport,
-        config,
-        TokioRuntime::from_current().expect("Tokio runtime"),
-    )
-    .await
-    .expect("owner session")
+async fn open_session<E: Executor>(wire: AsyncWire, config: SessionConfig, executor: E) -> Session {
+    Session::open(wire, config, executor)
+        .await
+        .expect("owner session")
 }
 
 fn assert_unknown(camera: &DynSessionCamera) {
@@ -224,10 +172,9 @@ fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
     }
 }
 
-#[tokio::test]
-async fn tokio_dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles() {
-    let (transport, writes) = ProbeTransport::new(true);
-    let session = open_session(transport, SessionConfig::new(profile())).await;
+async fn dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles<E: Executor>(executor: E) {
+    let (fake, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session.camera_dyn().expect("dynamic camera");
     let root: &dyn DynSessionCameraControl = &camera;
     let nouns: &dyn DynSessionCameraNouns = &camera;
@@ -271,14 +218,13 @@ async fn tokio_dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles() {
         .await
         .expect("custom applied lifecycle");
 
-    assert_eq!(writes.lock().expect("writes lock").len(), 4);
+    assert_eq!(fake.write_count(), 4);
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
-    let (transport, writes) = ProbeTransport::new(true);
-    let session = open_session(transport, SessionConfig::new(profile())).await;
+async fn dynamic_unsupported_gate_rejects_before_transport_io<E: Executor>(executor: E) {
+    let (fake, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let camera = session.camera_dyn().expect("dynamic camera");
 
     let error = camera
@@ -293,19 +239,18 @@ async fn tokio_dynamic_unsupported_gate_rejects_before_transport_io() {
             ..
         }
     ));
-    assert!(writes.lock().expect("writes lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
 
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
-    let (transport, _) = ProbeTransport::serial(true);
+async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(executor: E) {
+    let (_, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config
         .register_target(CameraId::CAMERA_2, profile())
         .expect("camera 2 registration");
-    let session = open_session(transport, config).await;
+    let session = open_session(transport, config, executor.clone()).await;
     let first = session
         .camera_dyn_for(CameraId::CAMERA_1)
         .expect("camera 1 dynamic view");
@@ -338,21 +283,20 @@ async fn tokio_dynamic_cache_views_share_state_and_isolate_targets() {
 
     // A fresh owner receives a fresh fixed registry; state never leaks from
     // a previous session even when the profile is identical.
-    let (fresh_transport, _) = ProbeTransport::new(true);
-    let fresh = open_session(fresh_transport, SessionConfig::new(profile())).await;
+    let (_, fresh_transport) = probe(AddressingMode::Ip, true);
+    let fresh = open_session(fresh_transport, SessionConfig::new(profile()), executor).await;
     let fresh_camera = fresh.camera_dyn().expect("fresh dynamic camera");
     assert_unknown(&fresh_camera);
     fresh.shutdown().expect("fresh shutdown");
 }
 
-#[tokio::test]
-async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
-    let (transport, writes) = ProbeTransport::serial(true);
+async fn dynamic_target_selection_rejects_implicit_multi_target_view<E: Executor>(executor: E) {
+    let (fake, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
     config
         .register_target(CameraId::CAMERA_2, profile())
         .expect("camera 2 registration");
-    let session = open_session(transport, config).await;
+    let session = open_session(transport, config, executor).await;
 
     assert!(matches!(session.camera_dyn(), Err(Error::InvalidState(_))));
     let selected = session
@@ -366,43 +310,36 @@ async fn tokio_dynamic_target_selection_rejects_implicit_multi_target_view() {
         session.camera::<PtzOpticsG2>(),
         Err(Error::InvalidState(_))
     ));
-    assert!(writes.lock().expect("writes lock").is_empty());
+    assert_eq!(fake.write_count(), 0);
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn tokio_dynamic_queued_targeted_cancel_is_owner_local() {
-    let (transport, writes) = ProbeTransport::new(false);
+async fn dynamic_queued_targeted_cancel_is_owner_local<E: Executor>(executor: E) {
+    let (fake, transport) = probe(AddressingMode::Ip, false);
     let config = SessionConfig::new(profile())
         .with_tuning(OperationalTuning::new().maximum_command_sockets(1));
-    let session = open_session(transport, config).await;
+    let session = open_session(transport, config, executor.clone()).await;
     let camera = session.camera_dyn().expect("dynamic camera");
     let nouns: &dyn DynSessionCameraNouns = &camera;
 
     let first = nouns.zoom().stop().await.expect("first operation");
-    for _ in 0..100 {
-        if !writes.lock().expect("writes lock").is_empty() {
-            break;
-        }
-        tokio::task::yield_now().await;
-    }
-    assert_eq!(writes.lock().expect("writes lock").len(), 1);
+    fake.wait_for_writes_async(&executor, 1).await;
+    assert_eq!(fake.write_count(), 1);
 
     let mut queued = nouns.pan_tilt().home().await.expect("queued operation");
     assert!(matches!(
         queued.cancel_with_timeout(Duration::from_secs(1)).await,
         Ok(CancellationOutcome::Cancelled)
     ));
-    assert_eq!(writes.lock().expect("writes lock").len(), 1);
+    assert_eq!(fake.write_count(), 1);
 
     first.detach();
     session.shutdown().expect("shutdown");
 }
 
-#[tokio::test]
-async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
-    let (transport, _) = ProbeTransport::new(true);
-    let session = open_session(transport, SessionConfig::new(profile())).await;
+async fn dynamic_future_construction_matches_one_explicit_static_box<E: Executor>(executor: E) {
+    let (_, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile()), executor).await;
     let static_camera = session.camera::<PtzOpticsG2>().expect("static camera");
     let dynamic_camera = session.camera_dyn().expect("dynamic camera");
     let nouns: &dyn DynSessionCameraNouns = &dynamic_camera;
@@ -427,6 +364,146 @@ async fn tokio_dynamic_future_construction_matches_one_explicit_static_box() {
 
     session.shutdown().expect("shutdown");
 }
+
+async fn dynamic_noun_targeted_and_applied_handles_share_owner<E: Executor>(executor: E) {
+    let (_, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile()), executor).await;
+    let camera = session.camera_dyn().expect("dynamic camera");
+    let nouns: &dyn DynSessionCameraNouns = &camera;
+
+    nouns
+        .zoom()
+        .stop()
+        .await
+        .expect("applied operation admission")
+        .applied()
+        .await
+        .expect("applied operation completion");
+    nouns
+        .pan_tilt()
+        .home()
+        .await
+        .expect("targeted operation admission")
+        .applied()
+        .await
+        .expect("targeted operation completion");
+
+    session.shutdown().expect("shutdown");
+}
+
+async fn dynamic_motion_view_delegates_to_same_owner<E: Executor>(executor: E) {
+    let (_, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile()), executor).await;
+    let camera = session.camera_dyn().expect("dynamic camera");
+
+    camera
+        .motion()
+        .stop_all_motion()
+        .await
+        .expect("motion safety delegation")
+        .into_result()
+        .expect("each supported STOP applied");
+    session.shutdown().expect("shutdown");
+}
+
+async fn dynamic_unsupported_gate_and_target_selection_are_preflighted<E: Executor>(executor: E) {
+    let (fake, first_transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(
+        first_transport,
+        SessionConfig::new(profile()),
+        executor.clone(),
+    )
+    .await;
+    let camera = session.camera_dyn().expect("dynamic camera");
+    let error = camera
+        .zoom()
+        .set_digital_zoom(true)
+        .await
+        .expect_err("unsupported digital zoom must fail before I/O");
+    assert!(matches!(
+        error,
+        Error::FeatureNotSupported {
+            feature: "digital zoom",
+            ..
+        }
+    ));
+    assert_eq!(fake.write_count(), 0);
+    session.shutdown().expect("shutdown");
+
+    let (fake, transport) = probe(AddressingMode::Serial, true);
+    let mut config = SessionConfig::new(profile());
+    config
+        .register_target(CameraId::CAMERA_2, profile())
+        .expect("camera 2 registration");
+    let session = open_session(transport, config, executor).await;
+    assert!(matches!(session.camera_dyn(), Err(Error::InvalidState(_))));
+    let selected = session
+        .camera_dyn_for(CameraId::CAMERA_2)
+        .expect("explicit target selection");
+    assert_eq!(selected.target(), CameraId::CAMERA_2);
+    assert_eq!(fake.write_count(), 0);
+    session.shutdown().expect("shutdown");
+}
+
+async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor: E) {
+    let (_, transport) = probe(AddressingMode::Serial, true);
+    let mut config = SessionConfig::new(profile());
+    config
+        .register_target(CameraId::CAMERA_2, profile())
+        .expect("camera 2 registration");
+    let session = open_session(transport, config, executor).await;
+    let first = session
+        .camera_dyn_for(CameraId::CAMERA_1)
+        .expect("camera 1 view");
+    let same = session
+        .camera_dyn_for(CameraId::CAMERA_1)
+        .expect("same-target view");
+    let second = session
+        .camera_dyn_for(CameraId::CAMERA_2)
+        .expect("camera 2 view");
+    assert_eq!(
+        first.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Unknown
+    );
+    assert_eq!(
+        second.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Unknown
+    );
+    first
+        .advanced()
+        .multicast_on()
+        .await
+        .expect("owner applied multicast state");
+    assert!(matches!(
+        first
+            .state_cache()
+            .value(StateKey::MulticastStreaming),
+        StateEntry::Set(value) if value.get(0) == Some(1)
+    ));
+    assert!(matches!(
+        same.state_cache()
+            .value(StateKey::MulticastStreaming),
+        StateEntry::Set(value) if value.get(0) == Some(1)
+    ));
+    assert_eq!(
+        second.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Unknown
+    );
+    session.shutdown().expect("shutdown");
+}
+
+runtime_matrix!(
+    dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles,
+    dynamic_unsupported_gate_rejects_before_transport_io,
+    dynamic_cache_views_share_state_and_isolate_targets,
+    dynamic_target_selection_rejects_implicit_multi_target_view,
+    dynamic_queued_targeted_cancel_is_owner_local,
+    dynamic_future_construction_matches_one_explicit_static_box,
+    dynamic_noun_targeted_and_applied_handles_share_owner,
+    dynamic_motion_view_delegates_to_same_owner,
+    dynamic_unsupported_gate_and_target_selection_are_preflighted,
+    dynamic_cache_views_share_and_isolate_owner_state,
+);
 
 // Keep the command imported in this binary so the cache test proves the
 // canonical state effect through the same public request type used by static

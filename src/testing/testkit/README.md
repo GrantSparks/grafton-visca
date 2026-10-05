@@ -71,8 +71,10 @@ The `executor_selection` module provides utilities to help choose the appropriat
 
 - `TestExecutorType`: Enum of available executor types
 - `TestExecutorSelector`: Trait for selecting appropriate executors
-- `logic_test!` macro: Creates tests with DeterministicExecutor
-- `timeout_test!` macro: Creates tests with real runtime executors
+
+Integration tests that run one scenario on several runtimes or facades use the
+suite's shared harness in `tests/common/` (`runtime_matrix!` and the facade
+matrix) rather than per-file entry points.
 
 ## Migration Guide
 
@@ -103,4 +105,4 @@ The root cause of the timeout handling issues:
 1. **Default to logic tests**: When possible, design tests to verify logic rather than timing
 2. **Isolate timeout behavior**: Keep timeout-specific tests separate and minimal
 3. **Document executor choice**: Always explain why a particular executor was chosen
-4. **Use test utilities**: Leverage the provided macros and utilities for consistency
+4. **Use test utilities**: Leverage the provided executors, scripted transports, and frame helpers for consistency

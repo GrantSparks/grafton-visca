@@ -11,6 +11,7 @@ fails if the procedural adapter tries to resolve `grafton-visca` from the
 final caller instead of using the defining declarative macro's hygienic
 `$crate` path.
 
-This is a compile contract under `api/2.0.0-rc.1/README.md` lines 65-74. The
-hidden adapter is intentionally absent from rustdoc API snapshots, while the
-downstream behavior of its expansion remains release-gated.
+This is a compile contract under the "What is and is not in the files" section
+of `api/2.0.0-rc.1/README.md`. The hidden adapter is intentionally absent from
+rustdoc API snapshots, while the downstream behavior of its expansion remains
+release-gated.
