@@ -5,9 +5,8 @@ the 2.0 architecture must retain. The supported-surface inventory test checks
 the closed lists below against the current registry and source; an intentional
 change must update the implementation, this inventory, and that test together.
 
-Historical 1.x behavior decisions and the retained direct v2 regressions and
-goldens are documented in
-[`behavioral_parity_1x.md`](behavioral_parity_1x.md).
+Caller-visible differences from 1.x are recorded in
+[`migration_2_0.md`](migration_2_0.md).
 
 ## Profiles, envelopes, and transports
 

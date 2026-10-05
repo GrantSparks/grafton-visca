@@ -36,7 +36,7 @@
 //! # Why some ledger items carry `#[allow(dead_code)]`
 //!
 //! The ledger also records domains and axis vocabulary needed by the source
-//! and parity audits. Items that are not yet needed by a runtime path carry a
+//! audits. Items that are not yet needed by a runtime path carry a
 //! targeted allowance. [`WriteOnlyState`] is deliberately not among them: the
 //! engine's applied-state projection consumes it in production.
 
@@ -1435,160 +1435,213 @@ mod tests {
         }));
     }
 
-    /// Machine-checks the timeout-policy partition documented in
-    /// `docs/behavioral_parity_1x.md`: of the 149 `BuiltinCommand` rows,
-    /// 29 carry an intentional 1.x timeout-category change, one is a new-v2
-    /// command without a 1.x category, and 119 preserve their 1.x category.
-    /// Pinning the universe size and the two explicit sets here means adding a
-    /// command or editing either decision set fails this test until that guide's
-    /// table and counts are updated to match (issue #689). It does not re-derive
-    /// the 1.x categories; it keeps the documented partition from silently
-    /// rotting the way it did when `ImageFlipBoth` was omitted (miscounting the
-    /// pre-#727 preserved partition as 121 rather than 120).
+    /// Pins the request policy of every built-in row whose timeout class or
+    /// retry class is a deliberate decision rather than the generic default for
+    /// its domain, so that changing one is a visible, reviewed edit here.
+    ///
+    /// - Urgent stops and focus triggers complete on the quick deadline but keep
+    ///   the movement retry class, because an unacknowledged stop must still be
+    ///   retried on movement error evidence.
+    /// - Pan/tilt limit edits and focus-mode settings change configuration, not
+    ///   position, so they are plain quick/standard writes.
+    /// - Targeted iris and ND-filter operations settle through profile-selected
+    ///   protocol inquiries, so they use the movement deadline.
+    /// - Image-tuning writes (sharpness, gamma, noise reduction, flip) are quick
+    ///   configuration writes; the 2D noise-reduction mode control shares that
+    ///   policy.
+    /// - `CommandCancel` is quick and never retried; preset set/reset/recall use
+    ///   the preset deadline and retry class.
     #[test]
-    fn timeout_category_partition_preserves_the_1x_provenance_boundary() {
-        // The rows whose v2 `TimeoutClass` intentionally differs from their 1.x
-        // timeout category, grouped exactly as the migration table lists them.
-        const TIMEOUT_CATEGORY_CHANGES: &[BuiltinCommand] = &[
-            // Movement -> Quick: urgent stops, plain limit/mode edits, and
-            // focus-mode/trigger commands.
+    fn deliberate_request_timeout_and_retry_policies_are_pinned() {
+        use crate::request::builtin as req;
+        use crate::{RetryClass as Retry, TimeoutClass as Timeout};
+
+        fn pin<R: crate::Request>(
+            command: BuiltinCommand,
+            timeout: Timeout,
+            retry: Retry,
+            pinned: &mut HashSet<BuiltinCommand>,
+        ) {
+            assert_eq!(R::TIMEOUT_CLASS, timeout, "{command:?} timeout class");
+            assert_eq!(R::RETRY_CLASS, retry, "{command:?} retry class");
+            assert!(
+                BuiltinCommand::ALL.contains(&command),
+                "{command:?} is not a BuiltinCommand row"
+            );
+            assert!(pinned.insert(command), "{command:?} pinned twice");
+        }
+
+        let mut pinned = HashSet::new();
+        let p = &mut pinned;
+
+        // Urgent stops and applied-only focus triggers: quick deadline,
+        // movement retry class.
+        pin::<req::PanTiltStop>(
             BuiltinCommand::PanTiltStop,
-            BuiltinCommand::ZoomStop,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::ZoomStop>(BuiltinCommand::ZoomStop, Timeout::Quick, Retry::Movement, p);
+        pin::<req::FocusStop>(
             BuiltinCommand::FocusStop,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::FocusTrigger>(
+            BuiltinCommand::FocusOnePush,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::FocusTrigger>(
+            BuiltinCommand::FocusSnap,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::PushAfPress>(
+            BuiltinCommand::PushAfPress,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::PushAfRelease>(
+            BuiltinCommand::PushAfRelease,
+            Timeout::Quick,
+            Retry::Movement,
+            p,
+        );
+
+        // Plain configuration edits: quick deadline, standard retry class.
+        pin::<req::PanTiltLimitSet>(
             BuiltinCommand::PanTiltLimitSet,
+            Timeout::Quick,
+            Retry::Standard,
+            p,
+        );
+        pin::<req::PanTiltLimitClear>(
             BuiltinCommand::PanTiltLimitClear,
+            Timeout::Quick,
+            Retry::Standard,
+            p,
+        );
+        for command in [
             BuiltinCommand::FocusAuto,
             BuiltinCommand::FocusManual,
             BuiltinCommand::FocusToggle,
-            BuiltinCommand::FocusOnePush,
-            BuiltinCommand::FocusSnap,
-            // Quick -> Movement: targeted physical iris / ND filter operations.
-            BuiltinCommand::IrisReset,
-            BuiltinCommand::IrisUp,
-            BuiltinCommand::IrisDown,
-            BuiltinCommand::IrisDirect,
-            BuiltinCommand::NdFilterDirect,
-            BuiltinCommand::NdFilterStepUp,
-            BuiltinCommand::NdFilterStepDown,
-            // Custom -> Quick: explicit configuration writes 1.x left in the
-            // uncategorized 60-second fallback. `ImageFlipBoth` shares the
-            // combined-flip opcode's treatment with `ImageFlipCombined`.
+        ] {
+            pin::<req::FocusModeCommand>(command, Timeout::Quick, Retry::Standard, p);
+        }
+        for command in [
             BuiltinCommand::SharpnessMode,
             BuiltinCommand::SharpnessReset,
             BuiltinCommand::SharpnessUp,
             BuiltinCommand::SharpnessDown,
             BuiltinCommand::SharpnessDirect,
+        ] {
+            pin::<crate::command::Sharpness>(command, Timeout::Quick, Retry::Standard, p);
+        }
+        pin::<crate::command::GammaCommand>(
             BuiltinCommand::Gamma,
+            Timeout::Quick,
+            Retry::Standard,
+            p,
+        );
+        for command in [
             BuiltinCommand::NoiseReduction2d,
             BuiltinCommand::NoiseReduction2dOff,
+        ] {
+            pin::<crate::command::NoiseReduction2D>(command, Timeout::Quick, Retry::Standard, p);
+        }
+        for command in [
             BuiltinCommand::NoiseReduction3d,
             BuiltinCommand::NoiseReduction3dOff,
+        ] {
+            pin::<crate::command::NoiseReduction3D>(command, Timeout::Quick, Retry::Standard, p);
+        }
+        pin::<crate::command::NoiseReduction2DModeCommand>(
+            BuiltinCommand::NoiseReduction2dMode,
+            Timeout::Quick,
+            Retry::Standard,
+            p,
+        );
+        for command in [
             BuiltinCommand::ImageFlipBoth,
             BuiltinCommand::ImageFlipCombined,
-        ];
-
-        // `01 04 50` is a v2 control added from current vendor evidence. 1.x
-        // exposed only an NR-mode inquiry, not a matching setter, so it has no
-        // 1.x command timeout category to preserve or intentionally change.
-        const NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY: &[BuiltinCommand] =
-            &[BuiltinCommand::NoiseReduction2dMode];
-
-        fn assert_current_policy<R: crate::Request>(
-            command: BuiltinCommand,
-            expected_timeout: crate::TimeoutClass,
-            expected_retry: crate::RetryClass,
-        ) {
-            assert_eq!(
-                R::TIMEOUT_CLASS,
-                expected_timeout,
-                "{command:?} v2 timeout policy"
-            );
-            assert_eq!(
-                R::RETRY_CLASS,
-                expected_retry,
-                "{command:?} v2 retry policy"
+        ] {
+            pin::<crate::command::ImageFlipCombinedCommand>(
+                command,
+                Timeout::Quick,
+                Retry::Standard,
+                p,
             );
         }
 
-        // These literal v2 policies cover the four restored 1.x rows and the
-        // v2-only companion control. This verifies their present request policy;
-        // the historical 1.x category remains documented evidence, not an oracle
-        // reconstructed by this test.
-        assert_current_policy::<crate::command::NoiseReduction2D>(
-            BuiltinCommand::NoiseReduction2d,
-            crate::TimeoutClass::Quick,
-            crate::RetryClass::Standard,
+        // Targeted iris and ND-filter operations: movement deadline and retry.
+        pin::<req::IrisReset>(
+            BuiltinCommand::IrisReset,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
         );
-        assert_current_policy::<crate::command::NoiseReduction2D>(
-            BuiltinCommand::NoiseReduction2dOff,
-            crate::TimeoutClass::Quick,
-            crate::RetryClass::Standard,
+        pin::<req::IrisUp>(
+            BuiltinCommand::IrisUp,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
         );
-        assert_current_policy::<crate::command::NoiseReduction3D>(
-            BuiltinCommand::NoiseReduction3d,
-            crate::TimeoutClass::Quick,
-            crate::RetryClass::Standard,
+        pin::<req::IrisDown>(
+            BuiltinCommand::IrisDown,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
         );
-        assert_current_policy::<crate::command::NoiseReduction3D>(
-            BuiltinCommand::NoiseReduction3dOff,
-            crate::TimeoutClass::Quick,
-            crate::RetryClass::Standard,
+        pin::<req::IrisDirect>(
+            BuiltinCommand::IrisDirect,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
         );
-        assert_current_policy::<crate::command::NoiseReduction2DModeCommand>(
-            BuiltinCommand::NoiseReduction2dMode,
-            crate::TimeoutClass::Quick,
-            crate::RetryClass::Standard,
+        pin::<req::NdFilterDirect>(
+            BuiltinCommand::NdFilterDirect,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::NdFilterStepUp>(
+            BuiltinCommand::NdFilterStepUp,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
+        );
+        pin::<req::NdFilterStepDown>(
+            BuiltinCommand::NdFilterStepDown,
+            Timeout::Movement,
+            Retry::Movement,
+            p,
         );
 
-        // Universe size is pinned; a new command must be triaged as changed,
-        // preserved, or explicitly without 1.x provenance (and the doc updated)
-        // rather than silently shifting the total.
-        assert_eq!(
-            BuiltinCommand::ALL.len(),
-            149,
-            "BuiltinCommand universe changed; re-derive the parity counts in \
-             docs/behavioral_parity_1x.md"
+        // Cancellation is never replayed; presets have their own class.
+        pin::<crate::command::system::CommandCancelCommand>(
+            BuiltinCommand::CommandCancel,
+            Timeout::Quick,
+            Retry::Never,
+            p,
         );
-
-        // The explicit changed/new-v2 sets are distinct and contain only real
-        // command rows. The preserved set is their complement, so it does not
-        // duplicate the source-derived command inventory as a second oracle.
-        let mut seen = HashSet::new();
-        for command in TIMEOUT_CATEGORY_CHANGES {
-            assert!(
-                seen.insert(*command),
-                "{command:?} listed twice in the timeout-category change set"
-            );
-            assert!(
-                BuiltinCommand::ALL.contains(command),
-                "{command:?} is not a BuiltinCommand row"
-            );
-        }
-        for command in NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY {
-            assert!(
-                seen.insert(*command),
-                "{command:?} is listed in more than one timeout-category partition"
-            );
-            assert!(
-                BuiltinCommand::ALL.contains(command),
-                "{command:?} is not a BuiltinCommand row"
-            );
-        }
-
-        let changed = TIMEOUT_CATEGORY_CHANGES.len();
-        let new_v2_without_1x_category = NEW_V2_WITHOUT_1X_TIMEOUT_CATEGORY.len();
-        let preserved = BuiltinCommand::ALL.len() - changed - new_v2_without_1x_category;
-        assert_eq!(
-            changed, 29,
-            "documented intentional timeout-category changes"
+        pin::<req::PresetSet>(BuiltinCommand::PresetSet, Timeout::Preset, Retry::Preset, p);
+        pin::<req::PresetReset>(
+            BuiltinCommand::PresetReset,
+            Timeout::Preset,
+            Retry::Preset,
+            p,
         );
-        assert_eq!(
-            new_v2_without_1x_category, 1,
-            "new-v2 command rows without a 1.x timeout category"
-        );
-        assert_eq!(
-            preserved, 119,
-            "command rows that retain their 1.x timeout category"
+        pin::<req::PresetRecall>(
+            BuiltinCommand::PresetRecall,
+            Timeout::Preset,
+            Retry::Preset,
+            p,
         );
     }
 }

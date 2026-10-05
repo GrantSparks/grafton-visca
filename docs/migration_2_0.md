@@ -1065,6 +1065,26 @@ Runtime updates are validated on exactly the grounds `SessionConfig::with_tuning
 validates on, so tuning that would have been refused at construction is refused
 here too and leaves the live configuration untouched.
 
+### Built-in command timeout categories
+
+2.0 re-derives the timeout category of several built-in commands from what the
+command does, so the deadline a command waits for differs from 1.x for these
+rows (the retry class, which decides what may be replayed, is a separate
+2.0 fact):
+
+| Commands | 1.x category | 2.0 category | Why |
+| --- | --- | --- | --- |
+| `PanTiltStop`, `ZoomStop`, `FocusStop`, `FocusOnePush`, `FocusSnap` | Movement | Quick | Urgent stops and applied-only triggers use the quick deadline and keep movement retry/error semantics. |
+| `PanTiltLimitSet`, `PanTiltLimitClear`, `FocusAuto`, `FocusManual`, `FocusToggle` | Movement | Quick | Limit-state and focus-mode edits are plain configuration, not actuation. |
+| `IrisReset`, `IrisUp`, `IrisDown`, `IrisDirect`, `NdFilterDirect`, `NdFilterStepUp`, `NdFilterStepDown` | Quick | Movement | Targeted iris and ND-filter operations settle through profile-selected protocol inquiries. |
+| `Sharpness*`, `Gamma`, `NoiseReduction2d`/`3d` and their `Off` forms, `ImageFlipBoth`, `ImageFlipCombined` | Custom (an uncategorized 60 s fallback) | Quick | Explicit quick configuration writes. |
+| All 63 queryable inquiries | Quick | Inquiry | Inquiry response timing is a separate profile fact; see "Inquiry response" above. |
+
+`CommandCancel` stays Quick and is never retried. `PresetSet` and `PresetReset`
+keep the Preset deadline and retry class. `NoiseReduction2dMode` (`01 04 50`)
+is a new 2.0 control with no 1.x counterpart; it is Quick with the standard
+retry class.
+
 ## Recovery changes
 
 Do not reconnect by reusing a poisoned owner, old view, subscriber, or operation
@@ -1133,6 +1153,13 @@ underlying transport error's text retained in its reason. `StreamPoisoned` is
 reserved for a stream whose framing or write position became unknowable (for
 example, a failed stream write or unrecoverable framer loss); a failed read
 does not by itself establish stream poison because it consumed no bytes.
+
+**Sustained receive faults close the session.** 1.x retried every
+non-`ConnectionClosed` read error indefinitely. In 2.0 a run of twelve
+consecutive transient receive faults that spans at least one second closes the
+session as `ConnectionClosed` with the last cause retained; a successful read
+or a five-second gap between faults resets the run, and an idle read does
+not reset it.
 
 **Behavior change (issue #671).** In an earlier 2.0 preview an unconfirmable raw
 command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to

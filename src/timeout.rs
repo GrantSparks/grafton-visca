@@ -6,10 +6,9 @@ use crate::{Error, Result};
 
 /// Exact completion values for the five command timeout classes.
 ///
-/// The defaults are the battle-tested 1.x values: Quick 5 seconds, Movement
-/// 30 seconds, Preset 60 seconds, LongRunning 300 seconds, and Network 5
-/// seconds. Inquiry deadlines are profile timing facts and are intentionally
-/// not represented here.
+/// The defaults are Quick 5 seconds, Movement 30 seconds, Preset 60 seconds,
+/// LongRunning 300 seconds, and Network 5 seconds. Inquiry deadlines are
+/// profile timing facts and are intentionally not represented here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -187,7 +186,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn command_defaults_match_the_legacy_oracle() {
+    fn command_defaults_are_the_documented_category_deadlines() {
         let defaults = CommandTimeouts::default();
         assert_eq!(defaults.quick_timeout(), Duration::from_secs(5));
         assert_eq!(defaults.movement_timeout(), Duration::from_secs(30));
