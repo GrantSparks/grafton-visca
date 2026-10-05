@@ -84,6 +84,27 @@ impl Request for StandardCommand {
     }
 }
 
+/// A plain command in the movement retry class and quick timeout class.
+///
+/// `0x41` is replayed for ordinary movement. A typed STOP is deliberately not
+/// this vehicle: a STOP the camera finds not executable (for example a focus
+/// STOP under auto-focus) is reported at once rather than rewritten.
+#[derive(Debug)]
+struct MovementCommand;
+
+impl Request for MovementCommand {
+    type Class = request::Plain;
+    const MAX_SIZE: usize = 3;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+    const RETRY_CLASS: RetryClass = RetryClass::Movement;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+        Ok(3)
+    }
+}
+
 #[derive(Debug)]
 struct Script {
     steps: VecDeque<Vec<Vec<u8>>>,
@@ -257,13 +278,35 @@ async fn a_camera_refusal_is_replayed_only_for_movement<E: Executor>(executor: E
         .expect("camera view");
 
     camera
+        .execute(&MovementCommand)
+        .await
+        .expect("a refused movement command must be replayed, not failed");
+    assert_eq!(probe.writes().len(), 2);
+    session.shutdown().await.expect("owner shutdown");
+
+    // A typed STOP refused with `0x41` reports the camera's conclusive
+    // refusal at once; resending cannot change the standing condition.
+    let transport =
+        ScriptTransport::new(vec![vec![NOT_EXECUTABLE.to_vec()]]).with_trailing(standard_reply());
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config(), executor.clone())
+        .await
+        .expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+    let error = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("submission")
         .applied_with_timeout(Duration::from_secs(5))
         .await
-        .expect("a refused movement command must be replayed, not failed");
-    assert_eq!(probe.writes().len(), 2);
+        .expect_err("a refused STOP surfaces the camera's refusal");
+    assert!(
+        matches!(error, Error::CommandNotExecutable),
+        "expected the camera's own refusal, got {error:?}"
+    );
+    assert_eq!(probe.writes().len(), 1, "a refused STOP is not rewritten");
     session.shutdown().await.expect("owner shutdown");
 
     let transport =
@@ -371,10 +414,11 @@ async fn a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_termina
     session.shutdown().await.expect("owner shutdown");
 }
 
-/// Issue #566: a sequence-correlated Sony movement request survives a lost ACK,
-/// and a command survives a camera that ACKs and then goes silent. Raw VISCA
-/// cannot replay either ambiguity safely because it has no request identity.
-async fn a_silent_sony_camera_is_retried_before_and_after_its_ack<E: Executor>(executor: E) {
+/// Issue #566: a sequence-correlated Sony movement request survives a lost ACK
+/// (same-sequence retransmission, docs/visca_reference.md §5.3). A camera
+/// that ACKs and then goes silent is never rewritten (#795): the ACK proved
+/// acceptance. Raw VISCA replays neither because it has no request identity.
+async fn a_silent_sony_camera_is_retried_only_before_its_ack<E: Executor>(executor: E) {
     let transport = ScriptTransport::new(vec![Vec::new(), standard_reply()])
         .with_sony()
         .with_trailing(standard_reply());
@@ -407,19 +451,25 @@ async fn a_silent_sony_camera_is_retried_before_and_after_its_ack<E: Executor>(e
         .await
         .expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
-    camera
+    let error = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .await
         .expect("submission")
-        .applied_with_timeout(Duration::from_secs(10))
+        .applied_with_timeout(Duration::from_secs(30))
         .await
-        .expect("a post-ACK completion timeout must be retried");
-    let writes = probe.writes();
-    assert_eq!(writes.len(), 2, "the completion timeout reissues the frame");
+        .expect_err("a post-ACK completion timeout is terminal");
     assert_eq!(
-        sony_sequence(&writes[0]),
-        sony_sequence(&writes[1]),
-        "a completion retry preserves the logical Sony request sequence"
+        error.failure_context(),
+        Some(grafton_visca::FailureContext::new(
+            grafton_visca::FailureStage::Terminal,
+            grafton_visca::Certainty::Unconfirmed
+        )),
+        "{error:?}"
+    );
+    assert_eq!(
+        probe.writes().len(),
+        1,
+        "an acknowledged command is never rewritten"
     );
     session.shutdown().await.expect("owner shutdown");
 }
@@ -487,6 +537,6 @@ runtime_matrix!(
     a_camera_refusal_is_replayed_only_for_movement,
     a_no_socket_answer_is_replayed_for_a_standard_command,
     a_builtin_inquiry_syntax_error_is_replayed_but_custom_syntax_is_terminal,
-    a_silent_sony_camera_is_retried_before_and_after_its_ack,
+    a_silent_sony_camera_is_retried_only_before_its_ack,
     an_unresolvable_cancellation_reaches_the_caller,
 );

@@ -63,7 +63,7 @@
 13 effect state id=4 from=awaiting-ack to=executing(socket=2)
 14 input frame error d socket=2 code=02 bytes=906202ff
 14 effect frame-routed id=4 target=1 via=target-socket socket=2 bytes=906202ff
-14 effect terminal id=4 outcome=Error::SyntaxError source=camera state=removed permit=released
+14 effect terminal id=4 outcome=Error::CommandFailedAfterAck(SyntaxError) source=camera state=removed permit=released
 14 effect outcome-retained id=4 observer=blocking
 15 input frame complete c bytes=9051ff
 15 effect frame-routed id=3 target=1 via=target-socket socket=1 bytes=9051ff
@@ -72,4 +72,4 @@
 16 input blocking-wait c
 16 outcome blocking-wait id=3 Applied source=protocol
 17 input blocking-wait d
-17 outcome blocking-wait id=4 Error::SyntaxError source=camera
+17 outcome blocking-wait id=4 Error::CommandFailedAfterAck(SyntaxError) source=camera

@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (#795): raw VISCA byte streams correlate every frame through one
+  write-ordered ledger per camera.** Every written request that still owes a
+  first answer is an entry in write order, and each frame resolves against
+  the oldest entry that could legally have produced it. An answer that
+  arrives after its request ended is discarded rather than given to a later
+  request, and any later answer from the camera settles older debts. Work
+  that can no longer be correlated fails unwritten with
+  `Error::InquiryCorrelationLost` / `Error::CommandCorrelationLost`, the
+  session is never poisoned for it, and STOPs are never held back: a STOP
+  waiting on correlation is written within one ACK plus one ambiguity
+  interval (1.5 s on every built-in profile, against a halt budget of at
+  least 30 s). A frame that two requests could each have sent binds to
+  neither until decisive evidence assigns it, so the requests involved may
+  end `UnsequencedCommandUnconfirmed`. The camera assumptions this relies on
+  (socket-0 first-answer errors, socket-named execution errors, one first
+  answer per request, socket naming in completions learned per session) and
+  the cost when a camera violates them are documented in
+  `docs/architecture_2_0.md`.
+- **BREAKING (scheduling, #795):** a raw `CompletionOnly` command is exclusive
+  on its camera until its completion or rejection arrives; inquiries and
+  ordinary commands queue behind it, and one STOP may wait behind it. A
+  `NoReply` command no longer holds STOPs; on a stream it waits behind an
+  owed command answer and fails `CommandCorrelationLost` once that lane
+  latches, and a `CompletionOnly` command behind an unsettled `NoReply` fails
+  the same way instead of timing out.
+- **BREAKING (#795): no command is written again after its ACK**, on raw and
+  Sony envelopes alike. A camera error after an ACK is reported as
+  `Error::CommandFailedAfterAck { source }` (`Terminal`/`Unconfirmed`, not
+  retryable); a Sony completion timeout after an ACK is an `Unconfirmed`
+  timeout instead of a resend. Typed STOPs no longer retry a `0x41` (not
+  executable) rejection, and a rejection naming a free socket fails the
+  unacknowledged command at once (the PTZOptics G2 rejects focus STOP in
+  auto focus this way), so a G2 halt reports focus `CommandNotExecutable`
+  promptly instead of after a 0.5 s ACK deadline and 1 s hold.
+- **BREAKING (#795): `Error::MotionSuperseded` gains
+  `context: FailureContext`** with exact certainty (`NotAccepted` when the
+  superseded motion was never written), and `Error::motion_superseded` takes
+  it.
+
 ### Fixed
 
 - **BREAKING (behaviour, #795): a raw VISCA inquiry over TCP can no longer
@@ -28,6 +69,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Error::CommandCorrelationLost { camera }` and
+  `Error::CommandFailedAfterAck { source }` with their constructors (#795).
 - `Error::InquiryCorrelationLost { camera }` (#795) reports a latched raw-TCP
   inquiry lane (`ErrorKind::NotExecutable`, not retryable, failure context
   `Terminal`/`NotAccepted`). The session stays live; reopening it recovers the

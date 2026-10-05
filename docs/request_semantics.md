@@ -128,7 +128,11 @@ not assume every command follows the ACK-then-completion shape. The axis is
   response-bearing raw command or inquiry work may start. Another `NoReply`
   may write during that hold because it consumes no response identity; a
   successful write extends the same fixed bound. Any delayed command response
-  during that interval is ignored rather than guessed onto later work.
+  during that interval is ignored rather than guessed onto later work. A STOP
+  is never held by it (#795): a socketless error it makes ambiguous binds to
+  neither. On a raw byte stream its possible rejection stays owed until a
+  later answer from the camera settles it, since a stall can outlast any
+  window (see `docs/architecture_2_0.md`).
 
 The shape is a command axis only. An inquiry always awaits its reply, so
 `raw::Inquiry` and shared inquiry preparation reject any non-default shape rather

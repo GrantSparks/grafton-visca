@@ -109,6 +109,12 @@ record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \
   'Error::CancellationUnconfirmed'
 record_construction UnsequencedCommandUnconfirmed src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)'
+record_construction InquiryCorrelationLost src/runtime/engine/mod.rs \
+  'return Some(Error::inquiry_correlation_lost(target));'
+record_construction CommandCorrelationLost src/runtime/engine/mod.rs \
+  '.then(|| Error::command_correlation_lost(target))'
+record_construction CommandFailedAfterAck src/runtime/engine/mod.rs \
+  'RuntimeOutcome::Failed(Error::command_failed_after_ack(error))'
 record_construction RuntimeIdentityExhausted src/runtime/engine/mod.rs \
   'error: Error::RuntimeIdentityExhausted,'
 record_construction RuntimeQueueFull src/runtime/engine/mod.rs \

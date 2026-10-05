@@ -58,6 +58,27 @@ impl Request for StandardCommand {
     }
 }
 
+/// A plain command in the movement retry class and quick timeout class.
+///
+/// `0x41` is replayed for ordinary movement. A typed STOP is deliberately not
+/// this vehicle: a STOP the camera finds not executable (for example a focus
+/// STOP under auto-focus) is reported at once rather than rewritten.
+#[derive(Debug)]
+struct MovementCommand;
+
+impl Request for MovementCommand {
+    type Class = request::Plain;
+    const MAX_SIZE: usize = 3;
+    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+    const RETRY_CLASS: RetryClass = RetryClass::Movement;
+    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+        Ok(3)
+    }
+}
+
 const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
 /// `0x41` — the camera refuses to execute right now.
@@ -245,9 +266,7 @@ fn a_refused_movement_command_is_replayed_and_then_succeeds() {
         .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("a refused movement command must be replayed, not failed");
 
     assert_eq!(
@@ -255,6 +274,32 @@ fn a_refused_movement_command_is_replayed_and_then_succeeds() {
         2,
         "the refusal is transient for a movement request, so the frame is reissued"
     );
+    session.shutdown().expect("owner shutdown");
+}
+
+/// A typed STOP refused with `0x41` reports the camera's conclusive refusal
+/// at once: resending it cannot change the standing condition (a focus STOP
+/// under auto-focus) and would only delay a halt's verdict.
+#[test]
+fn a_refused_typed_stop_surfaces_the_refusal_without_replay() {
+    let transport = ScriptTransport::new(vec![vec![NOT_EXECUTABLE.to_vec()], standard_reply()])
+        .with_trailing(standard_reply());
+    let probe = transport.probe();
+    let session = Session::open(transport, session_config()).expect("owner session");
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied_with_timeout(Duration::from_secs(5))
+        .expect_err("a refused STOP surfaces the camera's refusal");
+    assert!(
+        matches!(error, Error::CommandNotExecutable),
+        "expected the camera's own refusal, got {error:?}"
+    );
+    assert_eq!(probe.writes().len(), 1, "a refused STOP is not rewritten");
     session.shutdown().expect("owner shutdown");
 }
 
@@ -394,12 +439,13 @@ fn a_sony_movement_command_survives_a_lost_ack() {
     session.shutdown().expect("owner shutdown");
 }
 
-/// Issue #566: a sequence-correlated Sony post-ACK completion timeout is
-/// retried. `prepared.rs` hard-coded `completion_timeout: false`, so a camera
-/// that ACKed and then went silent failed on its first deadline with no second
-/// attempt.
+/// Issue #566 retried a sequence-correlated Sony post-ACK completion timeout.
+/// #795 reverses that: the ACK proved the camera accepted the command, and the
+/// cited Sony same-sequence retransmission (docs/visca_reference.md §5.3)
+/// recovers a lost message, not an accepted one. A camera that ACKs and then
+/// goes silent fails the command unconfirmed with no second write.
 #[test]
-fn a_silent_camera_after_its_ack_is_retried() {
+fn a_silent_camera_after_its_ack_is_never_rewritten() {
     let transport = ScriptTransport::new(vec![vec![ACK_SOCKET_ONE.to_vec()], standard_reply()])
         .with_trailing(standard_reply())
         .with_sony();
@@ -407,21 +453,23 @@ fn a_silent_camera_after_its_ack_is_retried() {
     let session = Session::open(transport, sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    camera
+    let error = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("submission")
-        .applied_with_timeout(Duration::from_secs(10))
-        .expect("a post-ACK completion timeout must be retried");
+        .applied_with_timeout(Duration::from_secs(30))
+        .expect_err("a post-ACK completion timeout is terminal");
+    assert_eq!(
+        error.failure_context(),
+        Some(grafton_visca::FailureContext::new(
+            grafton_visca::FailureStage::Terminal,
+            grafton_visca::Certainty::Unconfirmed
+        )),
+        "{error:?}"
+    );
     assert_eq!(
         probe.writes().len(),
-        2,
-        "the completion timeout reissues the frame"
-    );
-    let writes = probe.writes();
-    assert_eq!(
-        sony_sequence(&writes[0]),
-        sony_sequence(&writes[1]),
-        "a Sony retry must preserve the logical request sequence"
+        1,
+        "an acknowledged command is never rewritten"
     );
     session.shutdown().expect("owner shutdown");
 }

@@ -112,6 +112,17 @@ pub enum RawReplyShape {
     /// the unacknowledged-command gate expecting an ACK, so a missing ACK cannot
     /// fail or poison it. It terminates on the completion frame or, failing
     /// that, on a bounded completion deadline.
+    ///
+    /// Its answer carries no identity, so it is exclusive on its camera: it
+    /// starts only when no other command or inquiry to that camera is live,
+    /// and while it is unanswered no inquiry and no ordinary command to that
+    /// camera is written — they queue, under their own deadlines. On a raw
+    /// byte stream (TCP, serial) that lasts until its completion or
+    /// rejection arrives, even after its own deadline ended it unconfirmed;
+    /// if that answer is still missing when its ambiguity window ends, they
+    /// fail unwritten with [`crate::Error::InquiryCorrelationLost`] or
+    /// [`crate::Error::CommandCorrelationLost`] until it arrives. STOPs are
+    /// never held back by it (#795).
     CompletionOnly,
     /// A plain fire-and-forget command expects nothing back. Its `execute()`
     /// call succeeds once the local transport write succeeds; that result does
@@ -119,9 +130,24 @@ pub enum RawReplyShape {
     /// holds it waiting for a frame. To keep its later raw-correlation
     /// quarantine attributable, the owner starts it only when the target has
     /// no live command or inquiry and excludes same-target work while the
-    /// write is in flight; any later command response is then ignored through
-    /// the bounded quarantine. Raw targeted and applied-only operation
-    /// constructors/preparation reject this shape.
+    /// write is in flight; ordinary command and inquiry work then waits out
+    /// the bounded quarantine, through which its late response is ignored.
+    /// STOPs are never held back by it (#795): a STOP is written at once,
+    /// and its ACK (which this command never sends) and the completion or
+    /// error naming its socket still reach it. A socketless error in that
+    /// window could be this command's rejection or the STOP's, and binds to
+    /// neither: on a raw byte stream the STOP's own ACK proves it was this
+    /// command's; failing such proof the STOP ends
+    /// [`crate::Error::UnsequencedCommandUnconfirmed`]. On a raw byte stream
+    /// its possible rejection stays owed until a later answer from the camera
+    /// settles it (a stall can delay it past any window), so a
+    /// `CompletionOnly` command to that camera waits for that, failing with
+    /// [`crate::Error::CommandCorrelationLost`] once this command's ambiguity
+    /// window has ended; and it is
+    /// itself held back while an earlier command's answer is owed, failing
+    /// with [`crate::Error::CommandCorrelationLost`] once that lane latches.
+    /// Raw targeted and applied-only operation constructors/preparation
+    /// reject this shape.
     NoReply,
 }
 

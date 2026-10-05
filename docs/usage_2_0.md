@@ -251,6 +251,15 @@ profile/transport pair matrix as an intentional BYO escape hatch; it still
 undergoes target-registry, envelope, addressing/topology, pacing, framing,
 buffer, and bounded-owner validation.
 
+A raw command declared `RawReplyShape::CompletionOnly` answers with no ACK and
+no socket, so it is exclusive on its camera: it starts only when nothing else
+to that camera is live, and until its completion or rejection arrives no
+inquiry and no ordinary command to that camera is written — they queue under
+their own deadlines. On a raw stream that lasts even past its own deadline;
+once its ambiguity window ends unanswered, queued work fails unwritten with
+`InquiryCorrelationLost` or `CommandCorrelationLost` until the answer arrives.
+STOPs are never held back by it (#795).
+
 ## Operational tuning
 
 Use `OperationalTuning` with `SessionConfig::with_tuning` for a reusable
@@ -355,7 +364,12 @@ acceptance it fences older declared queued motion and future retries, then
 admits each supported STOP independently while respecting protocol gates.
 Subsequent motion remains eligible. Inspect each axis's `HaltOutcome`, or use
 `into_result()` to explicitly retain only the first failure. Applied STOPs
-provide protocol evidence; they do not prove physical rest.
+provide protocol evidence; they do not prove physical rest. A STOP the camera
+refuses is reported promptly and never resent: a PTZOptics G2 in auto-focus
+mode refuses the focus STOP, so `focus` is `Failed(CommandNotExecutable)` and
+`into_result()` returns that error while auto-focus owns the lens. Superseded
+motion fails with `MotionSuperseded`, whose `failure_context()` is
+`NotAccepted` when it never reached the camera.
 
 Targeted `settled*` waits return `Settlement` evidence. A later conflicting
 admission makes unfinished polled settlement return `SettlementSuperseded`,

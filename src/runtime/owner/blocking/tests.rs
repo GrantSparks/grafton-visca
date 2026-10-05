@@ -426,7 +426,12 @@ fn sony_blocking_waits_retain_out_of_order_peer_results() {
     first
         .wait()
         .expect("the first command keeps its own completion");
-    assert!(matches!(second.wait(), Err(Error::SyntaxError)));
+    // The error followed the second command's ACK, so it is unconfirmed with
+    // the camera's exact error as its source (#795).
+    assert!(matches!(
+        second.wait(),
+        Err(Error::CommandFailedAfterAck { source, .. }) if matches!(*source, Error::SyntaxError)
+    ));
     assert_eq!(owner.metrics().unwrap().active, 0);
     owner.close().unwrap();
 }

@@ -555,7 +555,10 @@ mod metrics {
         let metrics = state.metrics();
         assert_eq!(metrics.completion_timeouts, 1);
         assert_eq!(metrics.ack_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Completion, true));
+        // #795: an acknowledged Sony command is never rewritten, so its
+        // completion deadline is reported without a retry.
+        assert_eq!(metrics.retries_scheduled, 0);
+        assert!(saw_deadline(&state, DeadlineKind::Completion, false));
     }
 
     #[test]
@@ -1315,6 +1318,11 @@ mod lifecycle_trace {
         match error {
             Error::Timeout { .. } => "Timeout".to_owned(),
             Error::SyntaxError => "SyntaxError".to_owned(),
+            // #795: an error after the request's ACK keeps the camera's exact
+            // error as its source.
+            Error::CommandFailedAfterAck { source, .. } => {
+                format!("CommandFailedAfterAck({})", error_label(source))
+            }
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
             Error::CommandCanceled => "CommandCanceled".to_owned(),

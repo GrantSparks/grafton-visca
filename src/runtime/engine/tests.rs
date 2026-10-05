@@ -12,6 +12,9 @@ use smallvec::{smallvec, SmallVec};
 use super::*;
 use crate::FailureContext;
 
+mod raw_evidence;
+mod raw_stream_model;
+
 const POWER: InquiryRoute = InquiryRoute(1);
 const ZOOM: InquiryRoute = InquiryRoute(2);
 const FOCUS: InquiryRoute = InquiryRoute(3);
@@ -1647,8 +1650,12 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         sending_collision_engine.assert_invariants().unwrap();
     }
 
-    // A named socket is authoritative even when it is unowned; it cannot fall
-    // back to the target's unacknowledged command candidate.
+    // A named socket that no live request owns and no exact-socket hold
+    // covers is the socket the camera allocated for the command it rejected
+    // (the PTZOptics G2 answers `90 6y 41 FF` naming its next free socket).
+    // Like an ACK naming a free socket, it is exact evidence for the target's
+    // unique unacknowledged command when no inquiry is live. The ambiguous
+    // forms stay inert: see `tests/raw_evidence.rs`.
     {
         let mut unowned_socket_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let admission = unowned_socket_engine.handle(
@@ -1661,7 +1668,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         );
         let id = admitted(&admission);
         send_ok(&mut unowned_socket_engine, &admission, None, start);
-        let ignored = unowned_socket_engine.handle(
+        let rejected = unowned_socket_engine.handle(
             frame(
                 1,
                 None,
@@ -1672,14 +1679,9 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             ),
             start,
         );
-        assert_eq!(
-            ignored_reasons(&ignored),
-            vec![IgnoreReason::UnmatchedFrame]
-        );
-        assert!(terminal_outcome(&ignored, id).is_none());
         assert!(matches!(
-            unowned_socket_engine.entry(id).map(Entry::phase),
-            Some(Phase::AwaitingAck { .. })
+            terminal_failure(&rejected, id),
+            Some(Error::MessageLengthError)
         ));
         unowned_socket_engine.assert_invariants().unwrap();
     }
@@ -4402,6 +4404,11 @@ fn fixture_observation(
                 fixture_route_name(*route),
                 String::from_utf8_lossy(payload)
             ),
+            // #795: an error after the request's ACK keeps the camera's
+            // exact code but is reported as unconfirmed.
+            RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) => {
+                format!("error-after-ack:{}", fixture_error_code(source))
+            }
             RuntimeOutcome::Failed(error) => {
                 format!("error:{}", fixture_error_code(error))
             }
@@ -4626,7 +4633,12 @@ fn fuzz_step(
     match action % 12 {
         0 => {
             *ticket = ticket.wrapping_add(1);
+            // An urgent STOP is never blocked by a latched raw stream lane
+            // (#795), so the generator keeps writing even then.
             let request = match (action >> 16) & 0x3 {
+                _ if (action >> 40) & 0x7 == 0 => {
+                    urgent_command(target, CancellationPolicy::Supported)
+                }
                 0 => command(target, CancellationPolicy::Supported),
                 1 => inquiry(target, route),
                 2 => command_with_reply_shape(
@@ -4766,6 +4778,9 @@ struct FuzzCoverage {
     tombstoned: usize,
     single_flight_blocked: usize,
     strict_poisoned: usize,
+    /// Stream writes that failed: the step that poisoned a default-mode
+    /// stream session, which nothing else the generator does can poison.
+    failed_stream_writes: usize,
 }
 
 impl FuzzCoverage {
@@ -5323,7 +5338,16 @@ fn seed_fuzz_coverage(
             assert_eq!(engine.state(), SessionState::Poisoned);
         } else {
             assert!(phase_of(engine, id).is_none());
-            assert!(engine.raw_hold(camera(2), RawHoldScope::PreAck).is_some());
+            // A byte stream owes the lost ACK through its ledger (#795); a
+            // datagram keeps the time-bounded `PreAck` hold.
+            if configuration.transport == TransportKind::Stream {
+                assert!(engine
+                    .ledger
+                    .entries()
+                    .any(|(target, entry)| target == camera(2) && entry.is_debt()));
+            } else {
+                assert!(engine.raw_hold(camera(2), RawHoldScope::PreAck).is_some());
+            }
             let late_ack = engine.handle(
                 frame(
                     2,
@@ -5385,6 +5409,7 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
             now += Duration::from_millis(1);
+            let running = engine.state() == SessionState::Running;
             let effects = fuzz_step(
                 &mut engine,
                 envelope,
@@ -5394,6 +5419,12 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
                 &mut ticket,
                 &mut now,
             );
+            if transport == TransportKind::Stream
+                && running
+                && engine.state() == SessionState::Poisoned
+            {
+                coverage.failed_stream_writes += 1;
+            }
             coverage.record(&engine, &effects);
             engine.assert_invariants().unwrap_or_else(|violation| {
                 panic!("{envelope:?}/{transport:?} step {step}: {violation}")
@@ -5402,6 +5433,12 @@ fn arbitrary_stale_and_reordered_inputs_preserve_invariants() {
         assert!(
             fuzz_coverage_floor_met(configuration, &coverage),
             "{configuration:?} reached too little of the engine: {coverage:?}"
+        );
+        // The poisoned tail must be reached: a generator change that stops
+        // failing stream writes would otherwise drop it silently.
+        assert!(
+            transport != TransportKind::Stream || coverage.failed_stream_writes > 0,
+            "{configuration:?} never failed a stream write: {coverage:?}"
         );
         // A failed stream write poisons the session (its byte-stream position is
         // unknowable). A raw datagram's unconfirmed outcome no longer does:
@@ -6672,7 +6709,6 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Some(RawHold {
             until: hold_deadline,
             owner: Some(first_id),
-            owed_reply: OwedReply::None,
         }),
         "the predecessor's own deadline remains as unkeyed correlation protection"
     );
@@ -7040,24 +7076,14 @@ fn a_latched_ack_never_survives_into_the_next_attempt() {
         },
         start,
     );
-    engine.handle(
-        frame(
-            1,
-            Some((0x1001, SequenceWidth::Full32)),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        start,
-    );
-    assert_eq!(socket_of(&engine, id), Some(ViscaSocket::S1));
-    // Force a retry; the completion deadline releases the socket.
-    let retried = engine.advance(start + Duration::from_millis(40));
+    // Force a retry with a lost ACK. (An acknowledged command is never
+    // rewritten since #795, so a completion timeout no longer retries.)
+    let retried = engine.advance(start + Duration::from_millis(20));
     assert!(retried
         .iter()
         .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
     let retry_ready = retry_scheduled(&retried)
-        .expect("a completion timeout schedules a Sony retry")
+        .expect("a lost ACK schedules a Sony retry")
         .2;
     let resent = engine.advance(retry_ready);
     let (retry_tx, retry_id, retry_wire) = request_transmit(&resent);
@@ -7743,8 +7769,10 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
 
     // The other half of the claim, driven through the engine rather than by
     // handing `Backoff::Uncapped` to the pure function: an identical policy
-    // whose *completion* deadline is what expires must have its exponent left
-    // uncapped by the engine's own trigger selection.
+    // whose retry is triggered by a pre-ACK camera rejection must have its
+    // exponent left uncapped by the engine's own trigger selection. (A
+    // completion timeout used to be this trigger; an acknowledged command is
+    // never rewritten since #795.)
     let mut uncapped_engine = self::engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let admission = uncapped_engine.handle(
         Input::Admit {
@@ -7766,24 +7794,23 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
     let mut now = start;
     let mut uncapped_waits = Vec::new();
     for _ in 0..8 {
-        // Acknowledge inside the ACK deadline so the only deadline that can
-        // fire below is the completion one.
-        uncapped_engine.handle(
+        // Reject each attempt inside its ACK deadline, so the only retry
+        // trigger is the camera's buffer-full answer.
+        let rejected = uncapped_engine.handle(
             frame(
                 1,
                 Some((uncapped_sequence, SequenceWidth::Full32)),
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x03,
                 },
             ),
             now,
         );
-        let expired = now + Duration::from_millis(60);
-        let timed_out = uncapped_engine.handle(Input::Wake, expired);
         let (retried, attempt, ready_at) =
-            retry_scheduled(&timed_out).expect("completion timeout retry");
+            retry_scheduled(&rejected).expect("buffer-full rejection retry");
         assert_eq!(retried, uncapped_id);
-        uncapped_waits.push(ready_at - expired);
+        uncapped_waits.push(ready_at - now);
         assert_eq!(attempt, u32::try_from(uncapped_waits.len()).unwrap());
         let promoted = uncapped_engine.advance(ready_at);
         let (transmission, _, _) = request_transmit(&promoted);
@@ -7803,7 +7830,7 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
     // 128ms and every wait sits in the upper half-open band `[ceiling/2,
     // ceiling)`. Both therefore clear the capped ceiling the ACK trigger is
     // held to, which is exactly what selecting `Backoff::AckCapped` for a
-    // completion timeout would destroy.
+    // camera rejection would destroy.
     assert!(
         uncapped_waits[6] >= Duration::from_millis(32),
         "attempt 7 must have grown past the ACK ceiling, got {:?}",
@@ -10060,11 +10087,14 @@ fn no_socket_is_retried_like_a_full_command_buffer() {
     engine.assert_invariants().unwrap();
 }
 
-/// Issue #566: a post-ACK completion timeout retries. The rewrite hard-coded
-/// this off, so a camera that ACKed and then went quiet failed on the first
-/// deadline with no second attempt.
+/// Issue #566 retried a Sony post-ACK completion timeout with the same
+/// sequence. #795 reverses that: an ACK proves the camera accepted the
+/// command, and the cited Sony same-sequence retransmission
+/// (docs/visca_reference.md §5.3) recovers a lost message, not an accepted
+/// one. The completion deadline now ends the request unconfirmed without a
+/// second write.
 #[test]
-fn a_post_ack_completion_timeout_retries_the_command() {
+fn a_post_ack_completion_timeout_never_rewrites_the_command() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let admission = engine.handle(
@@ -10076,7 +10106,6 @@ fn a_post_ack_completion_timeout_retries_the_command() {
         start,
     );
     let id = admitted(&admission);
-    let (_, _, first_wire) = request_transmit(&admission);
     send_ok(&mut engine, &admission, Some(0x1001), start);
     engine.handle(
         frame(
@@ -10092,63 +10121,19 @@ fn a_post_ack_completion_timeout_retries_the_command() {
 
     // The completion deadline is 40ms after the ACK.
     let lapsed = engine.handle(Input::Wake, start + Duration::from_millis(41));
-    let (retried, attempt, ready_at) =
-        retry_scheduled(&lapsed).expect("a completion timeout must retry");
-    assert_eq!(retried, id);
-    assert_eq!(attempt, 1);
-    assert!(terminal_outcome(&lapsed, id).is_none());
+    assert!(retry_scheduled(&lapsed).is_none());
+    assert!(request_transmit_optional(&lapsed).is_none());
+    let error = terminal_failure(&lapsed, id).expect("the completion deadline is terminal");
     assert_eq!(
-        socket_of(&engine, id),
-        None,
-        "the retry releases the socket it held"
+        error.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::Unconfirmed
+        ))
     );
-
-    let promoted = engine.advance(ready_at);
-    let (transmission, sent, retry_wire) = request_transmit(&promoted);
-    assert_eq!(sent, id);
-    assert!(Arc::ptr_eq(&first_wire, &retry_wire));
-    assert!(promoted.iter().any(|effect| matches!(
-        effect,
-        Effect::Transmit {
-            kind: Transmission::Request {
-                requested_sequence: Some(0x1001),
-                ..
-            },
-            ..
-        }
-    )));
-    engine.handle(
-        Input::TransmissionFinished {
-            transmission,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1001),
-            }),
-        },
-        ready_at,
-    );
-    engine.handle(
-        frame(
-            1,
-            Some((0x1001, SequenceWidth::Full32)),
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        ready_at,
-    );
-    let done = engine.handle(
-        frame(
-            1,
-            Some((0x1001, SequenceWidth::Full32)),
-            DecodedResponse::Completion {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        ready_at,
-    );
-    assert!(
-        matches!(terminal_outcome(&done, id), Some(RuntimeOutcome::Applied)),
-        "the second attempt completes"
+    assert_eq!(
+        deadline_expiries(&lapsed, id),
+        vec![(DeadlineKind::Completion, false)]
     );
     engine.assert_invariants().unwrap();
 }
@@ -11099,7 +11084,6 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         Some(RawHold {
             until: timeout_at + Duration::from_millis(50),
             owner: Some(inquiry_id),
-            owed_reply: OwedReply::None,
         })
     );
 
@@ -11364,7 +11348,6 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
         Some(RawHold {
             until: start + Duration::from_millis(30),
             owner: Some(first),
-            owed_reply: OwedReply::None,
         })
     );
 
@@ -11388,7 +11371,6 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
         Some(RawHold {
             until: start + Duration::from_millis(35),
             owner: None,
-            owed_reply: OwedReply::None,
         })
     );
 
@@ -11972,7 +11954,6 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
         Some(RawHold {
             until: release_at,
             owner: Some(first_id),
-            owed_reply: OwedReply::None,
         })
     );
     assert_eq!(engine.next_wake(), Some(release_at));
@@ -12130,7 +12111,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             Some(RawHold {
                 until: budget_at + Duration::from_millis(50),
                 owner: Some(first_id),
-                owed_reply: OwedReply::None,
             })
         );
         assert!(matches!(
@@ -12178,7 +12158,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         Some(RawHold {
             until: release_at,
             owner: Some(first_id),
-            owed_reply: OwedReply::None,
         })
     );
     assert_eq!(engine.next_wake(), Some(release_at));
@@ -13599,10 +13578,11 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
     )
 }
 
-fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<OwedReply> {
+/// The inquiry lane's owed-reply state while the target's inquiry hold exists.
+fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
     engine
         .raw_hold(camera(target), RawHoldScope::InquiryUnkeyed)
-        .map(|hold| hold.owed_reply)
+        .map(|_| engine.ledger.lane_state(camera(target), OwedLane::Inquiry))
 }
 
 /// Times out one written raw stream inquiry at `start`'s reply deadline and
@@ -13639,9 +13619,9 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
         Some(RawHold {
             until: window_end,
             owner: Some(id),
-            owed_reply: OwedReply::Window,
         })
     );
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Window));
 
     let (_, successor) = admit(&mut engine, 2, inquiry(1, POWER), timeout_at);
     assert!(matches!(
@@ -13661,7 +13641,6 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
         Some(RawHold {
             until: late + Duration::from_millis(50),
             owner: Some(id),
-            owed_reply: OwedReply::None,
         }),
         "a settled debt falls back to the ordinary reply skew"
     );
@@ -13711,15 +13690,17 @@ fn owed_raw_stream_inquiry_reply_settles_by_socketless_error_before_the_due_pass
         window_end,
     );
     assert_eq!(ignored_reasons(&error), vec![IgnoreReason::UnmatchedFrame]);
-    assert_eq!(owed_state(&engine, 1), Some(OwedReply::None));
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Clear));
     engine.assert_invariants().unwrap();
 }
 
-/// A socketless error while an acknowledged command executes on the target
-/// may be that command's (a camera can omit the socket nibble), so it never
-/// pays the debt; the owed reply stays owed.
+/// A socketless error is a rejection, the first answer of the oldest
+/// outstanding request: an executing command's error names its socket. So on
+/// a byte stream it settles the owed reply even while a command executes
+/// (#795); leaving it unpaid would make the next answer pay it and shift
+/// every later answer onto the wrong request.
 #[test]
-fn socketless_error_with_an_executing_command_does_not_settle_an_owed_reply() {
+fn socketless_error_settles_the_owed_reply_while_a_command_executes() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
     let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
@@ -13757,8 +13738,11 @@ fn socketless_error_with_an_executing_command_does_not_settle_an_owed_reply() {
         timeout_at + Duration::from_millis(2),
     );
     assert_eq!(ignored_reasons(&error), vec![IgnoreReason::UnmatchedFrame]);
-    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Window));
-    assert!(engine.entry(command_id).is_some());
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Clear));
+    assert!(matches!(
+        phase_of(&engine, command_id),
+        Some(Phase::Executing { .. })
+    ));
     engine.assert_invariants().unwrap();
 }
 
@@ -13780,7 +13764,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     assert!(terminal_outcome(&still_owed, queued).is_none());
     let latched = engine.advance(window_end);
     assert_eq!(engine.state(), SessionState::Running);
-    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Latched));
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Latched));
     let failure = terminal_failure(&latched, queued).expect("queued inquiry fails at the latch");
     assert!(matches!(
         failure,
@@ -13844,7 +13828,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         ignored_reasons(&settled),
         vec![IgnoreReason::UnmatchedFrame]
     );
-    assert_eq!(owed_state(&engine, 1), Some(OwedReply::None));
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Clear));
     let reopened = late + Duration::from_millis(50);
     engine.advance(reopened);
     let (send, id) = admit(&mut engine, 6, inquiry(1, POWER), reopened);
@@ -13890,7 +13874,6 @@ fn stream_inquiry_budget_expiry_while_sending_owes_no_reply() {
         Some(RawHold {
             until: budget_at + Duration::from_millis(50),
             owner: Some(id),
-            owed_reply: OwedReply::None,
         })
     );
     engine.advance(budget_at + Duration::from_millis(50));
@@ -13927,9 +13910,9 @@ fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
         Some(RawHold {
             until: late + Duration::from_millis(50),
             owner: Some(id),
-            owed_reply: OwedReply::Window,
         })
     );
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Window));
     engine.assert_invariants().unwrap();
 }
 
@@ -13949,7 +13932,6 @@ fn raw_datagram_inquiry_timeout_keeps_skew_hold_and_retry() {
         Some(RawHold {
             until: timeout_at + Duration::from_millis(50),
             owner: Some(id),
-            owed_reply: OwedReply::None,
         })
     );
 }
@@ -13960,17 +13942,16 @@ fn latch_camera_one(engine: &mut ProtocolEngine, start: Instant) -> Instant {
     let (_, timeout_at) = time_out_stream_inquiry(engine, start);
     let window_end = timeout_at + Duration::from_millis(50);
     engine.advance(window_end);
-    assert_eq!(owed_state(engine, 1), Some(OwedReply::Latched));
+    assert_eq!(owed_state(engine, 1), Some(LaneState::Latched));
     window_end
 }
 
-/// The latch keeps filtering socketless errors on its target, because such a
-/// frame cannot be told apart from the owed inquiry's error reply. A command
-/// the camera rejects that way is therefore not failed with the rejection: it
-/// ends `UnsequencedCommandUnconfirmed` at its ACK deadline. Documented
-/// limitation of the per-target latch.
+/// A latched owed reply was written before any later command, so on a byte
+/// stream a socketless error is that reply's late answer: stream order
+/// settles the inquiry lane (#795), and the command's own rejection, which
+/// follows it, still fails the command.
 #[test]
-fn latched_target_filters_a_commands_socketless_rejection_until_it_is_unconfirmed() {
+fn latched_target_settles_its_owed_reply_before_a_commands_socketless_rejection() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
     let latched_at = latch_camera_one(&mut engine, start);
@@ -13988,7 +13969,7 @@ fn latched_target_filters_a_commands_socketless_rejection_until_it_is_unconfirme
     );
     assert_eq!(request_transmit(&send).1, id, "commands still dispatch");
     send_ok(&mut engine, &send, None, latched_at);
-    let rejected = engine.handle(
+    let busy = || {
         frame(
             1,
             None,
@@ -13996,19 +13977,16 @@ fn latched_target_filters_a_commands_socketless_rejection_until_it_is_unconfirme
                 socket: None,
                 code: 0x03,
             },
-        ),
-        latched_at + Duration::from_millis(1),
-    );
-    assert_eq!(
-        ignored_reasons(&rejected),
-        vec![IgnoreReason::UnmatchedFrame]
-    );
-    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Latched));
+        )
+    };
+    let owed = engine.handle(busy(), latched_at + Duration::from_millis(1));
+    assert_eq!(ignored_reasons(&owed), vec![IgnoreReason::UnmatchedFrame]);
+    assert_eq!(owed_state(&engine, 1), Some(LaneState::Clear));
     assert!(engine.entry(id).is_some());
-    let unconfirmed = engine.advance(latched_at + Duration::from_millis(20));
+    let rejected = engine.handle(busy(), latched_at + Duration::from_millis(2));
     assert!(matches!(
-        terminal_failure(&unconfirmed, id),
-        Some(Error::UnsequencedCommandUnconfirmed)
+        terminal_failure(&rejected, id),
+        Some(Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();

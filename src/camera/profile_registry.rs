@@ -1383,6 +1383,28 @@ macro_rules! __define_builtin_profiles {
                 )*
             }
 
+            /// A STOP queued on a raw byte stream waits at most one ACK plus one
+            /// ambiguity interval for the rules that keep its answers decisive
+            /// (#795). For every built-in profile that bound is below half a
+            /// halt's budget, which is at least the movement completion
+            /// deadline, so a halt's STOPs are always written within it.
+            #[test]
+            fn stop_wait_bound_is_below_every_halt_budget() {
+                $(
+                    let ack = <$profile as $crate::capabilities::ProfileMetadata>::ACK_TIMEOUT;
+                    let ambiguity =
+                        <$profile as $crate::profile::CompileTimeProfile>::AMBIGUITY_TIMEOUT;
+                    let movement = <$profile as $crate::capabilities::ProfileMetadata>::COMMAND_TIMEOUTS
+                        .movement_timeout();
+                    assert!(
+                        (ack + ambiguity) * 2 <= movement,
+                        "{}: STOP wait bound {:?} against halt budget {movement:?}",
+                        stringify!($profile),
+                        ack + ambiguity,
+                    );
+                )*
+            }
+
             /// The built-in registry's `image.base_support` fact emits both the
             /// runtime permission and the static `HasImageProcessing` marker.
             /// Negative marker assertions live in public compile-contract

@@ -258,8 +258,11 @@ in both, the request had no effect.
 | `Observation` | `ObservationTimeout { operation }` | `StillLive` | Your wait expired; the owner still holds the request, which may yet take effect. Never retryable. | Wait again on the operation handle, or reconcile. Never resubmit. |
 | `Observation` | `Timeout` | `NotAccepted` | A read-only state query (`wait_until_idle`, `is_moving`) ran out of time. | Repeat the query if you still need the answer. |
 | `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. On a raw-VISCA stream (TCP) the inquiry is written once and fails at its first reply deadline (about 1 s), and its late reply is still owed (see below). | Retry the inquiry. |
-| `Terminal` | `InquiryCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: a reply owed by an earlier timed-out inquiry to that camera did not arrive within the profile's ambiguity window, so this inquiry (or raw `CompletionOnly` command) was never written. Not retryable; `requires_new_session() == false` because the session is live. | Inquiries to this camera cannot be correlated until the owed reply arrives: close and reopen the session to recover them. |
+| `Terminal` | `InquiryCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: a reply owed by an earlier timed-out inquiry to that camera did not arrive within the profile's ambiguity window, so this inquiry (or raw `CompletionOnly` command) was never written. Not retryable; `requires_new_session() == false` because the session is live. | Inquiries to this camera reopen when the owed reply arrives or when the camera answers any command written after the timed-out inquiry (it answers in order, so the reply will never come); close and reopen the session to recover them sooner. |
 | `Terminal` | `Timeout` | `Unconfirmed` | A command was sent but never acknowledged or completed in its lifecycle. It may have reached the camera. | Reconcile the camera's state before resubmitting. |
+| `Terminal` | `CommandCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: an earlier command to that camera ended `UnsequencedCommandUnconfirmed` before its ACK (or completion) and that owed answer did not arrive within the owing command's ambiguity window, so this ordinary (or `NoReply`) command was never written. STOPs and inquiries are still sent. Not retryable; `requires_new_session() == false` (#795). | Commands to this camera resume when the owed answer arrives or when the camera answers a later inquiry or STOP (proving the answer will never come; a `CompletionOnly` completion is settled only by itself); close and reopen the session to recover them sooner. |
+| `Terminal` | `CommandFailedAfterAck { source }` | `Unconfirmed` | The camera acknowledged the command and then reported `source` (for example `CommandNotExecutable`). The command may have partly executed; it was never written again. Not retryable (#795). | Reconcile the camera's state before resubmitting. |
+| `Terminal` or `PreAdmission` | `MotionSuperseded { axes, context }` | `NotAccepted` or `Unconfirmed` | An owner halt superseded this motion. `NotAccepted` when it never reached the camera; `Unconfirmed` when an earlier attempt may have (#795). | Resubmit only on `NotAccepted`; otherwise reconcile. |
 | `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
 | `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
 | `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. | Wait on the operation's own outcome, or stop the axis. |
@@ -403,20 +406,28 @@ at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
 (`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
 `NotAccepted`, `is_retryable() == false`). A silent camera therefore stops
 answering *inquiries* on that session. The session is still live, so
-`requires_new_session()` is `false`, but the supervisor recipe is explicit:
-inquiries to that camera cannot be correlated until the owed reply arrives, so
-close and reopen the session to recover them. Until then, ACK-bearing commands
-and stops to that camera are still written, but the active hold keeps filtering
-socketless error frames on it (they cannot be told apart from the owed
-inquiry's own error reply). A command the camera rejects with a socketless `90
-60 02`/`90 60 03` therefore ends `UnsequencedCommandUnconfirmed` at its ACK
-deadline, leaving a `PreAck` hold, instead of failing or retrying. Everything
-that needs an inquiry to that camera fails with `InquiryCorrelationLost`:
-`settled()` observed-stable settlement polling (as
-`SettlementObservationFailed` with that source), `is_moving`, and
-`wait_until_idle`. If the owed inquiry's own answer is a socketless error that
-arrives while a command is live on that camera, it is filtered too and cannot
-settle the debt, so the lane stays latched until a new session.
+`requires_new_session()` is `false`. Meanwhile ACK-bearing commands and stops
+to that camera are still written. The engine resolves every frame on a raw
+stream in write order (the correlation ledger in `docs/architecture_2_0.md`),
+and a camera answers in the order it reads: the owed reply — data or a
+socketless rejection — reopens the lane whenever it arrives, and so does the
+camera's answer to any command written after that inquiry, which proves the
+reply will never come. A camera that never answers one inquiry therefore keeps
+accepting commands, and its next command answer reopens its inquiries; a
+later command's own answer still reaches that command. To recover inquiries
+to a camera that answers nothing at all, close and reopen the session. A raw
+`CompletionOnly` command is exclusive on its camera until its completion or
+rejection arrives: inquiries and ordinary commands to that camera queue
+behind it (and fail with the errors above once its window ends unanswered),
+while STOPs are always sent. Everything that needs an inquiry to that
+camera fails with `InquiryCorrelationLost` meanwhile: `settled()`
+observed-stable settlement polling (as `SettlementObservationFailed` with that
+source), `is_moving`, and `wait_until_idle`. The same applies to commands: a
+command that ended `UnsequencedCommandUnconfirmed` before its ACK still owes
+that answer, and once its ambiguity window has passed ordinary commands to the
+camera fail unwritten with `CommandCorrelationLost { camera }` until it
+arrives or the camera answers a later inquiry or STOP (a `CompletionOnly`
+completion is settled only by itself); STOPs are always sent (#795).
 
 The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no

@@ -527,6 +527,10 @@ one un-acknowledged raw command and create one explicit two-candidate
 safety-lane state (#714). An ACK observed while both raw candidates are open
 binds to neither; either operation may therefore report
 `UnsequencedCommandUnconfirmed` even though the stop bytes reached the camera.
+Likewise a stop is never held back by a raw `NoReply` command's hold (#700):
+it is written at once, and a socketless error that the `NoReply` command could
+also have sent binds to neither, so the stop may report
+`UnsequencedCommandUnconfirmed`.
 Both facades queue work that cannot be written yet; nothing fails with a
 contention error.
 
@@ -609,6 +613,56 @@ Custom plain requests may declare `Request::motion_axes()`; `raw::Plain` has
 `with_motion_axes`. Operation requests already declare their affected axes.
 Undeclared raw/custom requests remain outside the fence. An axis declaration
 never grants reserved STOP priority or changes the command's wire semantics.
+
+Superseded motion fails with `Error::MotionSuperseded { axes, context }`.
+`context` is a `FailureContext` (also returned by `failure_context()`): its
+certainty is `NotAccepted` when the request never reached the camera — it was
+still queued, or every written attempt was rejected before ACK — and
+`Unconfirmed` only when an earlier attempt may have taken effect. A submission
+the fence rejects at admission reports stage `PreAdmission`. Code that built
+the error with `Error::motion_superseded(axes)` now passes the context as a
+second argument; patterns that already use `{ .. }` are unaffected. In earlier
+release candidates the variant had no context and always reported `Unconfirmed`.
+
+A typed STOP that the camera refuses with `0x41` is reported at once as
+`Error::CommandNotExecutable` and is not resent. A PTZOptics G2 in auto-focus
+mode answers the halt's focus STOP that way (`90 6y 41 FF`, naming its next
+free socket), so `HaltReport::focus` is `Failed(CommandNotExecutable)` there;
+`into_result()` returns that error. Ordinary movement keeps its bounded `0x41`
+retry. No retry path writes a command again after the camera acknowledged it,
+on either envelope: an error that arrives after the ACK ends the request with
+`Error::CommandFailedAfterAck { source }` (the camera's exact error as
+`source`, `Terminal`/`Unconfirmed`, never retryable), because a relative move
+or preset may have partly executed; and a Sony command that is ACKed and then
+silent ends with an unconfirmed `Timeout` instead of the same-sequence resend
+earlier release candidates made (#795). Code that matched, say,
+`Err(Error::CommandNotExecutable)` for a rejection after the ACK now matches
+`Err(Error::CommandFailedAfterAck { .. })` and reads `source`.
+
+On a raw-VISCA stream (TCP or serial) a command that ends
+`UnsequencedCommandUnconfirmed` before its ACK still owes that answer. Later
+ordinary commands to the camera wait for it through the owing command's
+ambiguity window and then fail unwritten with
+`Error::CommandCorrelationLost { camera }` until it arrives or the camera
+answers a later inquiry or STOP, while STOPs are always sent; the late answer
+is discarded instead of acknowledging the next command (#795).
+
+A raw `RawReplyShape::CompletionOnly` command is exclusive on its camera until
+its completion or rejection arrives: inquiries and ordinary commands to that
+camera now queue behind it, and on a raw stream keep queuing after its own
+deadline ends it unconfirmed (failing with `InquiryCorrelationLost` or
+`CommandCorrelationLost` once its ambiguity window passes). STOPs are never
+held back, and may now be written behind it on a stream (#795).
+
+A raw `RawReplyShape::NoReply` command is no longer "never blocked" on a raw
+stream: like an ordinary command it waits while an earlier command's answer
+is owed, and fails unwritten with `CommandCorrelationLost` once that lane
+latches, because its own possible rejection could not be told from the owed
+answer. Its possible rejection is in turn owed until the camera's next answer
+(a later ACK, inquiry reply, or completion): a `CompletionOnly` command to the
+camera waits for that, and fails with `CommandCorrelationLost` instead of
+timing out if the `NoReply` command's ambiguity window ends first. STOPs and
+inquiries are never held back by it (#795).
 
 A later admitted motion on overlapping axes supersedes an earlier operation's
 unfinished polled settlement, even if the later motion is cancelled before it
@@ -979,7 +1033,8 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
 | An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work, but that camera's inquiries stay unusable until the owed reply arrives: close and reopen the session to recover them. |
+| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
+| Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An

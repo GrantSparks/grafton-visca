@@ -12132,6 +12132,10 @@ pub grafton_visca::prelude::async::Error::BufferTooSmall::required: usize
 pub grafton_visca::prelude::async::Error::CancellationUnconfirmed
 pub grafton_visca::prelude::async::Error::CommandBufferFull
 pub grafton_visca::prelude::async::Error::CommandCanceled
+#[non_exhaustive] pub grafton_visca::prelude::async::Error::CommandCorrelationLost
+pub grafton_visca::prelude::async::Error::CommandCorrelationLost::camera: grafton_visca::CameraId
+#[non_exhaustive] pub grafton_visca::prelude::async::Error::CommandFailedAfterAck
+pub grafton_visca::prelude::async::Error::CommandFailedAfterAck::source: alloc::boxed::Box<grafton_visca::Error>
 pub grafton_visca::prelude::async::Error::CommandNotExecutable
 pub grafton_visca::prelude::async::Error::CommandPending
 #[non_exhaustive] pub grafton_visca::prelude::async::Error::ConnectionClosed
@@ -12177,6 +12181,7 @@ pub grafton_visca::prelude::async::Error::MessageLengthError
 pub grafton_visca::prelude::async::Error::MissingRuntime
 #[non_exhaustive] pub grafton_visca::prelude::async::Error::MotionSuperseded
 pub grafton_visca::prelude::async::Error::MotionSuperseded::axes: grafton_visca::AffectedAxes
+pub grafton_visca::prelude::async::Error::MotionSuperseded::context: grafton_visca::FailureContext
 pub grafton_visca::prelude::async::Error::NoSocket
 pub grafton_visca::prelude::async::Error::NotSupported
 #[non_exhaustive] pub grafton_visca::prelude::async::Error::ObservationTimeout
@@ -12216,6 +12221,8 @@ pub grafton_visca::prelude::async::Error::WithContext::context: alloc::borrow::C
 pub grafton_visca::prelude::async::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
 impl grafton_visca::Error
 pub const fn grafton_visca::Error::buffer_too_small(usize, usize) -> Self
+pub const fn grafton_visca::Error::command_correlation_lost(grafton_visca::CameraId) -> Self
+pub fn grafton_visca::Error::command_failed_after_ack(impl core::convert::Into<alloc::boxed::Box<grafton_visca::Error>>) -> Self
 pub const fn grafton_visca::Error::connection_closed(core::option::Option<alloc::borrow::Cow<'static, str>>) -> Self
 pub fn grafton_visca::Error::connection_failed(impl core::convert::Into<alloc::borrow::Cow<'static, str>>, alloc::sync::Arc<core::io::error::Error>) -> Self
 pub fn grafton_visca::Error::context<D: core::fmt::Display>(self, D) -> Self
@@ -12234,7 +12241,7 @@ pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
 pub const fn grafton_visca::Error::io_timeout() -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
-pub const fn grafton_visca::Error::motion_superseded(grafton_visca::AffectedAxes) -> Self
+pub const fn grafton_visca::Error::motion_superseded(grafton_visca::AffectedAxes, grafton_visca::FailureContext) -> Self
 pub const fn grafton_visca::Error::observation_timeout(grafton_visca::OperationId) -> Self
 pub const fn grafton_visca::Error::parameter_out_of_range(&'static str, i32, i32, i32) -> Self
 pub fn grafton_visca::Error::requires_new_session(&self) -> bool
@@ -23143,6 +23150,10 @@ pub grafton_visca::Error::BufferTooSmall::required: usize
 pub grafton_visca::Error::CancellationUnconfirmed
 pub grafton_visca::Error::CommandBufferFull
 pub grafton_visca::Error::CommandCanceled
+#[non_exhaustive] pub grafton_visca::Error::CommandCorrelationLost
+pub grafton_visca::Error::CommandCorrelationLost::camera: grafton_visca::CameraId
+#[non_exhaustive] pub grafton_visca::Error::CommandFailedAfterAck
+pub grafton_visca::Error::CommandFailedAfterAck::source: alloc::boxed::Box<grafton_visca::Error>
 pub grafton_visca::Error::CommandNotExecutable
 pub grafton_visca::Error::CommandPending
 #[non_exhaustive] pub grafton_visca::Error::ConnectionClosed
@@ -23188,6 +23199,7 @@ pub grafton_visca::Error::MessageLengthError
 pub grafton_visca::Error::MissingRuntime
 #[non_exhaustive] pub grafton_visca::Error::MotionSuperseded
 pub grafton_visca::Error::MotionSuperseded::axes: grafton_visca::AffectedAxes
+pub grafton_visca::Error::MotionSuperseded::context: grafton_visca::FailureContext
 pub grafton_visca::Error::NoSocket
 pub grafton_visca::Error::NotSupported
 #[non_exhaustive] pub grafton_visca::Error::ObservationTimeout
@@ -23227,6 +23239,8 @@ pub grafton_visca::Error::WithContext::context: alloc::borrow::Cow<'static, str>
 pub grafton_visca::Error::WithContext::source: alloc::boxed::Box<grafton_visca::Error>
 impl grafton_visca::Error
 pub const fn grafton_visca::Error::buffer_too_small(usize, usize) -> Self
+pub const fn grafton_visca::Error::command_correlation_lost(grafton_visca::CameraId) -> Self
+pub fn grafton_visca::Error::command_failed_after_ack(impl core::convert::Into<alloc::boxed::Box<grafton_visca::Error>>) -> Self
 pub const fn grafton_visca::Error::connection_closed(core::option::Option<alloc::borrow::Cow<'static, str>>) -> Self
 pub fn grafton_visca::Error::connection_failed(impl core::convert::Into<alloc::borrow::Cow<'static, str>>, alloc::sync::Arc<core::io::error::Error>) -> Self
 pub fn grafton_visca::Error::context<D: core::fmt::Display>(self, D) -> Self
@@ -23245,7 +23259,7 @@ pub fn grafton_visca::Error::invalid_response_length(usize, &[u8]) -> Self
 pub const fn grafton_visca::Error::io_timeout() -> Self
 pub fn grafton_visca::Error::is_retryable(&self) -> bool
 pub fn grafton_visca::Error::kind(&self) -> grafton_visca::ErrorKind
-pub const fn grafton_visca::Error::motion_superseded(grafton_visca::AffectedAxes) -> Self
+pub const fn grafton_visca::Error::motion_superseded(grafton_visca::AffectedAxes, grafton_visca::FailureContext) -> Self
 pub const fn grafton_visca::Error::observation_timeout(grafton_visca::OperationId) -> Self
 pub const fn grafton_visca::Error::parameter_out_of_range(&'static str, i32, i32, i32) -> Self
 pub fn grafton_visca::Error::requires_new_session(&self) -> bool

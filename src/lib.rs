@@ -927,17 +927,23 @@
 //! ) {
 //!     use grafton_visca::{units::Degrees, Error, SpeedLevel};
 //!
-//!     match camera
+//!     let applied = match camera
 //!         .pan_tilt()
 //!         .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
 //!         .await
 //!     {
-//!         Ok(_) => println!("Position set successfully"),
+//!         Ok(mut operation) => operation.applied().await,
+//!         Err(error) => Err(error),
+//!     };
+//!     match applied {
+//!         Ok(()) => println!("Position set successfully"),
+//!         // The camera refused the command before accepting it; nothing moved.
 //!         Err(Error::SyntaxError) => println!("Position out of range"),
 //!         Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
-//!         Err(Error::CommandBufferFull) => {
-//!             // This error is automatically retried by the runtime
-//!             println!("Camera buffer full, command will retry");
+//!         // The camera accepted the command and then failed it: it may have
+//!         // moved part of the way, so reconcile before trying again.
+//!         Err(Error::CommandFailedAfterAck { source, .. }) => {
+//!             println!("Move failed after it started ({source}); re-read the position");
 //!         }
 //!         Err(e) => println!("Other error: {e}"),
 //!     }
