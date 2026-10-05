@@ -92,7 +92,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("  Address: {address}");
 
     let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config({
-        let mut config = TransportConfig::default();
+        let mut config = TransportConfig::for_tcp();
         config.connect_timeout = Duration::from_secs(3);
         config.read_timeout = Duration::from_secs(2);
         config.write_timeout = Duration::from_secs(2);

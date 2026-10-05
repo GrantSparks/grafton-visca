@@ -15,7 +15,7 @@ use crate::{
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{buffer::BufferConfig, builder::AddressingMode};
+use crate::transport::builder::AddressingMode;
 
 /// Standard transport kind used for profile support validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -203,8 +203,12 @@ pub struct CameraConfig<P> {
     pub(crate) sony_sequence_reset_on_connect: bool,
     /// Whether raw correlation uncertainty poisons the entire session.
     pub(crate) strict_unconfirmed_poison: bool,
-    /// Transport configuration for the underlying connection.
-    pub(crate) transport_config: TransportConfig,
+    /// Caller-supplied transport configuration; `None` selects the
+    /// transport's own defaults ([`TransportConfig::for_tcp`] and friends).
+    pub(crate) transport_config: Option<TransportConfig>,
+    /// Bus writes a serial transport performs while opening.
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    pub(crate) serial_startup: crate::transport::serial::Startup,
     /// Camera VISCA address (usually 1).
     pub(crate) camera_id: CameraId,
     /// Profile marker.
@@ -228,7 +232,9 @@ where
             admission_capacity: crate::SessionConfig::default().admission_capacity(),
             sony_sequence_reset_on_connect: false,
             strict_unconfirmed_poison: false,
-            transport_config: TransportConfig::default(),
+            transport_config: None,
+            #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+            serial_startup: crate::transport::serial::Startup::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
         }
@@ -387,9 +393,28 @@ where
         self.strict_unconfirmed_poison
     }
 
-    /// Set transport configuration.
+    /// Replace the selected transport's default configuration.
+    ///
+    /// Without this call each transport uses its own defaults:
+    /// [`TransportConfig::for_tcp`], [`TransportConfig::for_udp`] or
+    /// [`TransportConfig::for_serial`]. A supplied configuration is used as
+    /// given, so start from the matching constructor to change one field.
+    /// The transport kind still owns its wire facts: TCP and UDP always use
+    /// IP addressing, and a serial transport uses only the timeouts and buffer
+    /// limits (serial addressing, no TCP socket options).
     pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
-        self.transport_config = transport_config;
+        self.transport_config = Some(transport_config);
+        self
+    }
+
+    /// Select the bus writes a serial transport performs while opening.
+    ///
+    /// The default writes nothing: opening only opens and configures the
+    /// port. See [`crate::transport::serial::Startup`] for what Address Set and
+    /// I/F Clear broadcast and when the VISCA serial guidance calls for them.
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    pub fn serial_startup(mut self, startup: crate::transport::serial::Startup) -> Self {
+        self.serial_startup = startup;
         self
     }
 
@@ -407,48 +432,29 @@ where
         Ok(self.camera_id(CameraId::new(id)?))
     }
 
+    /// The configuration a standard network transport opens with: the
+    /// caller's configuration or `transport_default`, always with IP
+    /// addressing.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn defaulted_buffer_config(&self, transport_default: BufferConfig) -> BufferConfig {
-        if self.transport_config.buffer_config == BufferConfig::default() {
-            transport_default
-        } else {
-            self.transport_config.buffer_config
-        }
+    fn ip_transport_config(&self, transport_default: fn() -> TransportConfig) -> TransportConfig {
+        let mut config = self.transport_config.unwrap_or_else(transport_default);
+        config.addressing = AddressingMode::Ip;
+        config
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn tcp_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_raw_ip()),
-            addressing: AddressingMode::Ip,
-            ..self.transport_config
-        }
+        self.ip_transport_config(TransportConfig::for_tcp)
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn udp_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_udp()),
-            addressing: AddressingMode::Ip,
-            ..self.transport_config
-        }
+        self.ip_transport_config(TransportConfig::for_udp)
     }
 
-    #[cfg(any(
-        feature = "transport-serial-tokio",
-        all(feature = "blocking", feature = "transport-serial")
-    ))]
-    pub(crate) fn serial_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_serial()),
-            addressing: AddressingMode::Serial,
-            tcp_nodelay: None,
-            ttl: None,
-            tcp_keepalive: None,
-            ..self.transport_config
-        }
-    }
-
+    /// The serial device configuration a serial open uses: the caller's
+    /// timeouts and buffer limits (or the serial defaults) and the selected
+    /// startup writes.
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(feature = "blocking", feature = "transport-serial")
@@ -458,15 +464,17 @@ where
         port: &str,
         baud_rate: u32,
     ) -> crate::Result<crate::transport::serial::Config> {
-        let transport_config = self.serial_transport_config();
-        transport_config.validate()?;
-
-        Ok(crate::transport::serial::Config::new(port.to_string())
+        let transport = self
+            .transport_config
+            .unwrap_or_else(TransportConfig::for_serial);
+        let config = crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
-            .camera_address(self.camera_id.id())
-            .read_timeout(transport_config.read_timeout)
-            .write_timeout(transport_config.write_timeout)
-            .buffer_config(transport_config.buffer_config))
+            .startup(self.serial_startup)
+            .read_timeout(transport.read_timeout)
+            .write_timeout(transport.write_timeout)
+            .buffer_config(transport.buffer_config);
+        config.transport_config().validate()?;
+        Ok(config)
     }
 }
 
@@ -636,6 +644,11 @@ where
     }
 
     /// Opens the configured Tokio serial transport through the owner session.
+    ///
+    /// Opening writes to the bus only the startup selected with
+    /// [`CameraConfig::serial_startup`] (nothing by default), then the owner
+    /// session starts without any further protocol write. When Address Set
+    /// runs, the configured camera must be among the cameras it addressed.
     #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial_async<R>(&self, runtime: R) -> crate::Result<crate::Session>
     where
@@ -694,6 +707,11 @@ where
     }
 
     /// Opens a configured blocking serial owner session.
+    ///
+    /// Opening writes to the bus only the startup selected with
+    /// [`CameraConfig::serial_startup`] (nothing by default), then the owner
+    /// session starts without any further protocol write. When Address Set
+    /// runs, the configured camera must be among the cameras it addressed.
     #[cfg(feature = "transport-serial")]
     pub fn open_serial(&self) -> crate::Result<crate::blocking::Session> {
         let session_config = self.session_config()?;
@@ -957,10 +975,35 @@ mod tests {
         assert_eq!(serial.read_timeout, Duration::from_millis(37));
         assert_eq!(serial.write_timeout, Duration::from_millis(41));
         assert_eq!(serial.buffer_config, transport_config.buffer_config);
-        assert_eq!(
-            config.serial_transport_config().addressing,
-            AddressingMode::Serial
-        );
+        assert_eq!(serial.transport_config().addressing, AddressingMode::Serial);
+        assert_eq!(serial.transport_config().tcp_keepalive, None);
+    }
+
+    /// #828: every `CameraConfig` serial open used to broadcast I/F Clear
+    /// with no way to disable it. A serial open now writes only the startup
+    /// the caller selects, and nothing by default.
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
+    #[test]
+    fn serial_open_writes_only_the_selected_startup() {
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, transport::serial::Startup};
+
+        let plain = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
+            .serial_config("/dev/fake-visca", 9_600)
+            .expect("valid serial config");
+        assert_eq!(plain.startup, Startup::default());
+        assert!(!plain.startup.address_set && !plain.startup.interface_clear);
+
+        let selected = Startup::default()
+            .with_address_set(true)
+            .with_interface_clear(true);
+        let configured = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
+            .serial_startup(selected)
+            .serial_config("/dev/fake-visca", 9_600)
+            .expect("valid serial config");
+        assert_eq!(configured.startup, selected);
     }
 
     #[cfg(any(

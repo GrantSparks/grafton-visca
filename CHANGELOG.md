@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (#797): blocking and Tokio serial share one sans-I/O startup
+  state machine.** A failed, timed-out or partially written Address Set is
+  never resent (a partial broadcast cannot be retracted from the daisy
+  chain); exhausted attempts return `MaxRetriesExceeded`; read errors are
+  returned unchanged. Ports open exclusively on both facades, so a second
+  process now fails to open a held port (Tokio previously opened it
+  shared). Blocking serial open failure is `ConnectionFailed` (was
+  `TransportError`), serial end-of-stream is `ConnectionClosed`, and serial
+  transports report `TransportConfig::for_serial()`. `serial::Config` takes
+  one `startup: Startup` (replacing `address_set_on_connect` /
+  `if_clear_on_connect`), drops `camera_address`, and defaults to the
+  `for_serial()` 5 s timeouts. Startup input is discarded before the
+  session sees it.
+- **BREAKING (#798): one IP connect pipeline for every facade.** An
+  unresolvable host is `InvalidAddress` on blocking, Tokio and smol (async
+  was `Io`); exhausting every resolved TCP address gives
+  `ConnectionFailed`; `connect_timeout` now bounds blocking DNS (bounded
+  helper threads, at most four lookups in flight, waiting for a free slot
+  within the deadline) and is shared across resolved addresses so an
+  unroutable first address cannot starve the next. `declare_net_transport!`
+  is replaced by generic `Tcp<S>` / `Udp<S>`.
+- **BREAKING (#799): `TransportConfig::for_tcp/for_udp/for_serial` are the
+  only transport defaults.** `Transport::tcp()` / `udp()` reply limits rise
+  from 128 bytes to 256 (TCP) and 1024 (UDP), matching every other entry
+  point; `CameraConfig::transport_config` uses the supplied config as given
+  (a default buffer is no longer treated as unset); `for_udp` / `for_serial`
+  carry no TCP fields and `tcp_nodelay: None` keeps the OS default.
+- **BREAKING (#800): one bounded blocking I/O policy.** Every syscall arms its
+  own timeout, so timeouts are no longer saved and restored; failing to arm
+  a timeout is `Io` on every transport; an unrepresentable timeout is
+  `InvalidParameter` naming the field (was `InvalidRequest`), checked once in
+  `validate()`; an interrupted UDP send is retried within its budget. One
+  write loop, one datagram truncation policy and one Sony response parser
+  serve all transports.
+
 - **BREAKING (#795): `system().version()` is now gated by the
   `HasVersionInquiry` marker and the `VersionInquiry` typed-support surface;
   the PTZOptics profiles (`PtzOpticsG2`, `PtzOptics30X`, `PtzOpticsG3`) no
@@ -40,7 +75,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`ProfileSpec::from_compile_time::<P>()`). Saved PTZOptics specs still load
   and gain their focus-zone list.
 
+### Removed
+
+- **BREAKING (#798, #799):** `TransportBuilderExt`,
+  `BufferConfig::for_sony_ip`, `NetTransportBuilder::{udp_buffers,
+  raw_ip_buffers, sony_ip_buffers}`, `declare_net_transport!`,
+  `new_default`, the blocking `Tcp::connect` / `connect_timeout` and
+  `Udp::connect`, and `serial::Config::camera_address`.
+
 ### Fixed
+
+- **BREAKING (#828): `CameraConfig` serial opens no longer broadcast I/F
+  Clear by default.** Startup writes are selected with
+  `CameraConfig::serial_startup(Startup)` / `serial::Config::startup`, and
+  every entry point documents what it writes on open.
+- **#828:** `BufferConfig::recv_buffer_size` is the largest accepted frame and
+  the per-read size, and `max_buffer_size` bounds input carried between
+  reads with room for one more read, so a burst of valid replies can no
+  longer poison a healthy stream session.
 
 - **BREAKING (behaviour, #795): a raw VISCA inquiry over TCP can no longer
   return another inquiry's stale reply as its own value.** On the 2026-10-04 bench (PTZOptics G2,
@@ -60,6 +112,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are unchanged.
 
 ### Added
+
+- `transport::AddressedBus` and `HasTransportConfig::addressed_bus()` (#828).
+  When serial Address Set ran, every `Session::open` (blocking and async,
+  including caller-built transports) rejects a registered camera the chain
+  did not address with `ConnectionFailed { addr: <port> }`, whose `NotFound`
+  source names the camera. Wrapper transports must forward
+  `addressed_bus()`.
 
 - `Focus::FOCUS_ZONES`, `Capabilities::focus_zones` and
   `Capabilities::supports_focus_zone()` (#795) expose each profile's settable

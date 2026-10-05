@@ -184,7 +184,9 @@ impl SessionConfig {
     /// the owner starts accepting requests.
     ///
     /// This is disabled by default because opening a session otherwise performs
-    /// no protocol write. Enabling it requires every registered profile to use
+    /// no protocol write. (A serial transport's optional Address Set and I/F
+    /// Clear belong to the transport and run before the session opens; see
+    /// `transport::serial::Startup`, which also writes nothing by default.) Enabling it requires every registered profile to use
     /// the Sony encapsulated envelope; incompatible configurations fail before
     /// transport I/O.
     #[must_use]
@@ -268,6 +270,44 @@ impl SessionConfig {
             profile.validate_tuning(self.tuning)?;
         }
         Ok(())
+    }
+
+    /// Validate the registry against an opened transport before any protocol
+    /// I/O: its standard kind ([`Self::validate_for_transport`]) and, when a
+    /// serial bus startup ran Address Set, the cameras it addressed.
+    ///
+    /// Address Set assigns `1..=n`; a registered target above `n` is not on
+    /// the bus, so the open fails with [`Error::ConnectionFailed`] naming the
+    /// port, whose `NotFound` source names the camera. Cameras beyond the registered ones
+    /// are allowed.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn validate_opened_transport<T>(&self, transport: &T) -> Result<()>
+    where
+        T: crate::transport::HasTransportConfig + ?Sized,
+    {
+        self.validate_for_transport(transport.standard_transport_kind())?;
+        let Some(bus) = transport.addressed_bus() else {
+            return Ok(());
+        };
+        let addressed = bus.cameras;
+        match self
+            .targets()
+            .into_iter()
+            .flatten()
+            .find(|target| target.id() > addressed)
+        {
+            None => Ok(()),
+            Some(missing) => Err(Error::connection_failed(
+                bus.port.clone(),
+                Arc::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "camera {} was not addressed by Address Set (chain reported {addressed})",
+                        missing.id()
+                    ),
+                )),
+            )),
+        }
     }
 
     /// Borrow all registrations in the shape consumed by the owner adapter.

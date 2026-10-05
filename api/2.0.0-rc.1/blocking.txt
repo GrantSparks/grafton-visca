@@ -18564,6 +18564,7 @@ pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout
 pub fn grafton_visca::transport::BlockingTransportHandle::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::transport::BlockingTransportHandle::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::transport::BlockingTransportHandle
+pub fn grafton_visca::transport::BlockingTransportHandle::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::BlockingTransportHandle::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::BlockingTransportHandle::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::transport::BlockingTransportHandle
@@ -18615,13 +18616,32 @@ impl core::marker::Unpin for grafton_visca::transport::SendSemantics
 impl core::marker::UnsafeUnpin for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::SendSemantics
+#[non_exhaustive] pub struct grafton_visca::transport::AddressedBus
+pub grafton_visca::transport::AddressedBus::cameras: u8
+pub grafton_visca::transport::AddressedBus::port: alloc::string::String
+impl grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::new(impl core::convert::Into<alloc::string::String>, u8) -> Self
+impl core::clone::Clone for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::clone(&self) -> grafton_visca::transport::AddressedBus
+impl core::cmp::Eq for grafton_visca::transport::AddressedBus
+impl core::cmp::PartialEq for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::eq(&self, &grafton_visca::transport::AddressedBus) -> bool
+impl core::fmt::Debug for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for grafton_visca::transport::AddressedBus
+impl core::marker::Freeze for grafton_visca::transport::AddressedBus
+impl core::marker::Send for grafton_visca::transport::AddressedBus
+impl core::marker::Sync for grafton_visca::transport::AddressedBus
+impl core::marker::Unpin for grafton_visca::transport::AddressedBus
+impl core::marker::UnsafeUnpin for grafton_visca::transport::AddressedBus
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::AddressedBus
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::AddressedBus
 #[non_exhaustive] pub struct grafton_visca::transport::BufferConfig
 pub grafton_visca::transport::BufferConfig::max_buffer_size: usize
 pub grafton_visca::transport::BufferConfig::recv_buffer_size: usize
 impl grafton_visca::transport::BufferConfig
 pub fn grafton_visca::transport::BufferConfig::for_raw_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_serial() -> Self
-pub fn grafton_visca::transport::BufferConfig::for_sony_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_udp() -> Self
 impl core::clone::Clone for grafton_visca::transport::BufferConfig
 pub fn grafton_visca::transport::BufferConfig::clone(&self) -> grafton_visca::transport::BufferConfig
@@ -18665,20 +18685,18 @@ pub struct grafton_visca::transport::NetTransportBuilder
 impl grafton_visca::transport::NetTransportBuilder
 pub fn grafton_visca::transport::NetTransportBuilder::address(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::build_blocking(self) -> core::result::Result<grafton_visca::transport::BlockingTransportHandle, grafton_visca::Error>
+pub fn grafton_visca::transport::NetTransportBuilder::config(&self) -> &grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::NetTransportBuilder::connect_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::disable_tcp_keepalive(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::max_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::raw_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::read_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::recv_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::sony_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp() -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp_keepalive(self, grafton_visca::transport::TcpKeepaliveConfig) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp_nodelay(self, bool) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::ttl(self, u32) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::udp() -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::udp_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::transport::NetTransportBuilder
 pub fn grafton_visca::transport::NetTransportBuilder::clone(&self) -> grafton_visca::transport::NetTransportBuilder
@@ -18778,13 +18796,21 @@ pub grafton_visca::transport::TransportConfig::tcp_keepalive: core::option::Opti
 pub grafton_visca::transport::TransportConfig::tcp_nodelay: core::option::Option<bool>
 pub grafton_visca::transport::TransportConfig::ttl: core::option::Option<u32>
 pub grafton_visca::transport::TransportConfig::write_timeout: core::time::Duration
+impl grafton_visca::transport::TransportConfig
+pub fn grafton_visca::transport::TransportConfig::for_serial() -> Self
+pub fn grafton_visca::transport::TransportConfig::for_tcp() -> Self
+pub fn grafton_visca::transport::TransportConfig::for_udp() -> Self
 impl core::clone::Clone for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::clone(&self) -> grafton_visca::transport::TransportConfig
+impl core::cmp::Eq for grafton_visca::transport::TransportConfig
+impl core::cmp::PartialEq for grafton_visca::transport::TransportConfig
+pub fn grafton_visca::transport::TransportConfig::eq(&self, &grafton_visca::transport::TransportConfig) -> bool
 impl core::default::Default for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::default() -> Self
 impl core::fmt::Debug for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::transport::TransportConfig
+impl core::marker::StructuralPartialEq for grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::transport::TransportConfig
 impl core::marker::Send for grafton_visca::transport::TransportConfig
 impl core::marker::Sync for grafton_visca::transport::TransportConfig
@@ -18821,16 +18847,17 @@ pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, byte
 pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 pub trait grafton_visca::transport::HasTransportConfig
+pub fn grafton_visca::transport::HasTransportConfig::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::HasTransportConfig::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::HasTransportConfig::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::transport::BlockingTransportHandle
+pub fn grafton_visca::transport::BlockingTransportHandle::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::BlockingTransportHandle::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::BlockingTransportHandle::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<T: grafton_visca::transport::HasTransportConfig + ?core::marker::Sized> grafton_visca::transport::HasTransportConfig for &T
+pub fn &T::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn &T::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn &T::transport_config(&self) -> &grafton_visca::transport::TransportConfig
-pub trait grafton_visca::transport::TransportBuilderExt: core::marker::Sized
-pub fn grafton_visca::transport::TransportBuilderExt::builder() -> grafton_visca::transport::NetTransportBuilder
 pub mod grafton_visca::types
 pub enum grafton_visca::types::FStop
 pub grafton_visca::types::FStop::Closed

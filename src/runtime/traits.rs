@@ -259,6 +259,15 @@ impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
             TransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
         })
     }
+
+    fn addressed_bus(&self) -> Option<&crate::transport::AddressedBus> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.addressed_bus(),
+            TransportHandle::Udp(transport) => transport.addressed_bus(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.addressed_bus(),
+        }
+    }
 }
 
 // Tokio runtime implementation
@@ -269,7 +278,7 @@ mod tokio_impl {
         executor::TokioExecutor,
         runtime_adapters::tokio::{TcpTransport, UdpTransport},
         transport::{
-            address::canonicalize_endpoint,
+            connect::preflight,
             socket_options::{TcpConnectionConfig, UdpSocketConfig},
         },
     };
@@ -362,11 +371,10 @@ mod tokio_impl {
             let handle = self.executor.handle().clone();
             let address = addr.to_owned();
             async move {
-                cfg.validate()?;
                 // Run the connector on this runtime's handle rather than the
                 // ambient task's Tokio context. The resulting stream is then
                 // owned by the actor this same runtime spawns.
-                let address = canonicalize_endpoint(&address, None)?;
+                let address = preflight(&address, &cfg)?;
                 let stream = crate::transport::tokio::connectors::connect_tcp_on(
                     &handle,
                     address,
@@ -386,10 +394,9 @@ mod tokio_impl {
             let handle = self.executor.handle().clone();
             let address = addr.to_owned();
             async move {
-                cfg.validate()?;
                 // As with TCP, DNS, timer and socket work belongs to the selected
                 // runtime even when this future is polled by another Tokio runtime.
-                let address = canonicalize_endpoint(&address, None)?;
+                let address = preflight(&address, &cfg)?;
                 let socket = crate::transport::tokio::connectors::connect_udp_on(
                     &handle,
                     address,
@@ -479,7 +486,6 @@ mod tokio_impl {
             let config = crate::transport::serial::Config::new(
                 "grafton-visca-invalid-buffer-bounds-serial-device",
             )
-            .if_clear_on_connect(false)
             .buffer_config(BufferConfig {
                 recv_buffer_size: 65,
                 max_buffer_size: 64,
@@ -665,11 +671,8 @@ mod smol_impl {
             addr: &'a str,
             cfg: TransportConfig,
         ) -> impl Future<Output = Result<Self::TcpTransport, Error>> + Send + 'a {
-            async move {
-                cfg.validate()?;
-                // Timeout is enforced at the connector layer (single source of truth)
-                TcpTransport::connect_with_config(addr, cfg).await
-            }
+            // The connector preflights, resolves and bounds the connect.
+            TcpTransport::connect_with_config(addr, cfg)
         }
 
         #[allow(clippy::manual_async_fn)]
@@ -678,11 +681,8 @@ mod smol_impl {
             addr: &'a str,
             cfg: TransportConfig,
         ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
-            async move {
-                cfg.validate()?;
-                // Timeout is enforced at the connector layer (single source of truth)
-                UdpTransport::connect_with_config(addr, cfg).await
-            }
+            // The connector preflights, resolves and bounds the connect.
+            UdpTransport::connect_with_config(addr, cfg)
         }
     }
 

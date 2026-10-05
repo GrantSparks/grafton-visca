@@ -91,6 +91,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
@@ -2392,6 +2393,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
@@ -14594,6 +14596,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
@@ -18960,6 +18963,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
@@ -26224,6 +26228,7 @@ pub async fn grafton_visca::TransportHandle<R>::recv_into_with_outcome(&mut self
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
+pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Freeze
@@ -26332,22 +26337,19 @@ pub type grafton_visca::runtime_adapters::smol::TcpTransport = grafton_visca::tr
 pub type grafton_visca::runtime_adapters::smol::UdpTransport = grafton_visca::transport::async_udp::Udp<async_net::udp::UdpSocket>
 pub mod grafton_visca::runtime_adapters::tokio
 #[non_exhaustive] pub struct grafton_visca::runtime_adapters::tokio::SerialConfig
-pub grafton_visca::runtime_adapters::tokio::SerialConfig::address_set_on_connect: bool
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::baud_rate: u32
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::buffer_config: grafton_visca::transport::BufferConfig
-pub grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address: u8
-pub grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect: bool
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::port: alloc::string::String
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout: core::time::Duration
+pub grafton_visca::runtime_adapters::tokio::SerialConfig::startup: grafton_visca::transport::serial::Startup
 pub grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout: core::time::Duration
 impl grafton_visca::runtime_adapters::tokio::SerialConfig
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::address_set_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::baud_rate(self, u32) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::buffer_config(self, grafton_visca::transport::BufferConfig) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address(self, u8) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout(self, core::time::Duration) -> Self
+pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::startup(self, grafton_visca::transport::serial::Startup) -> Self
+pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::transport_config(&self) -> grafton_visca::transport::TransportConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::clone(&self) -> grafton_visca::runtime_adapters::tokio::SerialConfig
@@ -26453,6 +26455,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp
@@ -27162,6 +27165,7 @@ pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::recv_into
 pub async fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
+pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
@@ -27430,6 +27434,7 @@ pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTran
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> grafton_visca::Result<()>
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
@@ -27459,6 +27464,7 @@ pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>
 pub async fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::send(&mut self, &[u8]) -> grafton_visca::Result<()>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<E> grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<E> core::marker::Freeze for grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E> where core::option::Option<alloc::sync::Arc<E>>: core::marker::Freeze
@@ -27581,6 +27587,7 @@ pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTran
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> grafton_visca::Result<()>
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
@@ -27610,6 +27617,7 @@ pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>
 pub async fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::send(&mut self, &[u8]) -> grafton_visca::Result<()>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<E> grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<E> core::marker::Freeze for grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E> where core::option::Option<alloc::sync::Arc<E>>: core::marker::Freeze
@@ -27667,6 +27675,7 @@ pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::recv_into
 pub async fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
+pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
@@ -27679,22 +27688,19 @@ impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::camera_si
 pub mod grafton_visca::transport
 pub mod grafton_visca::transport::serial
 #[non_exhaustive] pub struct grafton_visca::transport::serial::Config
-pub grafton_visca::transport::serial::Config::address_set_on_connect: bool
 pub grafton_visca::transport::serial::Config::baud_rate: u32
 pub grafton_visca::transport::serial::Config::buffer_config: grafton_visca::transport::BufferConfig
-pub grafton_visca::transport::serial::Config::camera_address: u8
-pub grafton_visca::transport::serial::Config::if_clear_on_connect: bool
 pub grafton_visca::transport::serial::Config::port: alloc::string::String
 pub grafton_visca::transport::serial::Config::read_timeout: core::time::Duration
+pub grafton_visca::transport::serial::Config::startup: grafton_visca::transport::serial::Startup
 pub grafton_visca::transport::serial::Config::write_timeout: core::time::Duration
 impl grafton_visca::runtime_adapters::tokio::SerialConfig
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::address_set_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::baud_rate(self, u32) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::buffer_config(self, grafton_visca::transport::BufferConfig) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::camera_address(self, u8) -> Self
-pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::if_clear_on_connect(self, bool) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::read_timeout(self, core::time::Duration) -> Self
+pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::startup(self, grafton_visca::transport::serial::Startup) -> Self
+pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::transport_config(&self) -> grafton_visca::transport::TransportConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::runtime_adapters::tokio::SerialConfig
 pub fn grafton_visca::runtime_adapters::tokio::SerialConfig::clone(&self) -> grafton_visca::runtime_adapters::tokio::SerialConfig
@@ -27709,6 +27715,30 @@ impl core::marker::Unpin for grafton_visca::runtime_adapters::tokio::SerialConfi
 impl core::marker::UnsafeUnpin for grafton_visca::runtime_adapters::tokio::SerialConfig
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::runtime_adapters::tokio::SerialConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::runtime_adapters::tokio::SerialConfig
+#[non_exhaustive] pub struct grafton_visca::transport::serial::Startup
+pub grafton_visca::transport::serial::Startup::address_set: bool
+pub grafton_visca::transport::serial::Startup::interface_clear: bool
+impl grafton_visca::transport::serial::Startup
+pub const fn grafton_visca::transport::serial::Startup::with_address_set(self, bool) -> Self
+pub const fn grafton_visca::transport::serial::Startup::with_interface_clear(self, bool) -> Self
+impl core::clone::Clone for grafton_visca::transport::serial::Startup
+pub fn grafton_visca::transport::serial::Startup::clone(&self) -> grafton_visca::transport::serial::Startup
+impl core::cmp::Eq for grafton_visca::transport::serial::Startup
+impl core::cmp::PartialEq for grafton_visca::transport::serial::Startup
+pub fn grafton_visca::transport::serial::Startup::eq(&self, &grafton_visca::transport::serial::Startup) -> bool
+impl core::default::Default for grafton_visca::transport::serial::Startup
+pub fn grafton_visca::transport::serial::Startup::default() -> grafton_visca::transport::serial::Startup
+impl core::fmt::Debug for grafton_visca::transport::serial::Startup
+pub fn grafton_visca::transport::serial::Startup::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Copy for grafton_visca::transport::serial::Startup
+impl core::marker::StructuralPartialEq for grafton_visca::transport::serial::Startup
+impl core::marker::Freeze for grafton_visca::transport::serial::Startup
+impl core::marker::Send for grafton_visca::transport::serial::Startup
+impl core::marker::Sync for grafton_visca::transport::serial::Startup
+impl core::marker::Unpin for grafton_visca::transport::serial::Startup
+impl core::marker::UnsafeUnpin for grafton_visca::transport::serial::Startup
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::serial::Startup
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::serial::Startup
 pub enum grafton_visca::transport::AddressingMode
 pub grafton_visca::transport::AddressingMode::Ip
 pub grafton_visca::transport::AddressingMode::Serial
@@ -27742,6 +27772,7 @@ pub fn grafton_visca::transport::BlockingTransportHandle::recv_into_with_timeout
 pub fn grafton_visca::transport::BlockingTransportHandle::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub fn grafton_visca::transport::BlockingTransportHandle::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::transport::BlockingTransportHandle
+pub fn grafton_visca::transport::BlockingTransportHandle::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::BlockingTransportHandle::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::BlockingTransportHandle::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::transport::BlockingTransportHandle
@@ -27822,13 +27853,32 @@ impl core::marker::Unpin for grafton_visca::transport::SendSemantics
 impl core::marker::UnsafeUnpin for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::SendSemantics
+#[non_exhaustive] pub struct grafton_visca::transport::AddressedBus
+pub grafton_visca::transport::AddressedBus::cameras: u8
+pub grafton_visca::transport::AddressedBus::port: alloc::string::String
+impl grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::new(impl core::convert::Into<alloc::string::String>, u8) -> Self
+impl core::clone::Clone for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::clone(&self) -> grafton_visca::transport::AddressedBus
+impl core::cmp::Eq for grafton_visca::transport::AddressedBus
+impl core::cmp::PartialEq for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::eq(&self, &grafton_visca::transport::AddressedBus) -> bool
+impl core::fmt::Debug for grafton_visca::transport::AddressedBus
+pub fn grafton_visca::transport::AddressedBus::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::StructuralPartialEq for grafton_visca::transport::AddressedBus
+impl core::marker::Freeze for grafton_visca::transport::AddressedBus
+impl core::marker::Send for grafton_visca::transport::AddressedBus
+impl core::marker::Sync for grafton_visca::transport::AddressedBus
+impl core::marker::Unpin for grafton_visca::transport::AddressedBus
+impl core::marker::UnsafeUnpin for grafton_visca::transport::AddressedBus
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::AddressedBus
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::AddressedBus
 #[non_exhaustive] pub struct grafton_visca::transport::BufferConfig
 pub grafton_visca::transport::BufferConfig::max_buffer_size: usize
 pub grafton_visca::transport::BufferConfig::recv_buffer_size: usize
 impl grafton_visca::transport::BufferConfig
 pub fn grafton_visca::transport::BufferConfig::for_raw_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_serial() -> Self
-pub fn grafton_visca::transport::BufferConfig::for_sony_ip() -> Self
 pub fn grafton_visca::transport::BufferConfig::for_udp() -> Self
 impl core::clone::Clone for grafton_visca::transport::BufferConfig
 pub fn grafton_visca::transport::BufferConfig::clone(&self) -> grafton_visca::transport::BufferConfig
@@ -27872,20 +27922,18 @@ pub struct grafton_visca::transport::NetTransportBuilder
 impl grafton_visca::transport::NetTransportBuilder
 pub fn grafton_visca::transport::NetTransportBuilder::address(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::build_blocking(self) -> core::result::Result<grafton_visca::transport::BlockingTransportHandle, grafton_visca::Error>
+pub fn grafton_visca::transport::NetTransportBuilder::config(&self) -> &grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::NetTransportBuilder::connect_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::disable_tcp_keepalive(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::max_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::raw_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::read_timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::recv_buffer_size(self, usize) -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::sony_ip_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp() -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp_keepalive(self, grafton_visca::transport::TcpKeepaliveConfig) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::tcp_nodelay(self, bool) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::timeout(self, core::time::Duration) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::ttl(self, u32) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::udp() -> Self
-pub fn grafton_visca::transport::NetTransportBuilder::udp_buffers(self) -> Self
 pub fn grafton_visca::transport::NetTransportBuilder::write_timeout(self, core::time::Duration) -> Self
 impl core::clone::Clone for grafton_visca::transport::NetTransportBuilder
 pub fn grafton_visca::transport::NetTransportBuilder::clone(&self) -> grafton_visca::transport::NetTransportBuilder
@@ -27985,13 +28033,21 @@ pub grafton_visca::transport::TransportConfig::tcp_keepalive: core::option::Opti
 pub grafton_visca::transport::TransportConfig::tcp_nodelay: core::option::Option<bool>
 pub grafton_visca::transport::TransportConfig::ttl: core::option::Option<u32>
 pub grafton_visca::transport::TransportConfig::write_timeout: core::time::Duration
+impl grafton_visca::transport::TransportConfig
+pub fn grafton_visca::transport::TransportConfig::for_serial() -> Self
+pub fn grafton_visca::transport::TransportConfig::for_tcp() -> Self
+pub fn grafton_visca::transport::TransportConfig::for_udp() -> Self
 impl core::clone::Clone for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::clone(&self) -> grafton_visca::transport::TransportConfig
+impl core::cmp::Eq for grafton_visca::transport::TransportConfig
+impl core::cmp::PartialEq for grafton_visca::transport::TransportConfig
+pub fn grafton_visca::transport::TransportConfig::eq(&self, &grafton_visca::transport::TransportConfig) -> bool
 impl core::default::Default for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::default() -> Self
 impl core::fmt::Debug for grafton_visca::transport::TransportConfig
 pub fn grafton_visca::transport::TransportConfig::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for grafton_visca::transport::TransportConfig
+impl core::marker::StructuralPartialEq for grafton_visca::transport::TransportConfig
 impl core::marker::Freeze for grafton_visca::transport::TransportConfig
 impl core::marker::Send for grafton_visca::transport::TransportConfig
 impl core::marker::Sync for grafton_visca::transport::TransportConfig
@@ -28063,31 +28119,37 @@ pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, byte
 pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 pub trait grafton_visca::transport::HasTransportConfig
+pub fn grafton_visca::transport::HasTransportConfig::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::HasTransportConfig::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::HasTransportConfig::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for core::convert::Infallible
+pub fn core::convert::Infallible::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn core::convert::Infallible::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn core::convert::Infallible::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::camera_simulator::ViscaCameraSimulator
+pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::camera_simulator::ViscaCameraSimulator::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl grafton_visca::transport::HasTransportConfig for grafton_visca::transport::BlockingTransportHandle
+pub fn grafton_visca::transport::BlockingTransportHandle::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::transport::BlockingTransportHandle::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::transport::BlockingTransportHandle::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<E> grafton_visca::transport::HasTransportConfig for grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>
+pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedTransport<E>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
+pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<T: grafton_visca::transport::HasTransportConfig + ?core::marker::Sized> grafton_visca::transport::HasTransportConfig for &T
+pub fn &T::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn &T::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn &T::transport_config(&self) -> &grafton_visca::transport::TransportConfig
-pub trait grafton_visca::transport::TransportBuilderExt: core::marker::Sized
-pub fn grafton_visca::transport::TransportBuilderExt::builder() -> grafton_visca::transport::NetTransportBuilder
 pub mod grafton_visca::types
 pub enum grafton_visca::types::FStop
 pub grafton_visca::types::FStop::Closed
@@ -30332,7 +30394,6 @@ impl<T> core::marker::Unpin for grafton_visca::units::ViscaUnits<T> where T: cor
 impl<T> core::marker::UnsafeUnpin for grafton_visca::units::ViscaUnits<T> where T: core::marker::UnsafeUnpin
 impl<T> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::units::ViscaUnits<T> where T: core::panic::unwind_safe::RefUnwindSafe
 impl<T> core::panic::unwind_safe::UnwindSafe for grafton_visca::units::ViscaUnits<T> where T: core::panic::unwind_safe::UnwindSafe
-pub macro grafton_visca::declare_net_transport!
 pub macro grafton_visca::logic_test!
 pub macro grafton_visca::timeout_test!
 pub macro grafton_visca::visca_command!
@@ -31823,6 +31884,7 @@ pub async fn grafton_visca::TransportHandle<R>::recv_into_with_outcome(&mut self
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
 pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
+pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
 pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze, alloc::boxed::Box<<R as grafton_visca::Runtime>::SerialTransport>: core::marker::Freeze
@@ -32152,6 +32214,7 @@ pub fn grafton_visca::CameraConfig<P>::camera_id(self, grafton_visca::CameraId) 
 pub fn grafton_visca::CameraConfig<P>::for_camera() -> Self
 pub fn grafton_visca::CameraConfig<P>::new() -> Self
 pub fn grafton_visca::CameraConfig<P>::serial(impl core::convert::Into<alloc::string::String>, u32) -> Self where P: grafton_visca::capabilities::SupportsSerial
+pub fn grafton_visca::CameraConfig<P>::serial_startup(self, grafton_visca::transport::serial::Startup) -> Self
 pub const fn grafton_visca::CameraConfig<P>::sony_sequence_reset_on_connect(&self) -> bool
 pub const fn grafton_visca::CameraConfig<P>::strict_unconfirmed_poison(&self) -> bool
 pub fn grafton_visca::CameraConfig<P>::tcp(impl core::convert::Into<alloc::string::String>) -> Self where P: grafton_visca::capabilities::SupportsTcp

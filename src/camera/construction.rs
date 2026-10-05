@@ -63,6 +63,9 @@ impl Connect {
     }
 
     /// Open one canonical owner-backed Tokio serial session.
+    ///
+    /// Opening writes nothing to the bus: no Address Set and no I/F Clear.
+    /// Select startup writes with [`CameraConfig::serial_startup`].
     #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial<P, R>(
         port: impl Into<String>,

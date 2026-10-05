@@ -42,14 +42,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Start from the transport's own defaults and adjust only the timeouts and
+/// keepalive.
 fn transport_config(kind: TransportKind) -> TransportConfig {
-    {
-        let mut config = TransportConfig::default();
-        config.connect_timeout = Duration::from_secs(3);
-        config.read_timeout = Duration::from_secs(2);
-        config.write_timeout = Duration::from_secs(2);
-        config.tcp_keepalive = matches!(kind, TransportKind::Tcp)
-            .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30)));
-        config
-    }
+    let mut config = match kind {
+        TransportKind::Tcp => TransportConfig::for_tcp(),
+        TransportKind::Udp => TransportConfig::for_udp(),
+    };
+    config.connect_timeout = Duration::from_secs(3);
+    config.read_timeout = Duration::from_secs(2);
+    config.write_timeout = Duration::from_secs(2);
+    config.tcp_keepalive = matches!(kind, TransportKind::Tcp)
+        .then(|| TcpKeepaliveConfig::new(Duration::from_secs(30)));
+    config
 }

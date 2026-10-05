@@ -1,40 +1,71 @@
-//! Tokio-specific implementations of unified async I/O connectors.
+//! Tokio's I/O primitives for the shared async transports.
 
-use std::time::Instant;
+use std::{io, net::SocketAddr, time::Duration};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufReader},
-    net::{TcpStream, UdpSocket},
+    net::{
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
+        TcpStream, UdpSocket,
+    },
 };
 
-#[cfg(any(unix, windows))]
-use crate::transport::async_io::recv_datagram_with_outcome;
-
 use crate::{
-    timeout::Deadline,
     transport::{
-        address::AddressResolver,
+        async_connect::{self, AsyncNet},
         async_io::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
-        socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
+        async_tcp::NetStream,
+        async_udp::NetDatagram,
+        datagram::recv_datagram,
+        socket_options::{TcpConnectionConfig, UdpSocketConfig},
         ReceiveOutcome,
     },
     Error,
 };
 
+/// Tokio's connect primitives.
+#[derive(Debug, Clone, Copy)]
+pub struct TokioNet;
+
+impl AsyncNet for TokioNet {
+    type TcpStream = TcpStream;
+    type UdpSocket = UdpSocket;
+
+    async fn lookup(endpoint: String) -> io::Result<Vec<SocketAddr>> {
+        Ok(tokio::net::lookup_host(endpoint).await?.collect())
+    }
+
+    async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
+        TcpStream::connect(address).await
+    }
+
+    async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
+        UdpSocket::bind(address).await
+    }
+
+    async fn connect_udp(socket: &UdpSocket, address: SocketAddr) -> io::Result<()> {
+        socket.connect(address).await
+    }
+
+    fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
+        socket2::SockRef::from(stream)
+    }
+
+    fn udp_socket(socket: &UdpSocket) -> socket2::SockRef<'_> {
+        socket2::SockRef::from(socket)
+    }
+
+    async fn sleep(duration: Duration) {
+        tokio::time::sleep(duration).await;
+    }
+}
+
 /// Wrapper around tokio's BufReader to implement our AsyncReadExt trait.
 #[derive(Debug)]
 pub struct TokioBufferedReader<R> {
     inner: BufReader<R>,
-}
-
-impl<R: AsyncReadExt + Unpin> TokioBufferedReader<R> {
-    pub fn new(reader: R) -> Self {
-        Self {
-            inner: BufReader::new(reader),
-        }
-    }
 }
 
 impl<R: AsyncReadExt + Unpin + Send> AsyncReadExtTrait for TokioBufferedReader<R> {
@@ -49,12 +80,6 @@ pub struct TokioWriter<W> {
     inner: W,
 }
 
-impl<W> TokioWriter<W> {
-    pub fn new(writer: W) -> Self {
-        Self { inner: writer }
-    }
-}
-
 impl<W: AsyncWriteExt + Unpin + Send> AsyncWriteExtTrait for TokioWriter<W> {
     async fn write_all<'a>(&'a mut self, buf: &'a [u8]) -> Result<(), Error> {
         Ok(self.inner.write_all(buf).await?)
@@ -65,11 +90,11 @@ impl<W: AsyncWriteExt + Unpin + Send> AsyncWriteExtTrait for TokioWriter<W> {
     }
 }
 
-/// Combined TCP stream wrapper that implements both read and write traits.
+/// Tokio TCP stream split into owned halves.
 #[derive(Debug)]
 pub struct TokioTcpStream {
-    pub reader: TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
-    pub writer: TokioWriter<tokio::net::tcp::OwnedWriteHalf>,
+    reader: TokioBufferedReader<OwnedReadHalf>,
+    writer: TokioWriter<OwnedWriteHalf>,
 }
 
 impl AsyncReadExtTrait for TokioTcpStream {
@@ -88,93 +113,52 @@ impl AsyncWriteExtTrait for TokioTcpStream {
     }
 }
 
-/// Create a configured TCP connection using unified helpers.
-pub async fn connect_tcp(
-    address: &str,
-    config: TcpConnectionConfig,
-) -> Result<TokioTcpStream, Error> {
-    // Connect with timeout
-    let stream = tokio::time::timeout(config.connect_timeout, TcpStream::connect(address))
-        .await
-        .map_err(|_| Error::connect_timeout())??;
+impl NetStream for TokioTcpStream {
+    type Net = TokioNet;
+    type Reader = TokioBufferedReader<OwnedReadHalf>;
+    type Writer = TokioWriter<OwnedWriteHalf>;
 
-    apply_tcp_socket_options(&stream, config)?;
+    fn from_connected(stream: TcpStream) -> Self {
+        let (read_half, write_half) = stream.into_split();
+        Self {
+            reader: TokioBufferedReader {
+                inner: BufReader::new(read_half),
+            },
+            writer: TokioWriter { inner: write_half },
+        }
+    }
 
-    // Split and wrap
-    let (read_half, write_half) = stream.into_split();
+    fn split(self) -> (Self::Reader, Self::Writer) {
+        (self.reader, self.writer)
+    }
+}
 
-    Ok(TokioTcpStream {
-        reader: TokioBufferedReader::new(read_half),
-        writer: TokioWriter::new(write_half),
-    })
+impl NetDatagram for UdpSocket {
+    type Net = TokioNet;
 }
 
 /// Connect TCP on an explicitly selected Tokio runtime.
 ///
-/// The standalone connector above intentionally remains ambient-context based
-/// for `TcpTransport::connect*`. `TokioRuntime::from_handle`, however, has
-/// already selected a runtime, so its DNS, timer and socket work must execute
-/// on that handle even if its future is awaited elsewhere.
+/// `TokioRuntime::from_handle` has already selected a runtime, so its DNS,
+/// timer and socket work must execute on that handle even if its future is
+/// awaited elsewhere.
 pub(crate) async fn connect_tcp_on(
     handle: &tokio::runtime::Handle,
     address: String,
     config: TcpConnectionConfig,
 ) -> Result<TokioTcpStream, Error> {
     handle
-        .spawn(async move { connect_tcp(&address, config).await })
+        .spawn(async move {
+            async_connect::connect_tcp::<TokioNet>(&address, config)
+                .await
+                .map(TokioTcpStream::from_connected)
+        })
         .await
         .map_err(|error| {
             Error::InvalidState(
                 format!("selected Tokio runtime stopped while connecting TCP: {error}").into(),
             )
         })?
-}
-
-/// Create a configured UDP socket using unified helpers.
-///
-/// Uses a single end-to-end deadline for the entire connect operation,
-/// ensuring that the total time spent on DNS resolution + socket connect
-/// does not exceed `config.connect_timeout`.
-pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
-    // Create a single deadline for the entire operation
-    let deadline = Deadline::from_timeout(config.connect_timeout)?;
-
-    // Perform async DNS resolution with remaining budget
-    let remaining = deadline.remaining_at(Instant::now());
-    if remaining.is_zero() {
-        return Err(Error::connect_timeout());
-    }
-
-    let target_addr = tokio::time::timeout(remaining, tokio::net::lookup_host(address))
-        .await
-        .map_err(|_| Error::connect_timeout())??
-        .next()
-        .ok_or_else(|| Error::InvalidAddress {
-            reason: "No addresses resolved".into(),
-        })?;
-
-    // Bind to the appropriate unspecified address based on target family
-    let resolver = AddressResolver::new();
-    let bind_addr = resolver.bind_address_for(&target_addr);
-
-    let socket = UdpSocket::bind(bind_addr).await?;
-
-    // Connect with remaining budget
-    let remaining = deadline.remaining_at(Instant::now());
-    if remaining.is_zero() {
-        return Err(Error::connect_timeout());
-    }
-
-    tokio::time::timeout(remaining, socket.connect(target_addr))
-        .await
-        .map_err(|_| Error::connect_timeout())??;
-
-    // Apply socket configuration
-    if let Some(ttl) = config.ttl {
-        socket.set_ttl(ttl)?;
-    }
-
-    Ok(socket)
 }
 
 /// Connect UDP on an explicitly selected Tokio runtime.
@@ -187,7 +171,7 @@ pub(crate) async fn connect_udp_on(
     config: UdpSocketConfig,
 ) -> Result<UdpSocket, Error> {
     handle
-        .spawn(async move { connect_udp(&address, config).await })
+        .spawn(async move { async_connect::connect_udp::<TokioNet>(&address, config).await })
         .await
         .map_err(|error| {
             Error::InvalidState(
@@ -207,175 +191,11 @@ impl AsyncDatagram for UdpSocket {
     }
 
     async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        #[cfg(any(unix, windows))]
-        {
-            Ok(self
-                .async_io(
-                    tokio::io::Interest::READABLE | tokio::io::Interest::ERROR,
-                    || recv_datagram_with_outcome(self, buf),
-                )
-                .await?)
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            let bytes = UdpSocket::recv(self, buf).await?;
-            Ok(if bytes == buf.len() {
-                ReceiveOutcome::PossiblyTruncated { copied: bytes }
-            } else {
-                ReceiveOutcome::Complete { bytes }
-            })
-        }
-    }
-}
-
-// Serial port adapters are defined in the serial_async module where tokio_serial is available
-
-#[cfg(test)]
-#[allow(clippy::expect_used)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[tokio::test]
-    async fn udp_receive_reports_truncation_without_accepting_the_prefix() {
-        let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
-        let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
-        receiver
-            .connect(sender.local_addr().expect("sender address"))
-            .await
-            .expect("connect receiver");
-
-        sender
-            .send_to(
-                &[0x90, 0x41, 0xff, 0x00],
-                receiver.local_addr().expect("receiver address"),
+        Ok(self
+            .async_io(
+                tokio::io::Interest::READABLE | tokio::io::Interest::ERROR,
+                || recv_datagram(self, buf),
             )
-            .await
-            .expect("send datagram");
-
-        let mut destination = [0; 3];
-        let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
-            .await
-            .expect("receive datagram");
-
-        assert_eq!(
-            received,
-            ReceiveOutcome::Truncated { copied: 3 },
-            "a valid ACK prefix must not certify a larger UDP datagram"
-        );
-        assert_eq!(destination, [0x90, 0x41, 0xff]);
-    }
-
-    #[tokio::test]
-    async fn udp_receive_accepts_an_exact_buffer_sized_datagram() {
-        let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
-        let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
-        receiver
-            .connect(sender.local_addr().expect("sender address"))
-            .await
-            .expect("connect receiver");
-
-        sender
-            .send_to(
-                &[0x90, 0x41, 0xff],
-                receiver.local_addr().expect("receiver address"),
-            )
-            .await
-            .expect("send datagram");
-
-        let mut destination = [0; 3];
-        let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
-            .await
-            .expect("receive datagram");
-
-        assert_eq!(received, ReceiveOutcome::Complete { bytes: 3 });
-        assert_eq!(destination, [0x90, 0x41, 0xff]);
-    }
-
-    /// Test that verifies deadline budget consumption across sequential steps.
-    ///
-    /// This test validates the "single budget across steps" property:
-    /// - Creates a deadline with timeout T
-    /// - Step A sleeps for ~T * 0.6 and must succeed
-    /// - Step B sleeps for ~T * 0.6 and must fail with Timeout because only ~T * 0.4 remains
-    #[tokio::test]
-    async fn test_deadline_budget_consumption() {
-        let total_timeout = Duration::from_millis(200);
-        let step_duration = Duration::from_millis(120); // 60% of total
-
-        let deadline = Deadline::from_timeout(total_timeout).expect("finite test timeout");
-
-        // Step A: Should succeed with ~60% of budget
-        let remaining = deadline.remaining_at(Instant::now());
-        assert!(
-            !remaining.is_zero(),
-            "Should have remaining time before step A"
-        );
-
-        let step_a_result = tokio::time::timeout(remaining, async {
-            tokio::time::sleep(step_duration).await;
-            Ok::<_, Error>(())
-        })
-        .await;
-
-        assert!(
-            step_a_result.is_ok(),
-            "Step A should complete within remaining budget"
-        );
-
-        // Step B: Should fail because only ~40% of budget remains but needs 60%
-        let remaining = deadline.remaining_at(Instant::now());
-        // After step A took 60%, we have ~40% left which is less than the 60% step B needs
-        // However, due to timing variations, we check that step B times out
-
-        let step_b_result = tokio::time::timeout(remaining, async {
-            tokio::time::sleep(step_duration).await;
-            Ok::<_, Error>(())
-        })
-        .await;
-
-        assert!(
-            step_b_result.is_err(),
-            "Step B should timeout because remaining budget is insufficient"
-        );
-    }
-
-    /// Test that an already-expired deadline returns zero remaining time.
-    #[tokio::test]
-    async fn test_deadline_expired_returns_zero() {
-        let timeout = Duration::from_millis(10);
-        let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
-
-        // Wait for deadline to expire
-        tokio::time::sleep(Duration::from_millis(20)).await;
-
-        let remaining = deadline.remaining_at(Instant::now());
-        assert!(
-            remaining.is_zero(),
-            "Expired deadline should return zero remaining time"
-        );
-    }
-
-    /// Test that deadline correctly tracks remaining time across multiple checks.
-    #[tokio::test]
-    async fn test_deadline_remaining_decreases() {
-        let timeout = Duration::from_millis(100);
-        let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
-
-        let remaining_before = deadline.remaining_at(Instant::now());
-
-        tokio::time::sleep(Duration::from_millis(30)).await;
-
-        let remaining_after = deadline.remaining_at(Instant::now());
-
-        assert!(
-            remaining_after < remaining_before,
-            "Remaining time should decrease after sleep"
-        );
-        assert!(
-            remaining_after <= Duration::from_millis(75),
-            "Remaining time should be roughly 70ms or less after 30ms sleep"
-        );
+            .await?)
     }
 }

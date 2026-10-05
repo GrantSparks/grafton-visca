@@ -504,7 +504,7 @@ use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .camera_id(CameraId::CAMERA_1)
-    .transport_config({ let mut config = TransportConfig::default(); config.tcp_keepalive = Some(grafton_visca::transport::TcpKeepaliveConfig::new(
+    .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(grafton_visca::transport::TcpKeepaliveConfig::new(
             Duration::from_secs(30),
         )); config });
 ```

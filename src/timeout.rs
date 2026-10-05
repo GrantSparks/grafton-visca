@@ -1,13 +1,6 @@
 //! Private time/deadline helpers and the canonical command timeout values.
 
-use std::time::Duration;
-
-#[cfg(any(
-    feature = "blocking",
-    feature = "runtime-tokio",
-    feature = "runtime-smol"
-))]
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{Error, Result};
 
@@ -109,12 +102,48 @@ impl Default for CommandTimeouts {
     }
 }
 
+/// The instant `timeout` after `now`.
+///
+/// This is the single representability check for every transport timeout:
+/// configuration validation and every runtime budget use it, so a timeout too
+/// large for the monotonic clock is always the same
+/// [`Error::InvalidParameter`] naming the configured timeout (for example
+/// `"write_timeout"`), never a panic.
+pub(crate) fn instant_after(
+    now: Instant,
+    timeout: Duration,
+    parameter: &'static str,
+) -> Result<Instant> {
+    now.checked_add(timeout)
+        .ok_or_else(|| Error::InvalidParameter {
+            parameter,
+            value: format!("{timeout:?}").into(),
+            reason: "timeout is too large for the monotonic clock".into(),
+        })
+}
+
+/// One fixed I/O budget expressed as a monotonic deadline.
+///
+/// Every transport operation that spans more than one syscall (a whole-frame
+/// write, a datagram receive that skips empty packets, a multi-address
+/// connect, a serial startup attempt) computes its remaining budget through
+/// this type, so overflow and expiry are handled identically everywhere:
+///
+/// - a budget too large for the monotonic clock is rejected up front with
+///   [`Error::InvalidParameter`] naming the configured timeout
+///   ([`Deadline::after`]);
+/// - a spent budget is reported with the caller's own expiry error
+///   ([`Deadline::remaining_or`]), because only the caller knows whether it is
+///   a connect, read, or write timeout.
+///
+/// The clock is always passed in, so executor-driven code can use its virtual
+/// clock and stay deterministic under the test executor.
 #[cfg(any(
     feature = "blocking",
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Deadline {
     deadline: Instant,
 }
@@ -125,27 +154,33 @@ pub(crate) struct Deadline {
     feature = "runtime-smol"
 ))]
 impl Deadline {
-    /// Creates a monotonic deadline from the current clock.
+    /// Starts a `timeout` budget at `now`.
     ///
-    /// An invalidly large duration is rejected instead of allowing the
-    /// `Instant` addition to panic.
-    pub(crate) fn from_timeout(timeout: Duration) -> Result<Self> {
-        let deadline =
-            Instant::now()
-                .checked_add(timeout)
-                .ok_or_else(|| Error::InvalidParameter {
-                    parameter: "connect_timeout",
-                    value: format!("{timeout:?}").into(),
-                    reason: "timeout is too large for the monotonic clock".into(),
-                })?;
-        Ok(Self { deadline })
+    /// `parameter` names the configured timeout (for example
+    /// `"write_timeout"`) in the error returned when the deadline cannot be
+    /// represented, instead of letting the `Instant` addition panic.
+    pub(crate) fn after(now: Instant, timeout: Duration, parameter: &'static str) -> Result<Self> {
+        Ok(Self {
+            deadline: instant_after(now, timeout, parameter)?,
+        })
     }
 
     /// Returns the remaining duration at a sampled instant.
     pub(crate) fn remaining_at(&self, now: Instant) -> Duration {
         self.deadline.saturating_duration_since(now)
     }
+
+    /// Returns the unspent budget, or `on_expiry()` once it is spent.
+    pub(crate) fn remaining_or(&self, now: Instant, on_expiry: fn() -> Error) -> Result<Duration> {
+        let remaining = self.remaining_at(now);
+        if remaining.is_zero() {
+            Err(on_expiry())
+        } else {
+            Ok(remaining)
+        }
+    }
 }
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
@@ -189,7 +224,35 @@ mod tests {
         feature = "runtime-smol"
     ))]
     #[test]
-    fn deadline_rejects_unrepresentable_timeout() {
-        assert!(Deadline::from_timeout(Duration::MAX).is_err());
+    fn deadline_rejects_unrepresentable_timeout_with_its_parameter_name() {
+        assert!(matches!(
+            Deadline::after(Instant::now(), Duration::MAX, "write_timeout"),
+            Err(Error::InvalidParameter {
+                parameter: "write_timeout",
+                ..
+            })
+        ));
+    }
+
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    ))]
+    #[test]
+    fn deadline_reports_the_callers_expiry_error_once_spent() {
+        let now = Instant::now();
+        let deadline =
+            Deadline::after(now, Duration::from_millis(5), "read_timeout").expect("finite budget");
+        assert_eq!(
+            deadline
+                .remaining_or(now, Error::io_timeout)
+                .expect("unspent budget"),
+            Duration::from_millis(5)
+        );
+        assert!(matches!(
+            deadline.remaining_or(now + Duration::from_millis(5), Error::io_timeout),
+            Err(Error::Timeout { .. })
+        ));
     }
 }

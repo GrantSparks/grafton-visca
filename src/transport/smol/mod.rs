@@ -4,14 +4,29 @@
 
 pub(crate) mod connectors;
 
-crate::declare_net_transport!(
-    runtime = "smol",
-    tcp_stream = crate::transport::smol::connectors::SmolTcpStream,
-    udp_socket = smol::net::UdpSocket,
-    tcp_connect = crate::transport::smol::connectors::connect_tcp,
-    udp_connect = crate::transport::smol::connectors::connect_udp,
-    tcp_split = clone
-);
+/// TCP transport over smol.
+pub mod tcp {
+    /// TCP transport for async VISCA communication using smol.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use grafton_visca::runtime_adapters::smol::TcpTransport;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    /// let (mut reader, mut writer) = transport.split();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub type Tcp =
+        crate::transport::async_tcp::Tcp<crate::transport::smol::connectors::SmolTcpStream>;
+}
+
+/// UDP transport over smol.
+pub mod udp {
+    /// UDP transport for async VISCA communication using smol.
+    pub type Udp = crate::transport::async_udp::Udp<smol::net::UdpSocket>;
+}
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

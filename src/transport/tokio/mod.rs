@@ -1,23 +1,35 @@
 //! Tokio transport implementations for VISCA communication.
 //!
-//! This module provides async transport implementations using the tokio runtime.
+//! Tokio contributes only its I/O primitives; the TCP and UDP transports are
+//! the generic implementations in `async_tcp` and `async_udp`.
 
 pub(crate) mod connectors;
 #[cfg(feature = "transport-serial-tokio")]
 pub mod serial;
 
-// Use the macro to generate TCP and UDP transport implementations
-crate::declare_net_transport!(
-    runtime = "tokio",
-    tcp_stream = crate::transport::tokio::connectors::TokioTcpStream,
-    udp_socket = tokio::net::UdpSocket,
-    tcp_connect = crate::transport::tokio::connectors::connect_tcp,
-    udp_connect = crate::transport::tokio::connectors::connect_udp,
-    tcp_split = owned {
-        reader: crate::transport::tokio::connectors::TokioBufferedReader<tokio::net::tcp::OwnedReadHalf>,
-        writer: crate::transport::tokio::connectors::TokioWriter<tokio::net::tcp::OwnedWriteHalf>
-    }
-);
+/// TCP transport over Tokio.
+pub mod tcp {
+    /// TCP transport for async VISCA communication using Tokio.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use grafton_visca::runtime_adapters::tokio::TcpTransport;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let transport = TcpTransport::connect("192.168.1.100:5678").await?;
+    /// let (mut reader, mut writer) = transport.split();
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub type Tcp =
+        crate::transport::async_tcp::Tcp<crate::transport::tokio::connectors::TokioTcpStream>;
+}
+
+/// UDP transport over Tokio.
+pub mod udp {
+    /// UDP transport for async VISCA communication using Tokio.
+    pub type Udp = crate::transport::async_udp::Udp<tokio::net::UdpSocket>;
+}
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]

@@ -241,7 +241,7 @@ fn test_sony_encapsulated_frames_back_to_back() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer configured for Sony protocol
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_sony_ip());
+    let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_udp());
     let mut read_buf = vec![0u8; 256];
 
     // Read all data in one go

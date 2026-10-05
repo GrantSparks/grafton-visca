@@ -195,7 +195,13 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
 /// both socketless and invalid values, so the outer `Option` here preserves
 /// that distinction for strict fixed-frame parsing: `Some(None)` is valid
 /// socketless evidence and `None` is a malformed socket nibble.
-fn decode_fixed_socket(nibble: u8) -> Option<Option<ViscaSocket>> {
+///
+/// This is the one socket-nibble grammar: the framer's incomplete-prefix
+/// classifier uses it for completion and error prefixes, so a prefix and the
+/// complete frame it becomes can never disagree about the socket. An ACK is
+/// the one deliberate asymmetry: its incomplete prefix is classified by the
+/// message nibble alone, while the complete ACK frame is checked here.
+pub(crate) fn decode_fixed_socket(nibble: u8) -> Option<Option<ViscaSocket>> {
     match nibble {
         0 => Some(None),
         1 | 2 => ViscaSocket::from_protocol_byte(nibble).map(Some),

@@ -9,7 +9,9 @@
 use bytes::{Bytes, BytesMut};
 
 use crate::{
-    command::bytes::VISCA_TERMINATOR, protocol::sony::SonyHeader, CameraId, Error, ViscaSocket,
+    command::bytes::VISCA_TERMINATOR,
+    protocol::{response::decode_fixed_socket, sony::SonyHeader},
+    CameraId, Error, ViscaSocket,
 };
 
 #[cfg(test)]
@@ -115,15 +117,19 @@ impl ProtocolFramer {
     }
 
     /// Create a protocol framer with size limits and an explicit wire mode.
+    ///
+    /// `recv_buffer_size` is the largest accepted frame. The framer's hard
+    /// buffer bound is [`BufferConfig::max_buffer_size`] plus one full read, so
+    /// input retained between reads (at most one incomplete frame on a healthy
+    /// stream) always has room for the next read: a burst of valid replies
+    /// split across reads can never overflow and poison the stream.
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub fn new_with_config_and_mode(config: BufferConfig, mode: FramingMode) -> Self {
         Self {
             buf: BytesMut::with_capacity(config.recv_buffer_size),
             mode,
-            // A single frame should not exceed what we provisioned for one recv.
-            // This aligns limits with the per-transport expectation.
             max_frame_size: config.recv_buffer_size,
-            max_buffer_size: config.max_buffer_size,
+            max_buffer_size: config.framer_capacity(),
         }
     }
 
@@ -332,13 +338,20 @@ impl ProtocolFramer {
         };
         let kind = match self.buf.get(1).copied() {
             None => RawIncompletePrefix::SourceOnly,
-            // An ACK socket nibble is a preference for assigning a free
-            // socket, never evidence of who owns a named socket already.
+            // An ACK prefix is classified by its message nibble alone: its
+            // socket nibble is a preference for assigning a free socket,
+            // never evidence of who owns a named socket already. The complete
+            // ACK frame is still held to the strict socket grammar of
+            // `decode_fixed_socket` when it is decoded.
             Some(0x40..=0x4f) => RawIncompletePrefix::Ack,
-            Some(0x50) => RawIncompletePrefix::SocketlessCompletion,
-            Some(0x60) => RawIncompletePrefix::SocketlessError,
-            Some(0x51 | 0x61) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
-            Some(0x52 | 0x62) => RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S2),
+            // Completion and error prefixes name a socket, so they use the
+            // same strict nibble decoder as complete frames.
+            Some(byte @ 0x50..=0x6f) => match decode_fixed_socket(byte & 0x0f) {
+                Some(None) if byte & 0xf0 == 0x50 => RawIncompletePrefix::SocketlessCompletion,
+                Some(None) => RawIncompletePrefix::SocketlessError,
+                Some(Some(socket)) => RawIncompletePrefix::NamedCompletionOrError(socket),
+                None => RawIncompletePrefix::Noncorrelating,
+            },
             Some(_) => RawIncompletePrefix::Noncorrelating,
         };
         Some(RawBufferedInput::Incomplete { target, kind })
@@ -1168,7 +1181,7 @@ mod tests {
 
     #[test]
     fn test_framer_with_buffer_config() {
-        let config = BufferConfig::for_sony_ip();
+        let config = limits_512();
         let mut framer = ProtocolFramer::new_with_config(config);
 
         // Should use the buffer config's recv_buffer_size for max_frame_size
@@ -1186,7 +1199,7 @@ mod tests {
     #[test]
     fn test_framer_rejects_frame_gt_recv_size_for_sony() {
         // Create framer with Sony IP config (recv_buffer_size = 512)
-        let config = BufferConfig::for_sony_ip();
+        let config = limits_512();
         let mut framer = ProtocolFramer::new_with_config(config);
 
         // Build a Sony header with payload_length that exceeds recv_buffer_size
@@ -1217,7 +1230,7 @@ mod tests {
     #[test]
     fn test_framer_accepts_frame_eq_recv_size() {
         // Create framer with Sony IP config (recv_buffer_size = 512)
-        let config = BufferConfig::for_sony_ip();
+        let config = limits_512();
         let mut framer = ProtocolFramer::new_with_config(config);
 
         // Build a Sony header with payload that exactly equals recv_buffer_size
@@ -1476,8 +1489,50 @@ mod tests {
         let framer = ProtocolFramer::new_with_limits(256, 100, 42);
         assert_eq!(framer.max_buffer_size(), 42);
 
-        let config = BufferConfig::for_sony_ip();
+        let config = limits_512();
         let framer = ProtocolFramer::new_with_config(config);
-        assert_eq!(framer.max_buffer_size(), config.max_buffer_size);
+        assert_eq!(framer.max_buffer_size(), config.framer_capacity());
+    }
+
+    /// 512-byte frame limit with the standard retention bound.
+    fn limits_512() -> BufferConfig {
+        BufferConfig {
+            recv_buffer_size: 512,
+            max_buffer_size: 8192,
+        }
+    }
+
+    /// #828: a configuration whose retention bound equals its frame limit is valid,
+    /// so the framer must accept an incomplete reply followed by one full read
+    /// of valid replies. Before the framer reserved room for one read on top of
+    /// the retention bound, this burst overflowed (`3 + 64 > 64`) and a raw
+    /// stream owner treated the healthy stream as desynchronized.
+    #[test]
+    fn a_partial_reply_plus_a_full_read_of_valid_replies_never_overflows() {
+        let config = BufferConfig {
+            recv_buffer_size: 64,
+            max_buffer_size: 64,
+        };
+        let mut framer = ProtocolFramer::new_with_config_and_mode(config, FramingMode::RawVisca);
+
+        // An ACK split across reads leaves three bytes retained.
+        framer.push_slice(&[0x90, 0x41, 0x00]).unwrap();
+        assert!(framer.drain_frames().next().is_none());
+
+        // The next read fills the whole 64-byte receive buffer with the rest
+        // of a 4-byte reply followed by twenty complete 3-byte replies.
+        let mut read = vec![VISCA_TERMINATOR];
+        for _ in 0..21 {
+            read.extend_from_slice(&[0x90, 0x51, VISCA_TERMINATOR]);
+        }
+        assert_eq!(read.len(), config.recv_buffer_size);
+        framer.push_slice(&read).unwrap();
+
+        let frames = framer
+            .drain_frames()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(frames.len(), 22);
+        assert!(framer.is_empty());
     }
 }

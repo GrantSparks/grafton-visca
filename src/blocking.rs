@@ -249,6 +249,10 @@ mod construction {
         }
 
         /// Opens one owner-backed blocking serial session.
+        ///
+        /// Opening writes nothing to the bus: no Address Set and no I/F
+        /// Clear. Select startup writes with
+        /// [`CameraConfig::serial_startup`](crate::camera::CameraConfig::serial_startup).
         #[cfg(feature = "transport-serial")]
         pub fn open_serial<P>(port: impl Into<String>, baud_rate: u32) -> Result<Session>
         where
@@ -302,7 +306,7 @@ impl Session {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        config.validate_for_transport(transport.standard_transport_kind())?;
+        config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
         let mut adapter = BlockingTransportAdapter::new_with_targets(
             transport,
