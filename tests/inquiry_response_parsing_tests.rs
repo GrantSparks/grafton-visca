@@ -3,7 +3,7 @@
 //! This module tests the parsing of VISCA inquiry responses using
 //! real-world response patterns from PTZ cameras.
 
-use grafton_visca::command::{InquiryData, InquiryKind, Response};
+use grafton_visca::command::{InquiryData, InquiryKind, Response, TallyStatusState};
 
 #[test]
 fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
@@ -634,7 +634,8 @@ fn test_parse_tally_status_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyStatus { red_on, green_on }) => {
+        Response::Inquiry(InquiryData::TallyStatus { state }) => {
+            let TallyStatusState { red_on, green_on } = state;
             assert!(!red_on, "Red tally should be off");
             assert!(green_on, "Green tally should be on");
         }
@@ -651,7 +652,8 @@ fn test_parse_tally_status_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyStatus { red_on, green_on }) => {
+        Response::Inquiry(InquiryData::TallyStatus { state }) => {
+            let TallyStatusState { red_on, green_on } = state;
             assert!(red_on, "Red tally should be on");
             assert!(green_on, "Green tally should be on");
         }

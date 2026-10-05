@@ -1,23 +1,22 @@
-//! Persisted built-in `ProfileSpec` JSON from before #795.
+//! Persisted built-in `ProfileSpec` JSON from 2.0.0-rc.3.
 //!
 //! The fixtures in `tests/fixtures/issue_795_rc3_profile_specs/` are the exact
 //! `serde_json` output of `ProfileSpec::from_compile_time::<P>()` at the
 //! 2.0.0-rc.3 release commit (`5a3e81d1`), pretty-printed. That shape predates
-//! #795: `capabilities.typed_support` has no `"version-inquiry"` tag and
-//! `capabilities.focus_zones` does not exist.
+//! #795 and #807/#808: it has no `capabilities.focus_zones`, no
+//! `capabilities.optical_zoom_ratio`, shutter entries carry a `label` string
+//! instead of an `exposure` fraction, and `capabilities.typed_support` has no
+//! `"version-inquiry"` tag.
 //!
-//! A built-in identity must match the current registry exactly, so a stale
-//! Sony or Generic VISCA spec is refused with an error that names the profile,
-//! the differing surfaces, and the constructor that regenerates it. A stale
-//! PTZOptics spec, whose typed-support set did not change, still loads and
-//! equals the current registry profile.
+//! 2.0 keeps no compatibility path for older shapes. Every such spec is
+//! refused with an error that tells the caller to regenerate it from the
+//! current registry, and a regenerated spec round-trips.
 
 #![cfg(feature = "serde")]
 #![allow(clippy::expect_used)]
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    command::FocusZone,
     profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
     Error, ProfileSpec,
 };
@@ -28,55 +27,60 @@ const RC3_GENERIC_VISCA: &str =
 const RC3_PTZ_OPTICS_G2: &str =
     include_str!("fixtures/issue_795_rc3_profile_specs/ptz_optics_g2.json");
 
-fn assert_pre_795_shape(fixture: &str) {
+fn assert_rc3_shape(fixture: &str) {
     let value: serde_json::Value = serde_json::from_str(fixture).expect("fixture is JSON");
     let capabilities = &value["capabilities"];
-    assert!(
-        capabilities.get("focus_zones").is_none(),
-        "the rc.3 shape has no focus_zones field"
-    );
+    assert!(capabilities.get("focus_zones").is_none());
+    assert!(capabilities.get("optical_zoom_ratio").is_none());
+    assert!(capabilities["shutter_speeds"][0].get("label").is_some());
     let typed_support = capabilities["typed_support"]
         .as_array()
         .expect("typed_support list");
-    assert!(
-        !typed_support.iter().any(|tag| tag == "version-inquiry"),
-        "the rc.3 shape has no version-inquiry tag"
-    );
+    assert!(!typed_support.iter().any(|tag| tag == "version-inquiry"));
 }
 
-fn stale_builtin_error(fixture: &str) -> String {
-    assert_pre_795_shape(fixture);
-    serde_json::from_str::<ProfileSpec>(fixture)
-        .expect_err("a stale built-in identity must not load")
+fn refusal(json: &str) -> String {
+    serde_json::from_str::<ProfileSpec>(json)
+        .expect_err("a spec in another release's shape must not load")
         .to_string()
 }
 
-#[test]
-fn rc3_sony_fr7_spec_is_refused_with_a_regeneration_instruction() {
-    assert_eq!(
-        stale_builtin_error(RC3_SONY_FR7),
-        "Invalid request: profile fields `capabilities.profile_id`, \
-         `capabilities.typed_support`: built-in profile `SonyFR7`: the stored \
-         typed-support set differs from the current built-in registry (missing: \
-         VersionInquiry; not in registry: none); the spec was saved by another \
-         release, so regenerate it with \
-         `ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()` \
-         and persist the result"
+fn assert_regeneration_instruction(error: &str) {
+    assert!(
+        error.contains(
+            "the spec was saved by another release, so regenerate it with \
+             `ProfileSpec::from_compile_time::<P>()`"
+        ),
+        "{error}"
     );
 }
 
 #[test]
-fn rc3_generic_visca_spec_is_refused_with_a_regeneration_instruction() {
-    assert_eq!(
-        stale_builtin_error(RC3_GENERIC_VISCA),
-        "Invalid request: profile fields `capabilities.profile_id`, \
-         `capabilities.typed_support`: built-in profile `GenericVisca`: the stored \
-         typed-support set differs from the current built-in registry (missing: \
-         VersionInquiry; not in registry: none); the spec was saved by another \
-         release, so regenerate it with \
-         `ProfileSpec::from_compile_time::<grafton_visca::profiles::GenericVisca>()` \
-         and persist the result"
-    );
+fn every_rc3_built_in_spec_is_refused_with_a_regeneration_instruction() {
+    for fixture in [RC3_SONY_FR7, RC3_GENERIC_VISCA, RC3_PTZ_OPTICS_G2] {
+        assert_rc3_shape(fixture);
+        let error = refusal(fixture);
+        assert!(error.contains("missing field"), "{error}");
+        assert_regeneration_instruction(&error);
+    }
+}
+
+#[test]
+fn a_current_spec_missing_a_current_field_is_refused() {
+    let current = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
+    for field in ["focus_zones", "optical_zoom_ratio"] {
+        let mut value = serde_json::to_value(&current).expect("serialize");
+        value["capabilities"]
+            .as_object_mut()
+            .expect("capabilities object")
+            .remove(field);
+        let error = refusal(&value.to_string());
+        assert!(
+            error.contains(&format!("missing field `{field}`")),
+            "{field}: {error}"
+        );
+        assert_regeneration_instruction(&error);
+    }
 }
 
 /// Building (not only deserializing) a spec whose built-in identity carries
@@ -110,39 +114,29 @@ fn stale_builtin_typed_support_keeps_the_invalid_request_variant() {
 }
 
 #[test]
-fn regenerated_sony_and_generic_specs_round_trip() {
-    for spec in [
-        ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
-        ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA"),
+fn regenerated_specs_round_trip() {
+    for (spec, version_inquiry) in [
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+            true,
+        ),
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().expect("Generic VISCA"),
+            true,
+        ),
+        (
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+            false,
+        ),
     ] {
         let json = serde_json::to_string(&spec).expect("serialize");
         let restored: ProfileSpec = serde_json::from_str(&json).expect("current shape loads");
         assert_eq!(restored, spec);
-        assert!(restored
-            .capabilities()
-            .supports_typed(TypedSupportSurface::VersionInquiry));
+        assert_eq!(
+            restored
+                .capabilities()
+                .supports_typed(TypedSupportSurface::VersionInquiry),
+            version_inquiry
+        );
     }
-}
-
-#[test]
-fn rc3_ptz_optics_g2_spec_still_loads_and_matches_the_current_registry() {
-    assert_pre_795_shape(RC3_PTZ_OPTICS_G2);
-    let restored: ProfileSpec =
-        serde_json::from_str(RC3_PTZ_OPTICS_G2).expect("rc.3 G2 spec still loads");
-    let current = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
-    assert_eq!(restored.capabilities(), current.capabilities());
-    assert_eq!(restored, current);
-    assert_eq!(
-        restored.capabilities().focus_zones,
-        [
-            FocusZone::Top,
-            FocusZone::Center,
-            FocusZone::Bottom,
-            FocusZone::Zone03
-        ],
-        "the built-in identity restores its registry focus zones"
-    );
-    assert!(!restored
-        .capabilities()
-        .supports_typed(TypedSupportSurface::VersionInquiry));
 }

@@ -123,6 +123,14 @@ macro_rules! hw {
 
 /// Whether the error means the request's physical outcome is unknowable, so
 /// it must never be replayed.
+/// Magnification of a raw zoom position, when the profile fixes its lens.
+fn magnification(capabilities: &Capabilities, units: u16) -> Option<f32> {
+    capabilities
+        .zoom_scale()
+        .ok()
+        .and_then(|scale| scale.magnification(units))
+}
+
 fn is_unconfirmed(error: &Error) -> bool {
     error.kind() == ErrorKind::Unconfirmed
         || error
@@ -796,18 +804,18 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
     hw!(
         hw,
         "profile.zoom model_name={:?} optical_range=0x{:04X}..=0x{:04X} digital_range={:?} \
-         magnification_to_units={} supports_direct={}",
+         optical_zoom_ratio={:?} supports_direct={}",
         capabilities.model_name,
         capabilities.zoom_range_optical.start(),
         optical_max,
         capabilities.zoom_range_digital,
-        capabilities.zoom_magnification_to_units,
+        capabilities.optical_zoom_ratio,
         capabilities.supports_direct_zoom
     );
     hw!(
         hw,
-        "zoom.before.magnification={}",
-        capabilities.zoom_units_to_magnification(before.value())
+        "zoom.before.magnification={:?}",
+        magnification(capabilities, before.value())
     );
 
     let _guard = MotionGuard {
@@ -833,9 +841,9 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
         hw!(
             hw,
             "observation.zoom.raw_readback=0x{:04X} target=0x{RAW_ZOOM_TARGET:04X} delta={delta} \
-             magnification={}",
+             magnification={:?}",
             position.value(),
-            capabilities.zoom_units_to_magnification(position.value())
+            magnification(capabilities, position.value())
         );
     }
 
@@ -859,11 +867,11 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
         hw!(
             hw,
             "observation.zoom.normalized_readback=0x{:04X} expected_raw=0x{expected_raw:04X} \
-             delta={delta} magnification={} profile_optical_max=0x{optical_max:04X} \
-             profile_magnification_to_units={} model_name={:?}",
+             delta={delta} magnification={:?} profile_optical_max=0x{optical_max:04X} \
+             profile_optical_zoom_ratio={:?} model_name={:?}",
             position.value(),
-            capabilities.zoom_units_to_magnification(position.value()),
-            capabilities.zoom_magnification_to_units,
+            magnification(capabilities, position.value()),
+            capabilities.optical_zoom_ratio,
             capabilities.model_name
         );
     }

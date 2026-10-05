@@ -303,6 +303,19 @@ bash .github/scripts/miri-tests.sh
 cargo test -- --nocapture
 ```
 
+### Built-in wire golden
+
+`tests/fixtures/issue_715_wire_golden.txt` pins the encoded bytes of every
+built-in command. After a deliberate encoder change, regenerate it with:
+
+```bash
+GRAFTON_VISCA_BLESS_WIRE_GOLDEN=1 cargo test --lib wire_ledger_matches_literal_golden_inventory
+```
+
+The bless run writes the fixture and then fails on purpose ("fixture blessed;
+review the diff and rerun without the variable"), and it is refused when `CI`
+is set. Review the fixture diff, then rerun the test without the variable.
+
 ## Public API Snapshots
 
 `api/2.0.0-rc.1/` holds the rolling approved public-surface baseline for the

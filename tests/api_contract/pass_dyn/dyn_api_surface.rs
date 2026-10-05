@@ -109,9 +109,9 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.far();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.near();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        focus.far_variable(grafton_visca::command::FocusSpeed::new(1).unwrap());
+        focus.far_variable(grafton_visca::FocusSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        focus.near_variable(grafton_visca::command::FocusSpeed::new(1).unwrap());
+        focus.near_variable(grafton_visca::FocusSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.stop();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         focus.set_position(FocusPosition::new(0));
@@ -148,7 +148,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_down();
-    let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_direct(ShutterSpeed::MIN);
+    let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_direct(ShutterSpeed::new(0));
     let _: DynFuture<'_, Result<ExposureCompensationLevel, Error>> = exposure.compensation();
     let _: DynFuture<'_, Result<bool, Error>> = exposure.compensation_enabled();
     let _: DynFuture<'_, Result<ExposureCompensationPosition, Error>> =
@@ -294,7 +294,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<MotionSyncMode, Error>> = sync.mode();
     let _: DynFuture<'_, Result<MotionSyncPreset, Error>> = sync.preset();
     let _: DynFuture<'_, Result<(), Error>> = sync.set_mode(MotionSyncMode::On);
-    let _: DynFuture<'_, Result<(), Error>> = sync.set_preset(1);
     let _: DynFuture<'_, Result<(), Error>> = sync.set_speed(MotionSyncSpeed::new(1).unwrap());
 
     let menu = camera.menu();

@@ -33,7 +33,7 @@ use crate::{
     capabilities::{CoordinateSystem, PanTiltWireCodec},
     command::{bytes::ConstCommandBuilder, encode::WireEncode},
     error::Error,
-    types::{PanPosition, PanSpeed, TiltPosition, TiltSpeed},
+    types::{PanSpeed, TiltSpeed},
 };
 
 /// Corner position for pan/tilt limit setting.
@@ -141,8 +141,8 @@ mod tests {
         test_pan_tilt_limit_set_down_left,
         PanTilt::LimitSet {
             corner: PanTiltLimitCorner::DownLeft,
-            pan: PanPosition::new(0x0123).expect("valid test pan position"),
-            tilt: TiltPosition::new(0x0456).expect("valid test tilt position"),
+            pan: 0x0123,
+            tilt: 0x0456,
         },
         &[
             0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x00, 0x04, 0x05, 0x06,
@@ -166,9 +166,8 @@ mod tests {
         test_pan_tilt_limit_set_up_right,
         PanTilt::LimitSet {
             corner: PanTiltLimitCorner::UpRight,
-            pan: PanPosition::new(0x0789).expect("valid test pan position"),
-            // Use a valid TiltPosition value (range: -432 to 1296, i.e. 0xFE50 to 0x0510)
-            tilt: TiltPosition::new(0x0456).expect("valid test tilt position"),
+            pan: 0x0789,
+            tilt: 0x0456,
         },
         &[
             0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x07, 0x08, 0x09, 0x00, 0x04, 0x05, 0x06,
@@ -358,35 +357,8 @@ mod tests {
         PanTilt,
         test_pan_tilt_absolute_position_golden_frame,
         PanTilt::AbsolutePosition {
-            pan: PanPosition::new(144).expect("valid test pan position"),
-            tilt: TiltPosition::new(-72).expect("valid test tilt position"),
-            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
-        },
-        &[
-            0x81,
-            0x01,
-            0x06,
-            0x02,
-            0x0A,
-            0x05,
-            0x00,
-            0x00,
-            0x09,
-            0x00,
-            0x0F,
-            0x0F,
-            0x0B,
-            0x08,
-            VISCA_TERMINATOR
-        ]
-    );
-    visca_test!(
-        PanTilt,
-        test_pan_tilt_absolute_position_raw_golden_frame,
-        PanTilt::AbsolutePositionRaw {
-            pan_u16: 0x0090,
-            tilt_u16: 0xFFB8,
+            pan: 144,
+            tilt: -72,
             pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
             tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
         },
@@ -412,35 +384,8 @@ mod tests {
         PanTilt,
         test_pan_tilt_relative_position_golden_frame,
         PanTilt::RelativePosition {
-            pan: PanPosition::new(144).expect("valid test pan position"),
-            tilt: TiltPosition::new(-72).expect("valid test tilt position"),
-            pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
-            tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
-        },
-        &[
-            0x81,
-            0x01,
-            0x06,
-            0x03,
-            0x0A,
-            0x05,
-            0x00,
-            0x00,
-            0x09,
-            0x00,
-            0x0F,
-            0x0F,
-            0x0B,
-            0x08,
-            VISCA_TERMINATOR
-        ]
-    );
-    visca_test!(
-        PanTilt,
-        test_pan_tilt_relative_position_raw_golden_frame,
-        PanTilt::RelativePositionRaw {
-            pan_u16: 0x0090,
-            tilt_u16: 0xFFB8,
+            pan: 144,
+            tilt: -72,
             pan_speed: PanSpeed::new(0x0A).expect("valid pan speed"),
             tilt_speed: TiltSpeed::new(0x05).expect("valid tilt speed"),
         },
@@ -567,13 +512,17 @@ mod tests {
 /// - `Home` - Return to home position
 /// - `Reset` - Reset pan/tilt mechanism
 /// - `Move` - Directional movement with speed control
-/// - `AbsolutePosition` - Move to exact coordinates
-/// - `RelativePosition` - Move relative to current position
-/// - `AbsolutePositionRaw` - Move to exact coordinates with pre-converted camera units
-/// - `RelativePositionRaw` - Move relative with pre-converted camera units
-/// - `LimitSet` - Set pan/tilt movement boundaries
-/// - `LimitSetRaw` - Set pan/tilt boundaries with pre-converted camera units
-/// - `LimitClear` - Clear all pan/tilt movement boundaries
+/// - `AbsolutePosition` - Move to raw coordinates
+/// - `RelativePosition` - Move by raw offsets
+/// - `LimitSet` - Set a pan/tilt movement boundary
+/// - `LimitClear` - Clear a pan/tilt movement boundary
+///
+/// This is the profile-less standard VISCA frame. Its position fields are the
+/// raw 16-bit words the frame carries (two's complement; an unsigned-centered
+/// camera's word `w` is `w as i16`), not angles: units per degree and the
+/// usable range belong to the camera profile. Profile-aware requests such as
+/// [`PanTiltAbsolute`](crate::request::builtin::PanTiltAbsolute) take degrees,
+/// convert them with the profile's scale, and validate the profile's range.
 #[derive(Debug, Copy, Clone)]
 pub enum PanTilt {
     /// Return camera to home position.
@@ -589,85 +538,36 @@ pub enum PanTilt {
         /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
-    /// Move camera to an absolute pan/tilt position.
-    ///
-    /// The pan and tilt values specify exact coordinates to move to.
+    /// Move camera to an absolute pan/tilt position in raw units.
     AbsolutePosition {
-        /// Absolute pan position to move to.
-        pan: PanPosition,
-        /// Absolute tilt position to move to.
-        tilt: TiltPosition,
+        /// Raw pan word.
+        pan: i16,
+        /// Raw tilt word.
+        tilt: i16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
-    /// Move camera relative to its current position.
-    ///
-    /// The pan and tilt values specify the offset from the current position.
+    /// Move camera by a raw pan/tilt offset from its current position.
     RelativePosition {
-        /// Relative pan movement amount.
-        pan: PanPosition,
-        /// Relative tilt movement amount.
-        tilt: TiltPosition,
+        /// Raw pan offset.
+        pan: i16,
+        /// Raw tilt offset.
+        tilt: i16,
         /// Pan movement speed (0x00-0x18).
         pan_speed: PanSpeed,
         /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
         tilt_speed: TiltSpeed,
     },
-    /// Move camera to an absolute pan/tilt position using raw camera units.
-    ///
-    /// The pan and tilt values are pre-converted to the camera coordinate system.
-    /// Prefer [`AbsolutePosition`](Self::AbsolutePosition) unless you are building
-    /// a profile-aware conversion layer.
-    AbsolutePositionRaw {
-        /// Absolute pan position in camera units.
-        pan_u16: u16,
-        /// Absolute tilt position in camera units.
-        tilt_u16: u16,
-        /// Pan movement speed (0x00-0x18).
-        pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
-        tilt_speed: TiltSpeed,
-    },
-    /// Move camera relative to its current position using raw camera units.
-    ///
-    /// The pan and tilt values are pre-converted to the camera coordinate system.
-    /// Prefer [`RelativePosition`](Self::RelativePosition) unless you are building
-    /// a profile-aware conversion layer.
-    RelativePositionRaw {
-        /// Relative pan movement in camera units.
-        pan_u16: u16,
-        /// Relative tilt movement in camera units.
-        tilt_u16: u16,
-        /// Pan movement speed (0x00-0x18).
-        pan_speed: PanSpeed,
-        /// Tilt movement speed (0x00-0x18 syntax; profile capability applies).
-        tilt_speed: TiltSpeed,
-    },
-    /// Set pan/tilt movement boundaries.
-    ///
-    /// Sets a specified position as a corner limit for pan/tilt movement.
-    /// This is the full VISCA implementation with corner and position parameters.
+    /// Set one corner of the pan/tilt movement boundary in raw units.
     LimitSet {
         /// Which corner of the movement range to set.
         corner: PanTiltLimitCorner,
-        /// Pan position for the limit.
-        pan: PanPosition,
-        /// Tilt position for the limit.
-        tilt: TiltPosition,
-    },
-    /// Set pan/tilt movement boundaries using raw camera units.
-    ///
-    /// Sets a specified position as a corner limit for pan/tilt movement.
-    /// The pan and tilt values are pre-converted to camera coordinate system.
-    LimitSetRaw {
-        /// Which corner of the movement range to set.
-        corner: PanTiltLimitCorner,
-        /// Pan position for the limit in camera units.
-        pan_u16: u16,
-        /// Tilt position for the limit in camera units.
-        tilt_u16: u16,
+        /// Raw pan word for the limit.
+        pan: i16,
+        /// Raw tilt word for the limit.
+        tilt: i16,
     },
     /// Clear pan/tilt movement boundaries.
     ///
@@ -927,8 +827,8 @@ impl WireEncode for PanTilt {
             } => PanTiltProfiled::AbsolutePosition {
                 codec: PanTiltWireCodec::StandardVisca,
                 coordinate_system: CoordinateSystem::SignedCentered,
-                pan: i32::from(pan.value()),
-                tilt: i32::from(tilt.value()),
+                pan: i32::from(*pan),
+                tilt: i32::from(*tilt),
                 pan_speed: *pan_speed,
                 tilt_speed: *tilt_speed,
             }
@@ -941,36 +841,8 @@ impl WireEncode for PanTilt {
             } => PanTiltProfiled::RelativePosition {
                 codec: PanTiltWireCodec::StandardVisca,
                 coordinate_system: CoordinateSystem::SignedCentered,
-                pan: i32::from(pan.value()),
-                tilt: i32::from(tilt.value()),
-                pan_speed: *pan_speed,
-                tilt_speed: *tilt_speed,
-            }
-            .write_into(camera_id, buffer),
-            Self::AbsolutePositionRaw {
-                pan_u16,
-                tilt_u16,
-                pan_speed,
-                tilt_speed,
-            } => PanTiltProfiled::AbsolutePosition {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
-                pan: i32::from(*pan_u16 as i16),
-                tilt: i32::from(*tilt_u16 as i16),
-                pan_speed: *pan_speed,
-                tilt_speed: *tilt_speed,
-            }
-            .write_into(camera_id, buffer),
-            Self::RelativePositionRaw {
-                pan_u16,
-                tilt_u16,
-                pan_speed,
-                tilt_speed,
-            } => PanTiltProfiled::RelativePosition {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
-                pan: i32::from(*pan_u16 as i16),
-                tilt: i32::from(*tilt_u16 as i16),
+                pan: i32::from(*pan),
+                tilt: i32::from(*tilt),
                 pan_speed: *pan_speed,
                 tilt_speed: *tilt_speed,
             }
@@ -979,20 +851,8 @@ impl WireEncode for PanTilt {
                 codec: PanTiltWireCodec::StandardVisca,
                 coordinate_system: CoordinateSystem::SignedCentered,
                 corner: *corner,
-                pan: i32::from(pan.value()),
-                tilt: i32::from(tilt.value()),
-            }
-            .write_into(camera_id, buffer),
-            Self::LimitSetRaw {
-                corner,
-                pan_u16,
-                tilt_u16,
-            } => PanTiltProfiled::LimitSet {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
-                corner: *corner,
-                pan: i32::from(*pan_u16 as i16),
-                tilt: i32::from(*tilt_u16 as i16),
+                pan: i32::from(*pan),
+                tilt: i32::from(*tilt),
             }
             .write_into(camera_id, buffer),
             Self::LimitClear { corner } => PanTiltProfiled::LimitClear {

@@ -1496,14 +1496,8 @@ macro_rules! builtin_inquiry_table {
         VersionInquiry => {
             const VERSION = [0x81, 0x09, 0x00, 0x02];
             kind: Version {
-                /// Vendor ID.
-                vendor: u16,
-                /// Model ID.
-                model: u16,
-                /// ROM version.
-                rom_version: u32,
-                /// Maximum socket number.
-                max_socket: u8,
+                /// Camera version information.
+                info: crate::command::VersionInfo,
             };
             decode: |payload| {
                 if payload.len() != 7 {
@@ -1513,21 +1507,14 @@ macro_rules! builtin_inquiry_table {
                 let model = ((payload.as_slice()[2] as u16) << 8) | (payload.as_slice()[3] as u16);
                 let rom_version = ((payload.as_slice()[4] as u32) << 8) | (payload.as_slice()[5] as u32);
                 let max_socket = payload.as_slice()[6];
-                Ok(Response::Inquiry(InquiryData::Version { vendor, model, rom_version, max_socket }))
+                let info = crate::command::VersionInfo { vendor, model, rom_version, max_socket };
+                Ok(Response::Inquiry(InquiryData::Version { info }))
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: false;
             rationale: None;
-            typed: (
-                crate::command::VersionInfo,
-                { vendor, model, rom_version, max_socket } => Ok(crate::command::VersionInfo {
-                    vendor,
-                    model,
-                    rom_version,
-                    max_socket,
-                })
-            );
+            typed: (crate::command::VersionInfo, { info } => Ok(info));
         }
 
         /// Inquiry command to get the current pan/tilt position.
@@ -1702,12 +1689,12 @@ macro_rules! builtin_inquiry_table {
         ShutterInquiry => {
             const SHUTTER = [0x81, 0x09, 0x04, 0x4A];
             kind: Shutter {
-                /// Shutter position (0x01=1/30 to 0x11=1/10000).
-                position: u16,
+                /// Profile-specific shutter code; the profile's shutter table maps it to an exposure time.
+                position: u8,
             };
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
-                let position = nibbles.u8_pair(2) as u16;
+                let position = nibbles.u8_pair(2);
                 Ok(Response::Inquiry(InquiryData::Shutter { position }))
             };
             response: true;
@@ -1716,7 +1703,7 @@ macro_rules! builtin_inquiry_table {
             rationale: None;
             typed: (
                 crate::types::ShutterSpeed,
-                { position } => crate::types::ShutterSpeed::new(position)
+                { position } => Ok(crate::types::ShutterSpeed::new(position))
             );
         }
 
@@ -1780,7 +1767,7 @@ macro_rules! builtin_inquiry_table {
         ColorTemperatureInquiry => {
             const COLOR_TEMPERATURE = [0x81, 0x09, 0x04, 0x20];
             kind: ColorTemperature {
-                /// Color temperature in Kelvin.
+                /// Color temperature wire step; `ColorTemp::to_kelvin` converts it to Kelvin.
                 temperature: u16,
             };
             decode: |payload| {
@@ -2226,10 +2213,8 @@ macro_rules! builtin_inquiry_table {
         TallyStatusInquiry => {
             const TALLY_STATUS = [0x81, 0x09, 0x04, 0xA8];
             kind: TallyStatus {
-                /// Whether the red tally light is on.
-                red_on: bool,
-                /// Whether the green tally light is on.
-                green_on: bool,
+                /// Red and green tally light state.
+                state: crate::command::TallyStatusState,
             };
             decode: |payload| {
                 require_len(&payload, 2)?;
@@ -2237,19 +2222,14 @@ macro_rules! builtin_inquiry_table {
                 let green_payload = Payload::new(&payload.as_slice()[1..2]);
                 let red_on = red_payload.parse_bool("tally_red_status", BoolConvention::OnIs03)?;
                 let green_on = green_payload.parse_bool("tally_green_status", BoolConvention::OnIs03)?;
-                Ok(Response::Inquiry(InquiryData::TallyStatus { red_on, green_on }))
+                let state = crate::command::TallyStatusState { red_on, green_on };
+                Ok(Response::Inquiry(InquiryData::TallyStatus { state }))
             };
             response: true;
             query: BuiltinInquiryQuery::Queryable;
             vendor_specific: true;
             rationale: Some("PTZOptics extension returning packed red and green tally states.");
-            typed: (
-                crate::command::TallyStatusState,
-                { red_on, green_on } => Ok(crate::command::TallyStatusState {
-                    red_on,
-                    green_on,
-                })
-            );
+            typed: (crate::command::TallyStatusState, { state } => Ok(state));
         }
 
         /// Inquiry command to get the night/day mode status.
@@ -3509,8 +3489,10 @@ mod wire_decoder_regression_tests {
         assert!(matches!(
             parse_inquiry_payload(&[0x03, 0x02], &InquiryKind::TallyStatus),
             Ok(Response::Inquiry(InquiryData::TallyStatus {
-                red_on: true,
-                green_on: false,
+                state: crate::command::TallyStatusState {
+                    red_on: true,
+                    green_on: false,
+                },
             }))
         ));
         assert!(matches!(

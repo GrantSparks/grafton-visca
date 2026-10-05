@@ -115,24 +115,35 @@ pub trait PanTiltExt: PanTilt {
         speed.min(Self::MAX_TILT_SPEED).max(1)
     }
 
-    /// Convert degrees to VISCA units for pan.
-    fn degrees_to_pan_units(&self, degrees: f32) -> i32 {
-        (degrees * Self::PAN_DEGREES_TO_UNITS) as i32
+    /// Converts a pan angle to raw units with this profile's scale.
+    ///
+    /// Delegates to [`PanTiltCoordinateConversion::pan_units`], the crate's
+    /// single conversion and rounding rule. Returns `None` for a non-finite
+    /// angle or a result outside `i32`; range checking is [`Self::validate_pan`].
+    ///
+    /// [`PanTiltCoordinateConversion::pan_units`]: crate::PanTiltCoordinateConversion::pan_units
+    fn degrees_to_pan_units(&self, degrees: f32) -> Option<i32> {
+        crate::PanTiltCoordinateConversion::for_profile::<Self>().pan_units(degrees)
     }
 
-    /// Convert VISCA units to degrees for pan.
+    /// Converts raw pan units to degrees with this profile's scale.
     fn pan_units_to_degrees(&self, units: i32) -> f32 {
-        units as f32 / Self::PAN_DEGREES_TO_UNITS
+        crate::PanTiltCoordinateConversion::for_profile::<Self>().pan_degrees(units)
     }
 
-    /// Convert degrees to VISCA units for tilt.
-    fn degrees_to_tilt_units(&self, degrees: f32) -> i32 {
-        (degrees * Self::TILT_DEGREES_TO_UNITS) as i32
+    /// Converts a tilt angle to raw units with this profile's scale.
+    ///
+    /// Delegates to [`PanTiltCoordinateConversion::tilt_units`]; see
+    /// [`Self::degrees_to_pan_units`].
+    ///
+    /// [`PanTiltCoordinateConversion::tilt_units`]: crate::PanTiltCoordinateConversion::tilt_units
+    fn degrees_to_tilt_units(&self, degrees: f32) -> Option<i32> {
+        crate::PanTiltCoordinateConversion::for_profile::<Self>().tilt_units(degrees)
     }
 
-    /// Convert VISCA units to degrees for tilt.
+    /// Converts raw tilt units to degrees with this profile's scale.
     fn tilt_units_to_degrees(&self, units: i32) -> f32 {
-        units as f32 / Self::TILT_DEGREES_TO_UNITS
+        crate::PanTiltCoordinateConversion::for_profile::<Self>().tilt_degrees(units)
     }
 }
 
@@ -178,7 +189,10 @@ mod tests {
     fn test_degree_conversion() {
         let camera = TestCamera;
 
-        assert_eq!(camera.degrees_to_pan_units(45.0), 4500);
+        assert_eq!(camera.degrees_to_pan_units(45.0), Some(4500));
+        assert_eq!(camera.degrees_to_pan_units(f32::NAN), None);
+        assert_eq!(camera.degrees_to_pan_units(f32::INFINITY), None);
+        assert_eq!(camera.degrees_to_pan_units(3.0e7), None);
         assert_eq!(camera.pan_units_to_degrees(4500), 45.0);
     }
 
@@ -187,8 +201,8 @@ mod tests {
         use crate::profiles::SonyBRC300;
 
         let camera = SonyBRC300;
-        assert_eq!(camera.degrees_to_pan_units(45.0), -0x02490);
-        assert_eq!(camera.degrees_to_tilt_units(-15.0), 0x0C30);
+        assert_eq!(camera.degrees_to_pan_units(45.0), Some(-0x02490));
+        assert_eq!(camera.degrees_to_tilt_units(-15.0), Some(0x0C30));
         assert_eq!(camera.pan_units_to_degrees(-0x02490), 45.0);
         assert_eq!(camera.tilt_units_to_degrees(0x0C30), -15.0);
     }

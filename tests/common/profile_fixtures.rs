@@ -2,10 +2,10 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, HasMotionSync,
-        ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata,
-        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
-        TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeedEntry, CapabilityRange, Exposure, Focus, HasDirectZoom,
+        HasMotionSync, ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata,
+        NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally,
+        TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::ExposureMode,
     transport::RawVisca,
@@ -20,7 +20,13 @@ const EXPOSURE_MODES: &[ExposureMode] = &[
     ExposureMode::Iris,
     ExposureMode::Bright,
 ];
-const SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+const SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
+    match grafton_visca::units::Fraction::new(1, 60) {
+        Some(exposure) => exposure,
+        None => panic!("nonzero denominator"),
+    },
+    0x01,
+)];
 const WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
 
 macro_rules! synthetic_profile_default {
@@ -80,7 +86,7 @@ macro_rules! synthetic_profile_impl {
             const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
             const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
             const SUPPORTS_DIRECT_ZOOM: bool = true;
-            const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+            const OPTICAL_ZOOM_RATIO: Option<f32> = None;
         }
 
         impl Focus for $profile {
@@ -95,7 +101,7 @@ macro_rules! synthetic_profile_impl {
         impl Exposure for $profile {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
             const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
-            const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SHUTTER_SPEEDS;
+            const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
             const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
         }

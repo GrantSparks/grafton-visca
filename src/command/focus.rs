@@ -15,7 +15,7 @@ use grafton_visca_macros::ViscaEnum;
 use crate::{
     command::encode::WireEncode,
     error::Error,
-    types::{FocusPosition, SpeedLevel},
+    types::{FocusPosition, FocusSpeed},
     visca_command,
 };
 
@@ -51,22 +51,6 @@ pub enum FocusRange {
     Range1x = 0x04,
     /// 0.35x focus range.
     Range0_35x = 0x05,
-}
-
-crate::visca_range_type! {
-    /// Variable focus speed.
-    ///
-    /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
-    FocusSpeed: u8 {
-        min: 0,
-        max: 7
-    }
-}
-
-impl From<SpeedLevel> for FocusSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_focus_speed())
-    }
 }
 
 /// Focus control commands.
@@ -470,7 +454,12 @@ mod tests {
         // Invalid speeds
         assert!(matches!(
             FocusSpeed::new(8),
-            Err(Error::InvalidParameter { .. })
+            Err(Error::ParameterOutOfRange {
+                parameter: "FocusSpeed",
+                value: 8,
+                min: 0,
+                max: 7
+            })
         ));
     }
 

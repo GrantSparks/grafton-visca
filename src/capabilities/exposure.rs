@@ -5,7 +5,19 @@ use std::borrow::Cow;
 use crate::{
     capabilities::{CapabilityRange, ValidationError},
     command::exposure::ExposureMode,
+    units::Fraction,
 };
+
+/// The five shared AE modes (`04 39`): auto, manual, shutter priority, iris
+/// priority, and bright. This is the [`Exposure::EXPOSURE_MODES`] default and
+/// the inventory of every built-in profile that supports the full family.
+pub(crate) const STANDARD_EXPOSURE_MODES: &[ExposureMode] = &[
+    ExposureMode::Auto,
+    ExposureMode::Manual,
+    ExposureMode::Shutter,
+    ExposureMode::Iris,
+    ExposureMode::Bright,
+];
 
 /// Trait for cameras that support exposure control.
 ///
@@ -13,20 +25,14 @@ use crate::{
 /// including exposure modes, iris, shutter speed, gain, and exposure compensation.
 pub trait Exposure {
     /// Supported exposure modes for this camera profile.
-    const EXPOSURE_MODES: &'static [ExposureMode] = &[
-        ExposureMode::Auto,
-        ExposureMode::Manual,
-        ExposureMode::Shutter,
-        ExposureMode::Iris,
-        ExposureMode::Bright,
-    ];
+    const EXPOSURE_MODES: &'static [ExposureMode] = STANDARD_EXPOSURE_MODES;
 
     /// Valid range for iris values in VISCA units, if iris control is supported.
     const IRIS_RANGE: Option<CapabilityRange<u16>>;
 
     /// Supported shutter speeds as VISCA values.
     /// Each camera model has specific supported speeds.
-    const SHUTTER_SPEEDS: &'static [ShutterSpeed];
+    const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry];
 
     /// Valid range for gain values.
     const GAIN_RANGE: CapabilityRange<u8>;
@@ -113,15 +119,8 @@ pub trait ExposureExt: Exposure {
         }
     }
 
-    /// Find the closest supported shutter speed.
-    fn find_shutter_speed(&self, target_value: u16) -> Option<&ShutterSpeed> {
-        Self::SHUTTER_SPEEDS
-            .iter()
-            .min_by_key(|speed| (speed.value as i32 - target_value as i32).abs())
-    }
-
     /// Validate shutter speed is supported.
-    fn validate_shutter_speed(&self, value: u16) -> Result<u16, ValidationError> {
+    fn validate_shutter_speed(&self, value: u8) -> Result<u8, ValidationError> {
         if Self::SHUTTER_SPEEDS.iter().any(|s| s.value == value) {
             Ok(value)
         } else {
@@ -149,45 +148,34 @@ pub trait ExposureExt: Exposure {
             })
         }
     }
-
-    /// Convert F-stop to iris VISCA units.
-    fn fstop_to_iris_units(&self, fstop: f32) -> Result<u16, ValidationError> {
-        let range = Self::IRIS_RANGE
-            .as_ref()
-            .ok_or(ValidationError::NotSupported("Iris control"))?;
-
-        // This is camera-specific and would need proper calibration
-        // This is a simplified example
-        let iris = match fstop {
-            f if f <= 1.8 => range.max(),
-            f if f >= 11.0 => range.min(),
-            f => {
-                let width = range.max() - range.min();
-                let normalized = 1.0 - ((f - 1.8) / (11.0 - 1.8));
-                range.min() + (normalized * width as f32) as u16
-            }
-        };
-
-        self.validate_iris(iris)
-    }
 }
 
 // Automatic implementation for all types that support exposure
 impl<T: Exposure> ExposureExt for T {}
 
-/// Shutter speed definition.
+/// One entry of a profile's shutter-speed table: an exposure time and the
+/// profile-specific wire code that selects it.
+///
+/// Compile-time profiles list these in [`Exposure::SHUTTER_SPEEDS`] and
+/// runtime [`Capabilities::shutter_speeds`](crate::capabilities::Capabilities::shutter_speeds)
+/// holds the same entries. The wire code itself is the
+/// [`crate::types::ShutterSpeed`] value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ShutterSpeed {
-    /// Display label (e.g., "1/30", "1/60").
-    pub label: &'static str,
-    /// VISCA protocol value.
-    pub value: u16,
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub struct ShutterSpeedEntry {
+    /// Exposure time selected by this code, such as `1/60`; serialized as
+    /// `"1/60"`.
+    pub exposure: Fraction,
+    /// VISCA shutter code.
+    pub value: u8,
 }
 
-impl ShutterSpeed {
-    /// Create a new shutter speed.
-    pub const fn new(label: &'static str, value: u16) -> Self {
-        Self { label, value }
+impl ShutterSpeedEntry {
+    /// Creates a table entry.
+    #[must_use]
+    pub const fn new(exposure: Fraction, value: u8) -> Self {
+        Self { exposure, value }
     }
 }
 
@@ -199,13 +187,21 @@ impl ShutterSpeed {
 mod tests {
     use super::*;
 
-    const TEST_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
-        ShutterSpeed::new("1/30", 0x00),
-        ShutterSpeed::new("1/60", 0x01),
-        ShutterSpeed::new("1/100", 0x02),
-        ShutterSpeed::new("1/250", 0x03),
-        ShutterSpeed::new("1/500", 0x04),
-        ShutterSpeed::new("1/1000", 0x05),
+    #[allow(clippy::panic)]
+    const fn entry(denominator: u32, value: u8) -> ShutterSpeedEntry {
+        match Fraction::new(1, denominator) {
+            Some(exposure) => ShutterSpeedEntry::new(exposure, value),
+            None => panic!("shutter denominators are nonzero"),
+        }
+    }
+
+    const TEST_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
+        entry(30, 0x00),
+        entry(60, 0x01),
+        entry(100, 0x02),
+        entry(250, 0x03),
+        entry(500, 0x04),
+        entry(1000, 0x05),
     ];
 
     struct TestCamera;
@@ -213,7 +209,7 @@ mod tests {
     impl Exposure for TestCamera {
         const IRIS_RANGE: Option<CapabilityRange<u16>> =
             Some(CapabilityRange::<u16>::new(0x00, 0x1C));
-        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
         const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> =
             Some(CapabilityRange::<u16>::new(0, 17));
@@ -226,7 +222,7 @@ mod tests {
     impl Exposure for NoIrisCamera {
         const EXPOSURE_MODES: &'static [ExposureMode] = &[ExposureMode::Auto, ExposureMode::Manual];
         const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
-        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = TEST_SHUTTER_SPEEDS;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
         const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = None;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -278,31 +274,10 @@ mod tests {
     }
 
     #[test]
-    fn test_shutter_speed_lookup() {
+    fn test_shutter_speed_validation() {
         let camera = TestCamera;
 
-        assert_eq!(
-            camera
-                .find_shutter_speed(0x01)
-                .expect("0x01 is a valid shutter speed")
-                .label,
-            "1/60"
-        );
-        assert_eq!(
-            camera
-                .find_shutter_speed(0x02)
-                .expect("0x02 is a valid shutter speed")
-                .label,
-            "1/100"
-        );
-
-        // Should find closest
-        assert_eq!(
-            camera
-                .find_shutter_speed(0x10)
-                .expect("should find closest shutter speed")
-                .label,
-            "1/1000"
-        );
+        assert_eq!(camera.validate_shutter_speed(0x01), Ok(0x01));
+        assert!(camera.validate_shutter_speed(0x10).is_err());
     }
 }

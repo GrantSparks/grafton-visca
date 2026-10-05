@@ -269,11 +269,11 @@ macro_rules! noun_table {
             /// Drives focus nearer at standard speed.
             applied [FocusNear] near() -> builtin::FocusDrive = builtin::FocusDrive::Near;
             /// Drives focus farther at a variable speed.
-            applied [FocusFarVariable] far_variable(speed: command::FocusSpeed)
+            applied [FocusFarVariable] far_variable(speed: types::FocusSpeed)
                 -> builtin::FocusDrive
                 = builtin::FocusDrive::FarVariable(speed);
             /// Drives focus nearer at a variable speed.
-            applied [FocusNearVariable] near_variable(speed: command::FocusSpeed)
+            applied [FocusNearVariable] near_variable(speed: types::FocusSpeed)
                 -> builtin::FocusDrive
                 = builtin::FocusDrive::NearVariable(speed);
             /// Stops focus movement.
@@ -907,15 +907,14 @@ macro_rules! noun_table {
             plain [MotionSyncMode] set_mode(mode: command::MotionSyncMode)
                 -> command::SetMotionSyncMode
                 = command::SetMotionSyncMode::new(mode);
-            /// Sets the motion-sync speed preset.
-            plain [MotionSyncPreset] set_preset(speed: u8) -> command::SetMotionSyncPreset
-                = checked command::SetMotionSyncPreset::new(speed);
-            /// Sets the motion-sync speed from a range-checked speed value.
+            /// Sets the motion-sync speed.
             ///
-            /// This is [`Self::set_preset`] with the `1..=24` bound moved into the
-            /// argument type, so an out-of-range speed cannot be constructed.
-            plain [] set_speed(speed: types::MotionSyncSpeed) -> command::SetMotionSyncPreset
-                = checked command::SetMotionSyncPreset::new(speed.value());
+            /// [`MotionSyncSpeed`](crate::types::MotionSyncSpeed) owns the
+            /// `1..=24` range, and `MotionSyncSpeed::from(MotionSyncPreset)`
+            /// maps the slow/normal/fast presets.
+            plain [MotionSyncPreset] set_speed(speed: types::MotionSyncSpeed)
+                -> command::SetMotionSyncPreset
+                = command::SetMotionSyncPreset::new(speed);
         ]; $($rest)* }
     };
 

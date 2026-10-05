@@ -2,10 +2,12 @@
 //! nonstandard five-nibble pan field.
 
 use grafton_visca::{
-    camera::profiles::{GenericVisca, NearusBRC300, SonyBRC300},
+    camera::{
+        profiles::{GenericVisca, NearusBRC300, SonyBRC300},
+        PanTiltPosition,
+    },
     capabilities::{CoordinateSystem, PanTilt, PanTiltWireCodec},
     command::{InquiryData, InquiryKind, Response},
-    PanTiltPositionRaw,
 };
 
 fn parsed<P: grafton_visca::capabilities::Profile>(payload: &[u8]) -> Response {
@@ -69,7 +71,7 @@ fn sony_brc300_inquiry_endpoints_use_library_axis_polarity() {
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
     ]));
-    let left_up = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    let left_up = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
     assert!(left_up.pan.0 < 0.0);
     assert!(left_up.tilt.0 < 0.0);
     assert!((left_up.pan.0 + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
@@ -78,7 +80,7 @@ fn sony_brc300_inquiry_endpoints_use_library_axis_polarity() {
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09, 0x06,
     ]));
-    let right_down = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    let right_down = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
     assert!(right_down.pan.0 > 0.0);
     assert!(right_down.tilt.0 > 0.0);
     assert!((right_down.pan.0 - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);

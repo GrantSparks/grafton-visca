@@ -260,7 +260,7 @@ fn dynamic_control_inventory_is_closed() {
     for (name, value) in [
         ("DYN_NOUN_TARGET_METHOD_COUNT", "146"),
         ("DYN_NOUN_INQUIRY_METHOD_COUNT", "62"),
-        ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "9"),
+        ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "8"),
         ("DYN_NOUN_COUNT", "14"),
     ] {
         assert!(

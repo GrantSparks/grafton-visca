@@ -42,7 +42,7 @@ pub const DYN_NOUN_COUNT: usize = 14;
 /// convenience wrappers named in [`DYN_NOUN_CONVENIENCE_METHODS`]. Keeping the
 /// third category declared is what lets the inventory gate keep checking that
 /// the projection carries nothing else.
-pub const DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize = 9;
+pub const DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize = 8;
 
 /// The non-ledger convenience wrappers carried by the dynamic noun traits.
 ///
@@ -58,7 +58,6 @@ pub const DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)] = &[
     ("DynPanTilt", "left"),
     ("DynPanTilt", "right"),
     ("DynNdFilter", "set_stops"),
-    ("DynMotionSync", "set_speed"),
     ("DynMenu", "toggle_display"),
 ];
 

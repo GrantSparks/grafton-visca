@@ -11,17 +11,6 @@ use super::{
 };
 use crate::{command::exposure::ExposureMode, WhiteBalanceMode};
 
-/// Owned runtime representation of one supported shutter setting.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RuntimeShutterSpeed {
-    /// Human-readable shutter label, such as `1/60`.
-    pub label: String,
-    /// VISCA protocol value.
-    pub value: u16,
-}
-
 /// Structured capabilities response for runtime feature discovery.
 ///
 /// This struct provides a runtime-queryable representation of all camera
@@ -131,17 +120,19 @@ pub struct Capabilities {
     /// Whether camera supports variable speed zoom.
     pub supports_variable_zoom: bool,
 
-    /// Conversion factor from magnification to VISCA units.
+    /// Optical zoom ratio of the profile's lens, when it is a profile fact.
     ///
-    /// This value represents the number of VISCA units per 1x of magnification.
-    /// For example, a 20x camera with `OPTICAL_ZOOM_MAX = 0x4000` has
-    /// `zoom_magnification_to_units ≈ 862.3` because `0x4000 / 19 ≈ 862.3`.
+    /// `None` for a profile that spans several lenses or whose ratio is
+    /// unsourced (see [`Zoom::OPTICAL_ZOOM_RATIO`]). [`Self::zoom_scale`]
+    /// turns it into the magnification conversion.
     ///
-    /// Use with helper methods:
-    /// - [`zoom_units_to_magnification`](Self::zoom_units_to_magnification) to convert VISCA units to magnification
-    /// - [`magnification_to_zoom_units`](Self::magnification_to_zoom_units) to convert magnification to VISCA units
-    /// - [`max_optical_zoom`](Self::max_optical_zoom) to get the maximum optical zoom magnification
-    pub zoom_magnification_to_units: f32,
+    /// [`Zoom::OPTICAL_ZOOM_RATIO`]: crate::capabilities::Zoom::OPTICAL_ZOOM_RATIO
+    // Required when deserializing: an absent key is not a declared `null`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "<Option<f32> as serde::Deserialize>::deserialize")
+    )]
+    pub optical_zoom_ratio: Option<f32>,
 
     // Focus capabilities
     /// Whether camera supports focus control.
@@ -184,10 +175,7 @@ pub struct Capabilities {
     /// Empty exactly when [`has_focus_zone`](Self::has_focus_zone) is false,
     /// and duplicate-free. A value outside this list is rejected before any
     /// I/O even when the focus-zone surface is supported, so evidence for one
-    /// camera's extra value never reaches another camera. A persisted profile
-    /// that predates this field deserializes with the documented Top, Center
-    /// and Bottom set when it reports focus-zone support.
-    #[cfg_attr(feature = "serde", serde(default))]
+    /// camera's extra value never reaches another camera.
     pub focus_zones: Vec<crate::command::FocusZone>,
 
     /// Whether profile metadata reports auto focus sensitivity adjustment.
@@ -236,7 +224,7 @@ pub struct Capabilities {
     pub gain_range: RangeInclusive<u8>,
 
     /// Exact supported shutter-speed labels and VISCA values.
-    pub shutter_speeds: Vec<RuntimeShutterSpeed>,
+    pub shutter_speeds: Vec<super::ShutterSpeedEntry>,
 
     /// VISCA exposure bright range, if supported.
     ///
@@ -477,7 +465,7 @@ impl Capabilities {
             zoom_speed: 0..=0,
             supports_direct_zoom: false,
             supports_variable_zoom: false,
-            zoom_magnification_to_units: 1.0,
+            optical_zoom_ratio: None,
             has_focus: false,
             has_auto_focus: false,
             has_one_push_focus: false,
@@ -567,25 +555,15 @@ impl Capabilities {
     where
         P: crate::capabilities::Profile,
     {
-        // Extract pan/tilt capabilities
-        let pan_start_deg = P::PAN_RANGE.min() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let pan_end_deg = P::PAN_RANGE.max() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let tilt_start_deg = P::TILT_RANGE.min() as f32 / P::TILT_DEGREES_TO_UNITS;
-        let tilt_end_deg = P::TILT_RANGE.max() as f32 / P::TILT_DEGREES_TO_UNITS;
-        // A profile may use a negative degree-to-unit scale when its raw axis
-        // polarity is opposite the library's degree convention. Capabilities
-        // always expose ordered logical-degree ranges.
-        let pan_min_deg = pan_start_deg.min(pan_end_deg);
-        let pan_max_deg = pan_start_deg.max(pan_end_deg);
-        let tilt_min_deg = tilt_start_deg.min(tilt_end_deg);
-        let tilt_max_deg = tilt_start_deg.max(tilt_end_deg);
-
+        // Extract pan/tilt capabilities. The profile's conversion orders the
+        // degree ranges even when a negative scale reverses raw-axis polarity.
+        let conversion = crate::PanTiltCoordinateConversion::for_profile::<P>();
         let pan_speed = 1..=P::MAX_PAN_SPEED;
         let tilt_speed = 1..=P::MAX_TILT_SPEED;
         let pan_range = P::PAN_RANGE.as_inclusive();
         let tilt_range = P::TILT_RANGE.as_inclusive();
-        let pan_range_degrees = pan_min_deg..=pan_max_deg;
-        let tilt_range_degrees = tilt_min_deg..=tilt_max_deg;
+        let pan_range_degrees = conversion.pan_degree_range(&pan_range);
+        let tilt_range_degrees = conversion.tilt_degree_range(&tilt_range);
         let pan_tilt_simultaneous = P::PAN_TILT_SIMULTANEOUS;
         let preset_recovery_time = P::PRESET_RECOVERY_TIME;
 
@@ -600,13 +578,7 @@ impl Capabilities {
         // Extract exposure capabilities
         let has_iris_control = P::IRIS_RANGE.is_some();
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
-        let shutter_speeds = P::SHUTTER_SPEEDS
-            .iter()
-            .map(|speed| RuntimeShutterSpeed {
-                label: speed.label.to_owned(),
-                value: speed.value,
-            })
-            .collect();
+        let shutter_speeds = P::SHUTTER_SPEEDS.to_vec();
         let iris_range = P::IRIS_RANGE.map(|range| range.as_inclusive());
         let gain_range = P::GAIN_RANGE.as_inclusive();
         let exposure_brightness_range = P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive());
@@ -675,7 +647,7 @@ impl Capabilities {
             zoom_speed: P::ZOOM_SPEED_RANGE.as_inclusive(),
             supports_direct_zoom: P::SUPPORTS_DIRECT_ZOOM,
             supports_variable_zoom: P::SUPPORTS_VARIABLE_ZOOM,
-            zoom_magnification_to_units: P::ZOOM_MAGNIFICATION_TO_UNITS,
+            optical_zoom_ratio: P::OPTICAL_ZOOM_RATIO,
 
             // Focus capabilities
             has_focus: true, // All cameras have focus
@@ -837,114 +809,96 @@ impl Capabilities {
         self.exposure_modes.contains(&mode)
     }
 
-    /// Returns the maximum optical zoom magnification (e.g., 20.0 for 20x).
+    /// Returns the magnification scale of this profile's optical zoom range.
     ///
-    /// This is calculated from the optical zoom range and the magnification
-    /// conversion factor.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let max_zoom = caps.max_optical_zoom(); // ~20.0 for a 20x camera
-    /// println!("Max optical zoom: {:.1}x", max_zoom);
-    /// ```
-    #[must_use]
-    pub fn max_optical_zoom(&self) -> f32 {
-        self.zoom_units_to_magnification(*self.zoom_range_optical.end())
-    }
-
-    /// Returns the maximum combined zoom magnification (optical + digital).
-    ///
-    /// If the camera supports digital zoom, this returns the maximum digital
-    /// zoom magnification. Otherwise, it returns the maximum optical zoom.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let max_combined = caps.max_combined_zoom();
-    /// if caps.has_digital_zoom {
-    ///     println!("Max combined zoom: {:.1}x (includes digital)", max_combined);
-    /// }
-    /// ```
-    #[must_use]
-    pub fn max_combined_zoom(&self) -> f32 {
-        match &self.zoom_range_digital {
-            Some(range) => self.zoom_units_to_magnification(*range.end()),
-            None => self.max_optical_zoom(),
-        }
-    }
-
-    /// Convert VISCA zoom units to magnification (e.g., 0x2000 → ~10x).
-    ///
-    /// # Arguments
-    /// * `units` - Zoom position in VISCA units
-    ///
-    /// # Returns
-    /// The zoom magnification, where 1.0 is no zoom and higher values
-    /// represent greater magnification.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let magnification = caps.zoom_units_to_magnification(0x2000);
-    /// println!("Current zoom: {:.1}x", magnification); // ~10x
-    /// ```
-    #[must_use]
-    pub fn zoom_units_to_magnification(&self, units: u16) -> f32 {
-        1.0 + (units as f32 / self.zoom_magnification_to_units)
-    }
-
-    /// Convert magnification to VISCA zoom units (e.g., 10x → ~0x2000).
-    ///
-    /// # Arguments
-    /// * `magnification` - Desired zoom magnification (must be >= 1.0)
+    /// Available when the profile fixes its lens (`optical_zoom_ratio` is
+    /// `Some`): a built-in such as `PtzOptics30X`, or a custom profile that
+    /// declared its lens through the `optical_zoom_ratio` argument of
+    /// [`ProfileSpecBuilder::zoom`](crate::ProfileSpecBuilder::zoom). A
+    /// lens-dependent built-in, such as the PTZOptics G2 family's 12x, 20x and
+    /// 30x models, declares the installed lens with
+    /// [`Self::zoom_scale_for_lens`] instead.
     ///
     /// # Errors
-    /// Returns an error if the magnification is not finite, is below 1.0, or
-    /// maps past the documented optical or optical-plus-digital zoom range.
+    /// Returns [`Error::FeatureNotSupported`](crate::Error::FeatureNotSupported)
+    /// when the profile has no zoom, and
+    /// [`Error::InvalidRequest`](crate::Error::InvalidRequest) naming
+    /// [`Self::zoom_scale_for_lens`] when the profile does not fix its lens.
+    pub fn zoom_scale(&self) -> Result<super::ZoomScale, crate::Error> {
+        if !self.has_zoom {
+            return Err(crate::Error::FeatureNotSupported { feature: "zoom" });
+        }
+        let ratio = self.optical_zoom_ratio.ok_or_else(|| {
+            crate::Error::InvalidRequest(
+                format!(
+                    "{} does not fix its lens's optical zoom ratio; declare the installed lens \
+                     with `Capabilities::zoom_scale_for_lens(ratio)`, for example `20.0` for a \
+                     20x lens, or give a custom profile's fixed lens through the \
+                     `optical_zoom_ratio` argument of `ProfileSpecBuilder::zoom`",
+                    self.model_name
+                )
+                .into(),
+            )
+        })?;
+        super::ZoomScale::new(*self.zoom_range_optical.end(), ratio)
+    }
+
+    /// Returns the magnification scale for the lens installed on this camera.
     ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let units = caps.magnification_to_zoom_units(10.0)?;
-    /// println!("10x zoom = 0x{:04X} units", units); // ~0x2000
-    /// ```
-    pub fn magnification_to_zoom_units(&self, magnification: f32) -> Result<u16, crate::Error> {
-        if !magnification.is_finite() {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
-                reason: Cow::Borrowed("value must be finite"),
-            });
+    /// This is how a profile that spans several lenses is given its lens:
+    /// `caps.zoom_scale_for_lens(20.0)` for a PT20X-NDI G2 on the
+    /// `PtzOpticsG2` profile. The ratio maps exactly to the optical maximum.
+    ///
+    /// # Errors
+    /// Returns [`Error::FeatureNotSupported`](crate::Error::FeatureNotSupported)
+    /// when the profile has no zoom, and
+    /// [`Error::InvalidParameter`](crate::Error::InvalidParameter) when
+    /// `optical_ratio` is not finite and greater than `1.0`, or contradicts a
+    /// lens the profile fixes.
+    pub fn zoom_scale_for_lens(
+        &self,
+        optical_ratio: f32,
+    ) -> Result<super::ZoomScale, crate::Error> {
+        if !self.has_zoom {
+            return Err(crate::Error::FeatureNotSupported { feature: "zoom" });
         }
-
-        if magnification < 1.0 {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
-                reason: Cow::Borrowed("value must be at least 1.0x"),
-            });
+        if let Some(fixed) = self.optical_zoom_ratio {
+            if fixed != optical_ratio {
+                return Err(crate::Error::InvalidParameter {
+                    parameter: "optical zoom ratio",
+                    value: Cow::Owned(optical_ratio.to_string()),
+                    reason: Cow::Owned(format!("{} fixes a {fixed}x lens", self.model_name)),
+                });
+            }
         }
+        super::ZoomScale::new(*self.zoom_range_optical.end(), optical_ratio)
+    }
 
-        let max_units = self
-            .zoom_range_digital
-            .as_ref()
-            .map_or(*self.zoom_range_optical.end(), |range| *range.end());
-        let units =
-            (f64::from(magnification - 1.0) * f64::from(self.zoom_magnification_to_units)).round();
-
-        if !units.is_finite() || units > f64::from(max_units) {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
+    /// Returns this profile's shutter code for an exposure time.
+    ///
+    /// Shutter codes are camera-specific, so the lookup goes through the
+    /// profile's own [`Self::shutter_speeds`] table.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidParameter`](crate::Error::InvalidParameter) when
+    /// the profile's table has no entry for `exposure`.
+    pub fn shutter_speed_for(
+        &self,
+        exposure: crate::units::Fraction,
+    ) -> Result<crate::types::ShutterSpeed, crate::Error> {
+        let entry = self
+            .shutter_speeds
+            .iter()
+            .find(|speed| speed.exposure == exposure)
+            .ok_or_else(|| crate::Error::InvalidParameter {
+                parameter: "shutter speed",
+                value: Cow::Owned(exposure.to_string()),
                 reason: Cow::Owned(format!(
-                    "resulting zoom units exceed documented maximum {max_units:#06X}"
+                    "{} has no shutter-table entry for this exposure time",
+                    self.model_name
                 )),
-            });
-        }
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        Ok(units as u16)
+            })?;
+        Ok(crate::types::ShutterSpeed::new(entry.value))
     }
 
     /// Returns a summary of key capabilities as a formatted string.
@@ -959,19 +913,20 @@ impl Capabilities {
                 "Tilt Range: {:?}° ({:?} units)",
                 self.tilt_range_degrees, self.tilt_range
             ),
-            format!(
-                "Optical Zoom: {:.0}x (0x{:04X} units)",
-                self.max_optical_zoom(),
-                self.zoom_range_optical.end()
-            ),
+            match self.optical_zoom_ratio {
+                Some(ratio) => format!(
+                    "Optical Zoom: {ratio:.0}x (0x{:04X} units)",
+                    self.zoom_range_optical.end()
+                ),
+                None => format!(
+                    "Optical Zoom: lens-dependent (0x{:04X} units)",
+                    self.zoom_range_optical.end()
+                ),
+            },
         ];
 
         if let Some(digital) = &self.zoom_range_digital {
-            lines.push(format!(
-                "Digital Zoom: {:.0}x (0x{:04X} units)",
-                self.zoom_units_to_magnification(*digital.end()),
-                digital.end()
-            ));
+            lines.push(format!("Digital Zoom: to 0x{:04X} units", digital.end()));
         }
 
         lines.push(format!("Max Presets: {}", self.max_presets));
@@ -993,9 +948,9 @@ mod tests {
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
     use crate::capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, ImageProcessing, MenuCapability,
-        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
-        ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeedEntry, CapabilityRange, Exposure, Focus, ImageProcessing,
+        MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets,
+        ProfileMetadata, ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     };
     use crate::command::exposure::ExposureMode;
     use crate::transport::RawVisca;
@@ -1004,7 +959,13 @@ mod tests {
     use super::*;
 
     const SYNTHETIC_EXPOSURE_MODES: &[ExposureMode] = &[ExposureMode::Auto];
-    const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+    const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
+        match crate::units::Fraction::new(1, 60) {
+            Some(exposure) => exposure,
+            None => panic!("nonzero denominator"),
+        },
+        0x01,
+    )];
     const SYNTHETIC_WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
 
     #[derive(Debug, Default, Clone, Copy)]
@@ -1038,7 +999,7 @@ mod tests {
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
         const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
         const SUPPORTS_DIRECT_ZOOM: bool = true;
-        const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+        const OPTICAL_ZOOM_RATIO: Option<f32> = Some(20.0);
     }
 
     impl Focus for MetadataEnabledNoTypedSupport {
@@ -1053,7 +1014,7 @@ mod tests {
     impl Exposure for MetadataEnabledNoTypedSupport {
         const EXPOSURE_MODES: &'static [ExposureMode] = SYNTHETIC_EXPOSURE_MODES;
         const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
-        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SYNTHETIC_SHUTTER_SPEEDS;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SYNTHETIC_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
         const SUPPORTS_BACKLIGHT_COMP: bool = false;
     }
@@ -1564,123 +1525,54 @@ mod tests {
         let summary = caps.summary();
 
         assert!(summary.contains("Model: PtzOptics G2"));
-        assert!(summary.contains("Optical Zoom: 20x"));
+        assert!(summary.contains("Optical Zoom: lens-dependent"));
         assert!(summary.contains("0x4000"));
         assert!(!summary.contains("0x7000"));
         assert!(summary.contains("Max Presets: 127"));
     }
 
+    /// #828 M2: the G2 family's lens is declared per camera; the legacy
+    /// PT30X profile's 30x lens is a profile fact (R3, docs/visca_reference.md
+    /// §4.1).
     #[test]
-    fn test_zoom_magnification_field() {
-        // PtzOpticsG2: 20x optical zoom with ZOOM_MAGNIFICATION_TO_UNITS = 862.3
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        assert!((caps.zoom_magnification_to_units - 862.3).abs() < 0.01);
-
-        // GenericVisca: ZOOM_MAGNIFICATION_TO_UNITS = 1000.0
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        assert!((caps.zoom_magnification_to_units - 1000.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_max_optical_zoom() {
-        // PtzOpticsG2: 0x4000 / 862.3 + 1 ≈ 20x
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        let max_zoom = caps.max_optical_zoom();
+    #[allow(clippy::expect_used)]
+    fn zoom_scale_comes_from_the_profile_or_the_declared_lens() -> Result<(), crate::Error> {
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        let undeclared = g2.zoom_scale().expect_err("G2 lens is not a profile fact");
         assert!(
-            (max_zoom - 20.0).abs() < 0.5,
-            "PtzOpticsG2 max optical zoom should be ~20x, got {max_zoom}"
+            matches!(&undeclared, crate::Error::InvalidRequest(message)
+                if message.contains("PtzOptics G2")
+                    && message.contains("Capabilities::zoom_scale_for_lens(ratio)")),
+            "{undeclared:?}"
         );
+        for ratio in [12.0, 20.0, 30.0] {
+            let lens = g2.zoom_scale_for_lens(ratio)?;
+            assert_eq!(lens.units(ratio)?, 0x4000);
+            assert_eq!(lens.units(1.0)?, 0);
+        }
+        for invalid in [1.0, 0.5, f32::NAN, f32::INFINITY] {
+            assert!(matches!(
+                g2.zoom_scale_for_lens(invalid),
+                Err(crate::Error::InvalidParameter {
+                    parameter: "optical zoom ratio",
+                    ..
+                })
+            ));
+        }
 
-        // GenericVisca: 0xFFFF / 1000.0 + 1 ≈ 66.5x
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        let max_zoom = caps.max_optical_zoom();
-        assert!(
-            (max_zoom - 66.5).abs() < 1.0,
-            "GenericVisca max optical zoom should be ~66.5x, got {max_zoom}"
-        );
-    }
+        let pt30x = Capabilities::from_profile::<PtzOptics30X>();
+        // 29 × 565.0 = 16385 units: the former scale could not reach 30x.
+        assert_eq!(pt30x.zoom_scale()?.units(30.0)?, 0x4000);
+        assert_eq!(pt30x.zoom_scale_for_lens(30.0)?, pt30x.zoom_scale()?);
+        assert!(pt30x.zoom_scale_for_lens(20.0).is_err());
 
-    #[test]
-    fn test_max_combined_zoom() {
-        // SonyFR7 has digital zoom (0x7000)
-        let caps = Capabilities::from_profile::<SonyFR7>();
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            max_combined > max_optical,
-            "Combined zoom should exceed optical zoom for cameras with digital zoom"
-        );
-
-        // PtzOpticsG2 has no digital zoom (cameras reject the VISCA command)
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        assert!(
-            !caps.has_digital_zoom,
-            "PtzOpticsG2 should not declare digital zoom support"
-        );
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            (max_combined - max_optical).abs() < 0.01,
-            "Without digital zoom, combined should equal optical"
-        );
-
-        // GenericVisca has no digital zoom
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            (max_combined - max_optical).abs() < 0.01,
-            "Without digital zoom, combined should equal optical"
-        );
-    }
-
-    #[test]
-    fn test_zoom_unit_conversions() -> Result<(), crate::Error> {
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-
-        // 1x magnification = 0 units
-        let units = caps.magnification_to_zoom_units(1.0)?;
-        assert_eq!(units, 0, "1x magnification should be 0 units");
-
-        // 0 units = 1x magnification
-        let mag = caps.zoom_units_to_magnification(0);
-        assert!(
-            (mag - 1.0).abs() < 0.01,
-            "0 units should be 1x magnification"
-        );
-
-        // Round-trip conversion
-        let original_mag = 10.0;
-        let units = caps.magnification_to_zoom_units(original_mag)?;
-        let recovered_mag = caps.zoom_units_to_magnification(units);
-        assert!(
-            (recovered_mag - original_mag).abs() < 0.1,
-            "Round-trip conversion failed: {original_mag} -> {units} -> {recovered_mag}"
-        );
-
-        // Max optical zoom units should give max optical magnification
-        let max_units = *caps.zoom_range_optical.end();
-        let max_mag = caps.zoom_units_to_magnification(max_units);
-        let expected_max = caps.max_optical_zoom();
-        assert!(
-            (max_mag - expected_max).abs() < 0.01,
-            "Max units should give max magnification"
-        );
+        let mut no_zoom = pt30x;
+        no_zoom.has_zoom = false;
+        assert!(matches!(
+            no_zoom.zoom_scale(),
+            Err(crate::Error::FeatureNotSupported { feature: "zoom" })
+        ));
+        assert!(no_zoom.zoom_scale_for_lens(20.0).is_err());
         Ok(())
-    }
-
-    #[test]
-    fn test_magnification_to_units_edge_cases() {
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-
-        // Values below 1.0 are invalid and must not silently clamp to wide.
-        assert!(caps.magnification_to_zoom_units(0.5).is_err());
-        assert!(caps.magnification_to_zoom_units(0.0).is_err());
-        assert!(caps.magnification_to_zoom_units(-1.0).is_err());
-        assert!(caps.magnification_to_zoom_units(f32::NAN).is_err());
-        assert!(caps.magnification_to_zoom_units(f32::INFINITY).is_err());
-        assert!(caps
-            .magnification_to_zoom_units(caps.max_combined_zoom() + 1.0)
-            .is_err());
     }
 }

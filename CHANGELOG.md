@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (#806): one public `FocusSpeed`.** `grafton_visca::FocusSpeed`
+  (`types::FocusSpeed`) is the type every focus-speed API takes;
+  out-of-range values report `ParameterOutOfRange`.
+- **BREAKING (#806):** `SetMotionSyncPreset::new(MotionSyncSpeed)` and
+  `speed() -> MotionSyncSpeed`; `motion_sync().set_speed` is the setter.
+  `InquiryData::Version { info: VersionInfo }` and
+  `InquiryData::TallyStatus { state: TallyStatusState }` carry the canonical
+  structs.
+- **BREAKING (#808): one degrees↔units conversion per profile geometry.**
+  `PanTiltExt::degrees_to_{pan,tilt}_units` returns `Option<i32>` and rounds
+  half away from zero exactly like request preparation (G2 10.05° is now 145
+  units, was 144); `as_degrees_with_profile` returns `PanTiltPositionDeg`;
+  `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take raw `i16`
+  words; all conversions use `f32`.
+- **BREAKING (#808, #828): magnification follows the installed lens.**
+  `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` replace the
+  per-profile magnification scale; `ZoomScale`, `Capabilities::zoom_scale()`
+  and `Capabilities::zoom_scale_for_lens(ratio)` convert between
+  magnification and zoom units. Only `PtzOptics30X` fixes its lens; the
+  PTZOptics G2 family (12x/20x/30x on one protocol profile) needs the lens
+  declared, and an undeclared lens fails with an `InvalidRequest` saying how.
+- **BREAKING (#807, #819):** `Fraction` is stored in lowest terms with private
+  fields (`new` returns `Option`, equality is value equality);
+  `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` replaces
+  `capabilities::ShutterSpeed` and `RuntimeShutterSpeed`; `types::ShutterSpeed`
+  wraps a `u8` covering the whole `0p 0q` wire field, and each profile's
+  shutter table alone decides which codes a camera accepts.
 - **BREAKING (#795): `system().version()` is now gated by the
   `HasVersionInquiry` marker and the `VersionInquiry` typed-support surface;
   the PTZOptics profiles (`PtzOpticsG2`, `PtzOptics30X`, `PtzOpticsG3`) no
@@ -32,15 +59,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `PtzOptics30X` allow `Zone03`, `PtzOpticsG3` allows only the documented
   Top/Center/Bottom, and decoding an inquiry reply of `03` is accepted
   everywhere so a read value can always be set back where it is supported.
-- **BREAKING (#795): built-in Sony and `GenericVisca` `ProfileSpec`s saved by
-  an earlier 2.0 prerelease are refused on load**, because their stored
-  typed-support set lacks `VersionInquiry` and built-in identities must match
-  the current registry exactly. The `InvalidRequest` message names the
-  profile, the missing surfaces, and the regeneration call
-  (`ProfileSpec::from_compile_time::<P>()`). Saved PTZOptics specs still load
-  and gain their focus-zone list.
+- **BREAKING (#795): a `ProfileSpec` or `TypedSupportSet` persisted by an
+  earlier 2.0 prerelease is refused on load.** Every current field
+  (`focus_zones`, `optical_zoom_ratio`, `wire_codec`, shutter `exposure`) is
+  required and built-in identities must match the current registry exactly,
+  so older built-in specs (which lack `VersionInquiry` and these fields) and
+  older custom specs fail with an `InvalidRequest` naming the profile and the
+  regeneration call (`ProfileSpec::from_compile_time::<P>()` for a built-in,
+  `ProfileSpec::builder` for a custom profile). No older shape is backfilled.
+
+### Removed
+
+- **BREAKING (#806):** `command::{FocusSpeed, Version, TallyStatus,
+  NightDayMode, IrisControl}`, `SetMotionSyncPreset::from_preset`,
+  `MotionSyncSpeed::from_preset` and the `motion_sync().set_preset(u8)`
+  accessor.
+- **BREAKING (#807):** `TryFrom<Fraction> for ShutterSpeed` (its table matched
+  no profile) and `Fraction::same_value`.
+- **BREAKING (#808):** the profile-less G2-geometry helpers
+  (`PanTiltPosition::as_degrees`, `PanTiltPositionDeg::to_raw`),
+  `PanTiltPositionRaw`, `types::{PanPosition, TiltPosition}`, the
+  `PanTilt::*Raw` variants, `ZoomPositionExt` (now inherent),
+  `ZoomPosition::normalized_against`, `units::Magnification`, and the
+  magnification methods on `Capabilities` and `ZoomExt`.
+- **BREAKING (#819):** `camera::profiles::{G2Gain, G2PresetId}` (`G2Gain`
+  offered 24 dB, which the G2 profile rejects),
+  `ExposureExt::find_shutter_speed` and the orphan `exposure_constants.rs`.
+- **BREAKING (#828):** `ExposureExt::fstop_to_iris_units`, an uncalibrated
+  placeholder that returned the minimum iris for a NaN f-stop.
 
 ### Fixed
+
+- **BREAKING (#807): `ColorTemp::try_from(Kelvin)` uses the single
+  `ColorTemp::from_kelvin` mapping** (2500–8000 K, nearest 100 K step), so
+  3200 K encodes `0x07` instead of `0x0B`.
+- **BREAKING (#828):** the speed/level `From<Raw<_>>` conversions, which
+  silently clamped invalid values to the minimum, are now `TryFrom<Raw<_>>`
+  returning the type's range error.
+- (#819) Shutter code `0x00` (the generic 1/30 s step) is constructible,
+  encodes as `81 01 04 4A 00 00 00 00 FF` and decodes on every generic-table
+  profile.
+- (#808) `PanTiltCoordinateConversion` deserialization rejects zero or
+  non-finite scales, and `PtzOptics30X` at 30x now reaches the optical
+  maximum `0x4000` (its previous scale made 30x unreachable).
 
 - **BREAKING (behaviour, #795): a raw VISCA inquiry over TCP can no longer
   return another inquiry's stale reply as its own value.** On the 2026-10-04 bench (PTZOptics G2,
@@ -61,6 +122,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Capabilities::shutter_speed_for(Fraction)` and `Fraction`
+  `Display`/`FromStr`/serde (#807);
+  `PanTiltCoordinateConversion::{for_profile, pan_units, tilt_units,
+  pan_degrees, tilt_degrees, pan_degree_range, tilt_degree_range,
+  to_degrees, to_units}`, `ZoomScale`, `Capabilities::{zoom_scale,
+  zoom_scale_for_lens}` (#808).
 - `Focus::FOCUS_ZONES`, `Capabilities::focus_zones` and
   `Capabilities::supports_focus_zone()` (#795) expose each profile's settable
   focus zones; the list is empty exactly when focus-zone control is

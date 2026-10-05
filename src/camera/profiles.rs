@@ -5,57 +5,66 @@
 //! groups, evidence notes, and invariant tests are emitted from
 //! `profile_registry`.
 
-use std::fmt;
-
-use crate::error::Error;
-
 mod profile_constants {
     use crate::{
-        capabilities::ShutterSpeed,
+        capabilities::ShutterSpeedEntry,
         command::{exposure::ExposureMode, FocusZone},
+        units::Fraction,
         WhiteBalanceMode,
     };
 
-    pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
-        ShutterSpeed::new("1/30", 0x01),
-        ShutterSpeed::new("1/60", 0x02),
-        ShutterSpeed::new("1/90", 0x03),
-        ShutterSpeed::new("1/100", 0x04),
-        ShutterSpeed::new("1/125", 0x05),
-        ShutterSpeed::new("1/180", 0x06),
-        ShutterSpeed::new("1/250", 0x07),
-        ShutterSpeed::new("1/350", 0x08),
-        ShutterSpeed::new("1/500", 0x09),
-        ShutterSpeed::new("1/725", 0x0A),
-        ShutterSpeed::new("1/1000", 0x0B),
-        ShutterSpeed::new("1/1500", 0x0C),
-        ShutterSpeed::new("1/2000", 0x0D),
-        ShutterSpeed::new("1/3000", 0x0E),
-        ShutterSpeed::new("1/4000", 0x0F),
-        ShutterSpeed::new("1/6000", 0x10),
-        ShutterSpeed::new("1/10000", 0x11),
+    /// A `1/denominator` second table entry. Only the `const` tables below
+    /// call it, so a zero denominator is a compile error, never a runtime
+    /// panic.
+    #[allow(clippy::panic)]
+    const fn entry(denominator: u32, value: u8) -> ShutterSpeedEntry {
+        match Fraction::new(1, denominator) {
+            Some(exposure) => ShutterSpeedEntry::new(exposure, value),
+            None => panic!("shutter denominators are nonzero"),
+        }
+    }
+
+    /// PTZOptics G2-family shutter codes. The source register in
+    /// `docs/visca_reference.md` documents only `pq = Shutter Position`, not
+    /// this code-to-time table; it is retained as shipped, unsourced.
+    pub const PTZ_OPTICS_G2_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
+        entry(30, 0x01),
+        entry(60, 0x02),
+        entry(90, 0x03),
+        entry(100, 0x04),
+        entry(125, 0x05),
+        entry(180, 0x06),
+        entry(250, 0x07),
+        entry(350, 0x08),
+        entry(500, 0x09),
+        entry(725, 0x0A),
+        entry(1000, 0x0B),
+        entry(1500, 0x0C),
+        entry(2000, 0x0D),
+        entry(3000, 0x0E),
+        entry(4000, 0x0F),
+        entry(6000, 0x10),
+        entry(10000, 0x11),
     ];
 
-    pub const GENERIC_VISCA_SHUTTER_SPEEDS: &[ShutterSpeed] = &[
-        ShutterSpeed::new("1/30", 0x00),
-        ShutterSpeed::new("1/60", 0x01),
-        ShutterSpeed::new("1/100", 0x02),
-        ShutterSpeed::new("1/250", 0x03),
-        ShutterSpeed::new("1/500", 0x04),
-        ShutterSpeed::new("1/1000", 0x05),
-        ShutterSpeed::new("1/2000", 0x06),
-        ShutterSpeed::new("1/4000", 0x07),
-        ShutterSpeed::new("1/10000", 0x08),
+    /// Shutter codes shared by the BRC-H900, EVI-H100, BRC-300, Nearus
+    /// BRC-300 and Generic VISCA profiles. None of R8, R11, R12 or R21 in
+    /// `docs/visca_reference.md` records a shutter table for these models; it
+    /// is retained as shipped, unsourced.
+    pub const GENERIC_VISCA_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
+        entry(30, 0x00),
+        entry(60, 0x01),
+        entry(100, 0x02),
+        entry(250, 0x03),
+        entry(500, 0x04),
+        entry(1000, 0x05),
+        entry(2000, 0x06),
+        entry(4000, 0x07),
+        entry(10000, 0x08),
     ];
 
-    /// Standard exposure modes supported by most VISCA cameras.
-    pub const STANDARD_EXPOSURE_MODES: &[ExposureMode] = &[
-        ExposureMode::Auto,
-        ExposureMode::Manual,
-        ExposureMode::Shutter,
-        ExposureMode::Iris,
-        ExposureMode::Bright,
-    ];
+    /// The five shared AE modes; also the `Exposure::EXPOSURE_MODES` default.
+    pub(crate) use crate::capabilities::exposure::STANDARD_EXPOSURE_MODES;
 
     /// Shared modes listed by the BRC-H900 command and inquiry tables (R11).
     pub const BRC_H900_EXPOSURE_MODES: &[ExposureMode] = &[
@@ -85,14 +94,6 @@ mod profile_constants {
     /// Profiles without focus-zone selection.
     pub const NO_FOCUS_ZONES: &[FocusZone] = &[];
 
-    pub const PTZ_OPTICS_EXPOSURE_MODES: &[ExposureMode] = &[
-        ExposureMode::Auto,
-        ExposureMode::Manual,
-        ExposureMode::Shutter,
-        ExposureMode::Iris,
-        ExposureMode::Bright,
-    ];
-
     pub const STANDARD_WB_MODES: &[WhiteBalanceMode] = &[
         WhiteBalanceMode::Auto,
         WhiteBalanceMode::Indoor,
@@ -101,16 +102,8 @@ mod profile_constants {
         WhiteBalanceMode::Manual,
     ];
 
-    pub const SONY_COLOR_TEMP_WB_MODES: &[WhiteBalanceMode] = &[
-        WhiteBalanceMode::Auto,
-        WhiteBalanceMode::Indoor,
-        WhiteBalanceMode::Outdoor,
-        WhiteBalanceMode::OnePush,
-        WhiteBalanceMode::Manual,
-        WhiteBalanceMode::ColorTemperature,
-    ];
-
-    pub const PTZ_OPTICS_WB_MODES: &[WhiteBalanceMode] = &[
+    /// The standard modes plus direct color-temperature white balance.
+    pub const COLOR_TEMP_WB_MODES: &[WhiteBalanceMode] = &[
         WhiteBalanceMode::Auto,
         WhiteBalanceMode::Indoor,
         WhiteBalanceMode::Outdoor,
@@ -135,98 +128,6 @@ pub(crate) mod profile_registry;
 
 define_builtin_profiles!();
 
-/// Preset ID for PtzOptics G2 cameras (0-127).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct G2PresetId(u8);
-
-impl G2PresetId {
-    /// Create a new preset ID with validation.
-    pub fn new(id: u8) -> Result<Self, Error> {
-        if id <= 127 {
-            Ok(Self(id))
-        } else {
-            Err(Error::InvalidPreset {
-                preset: id,
-                max: 127,
-            })
-        }
-    }
-
-    /// Home preset (preset 0).
-    pub const HOME: Self = Self(0);
-
-    /// First user preset.
-    pub const PRESET1: Self = Self(1);
-}
-
-impl fmt::Display for G2PresetId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0 == 0 {
-            write!(f, "Home")
-        } else {
-            write!(f, "Preset {}", self.0)
-        }
-    }
-}
-
-impl From<G2PresetId> for u8 {
-    fn from(preset: G2PresetId) -> Self {
-        preset.0
-    }
-}
-
-impl TryFrom<u8> for G2PresetId {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value)
-    }
-}
-
-/// Gain values for PtzOptics G2 cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, crate::ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-pub enum G2Gain {
-    /// 0dB gain
-    Gain0dB = 0,
-    /// 3dB gain
-    Gain3dB = 1,
-    /// 6dB gain
-    Gain6dB = 2,
-    /// 9dB gain
-    Gain9dB = 3,
-    /// 12dB gain
-    Gain12dB = 4,
-    /// 15dB gain
-    Gain15dB = 5,
-    /// 18dB gain
-    Gain18dB = 6,
-    /// 21dB gain
-    Gain21dB = 7,
-    /// 24dB gain
-    Gain24dB = 8,
-}
-
-impl fmt::Display for G2Gain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let db = match self {
-            G2Gain::Gain0dB => "0dB",
-            G2Gain::Gain3dB => "3dB",
-            G2Gain::Gain6dB => "6dB",
-            G2Gain::Gain9dB => "9dB",
-            G2Gain::Gain12dB => "12dB",
-            G2Gain::Gain15dB => "15dB",
-            G2Gain::Gain18dB => "18dB",
-            G2Gain::Gain21dB => "21dB",
-            G2Gain::Gain24dB => "24dB",
-        };
-        write!(f, "{db}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -242,8 +143,71 @@ mod tests {
         assert!(camera.validate_pan(2448).is_ok());
         assert!(camera.validate_pan(2449).is_err());
 
-        assert_eq!(camera.degrees_to_pan_units(170.0), 2448);
+        assert_eq!(camera.degrees_to_pan_units(170.0), Some(2448));
         assert_eq!(camera.pan_units_to_degrees(2448), 170.0);
+    }
+
+    /// PTZOptics G2 bench facts: 14.4 pan/tilt units per degree and an
+    /// absolute optical zoom range of `0..=0x4000`.
+    #[test]
+    fn ptzoptics_g2_geometry_matches_bench_facts() {
+        use crate::capabilities::{PanTilt, Zoom};
+
+        assert_eq!(<PtzOpticsG2 as PanTilt>::PAN_DEGREES_TO_UNITS, 14.4);
+        assert_eq!(<PtzOpticsG2 as PanTilt>::TILT_DEGREES_TO_UNITS, 14.4);
+        assert_eq!(<PtzOpticsG2 as Zoom>::OPTICAL_ZOOM_MAX, 0x4000);
+        assert_eq!(<PtzOpticsG2 as Zoom>::DIGITAL_ZOOM_MAX, None);
+    }
+
+    /// #808: the public helper rounds like the request path (144.72 → 145;
+    /// it previously truncated to 144), and ±0.05° is ±1 unit, not 0.
+    #[test]
+    fn pan_tilt_helpers_round_half_away_from_zero_like_the_request_path() {
+        let camera = PtzOpticsG2;
+        assert_eq!(camera.degrees_to_pan_units(10.05), Some(145));
+        assert_eq!(camera.degrees_to_pan_units(0.05), Some(1));
+        assert_eq!(camera.degrees_to_pan_units(-0.05), Some(-1));
+        assert_eq!(camera.degrees_to_tilt_units(-10.05), Some(-145));
+    }
+
+    /// #808: raw positions convert with each camera's own scale. The removed
+    /// profile-less helper reported EVI-H100 `1440` as 100° and GenericVisca
+    /// `2880` as NaN by applying the G2 scale to every camera.
+    #[test]
+    fn raw_positions_convert_with_the_profiles_own_scale() {
+        let evi =
+            crate::camera::PanTiltPosition::new(1440, 0).as_degrees_with_profile(&SonyEVIH100);
+        assert_eq!(evi.pan.0, 90.0);
+        let generic =
+            crate::camera::PanTiltPosition::new(2880, -1440).as_degrees_with_profile(&GenericVisca);
+        assert_eq!((generic.pan.0, generic.tilt.0), (180.0, -90.0));
+        let g2 =
+            crate::camera::PanTiltPosition::new(2448, 1296).as_degrees_with_profile(&PtzOpticsG2);
+        assert_eq!((g2.pan.0, g2.tilt.0), (170.0, 90.0));
+    }
+
+    /// #807: a shutter fraction maps through the profile's own table. The
+    /// removed profile-independent conversion encoded 1/60 as `0x07` for
+    /// every camera.
+    #[test]
+    fn shutter_fractions_resolve_through_each_profile_table() {
+        use crate::{capabilities::Capabilities, units::Fraction};
+
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        let generic = Capabilities::from_profile::<GenericVisca>();
+        let code = |caps: &Capabilities, n, d| {
+            Fraction::new(n, d)
+                .and_then(|exposure| caps.shutter_speed_for(exposure).ok())
+                .map(|s| s.value())
+        };
+        assert_eq!(code(&g2, 1, 60), Some(0x02));
+        assert_eq!(code(&generic, 1, 60), Some(0x01));
+        assert_eq!(code(&g2, 1, 1000), Some(0x0B));
+        assert_eq!(code(&generic, 1, 1000), Some(0x05));
+        assert_eq!(code(&generic, 1, 30), Some(0x00));
+        assert_eq!(code(&g2, 2, 120), Some(0x02));
+        assert_eq!(code(&generic, 1, 90), None);
+        assert_eq!(code(&g2, 1, 0), None);
     }
 
     #[test]

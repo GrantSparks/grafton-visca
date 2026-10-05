@@ -404,13 +404,8 @@ fn motion_sync_speed_helper_drives_its_explicit_preset() {
         .camera::<MotionSyncTypedSupport>()
         .expect("motion-sync camera");
 
-    // The raw-`u8` twin is the explicit form the typed helper delegates to.
-    camera
-        .motion_sync()
-        .set_preset(12)
-        .expect("explicit preset");
-    let explicit_frame = one_frame(&writes);
-
+    // `81 0A 11 14 pp FF`, pp = speed: the literal frame for speed 12.
+    let explicit_frame = vec![0x81, 0x0A, 0x11, 0x14, 0x0C, 0xFF];
     camera
         .motion_sync()
         .set_speed(MotionSyncSpeed::new(12).expect("motion sync speed"))
