@@ -432,8 +432,11 @@ fn inquiry() -> RuntimeRequest {
 }
 
 /// An inquiry whose successful write immediately reaches its response
-/// deadline. Boundary tests use this to create the genuine late-reply
-/// hold that remains after timeout (#712).
+/// deadline. On a datagram policy this leaves the releasable late-reply hold
+/// that remains after timeout (#712). On a single-flight raw *stream* policy
+/// it instead leaves an owed reply (#795) that never releases by time, so
+/// stream boundary fixtures use [`raw_inquiry_rejection`] for a releasable
+/// hold and use this only to exercise the owed-reply rules.
 #[cfg(feature = "runtime-tokio")]
 fn timed_out_inquiry() -> RuntimeRequest {
     let mut request = inquiry();
@@ -442,6 +445,56 @@ fn timed_out_inquiry() -> RuntimeRequest {
     };
     context.timeout.inquiry = Duration::ZERO;
     request
+}
+
+/// A socketless camera rejection (`90 60 41 FF`) answering a raw inquiry.
+///
+/// Raw *stream* boundary fixtures use it to create their predecessor's
+/// releasable `InquiryUnkeyed` hold. Since the stream-stall fix (#795), an
+/// inquiry that times out after its bytes entered a stream owes its reply and
+/// never releases by time, so a timed-out predecessor can no longer seed a
+/// stream release. An *answered* inquiry owes nothing: `camera_error`
+/// installs exactly the hold the timeout used to (same key, owner, and
+/// `raw_inquiry_release_hold` deadline from the same instant), with the same
+/// release projection and #713 retained-prefix gate. Datagram fixtures keep
+/// the timeout, which remains the datagram contract.
+fn raw_inquiry_rejection() -> DecodedFrame {
+    DecodedFrame {
+        target: CameraId::CAMERA_1,
+        sequence: None,
+        response: DecodedResponse::Error {
+            socket: None,
+            code: 0x41,
+        },
+    }
+}
+
+/// The production-framer bytes of [`raw_inquiry_rejection`].
+#[cfg(feature = "runtime-tokio")]
+const RAW_INQUIRY_REJECTION_BYTES: [u8; 4] = [0x90, 0x60, 0x41, 0xff];
+
+/// Answers a written raw stream predecessor inquiry with
+/// [`raw_inquiry_rejection`] through the actor's own receive turn, at the
+/// current virtual instant, for tests that drive `handle_event` directly.
+#[cfg(feature = "runtime-tokio")]
+async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
+    actor: &mut AsyncOwnerActor<ManualRuntime>,
+    driver: &mut D,
+    runtime: &ManualRuntime,
+) {
+    let now = Executor::now(runtime);
+    actor
+        .handle_event(
+            OwnerEvent::Receive {
+                result: batch(vec![raw_inquiry_rejection()]),
+                received_at: now,
+            },
+            driver,
+            runtime,
+            now,
+            false,
+        )
+        .await;
 }
 
 fn inquiry_for(target: CameraId) -> RuntimeRequest {
@@ -1197,17 +1250,58 @@ fn parked_write_raw_release_harness() -> ScriptedRawHarness {
     )
 }
 
+/// Terminalizes predecessor A so that it leaves its releasable raw inquiry
+/// hold at the current instant: a timeout on a datagram, a socketless
+/// rejection on a stream (see [`raw_inquiry_rejection`]).
+#[cfg(feature = "runtime-tokio")]
+async fn terminalize_raw_inquiry_predecessor(
+    handle: &AsyncOwnerHandle,
+    harness: &ScriptedRawHarness,
+    transport: TransportKind,
+) {
+    let stream = transport == TransportKind::Stream;
+    let request = if stream {
+        inquiry()
+    } else {
+        timed_out_inquiry()
+    };
+    let predecessor = handle.submit(request).await.unwrap();
+    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+    if stream {
+        harness
+            .reads
+            .send_async(ScriptedRawRead::Complete(raw_inquiry_rejection()))
+            .await
+            .unwrap();
+        // Consume the rejection's read barrier so a test's own barriers see
+        // only the reads it scripts.
+        harness.reads_observed.recv_async().await.unwrap();
+    }
+    let outcome = terminal_within_test_deadline(
+        &predecessor,
+        "the predecessor terminalizes and leaves its raw inquiry hold",
+    )
+    .await;
+    if stream {
+        assert!(matches!(
+            outcome,
+            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        ));
+    } else {
+        assert!(matches!(
+            outcome,
+            RuntimeOutcome::Failed(Error::Timeout { .. })
+        ));
+    }
+}
+
 #[cfg(feature = "runtime-tokio")]
 async fn establish_raw_inquiry_tombstone_with_probe_driver(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
+    transport: TransportKind,
 ) -> ReceiptCore {
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
-    ));
+    terminalize_raw_inquiry_predecessor(handle, harness, transport).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1224,12 +1318,14 @@ async fn establish_raw_inquiry_tombstone_with_probe_driver(
 /// its clamp-to-H sleep, then H is advanced explicitly.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // The predecessor installed its one-second raw inquiry tombstone at
     // `initial`.  At H−1ms, consume an idle read; its escalating pause is
@@ -1312,12 +1408,14 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
 /// must cause another receive-first pass, not fence the due Wake.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // Put the actor in an ordinary H-δ boundary selection with a receive
     // already pending.  This avoids any scheduler sleep assumption: the
@@ -1396,12 +1494,14 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
 /// the fence a left-biased receive probe hot-loops and B never writes.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     runtime.advance(Duration::from_millis(999));
     harness
@@ -1455,18 +1555,14 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
 /// left-biased input probe before B's due pass.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = parked_write_raw_release_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
 
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
-    ));
+    terminalize_raw_inquiry_predecessor(&handle, &harness, transport).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1545,12 +1641,14 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
 /// write.  Both read barriers must therefore beat B's write barrier.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // The actor is normally already blocked in receive after B's admission.
     // Drain its old poll notification, then use an empty nonzero receive to
@@ -1634,21 +1732,13 @@ async fn terminal_within_test_deadline(
         .expect("the receipt observation channel remains live")
 }
 
+/// Stream-only twin of [`establish_raw_inquiry_tombstone_with_probe_driver`].
 #[cfg(feature = "runtime-tokio")]
 async fn establish_raw_inquiry_tombstone(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
 ) -> ReceiptCore {
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        terminal_within_test_deadline(
-            &predecessor,
-            "the predecessor terminalizes at its inquiry deadline",
-        )
-        .await,
-        RuntimeOutcome::Failed(Error::Timeout { .. })
-    ));
+    terminalize_raw_inquiry_predecessor(handle, harness, TransportKind::Stream).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(

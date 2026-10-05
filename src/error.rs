@@ -23,6 +23,7 @@
 //! | A sent command's ACK/completion becomes unconfirmable under the default policy | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
 //! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
 //! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
+//! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives; close and reopen the session to recover them. Other cameras and the session keep working. Commands and stops to that camera are still sent, but its socketless error frames stay filtered, so a socketless rejection ends the command [`Error::UnsequencedCommandUnconfirmed`]; settlement polling, `is_moving`, and `wait_until_idle` on it fail. An owed socketless error arriving while a command is live cannot settle the debt. |
 //! | Request or cancellation send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
 //! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
@@ -152,6 +153,8 @@ pub enum ErrorKind {
 /// - `InvalidParameter` - Parameter value is invalid
 /// - `FeatureNotSupported` - Camera model doesn't support this feature
 /// - `InvalidPreset` - Requested preset is outside the profile's supported range
+/// - `InquiryCorrelationLost` - A camera's raw stream inquiries cannot be
+///   correlated on this session; reopen it to recover
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
@@ -474,6 +477,41 @@ pub enum Error {
     /// [`SessionConfig::with_strict_unconfirmed_poison`]: crate::SessionConfig::with_strict_unconfirmed_poison
     #[error("Unsequenced command outcome could not be confirmed")]
     UnsequencedCommandUnconfirmed,
+
+    /// Raw-VISCA inquiries to `camera` cannot be correlated on this session,
+    /// so this request was not sent.
+    ///
+    /// On a stream transport (TCP, serial) an inquiry that timed out after it
+    /// was written is still owed its reply: the stream loses nothing, and raw
+    /// inquiry replies carry no identity, so that late reply would otherwise be
+    /// returned as the next inquiry's data. The session waits the profile's
+    /// [`ambiguity_timeout`](crate::profile::ProfileTiming::ambiguity_timeout)
+    /// for it. If it has not arrived by then — a long stall, a camera that
+    /// never answers that inquiry, or an absent address — every inquiry to
+    /// that camera (and every user-declared
+    /// [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) raw
+    /// command, whose completion is equally unkeyed) fails with this error
+    /// without being written, until the owed reply arrives.
+    ///
+    /// Nothing was sent, so the failure context is `Terminal` /
+    /// [`Certainty::NotAccepted`]. It is not retryable on this session: retrying
+    /// fails the same way until the owed reply happens to arrive. The session
+    /// itself is live — other cameras are unaffected, and STOPs and other
+    /// ACK-bearing commands to this camera are still sent, although a socketless
+    /// rejection of one of them is filtered as ambiguous and the command ends
+    /// [`Self::UnsequencedCommandUnconfirmed`]; settlement polling and motion
+    /// observation on this camera fail because they need inquiries — so
+    /// [`Self::requires_new_session`] is `false`. To recover this camera's
+    /// inquiries, close and reopen the session.
+    #[error(
+        "Raw inquiry correlation for {camera} is lost: an earlier inquiry's reply is still \
+         owed by the stream, so this request was not sent; reopen the session to recover"
+    )]
+    #[non_exhaustive]
+    InquiryCorrelationLost {
+        /// The camera whose raw inquiry lane is latched.
+        camera: crate::CameraId,
+    },
 
     /// A private runtime identity space was exhausted without a safe non-aliasing value.
     #[error("Runtime identity space exhausted")]
@@ -817,6 +855,13 @@ impl Error {
         }
     }
 
+    /// Reports a camera whose raw inquiries cannot be correlated on this
+    /// session.
+    #[must_use]
+    pub const fn inquiry_correlation_lost(camera: crate::CameraId) -> Self {
+        Self::InquiryCorrelationLost { camera }
+    }
+
     /// Reports exhausted ordinary admission capacity.
     #[must_use]
     pub const fn runtime_queue_full(capacity: usize) -> Self {
@@ -911,7 +956,9 @@ impl Error {
             | Self::NoSocket => ErrorKind::BufferFull,
 
             // NotExecutable: command invalid in current state
-            Self::CommandNotExecutable | Self::InvalidState(..) => ErrorKind::NotExecutable,
+            Self::CommandNotExecutable
+            | Self::InvalidState(..)
+            | Self::InquiryCorrelationLost { .. } => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
             Self::ConnectionClosed { .. } | Self::RuntimeShutdown | Self::StreamPoisoned { .. } => {
@@ -1101,6 +1148,7 @@ impl Error {
             | Self::InvalidState(..)
             | Self::CancellationUnconfirmed
             | Self::UnsequencedCommandUnconfirmed
+            | Self::InquiryCorrelationLost { .. }
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
@@ -1289,6 +1337,10 @@ impl Error {
             Self::CancellationUnconfirmed => Some(FailureContext::new(
                 FailureStage::CancellationAttempt,
                 Certainty::Unconfirmed,
+            )),
+            Self::InquiryCorrelationLost { .. } => Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::NotAccepted,
             )),
             Self::WithContext { source, .. } => source.failure_context(),
             _ => None,
@@ -1980,6 +2032,27 @@ mod tests {
             ErrorKind::Unconfirmed
         );
         assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
+    }
+
+    #[test]
+    fn inquiry_correlation_lost_is_unsent_live_session_and_not_retryable() {
+        let error = Error::inquiry_correlation_lost(crate::CameraId::CAMERA_2);
+        assert!(matches!(
+            error,
+            Error::InquiryCorrelationLost { camera } if camera == crate::CameraId::CAMERA_2
+        ));
+        assert_eq!(error.kind(), ErrorKind::NotExecutable);
+        assert!(!error.is_retryable());
+        assert_eq!(error.suggested_retry_delay(), None);
+        assert!(!error.requires_new_session());
+        assert_eq!(
+            error.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::NotAccepted
+            ))
+        );
+        assert!(error.to_string().contains("Camera 2"), "{error}");
     }
 
     #[test]

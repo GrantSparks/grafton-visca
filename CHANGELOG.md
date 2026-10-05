@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **BREAKING (behaviour, #795): a raw VISCA inquiry over TCP can no longer
+  return another inquiry's stale reply as its own value.** On the 2026-10-04 bench (PTZOptics G2,
+  `5a3e81d1`), a silently stalled TCP stream made a timed-out
+  `power().state()` inquiry be re-written six times; when the stall cleared
+  the camera answered every copy, and the next `white_balance().mode()` calls
+  returned `Ok(Outdoor)` while the camera was in Auto. On a raw stream session
+  a reply-timed-out inquiry is now written once and never resent, its reply is
+  owed: the next unkeyed inquiry reply from that camera is discarded, and if it
+  has not arrived within the profile's `ambiguity_timeout`, only that camera's
+  inquiry lane latches — its inquiries and `CompletionOnly` commands fail
+  promptly, unwritten, until the owed reply arrives or the session is
+  reopened. The session, other cameras, and STOP/ACK-bearing commands keep
+  running, with the filtering documented in
+  `docs/observability_and_recovery.md`. This is a narrow, documented exception
+  to the per-request #671 timeout rule; Raw UDP and Sony-encapsulated sessions
+  are unchanged.
+
+### Added
+
+- `Error::InquiryCorrelationLost { camera }` (#795) reports a latched raw-TCP
+  inquiry lane (`ErrorKind::NotExecutable`, not retryable, failure context
+  `Terminal`/`NotAccepted`). The session stays live; reopening it recovers the
+  camera's inquiries. The three public API snapshots gain only this variant,
+  its field, and its `const` constructor.
+
 ## [2.0.0-rc.3] - 2026-10-04
 
 This candidate completes the adopted 2.0 decisions for software review.

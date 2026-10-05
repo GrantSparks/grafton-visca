@@ -4439,7 +4439,7 @@ struct FuzzConfiguration {
     strict_unconfirmed_poison: bool,
 }
 
-const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 6] = [
+const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 7] = [
     FuzzConfiguration {
         envelope: EnvelopeKind::Raw,
         transport: TransportKind::Datagram,
@@ -4475,6 +4475,13 @@ const FUZZ_CONFIGURATIONS: [FuzzConfiguration; 6] = [
         transport: TransportKind::Datagram,
         inquiry_capacity: 8,
         strict_unconfirmed_poison: true,
+    },
+    // The production raw TCP shape, whose unanswered inquiries owe a reply.
+    FuzzConfiguration {
+        envelope: EnvelopeKind::Raw,
+        transport: TransportKind::Stream,
+        inquiry_capacity: 1,
+        strict_unconfirmed_poison: false,
     },
 ];
 
@@ -5228,7 +5235,33 @@ fn seed_fuzz_coverage(
             terminal_failure(&timed_out, first_id),
             Some(Error::Timeout { .. })
         ));
-        let released = engine.advance(*now + Duration::from_millis(80));
+        let mut release_at = *now + Duration::from_millis(80);
+        if configuration.transport == TransportKind::Stream {
+            // A stream still owes the first inquiry's reply. Where the
+            // datagram skew hold would release the second inquiry (+80 ms), the
+            // owed hold keeps it queued; the late reply, delivered at that
+            // instant, is absorbed rather than bound to it, and only then does
+            // the ordinary skew start.
+            let owed = engine.handle(
+                frame(
+                    1,
+                    None,
+                    DecodedResponse::InquiryReply {
+                        route: None,
+                        payload: smallvec![1],
+                    },
+                ),
+                release_at,
+            );
+            coverage.record(engine, &owed);
+            assert!(request_transmit_optional(&owed).is_none());
+            assert!(matches!(
+                engine.entry(second_id).map(Entry::phase),
+                Some(Phase::Ready { .. })
+            ));
+            release_at += Duration::from_millis(50);
+        }
+        let released = engine.advance(release_at);
         coverage.record(engine, &released);
         let (second_transmission, transmitted_id, _) = request_transmit(&released);
         assert_eq!(transmitted_id, second_id);
@@ -5237,7 +5270,7 @@ fn seed_fuzz_coverage(
                 transmission: second_transmission,
                 result: Ok(TransmissionMeta { sequence: None }),
             },
-            *now + Duration::from_millis(80),
+            release_at,
         );
         coverage.record(engine, &second_sent);
         let replied = engine.handle(
@@ -5249,10 +5282,14 @@ fn seed_fuzz_coverage(
                     payload: smallvec![2],
                 },
             ),
-            *now + Duration::from_millis(80) + Duration::from_micros(1),
+            release_at + Duration::from_micros(1),
         );
         coverage.record(engine, &replied);
-        *now += Duration::from_millis(80) + Duration::from_micros(1);
+        assert!(matches!(
+            terminal_outcome(&replied, second_id),
+            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [2]
+        ));
+        *now = release_at + Duration::from_micros(1);
     }
 
     // Raw ACK loss reaches either the default immediate per-request failure plus
@@ -6635,6 +6672,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
         Some(RawHold {
             until: hold_deadline,
             owner: Some(first_id),
+            owed_reply: OwedReply::None,
         }),
         "the predecessor's own deadline remains as unkeyed correlation protection"
     );
@@ -11061,6 +11099,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         Some(RawHold {
             until: timeout_at + Duration::from_millis(50),
             owner: Some(inquiry_id),
+            owed_reply: OwedReply::None,
         })
     );
 
@@ -11325,6 +11364,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
         Some(RawHold {
             until: start + Duration::from_millis(30),
             owner: Some(first),
+            owed_reply: OwedReply::None,
         })
     );
 
@@ -11348,6 +11388,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
         Some(RawHold {
             until: start + Duration::from_millis(35),
             owner: None,
+            owed_reply: OwedReply::None,
         })
     );
 
@@ -11931,6 +11972,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
         Some(RawHold {
             until: release_at,
             owner: Some(first_id),
+            owed_reply: OwedReply::None,
         })
     );
     assert_eq!(engine.next_wake(), Some(release_at));
@@ -12088,6 +12130,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             Some(RawHold {
                 until: budget_at + Duration::from_millis(50),
                 owner: Some(first_id),
+                owed_reply: OwedReply::None,
             })
         );
         assert!(matches!(
@@ -12135,6 +12178,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         Some(RawHold {
             until: release_at,
             owner: Some(first_id),
+            owed_reply: OwedReply::None,
         })
     );
     assert_eq!(engine.next_wake(), Some(release_at));
@@ -13522,4 +13566,498 @@ fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motio
         "#714 ordinary pre-ACK bypass remains available"
     );
     owner.assert_invariants().unwrap();
+}
+
+/// A production-shaped raw stream engine: single-flight inquiries per target.
+fn single_flight_raw_stream_engine() -> ProtocolEngine {
+    let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
+    configured.inquiry_capacity = 1;
+    let mut engine = ProtocolEngine::new(configured).unwrap();
+    for target in [camera(1), camera(2)] {
+        engine
+            .register_target(
+                target,
+                TargetPolicy {
+                    command_sockets: 2,
+                    cancellation: CancellationPolicy::Supported,
+                    control_reserve: 0,
+                },
+            )
+            .unwrap();
+    }
+    engine
+}
+
+fn unkeyed_reply(target: u8, value: u8) -> Input {
+    frame(
+        target,
+        None,
+        DecodedResponse::InquiryReply {
+            route: None,
+            payload: smallvec![value],
+        },
+    )
+}
+
+fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<OwedReply> {
+    engine
+        .raw_hold(camera(target), RawHoldScope::InquiryUnkeyed)
+        .map(|hold| hold.owed_reply)
+}
+
+/// Times out one written raw stream inquiry at `start`'s reply deadline and
+/// returns its id and the deadline.
+fn time_out_stream_inquiry(engine: &mut ProtocolEngine, start: Instant) -> (RequestId, Instant) {
+    let (send, id) = admit(engine, 1, inquiry(1, POWER), start);
+    send_ok(engine, &send, None, start);
+    let timeout_at = start + Duration::from_millis(30);
+    let timed_out = engine.advance(timeout_at);
+    assert_eq!(
+        terminal_failure(&timed_out, id).and_then(|error| error.failure_context()),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::FailedConclusively
+        )),
+        "the reply timeout fails this inquiry at once, with no stream resend"
+    );
+    assert!(retry_scheduled(&timed_out).is_none());
+    assert!(engine.entry(id).is_none());
+    (id, timeout_at)
+}
+
+/// #795: on a stream a timed-out raw inquiry's reply is late,
+/// not lost. It is owed: the target's inquiry lane stays closed until that one
+/// unkeyed reply is absorbed, so it can never complete a later inquiry.
+#[test]
+fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (id, timeout_at) = time_out_stream_inquiry(&mut engine, start);
+    let window_end = timeout_at + Duration::from_millis(50);
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        Some(RawHold {
+            until: window_end,
+            owner: Some(id),
+            owed_reply: OwedReply::Window,
+        })
+    );
+
+    let (_, successor) = admit(&mut engine, 2, inquiry(1, POWER), timeout_at);
+    assert!(matches!(
+        phase_of(&engine, successor),
+        Some(Phase::Ready { .. })
+    ));
+
+    let late = timeout_at + Duration::from_millis(40);
+    let stale = engine.handle(unkeyed_reply(1, 0x02), late);
+    assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
+    assert!(matches!(
+        phase_of(&engine, successor),
+        Some(Phase::Ready { .. })
+    ));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        Some(RawHold {
+            until: late + Duration::from_millis(50),
+            owner: Some(id),
+            owed_reply: OwedReply::None,
+        }),
+        "a settled debt falls back to the ordinary reply skew"
+    );
+
+    // At the original window end the settled hold no longer latches; after
+    // the skew the successor is written and only its own reply completes it.
+    engine.advance(window_end);
+    assert!(matches!(
+        phase_of(&engine, successor),
+        Some(Phase::Ready { .. })
+    ));
+    let released = engine.advance(late + Duration::from_millis(50));
+    let (_, written, _) = request_transmit(&released);
+    assert_eq!(written, successor);
+    send_ok(
+        &mut engine,
+        &released,
+        None,
+        late + Duration::from_millis(50),
+    );
+    let reply = engine.handle(unkeyed_reply(1, 0x03), late + Duration::from_millis(51));
+    assert!(matches!(
+        terminal_outcome(&reply, successor),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+/// An owed reply is settled by any complete input applied before the due pass
+/// that would latch it — here exactly at the window end — including an
+/// attributable socketless error.
+#[test]
+fn owed_raw_stream_inquiry_reply_settles_by_socketless_error_before_the_due_pass() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
+    let window_end = timeout_at + Duration::from_millis(50);
+    let error = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x02,
+            },
+        ),
+        window_end,
+    );
+    assert_eq!(ignored_reasons(&error), vec![IgnoreReason::UnmatchedFrame]);
+    assert_eq!(owed_state(&engine, 1), Some(OwedReply::None));
+    engine.assert_invariants().unwrap();
+}
+
+/// A socketless error while an acknowledged command executes on the target
+/// may be that command's (a camera can omit the socket nibble), so it never
+/// pays the debt; the owed reply stays owed.
+#[test]
+fn socketless_error_with_an_executing_command_does_not_settle_an_owed_reply() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
+
+    let (command_send, command_id) = admit(
+        &mut engine,
+        2,
+        command(1, CancellationPolicy::Supported),
+        timeout_at,
+    );
+    send_ok(&mut engine, &command_send, None, timeout_at);
+    engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Ack {
+                socket: Some(ViscaSocket::S1),
+            },
+        ),
+        timeout_at + Duration::from_millis(1),
+    );
+    assert!(matches!(
+        phase_of(&engine, command_id),
+        Some(Phase::Executing { .. })
+    ));
+    let error = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x41,
+            },
+        ),
+        timeout_at + Duration::from_millis(2),
+    );
+    assert_eq!(ignored_reasons(&error), vec![IgnoreReason::UnmatchedFrame]);
+    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Window));
+    assert!(engine.entry(command_id).is_some());
+    engine.assert_invariants().unwrap();
+}
+
+/// A reply still owed at the window end latches only that target's inquiry
+/// lane: queued and new inquiries to it fail promptly, unwritten and
+/// `NotAccepted`, while the session, commands to the same target, and
+/// inquiries to another target keep working. The latch never wakes the
+/// owner. A reply arriving after the window still settles it and reopens the
+/// lane with correct data.
+#[test]
+fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
+    let window_end = timeout_at + Duration::from_millis(50);
+    let (_, queued) = admit(&mut engine, 2, inquiry(1, POWER), timeout_at);
+
+    let still_owed = engine.advance(window_end - Duration::from_millis(1));
+    assert!(terminal_outcome(&still_owed, queued).is_none());
+    let latched = engine.advance(window_end);
+    assert_eq!(engine.state(), SessionState::Running);
+    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Latched));
+    let failure = terminal_failure(&latched, queued).expect("queued inquiry fails at the latch");
+    assert!(matches!(
+        failure,
+        Error::InquiryCorrelationLost { camera: lost } if lost == camera(1)
+    ));
+    assert_eq!(
+        failure.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::NotAccepted
+        ))
+    );
+    assert!(!failure.requires_new_session());
+    assert!(!failure.is_retryable());
+    assert!(request_transmit_optional(&latched).is_none());
+    assert!(
+        engine.next_wake().is_none_or(|wake| wake > window_end),
+        "a latched lane must not wake the owner"
+    );
+
+    let rejected = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(3),
+            request: inquiry(1, POWER),
+            slot: AdmissionSlot::Ordinary,
+        },
+        window_end + Duration::from_millis(1),
+    );
+    assert!(rejected.iter().any(|effect| matches!(
+        effect,
+        Effect::AdmissionRejected {
+            error: Error::InquiryCorrelationLost { camera: lost },
+            ..
+        } if *lost == camera(1)
+    )));
+
+    // A command to the latched target and an inquiry to another target still
+    // dispatch.
+    let now = window_end + Duration::from_millis(2);
+    let (command_send, command_id) = admit(
+        &mut engine,
+        4,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    assert_eq!(request_transmit(&command_send).1, command_id);
+    let (other_send, other_id) = admit(&mut engine, 5, inquiry(2, POWER), now);
+    assert_eq!(request_transmit(&other_send).1, other_id);
+    send_ok(&mut engine, &other_send, None, now);
+    let other_reply = engine.handle(unkeyed_reply(2, 0x03), now);
+    assert!(matches!(
+        terminal_outcome(&other_reply, other_id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+    ));
+
+    // The owed reply finally arrives: it is discarded and the lane reopens
+    // after the ordinary skew.
+    let late = window_end + Duration::from_secs(5);
+    let settled = engine.handle(unkeyed_reply(1, 0x02), late);
+    assert_eq!(
+        ignored_reasons(&settled),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert_eq!(owed_state(&engine, 1), Some(OwedReply::None));
+    let reopened = late + Duration::from_millis(50);
+    engine.advance(reopened);
+    let (send, id) = admit(&mut engine, 6, inquiry(1, POWER), reopened);
+    send_ok(&mut engine, &send, None, reopened);
+    let reply = engine.handle(unkeyed_reply(1, 0x03), reopened);
+    assert!(matches!(
+        terminal_outcome(&reply, id),
+        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.assert_invariants().unwrap();
+}
+
+fn short_budget() -> RetryPolicy {
+    RetryPolicy {
+        total_budget: Duration::from_millis(20),
+        ..retrying()
+    }
+}
+
+/// A stream inquiry whose total budget expires while it is still `Sending` in
+/// the due pass has no write in progress, so nothing reached the stream: it
+/// keeps the ordinary skew hold and owes nothing.
+#[test]
+fn stream_inquiry_budget_expiry_while_sending_owes_no_reply() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (send, id) = admit(
+        &mut engine,
+        1,
+        inquiry_with_retry(1, POWER, short_budget()),
+        start,
+    );
+    assert_eq!(request_transmit(&send).1, id);
+    let budget_at = start + Duration::from_millis(20);
+    let expired = engine.advance(budget_at);
+    assert!(matches!(
+        terminal_failure(&expired, id),
+        Some(Error::Timeout { .. })
+    ));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        Some(RawHold {
+            until: budget_at + Duration::from_millis(50),
+            owner: Some(id),
+            owed_reply: OwedReply::None,
+        })
+    );
+    engine.advance(budget_at + Duration::from_millis(50));
+    assert_eq!(owed_state(&engine, 1), None, "no latch follows");
+    engine.assert_invariants().unwrap();
+}
+
+/// A successful stream write sampled after the total budget proves the bytes
+/// entered the stream, so the inquiry's reply is owed.
+#[test]
+fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (send, id) = admit(
+        &mut engine,
+        1,
+        inquiry_with_retry(1, POWER, short_budget()),
+        start,
+    );
+    let (transmission, _, _) = request_transmit(&send);
+    let late = start + Duration::from_millis(21);
+    let finished = finish_write_input_only(
+        &mut engine,
+        transmission,
+        Ok(TransmissionMeta { sequence: None }),
+        late,
+    );
+    assert!(matches!(
+        terminal_failure(&finished, id),
+        Some(Error::Timeout { .. })
+    ));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        Some(RawHold {
+            until: late + Duration::from_millis(50),
+            owner: Some(id),
+            owed_reply: OwedReply::Window,
+        })
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Datagram behaviour is unchanged: a reply timeout keeps the short skew hold
+/// with no owed reply and retries under policy.
+#[test]
+fn raw_datagram_inquiry_timeout_keeps_skew_hold_and_retry() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_engine();
+    let (send, id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    send_ok(&mut engine, &send, None, start);
+    let timeout_at = start + Duration::from_millis(30);
+    let timed_out = engine.advance(timeout_at);
+    assert!(retry_scheduled(&timed_out).is_some_and(|(retried, ..)| retried == id));
+    assert_eq!(
+        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        Some(RawHold {
+            until: timeout_at + Duration::from_millis(50),
+            owner: Some(id),
+            owed_reply: OwedReply::None,
+        })
+    );
+}
+
+/// Latch the owed reply on camera 1 of a fresh stream engine and return the
+/// latch instant.
+fn latch_camera_one(engine: &mut ProtocolEngine, start: Instant) -> Instant {
+    let (_, timeout_at) = time_out_stream_inquiry(engine, start);
+    let window_end = timeout_at + Duration::from_millis(50);
+    engine.advance(window_end);
+    assert_eq!(owed_state(engine, 1), Some(OwedReply::Latched));
+    window_end
+}
+
+/// The latch keeps filtering socketless errors on its target, because such a
+/// frame cannot be told apart from the owed inquiry's error reply. A command
+/// the camera rejects that way is therefore not failed with the rejection: it
+/// ends `UnsequencedCommandUnconfirmed` at its ACK deadline. Documented
+/// limitation of the per-target latch.
+#[test]
+fn latched_target_filters_a_commands_socketless_rejection_until_it_is_unconfirmed() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let latched_at = latch_camera_one(&mut engine, start);
+
+    let (send, id) = admit(
+        &mut engine,
+        2,
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::AckThenCompletion,
+            RetryPolicy::NEVER,
+        ),
+        latched_at,
+    );
+    assert_eq!(request_transmit(&send).1, id, "commands still dispatch");
+    send_ok(&mut engine, &send, None, latched_at);
+    let rejected = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        latched_at + Duration::from_millis(1),
+    );
+    assert_eq!(
+        ignored_reasons(&rejected),
+        vec![IgnoreReason::UnmatchedFrame]
+    );
+    assert_eq!(owed_state(&engine, 1), Some(OwedReply::Latched));
+    assert!(engine.entry(id).is_some());
+    let unconfirmed = engine.advance(latched_at + Duration::from_millis(20));
+    assert!(matches!(
+        terminal_failure(&unconfirmed, id),
+        Some(Error::UnsequencedCommandUnconfirmed)
+    ));
+    assert_eq!(engine.state(), SessionState::Running);
+    engine.assert_invariants().unwrap();
+}
+
+/// A user `CompletionOnly` command shares the unkeyed correlation that the
+/// latch keeps filtering. Rather than wait — with no deadline at all when its
+/// retry budget is unbounded — it fails promptly, unwritten, both when queued
+/// at the latch and when admitted afterwards.
+#[test]
+fn latched_target_fails_completion_only_commands_promptly() {
+    let start = Instant::now();
+    let mut engine = single_flight_raw_stream_engine();
+    let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
+    let unbounded = RetryPolicy {
+        total_budget: Duration::ZERO,
+        ..RetryPolicy::NEVER
+    };
+    let completion_only = || {
+        command_with_reply_shape_and_retry(
+            1,
+            CancellationPolicy::Supported,
+            ReplyShape::CompletionOnly,
+            unbounded,
+        )
+    };
+    let (queued_send, queued) = admit(&mut engine, 2, completion_only(), timeout_at);
+    assert!(request_transmit_optional(&queued_send).is_none());
+
+    let window_end = timeout_at + Duration::from_millis(50);
+    let latched = engine.advance(window_end);
+    assert!(matches!(
+        terminal_failure(&latched, queued),
+        Some(Error::InquiryCorrelationLost { .. })
+    ));
+    let rejected = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(3),
+            request: completion_only(),
+            slot: AdmissionSlot::Ordinary,
+        },
+        window_end,
+    );
+    assert!(rejected.iter().any(|effect| matches!(
+        effect,
+        Effect::AdmissionRejected {
+            error: Error::InquiryCorrelationLost { .. },
+            ..
+        }
+    )));
+    engine.assert_invariants().unwrap();
 }

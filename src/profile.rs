@@ -336,6 +336,18 @@ impl ProfileTiming {
     /// declares no correlatable response. Once ACK establishes an exact socket,
     /// this window may extend but never shorten the command's completion
     /// deadline.
+    ///
+    /// On a raw-VISCA stream transport it also bounds how long a camera's next
+    /// inquiries wait for a timed-out inquiry's reply, which the stream still
+    /// owes. After it, they (and user `CompletionOnly` raw commands to that
+    /// camera) fail unwritten with [`Error::InquiryCorrelationLost`] until the
+    /// owed reply arrives or a new session is opened, because a later
+    /// unidentifiable reply could otherwise be returned as another inquiry's
+    /// data. Commands and stops to that camera are still sent, but its
+    /// socketless error frames stay filtered, so a command rejected with one
+    /// ends [`Error::UnsequencedCommandUnconfirmed`]; inquiry-based observation
+    /// of that camera (settlement polling, `is_moving`, `wait_until_idle`)
+    /// fails.
     #[must_use]
     pub const fn ambiguity_timeout(self) -> Duration {
         self.ambiguity_timeout

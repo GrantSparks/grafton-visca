@@ -91,12 +91,11 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     // Install a real inquiry release hold without first running the eager
-    // flood. The zero-length response deadline terminalizes A immediately;
-    // H remains one second away.
-    let (predecessor_completion, predecessor_admitted) = handle
-        .core
-        .enqueue_admission(timed_out_inquiry(), None)
-        .unwrap();
+    // flood. A socketless camera rejection terminalizes A immediately (a
+    // timed-out stream inquiry would owe its reply and never release; see
+    // `raw_inquiry_rejection`); H remains one second away.
+    let (predecessor_completion, predecessor_admitted) =
+        handle.core.enqueue_admission(inquiry(), None).unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -109,9 +108,10 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
     assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -206,10 +206,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     if latched_raw_release {
-        let (completion, admitted) = handle
-            .core
-            .enqueue_admission(timed_out_inquiry(), None)
-            .unwrap();
+        let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
         let predecessor = actor.core.receivers.admissions.try_recv().unwrap();
         actor
             .handle_event(
@@ -222,9 +219,10 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
             .await;
         let predecessor = admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+        reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::Timeout { .. })
+            RuntimeOutcome::Failed(Error::CommandNotExecutable)
         ));
 
         runtime.advance(HOLD);
@@ -688,10 +686,8 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     };
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
-    let (predecessor_completion, predecessor_admitted) = handle
-        .core
-        .enqueue_admission(timed_out_inquiry(), None)
-        .unwrap();
+    let (predecessor_completion, predecessor_admitted) =
+        handle.core.enqueue_admission(inquiry(), None).unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -704,9 +700,10 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
     assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
     let (_urgent_completion, urgent_admitted) = handle
