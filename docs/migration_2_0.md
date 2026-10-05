@@ -909,6 +909,30 @@ declared by `visca_range_type!` deserialize through their checked `TryFrom`/
 `new` paths, so an out-of-range scalar is rejected rather than constructing an
 invalid wrapper.
 
+#### Checked newtypes and derive attributes (#824)
+
+`visca_range_type!` and `#[derive(ViscaValue)]` expand through one generator,
+so every checked newtype, including the crate's own value types, has the same
+constructor, bounds, accessor and error contract:
+
+| Earlier RC | 2.0 |
+| --- | --- |
+| `visca_range_type!` `MIN`/`MAX` typed as the inner integer | `MIN`/`MAX` are `Self`; read the raw bound with `T::MIN.value()`. |
+| `visca_range_type!` `value(&self)` | `pub const fn value(self)`, usable in `const` items and as `T::value` in iterator adapters. |
+| An out-of-range `visca_range_type!` value (for example `command::FocusSpeed::new(8)` or `PresetRecallSpeed::new(25)`) returned `Error::InvalidParameter` | Every range-checked newtype returns `Error::ParameterOutOfRange { parameter, value, min, max }`. Values outside a sparse `valid_values` set still return `Error::InvalidParameter`. `GainLimit`, `BrightnessLevel`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel` and `DynamicRangeLevel` are now declared as ranges, so they also report `ParameterOutOfRange`. |
+| `ExposureCompensationLevel::new`, `Sharpness::SetLevel`, `ZoomPosition::normalize_with_max`, the defog, broadcast-domain, exposure-compensation and color-tuning inquiry decoders, and profile admission of pan/tilt speeds and positions, zoom, focus, iris, exposure, gain, brightness, color and preset values returned `InvalidParameter` | `ParameterOutOfRange` with the offending value and the inclusive bounds (the profile's range for admission checks). A shutter code outside the profile's table remains `InvalidParameter`. `ExposureCompensationLevel::MIN`/`MAX` are `Self`, and it implements `Display`. |
+| `Sharpness::SetLevel { value: u8 }` | `Sharpness::SetLevel { value: SharpnessLevel }`; construct the level with `SharpnessLevel::new`. |
+| `ParameterOutOfRange` displayed `(valid range: 2..4)` | `(valid range: 2..=4)`, an inclusive range. |
+| `Error::Unknown` displayed `0x5` | `0x05`. |
+| `visca_range_type!` over any `PartialOrd + Display` inner type | The inner type must widen losslessly into `i32` (`u8`, `u16`, `i8`, `i16`, `i32`), because `ParameterOutOfRange` reports `i32` bounds; a wider type fails to compile at the inner type. |
+| `#[derive(ViscaValue)]` without `min`/`max` or `valid_values` produced an unchecked wrapper | Rejected at compile time; declare the domain. A range with `min > max` is also a compile error. |
+| Range `new` was a plain `fn` | Range `new` is a `const fn`, so a checked value can initialize a `const`. |
+| `display_format = "hex"` printed `0x5` | Hex display pads to two digits: `0x05`. |
+| `ViscaInquiry` and `ViscaEnum` accepted a repeated key, keeping the last value | A repeated key is a compile error naming both occurrences, as for `ViscaValue`. |
+| `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=255`, in any radix (`0b0100_0111`, `0o107`). |
+| `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
+| `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
+
 #### Persisted `ProfileSpec` values from earlier releases (#795, #807, #808)
 
 `ProfileSpec` deserialization requires every current field and validates the

@@ -4,8 +4,6 @@
 //! to more intuitive representations like degrees and normalized values, as part of the
 //! runtime-agnostic modernization of `grafton-visca`.
 
-use std::borrow::Cow;
-
 use crate::{
     camera::PanTiltPosition,
     capabilities::Profile,
@@ -110,14 +108,12 @@ impl ZoomPosition {
         }
 
         if self.value() > max {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom position",
-                value: Cow::Owned(format!("{:#06X}", self.value())),
-                reason: Cow::Owned(format!(
-                    "value exceeds {:?} zoom maximum {:#06X}",
-                    domain, max
-                )),
-            });
+            return Err(crate::Error::parameter_out_of_range(
+                "zoom position",
+                i32::from(self.value()),
+                0,
+                i32::from(max),
+            ));
         }
 
         UnitInterval::new(f32::from(self.value()) / f32::from(max))
@@ -220,9 +216,15 @@ mod tests {
 
         // Test digital telephoto end
         let zoom = ZoomPosition::new(0x7000)?;
-        assert!(zoom
-            .normalize_with_max(ZoomDomain::Optical, optical_max, digital_max)
-            .is_err());
+        assert!(matches!(
+            zoom.normalize_with_max(ZoomDomain::Optical, optical_max, digital_max),
+            Err(crate::Error::ParameterOutOfRange {
+                parameter: "zoom position",
+                value: 0x7000,
+                min: 0,
+                max,
+            }) if max == i32::from(optical_max)
+        ));
         assert_eq!(
             zoom.normalize_with_max(ZoomDomain::OpticalPlusDigital, optical_max, digital_max)?
                 .value(),

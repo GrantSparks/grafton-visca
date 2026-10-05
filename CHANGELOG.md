@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING (#824): `visca_range_type!` and `#[derive(ViscaValue)]` share one
+  generator** with one constructor, bounds, accessor and error contract:
+  `MIN`/`MAX` are `Self`, `value` is `pub const fn value(self)`, range `new`
+  is `const fn` and returns `Error::ParameterOutOfRange` (previously
+  `InvalidParameter` from `visca_range_type!`). A range's inner type must be
+  `u8`, `u16`, `i8`, `i16` or `i32` and its bounds must satisfy
+  `min <= max` (both are compile errors otherwise); a derive without a
+  domain is rejected; hex `Display` pads to two digits. `GainLimit`,
+  `BrightnessLevel`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel`
+  and `DynamicRangeLevel` are declared as ranges, and
+  `ExposureCompensationLevel` is generated (gaining `Display`).
+- **BREAKING (#824): every range check reports `ParameterOutOfRange`.** The
+  remaining hand-written checks — `Sharpness::SetLevel`, the defog,
+  broadcast-domain, ND-preset, exposure-compensation and colour-tuning
+  inquiry decoders, profile admission of pan/tilt speed and position, zoom,
+  focus, iris, exposure, gain, brightness, colour and preset values, and
+  `ZoomPosition::normalize_with_max` — report it with the bounds; a shutter
+  code outside the profile's table (a set, not a range) remains
+  `InvalidParameter`. `Sharpness::SetLevel { value }` holds a
+  `SharpnessLevel` instead of a `u8`.
+- **BREAKING (#824): `ViscaInquiry`, `ViscaEnum` and `ViscaValue` share one
+  attribute policy:** a repeated key is a compile error, VISCA byte literals
+  are unsuffixed `0..=255` in any radix, and `#[visca_enum(exhaustive)]` is
+  rejected.
+- `Error` display text (#824, #828): `ParameterOutOfRange` prints an inclusive
+  range (`2..=4`), `Unknown` prints the code as `0x05`, and
+  `InquiryNotCancelable` describes the 2.0 behaviour instead of naming
+  removed APIs.
+
 - **BREAKING (#806): one public `FocusSpeed`.** `grafton_visca::FocusSpeed`
   (`types::FocusSpeed`) is the type every focus-speed API takes;
   out-of-range values report `ParameterOutOfRange`.
@@ -186,6 +215,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Udp::connect`, and `serial::Config::camera_address`.
 
 ### Fixed
+
+- `ViscaInquiry` accepts binary and octal `opcode`/`subcode` literals; it
+  previously rejected them as not fitting in a `u8` (#824).
 
 - **BREAKING (#807): `ColorTemp::try_from(Kelvin)` uses the single
   `ColorTemp::from_kelvin` mapping** (2500–8000 K, nearest 100 K step), so

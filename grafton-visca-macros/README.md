@@ -57,14 +57,16 @@ The macro generates:
 
 ### Parser Selectors
 
-The established parser selectors remain accepted for source compatibility. They
-enable the inherent `parse_response()` convenience method, but never define a
-second decoder: it and `Inquiry::decoder()` share one generated payload decoder.
-Selectors that identify a built-in table shape delegate to `response` for
-boolean convention, nibble width, and value conversion. `Custom` continues to
-call `parse_with`, and selector forms with established transformations retain
-them, including `BoolConvention` and the selector-supported `data_variant` and
-`value_type` attributes, on both paths.
+`parser` is the current way to request the inherent `parse_response()`
+convenience method. It never defines a second decoder: `parse_response()` and
+`Inquiry::decoder()` share one generated payload decoder. Shape selectors
+(`Bool`, `Byte`, `Position`, `PanTilt`, and the other built-in table shapes)
+decode with the `response` table entry, including its boolean convention,
+nibble width, and value conversion. Transforming selectors carry their own
+decoding: `Custom` calls `parse_with`, and `BoolConvention`, the nibble
+selectors, `Mode`, `NdFilter`, `PictureEffect`, `DefogLevel` and `FocusRange`
+apply their transformation, using `field`, `value_type` and `data_variant`
+where the selector reads them.
 
 ## ViscaEnum
 
@@ -95,7 +97,7 @@ pub enum ExposureMode {
 
 ```rust
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[visca_enum(error_type = MyError, exhaustive = false)]
+#[visca_enum(error_type = MyError)]
 pub enum Mode {
     #[visca_enum(name = "Automatic Mode")]
     Auto = 0x00,
@@ -108,10 +110,24 @@ pub enum Mode {
 }
 ```
 
+Discriminants are unsuffixed integer literals in `0..=255`, in any radix. The
+supported keys are `error_type` on the enum and `name`/`skip` on variants.
+
+## Attribute policy
+
+All three derives parse their helper attributes under one policy: each key may
+appear once across all of an item's attributes (a repeat is an error naming
+both occurrences), an unknown key is an error listing the supported keys, and
+every VISCA byte (`opcode`, `subcode`, enum discriminants) is an unsuffixed
+integer literal in `0..=255` written in any radix, so `0x47`, `0o107`,
+`0b0100_0111` and `71` are the same byte.
+
 ## ViscaValue
 
 Creates value wrapper types with construction-time validation and configurable
 display formatting. It does not generate VISCA byte encoding or decoding APIs.
+It expands through the same generator as `grafton_visca::visca_range_type!`, so
+both have the same constructor, bounds, accessor and error contract.
 
 ### Basic Usage
 
@@ -130,17 +146,25 @@ struct ZoomSpeed(u8);
 ### Attributes and Generated API
 
 The supported `visca_value` keys are `min`, `max`, `valid_values`,
-`display_format`, and `display_prefix`. `min` and `max` must be specified
-together as unsuffixed integer literals inside strings, for example
-`min = "0x0000"`. `valid_values` is the alternative validation form. Every key
-may appear only once; unknown keys, including `bytes`, are rejected.
+`display_format`, and `display_prefix`. A domain is required: either `min` and
+`max` together, as unsuffixed integer literals inside strings (for example
+`min = "0x0000"`), or `valid_values`. Unknown keys, including `bytes`, are
+rejected.
 
 The macro generates:
 
-- `new(value)` with range or valid-value validation
-- `value()`, `TryFrom<Inner>`, and `From<Wrapper> for Inner`
-- `MIN` and `MAX` when bounds or `valid_values` are specified
-- `Display` with optional format and prefix
+- `MIN` and `MAX`, typed as `Self`
+- `new(value)`, which returns `Error::ParameterOutOfRange` for a value outside
+  `min..=max` (and is a `const fn` for a range), or `Error::InvalidParameter`
+  for a value outside `valid_values`
+- `pub const fn value(self)`, `TryFrom<Inner>`, and `From<Wrapper> for Inner`
+- `Display` with optional format and prefix; `"hex"` prints at least two
+  digits (`0x05`)
+
+`ParameterOutOfRange` reports its bounds as `i32`, so a range's inner type must
+be `u8`, `u16`, `i8`, `i16` or `i32`, and `min` must not exceed `max`; both
+are compile errors otherwise. The derive does not add serde, schemars
+or ts-rs derives; add them on the struct when needed.
 
 Use the derive macros above with the typed request contracts documented by the
 main crate. There is no forwarding attribute or mode-specific generated API.

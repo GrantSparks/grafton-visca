@@ -55,7 +55,7 @@ visca_range_type! {
 }
 
 #[allow(non_snake_case)]
-mod __grafton_visca_range_type_support_DisabledRange {}
+mod __grafton_visca_newtype_support_DisabledRange {}
 
 #[allow(dead_code)]
 struct DisabledRange;

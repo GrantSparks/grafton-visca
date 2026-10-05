@@ -38,11 +38,17 @@
 ///
 /// # Generated API
 ///
-/// The macro generates a struct with the following methods:
-/// - `new(value: T) -> Result<Self, Error>` - Creates a new instance with validation
-/// - `value(&self) -> T` - Returns the inner value
-/// - `MIN: T` - The minimum allowed value
-/// - `MAX: T` - The maximum allowed value
+/// The macro expands through the same generator as `#[derive(ViscaValue)]`,
+/// so both have the same constructor, bounds, accessor and error contract:
+/// - `MIN: Self` and `MAX: Self` - The inclusive bounds; `min > max` fails to
+///   compile
+/// - `const fn new(value: T) -> Result<Self, Error>` - Creates a new instance
+///   with validation; a value outside `MIN..=MAX` is
+///   [`Error::ParameterOutOfRange`](crate::Error::ParameterOutOfRange)
+/// - `const fn value(self) -> T` - Returns the inner value
+///
+/// `ParameterOutOfRange` reports its bounds as `i32`, so `T` must convert into
+/// `i32` losslessly: `u8`, `u16`, `i8`, `i16` or `i32`.
 ///
 /// It also implements:
 /// - `TryFrom<T>` for convenient conversions
@@ -58,7 +64,7 @@ macro_rules! visca_range_type {
             max: $max:expr
         }
     ) => {
-        $crate::__grafton_visca_range_type_decl! {
+        $crate::__grafton_visca_newtype! {
             $(#[$meta])*
             $name : $inner {
                 min: $min,
@@ -68,19 +74,21 @@ macro_rules! visca_range_type {
     };
 }
 
+// The declaration adapter needs the helper derives this crate was built with.
+// `cfg` inside a `macro_rules!` body is evaluated in the calling crate, so the
+// selection happens here, once per helper-feature combination; the adapter
+// owns the declaration grammar. This crate's own checked value types invoke
+// the selector directly, so the helper derives are written in one place.
+
 #[cfg(not(feature = "serde"))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __grafton_visca_range_type_decl {
-    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
-        $crate::__macro_support::__grafton_visca_range_type_decl! {
+macro_rules! __grafton_visca_newtype {
+    ($($declaration:tt)*) => {
+        $crate::__macro_support::__grafton_visca_newtype! {
             crate = $crate;
             []
-            $(#[$meta])*
-            $name : $inner {
-                min: $min,
-                max: $max
-            }
+            $($declaration)*
         }
     };
 }
@@ -88,16 +96,12 @@ macro_rules! __grafton_visca_range_type_decl {
 #[cfg(all(feature = "serde", not(feature = "schemars"), not(feature = "ts-rs")))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __grafton_visca_range_type_decl {
-    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
-        $crate::__macro_support::__grafton_visca_range_type_decl! {
+macro_rules! __grafton_visca_newtype {
+    ($($declaration:tt)*) => {
+        $crate::__macro_support::__grafton_visca_newtype! {
             crate = $crate;
             [serde]
-            $(#[$meta])*
-            $name : $inner {
-                min: $min,
-                max: $max
-            }
+            $($declaration)*
         }
     };
 }
@@ -105,16 +109,12 @@ macro_rules! __grafton_visca_range_type_decl {
 #[cfg(all(feature = "schemars", not(feature = "ts-rs")))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __grafton_visca_range_type_decl {
-    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
-        $crate::__macro_support::__grafton_visca_range_type_decl! {
+macro_rules! __grafton_visca_newtype {
+    ($($declaration:tt)*) => {
+        $crate::__macro_support::__grafton_visca_newtype! {
             crate = $crate;
             [serde, schemars]
-            $(#[$meta])*
-            $name : $inner {
-                min: $min,
-                max: $max
-            }
+            $($declaration)*
         }
     };
 }
@@ -122,16 +122,12 @@ macro_rules! __grafton_visca_range_type_decl {
 #[cfg(all(feature = "ts-rs", not(feature = "schemars")))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __grafton_visca_range_type_decl {
-    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
-        $crate::__macro_support::__grafton_visca_range_type_decl! {
+macro_rules! __grafton_visca_newtype {
+    ($($declaration:tt)*) => {
+        $crate::__macro_support::__grafton_visca_newtype! {
             crate = $crate;
             [serde, ts_rs]
-            $(#[$meta])*
-            $name : $inner {
-                min: $min,
-                max: $max
-            }
+            $($declaration)*
         }
     };
 }
@@ -139,16 +135,41 @@ macro_rules! __grafton_visca_range_type_decl {
 #[cfg(all(feature = "schemars", feature = "ts-rs"))]
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __grafton_visca_range_type_decl {
-    ($(#[$meta:meta])* $name:ident : $inner:ty { min: $min:expr, max: $max:expr }) => {
-        $crate::__macro_support::__grafton_visca_range_type_decl! {
+macro_rules! __grafton_visca_newtype {
+    ($($declaration:tt)*) => {
+        $crate::__macro_support::__grafton_visca_newtype! {
             crate = $crate;
             [serde, schemars, ts_rs]
-            $(#[$meta])*
-            $name : $inner {
-                min: $min,
-                max: $max
-            }
+            $($declaration)*
         }
     };
 }
+
+/// Inner types a range-checked newtype may wrap.
+///
+/// `Error::ParameterOutOfRange` reports its value and bounds as `i32`, so a
+/// range's inner type must convert into `i32` without loss. The trait is
+/// sealed to exactly those primitives, which lets generated code widen with a
+/// lossless `as` cast inside `const fn new`.
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be the inner type of a range-checked VISCA newtype",
+    label = "range bounds are reported as `i32`",
+    note = "use `u8`, `u16`, `i8`, `i16` or `i32` as the inner type"
+)]
+pub trait RangeInner: range_inner::Sealed {}
+
+mod range_inner {
+    pub trait Sealed {}
+}
+
+macro_rules! impl_range_inner {
+    ($($inner:ty),*) => {
+        $(
+            impl range_inner::Sealed for $inner {}
+            impl RangeInner for $inner {}
+        )*
+    };
+}
+
+impl_range_inner!(u8, u16, i8, i16, i32);

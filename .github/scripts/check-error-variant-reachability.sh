@@ -77,8 +77,8 @@ record_construction ParseError src/error.rs \
   'Self::ParseError(Cow::Owned(err.to_string()))'
 record_construction TransportError src/runtime/owner/mod.rs \
   'Error::TransportError(format!("datagram send failed: {error}").into())'
-record_construction InvalidParameter src/types.rs \
-  'Err(Error::InvalidParameter {'
+record_construction InvalidParameter src/units.rs \
+  'return Err(Error::InvalidParameter {'
 record_construction BufferTooSmall src/raw.rs \
   'return Err(Error::BufferTooSmall {'
 record_construction InvalidPreset src/camera/profiles.rs \

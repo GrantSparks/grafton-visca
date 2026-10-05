@@ -1631,7 +1631,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw_value = nibbles.u8_pair(2);
-                let value = decode_centered_level(raw_value, 7, "exposure_compensation")?;
+                let value = decode_centered_level(raw_value, EXPOSURE_COMPENSATION_CENTER, "exposure_compensation")?;
                 Ok(Response::Inquiry(InquiryData::ExposureCompensation { value }))
             };
             response: true;
@@ -2399,11 +2399,7 @@ macro_rules! builtin_inquiry_table {
             };
             decode: |payload| {
                 require_len(&payload, 1)?;
-                let level = DefogLevel::new(payload.as_slice()[0]).map_err(|_| Error::InvalidParameter {
-                    parameter: "defog_level",
-                    value: Cow::Owned(payload.as_slice()[0].to_string()),
-                    reason: Cow::Borrowed("value out of range (0-5)"),
-                })?;
+                let level = DefogLevel::new(payload.as_slice()[0])?;
                 Ok(Response::Inquiry(InquiryData::DefogLevel { level }))
             };
             response: true;
@@ -2500,7 +2496,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                let level = decode_centered_level(raw, 10, "red_tuning")?;
+                let level = decode_centered_level(raw, COLOR_TUNING_CENTER, "red_tuning")?;
                 Ok(Response::Inquiry(InquiryData::RedTuning { level }))
             };
             response: true;
@@ -2525,7 +2521,7 @@ macro_rules! builtin_inquiry_table {
             decode: |payload| {
                 let nibbles = Nibbles::<4>::try_from(payload)?;
                 let raw = nibbles.u8_pair(2);
-                let level = decode_centered_level(raw, 10, "blue_tuning")?;
+                let level = decode_centered_level(raw, COLOR_TUNING_CENTER, "blue_tuning")?;
                 Ok(Response::Inquiry(InquiryData::BlueTuning { level }))
             };
             response: true;
@@ -2625,13 +2621,7 @@ macro_rules! builtin_inquiry_table {
             kind: BroadcastDomain (BroadcastDomain);
             decode: |payload| {
                 require_len(&payload, 1)?;
-                let domain = BroadcastDomain::new(payload.as_slice()[0]).map_err(|_| {
-                    Error::InvalidParameter {
-                        parameter: "broadcast_domain",
-                        value: Cow::Owned(payload.as_slice()[0].to_string()),
-                        reason: Cow::Borrowed("value out of range (0-3)"),
-                    }
-                })?;
+                let domain = BroadcastDomain::new(payload.as_slice()[0])?;
                 Ok(Response::Inquiry(InquiryData::BroadcastDomain(domain)))
             };
             response: true;
@@ -2726,13 +2716,7 @@ macro_rules! builtin_inquiry_table {
             };
             decode: |payload| {
                 require_len(&payload, 1)?;
-                let preset = NdFilterPreset::new(payload.as_slice()[0]).map_err(|_| {
-                    Error::InvalidParameter {
-                        parameter: "nd_filter_preset",
-                        value: Cow::Owned(payload.as_slice()[0].to_string()),
-                        reason: Cow::Borrowed("value out of range (0-3)"),
-                    }
-                })?;
+                let preset = NdFilterPreset::new(payload.as_slice()[0])?;
                 Ok(Response::Inquiry(InquiryData::NdFilterPreset { preset }))
             };
             response: true;
@@ -3239,29 +3223,49 @@ fn require_len(payload: &Payload<'_>, expected: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// Decode an unsigned wire level whose midpoint represents logical zero.
-fn decode_centered_level(raw: u8, center: u8, parameter: &'static str) -> Result<i8, Error> {
-    let maximum = center.saturating_mul(2);
-    if raw > maximum {
-        return Err(Error::InvalidParameter {
-            parameter,
-            value: Cow::Owned(format!("{raw:02X}")),
-            reason: Cow::Owned(format!(
-                "encoded value must be between 00 and {maximum:02X}"
-            )),
-        });
+/// The midpoint of a centered wire level, which encodes logical zero.
+///
+/// Construction requires `1..=63`, so the whole encoded range `0..=2 * center`
+/// fits `i8` and decoding needs no fallible arithmetic.
+#[derive(Clone, Copy)]
+struct LevelCenter(i8);
+
+impl LevelCenter {
+    const fn new(center: i8) -> Self {
+        assert!(
+            center > 0 && center <= 63,
+            "a level centre must be in 1..=63"
+        );
+        Self(center)
     }
-    let raw = i8::try_from(raw).map_err(|_| Error::InvalidParameter {
-        parameter,
-        value: Cow::Owned(format!("{raw:02X}")),
-        reason: Cow::Borrowed("encoded value does not fit the signed decoder"),
-    })?;
-    let center = i8::try_from(center).map_err(|_| Error::InvalidParameter {
-        parameter,
-        value: Cow::Owned(format!("{center:02X}")),
-        reason: Cow::Borrowed("decoder midpoint does not fit the signed decoder"),
-    })?;
-    Ok(raw - center)
+
+    /// The largest encoded value, `2 * center`.
+    const fn maximum(self) -> i8 {
+        self.0 * 2
+    }
+}
+
+/// Exposure compensation encodes -7..=7 around `0x07`.
+const EXPOSURE_COMPENSATION_CENTER: LevelCenter = LevelCenter::new(7);
+/// Red and blue tuning encode -10..=10 around `0x0A`.
+const COLOR_TUNING_CENTER: LevelCenter = LevelCenter::new(10);
+
+/// Decode an unsigned wire level whose midpoint represents logical zero.
+fn decode_centered_level(
+    raw: u8,
+    center: LevelCenter,
+    parameter: &'static str,
+) -> Result<i8, Error> {
+    let maximum = center.maximum();
+    match i8::try_from(raw) {
+        Ok(level) if level <= maximum => Ok(level - center.0),
+        _ => Err(Error::parameter_out_of_range(
+            parameter,
+            i32::from(raw),
+            0,
+            i32::from(maximum),
+        )),
+    }
 }
 
 /// Decode the combined horizontal/vertical flip-state response shared by the
@@ -3374,19 +3378,38 @@ mod wire_decoder_regression_tests {
 
     #[test]
     fn centered_level_decoders_reject_out_of_range_nibbles_without_panicking() {
-        for (kind, parameter) in [
-            (InquiryKind::ExposureCompensation, "exposure_compensation"),
-            (InquiryKind::RedTuning, "red_tuning"),
-            (InquiryKind::BlueTuning, "blue_tuning"),
+        for (kind, parameter, maximum) in [
+            (
+                InquiryKind::ExposureCompensation,
+                "exposure_compensation",
+                14,
+            ),
+            (InquiryKind::RedTuning, "red_tuning", 20),
+            (InquiryKind::BlueTuning, "blue_tuning", 20),
         ] {
-            let response = parse_inquiry_payload(&[0x00, 0x00, 0x08, 0x04], &kind);
-            assert!(matches!(
-                response,
-                Err(Error::InvalidParameter {
-                    parameter: actual,
-                    ..
-                }) if actual == parameter
-            ));
+            // One encoded value just above the range and one that does not
+            // fit `i8` take the same out-of-range path.
+            for (payload, raw) in [
+                ([0x00, 0x00, 0x08, 0x04], 0x84),
+                (
+                    [0x00, 0x00, (maximum + 1) >> 4, (maximum + 1) & 0x0F],
+                    maximum + 1,
+                ),
+            ] {
+                let response = parse_inquiry_payload(&payload, &kind);
+                assert!(
+                    matches!(
+                        response,
+                        Err(Error::ParameterOutOfRange {
+                            parameter: actual,
+                            value,
+                            min: 0,
+                            max,
+                        }) if actual == parameter && value == i32::from(raw) && max == i32::from(maximum)
+                    ),
+                    "{parameter} {payload:02X?}: {response:?}"
+                );
+            }
         }
     }
 

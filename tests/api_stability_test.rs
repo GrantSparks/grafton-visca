@@ -28,8 +28,8 @@ fn root_value_and_transport_contract() {
 
     let preset = PresetNumber::new(255).expect("preset 255 is valid");
     assert_eq!(preset.value(), 255);
-    assert_eq!(PresetNumber::MIN, 0);
-    assert_eq!(PresetNumber::MAX, 255);
+    assert_eq!(PresetNumber::MIN.value(), 0);
+    assert_eq!(PresetNumber::MAX.value(), 255);
 
     let camera_id = CameraId::new(1).expect("camera ID 1 is valid");
     assert_eq!(camera_id.to_address_byte(), 0x81);

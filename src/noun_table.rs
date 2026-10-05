@@ -710,7 +710,7 @@ macro_rules! noun_table {
             /// Sets a direct sharpness level.
             plain [SharpnessDirect] set_sharpness(level: types::SharpnessLevel)
                 -> command::Sharpness where HasSharpnessControl
-                = command::Sharpness::SetLevel { value: level.value() };
+                = command::Sharpness::SetLevel { value: level };
             /// Returns backlight compensation state.
             inquiry command::BacklightInquiry backlight() -> bool where HasBacklightCompensation
                 = command::BacklightInquiry;

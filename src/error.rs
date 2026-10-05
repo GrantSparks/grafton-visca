@@ -316,7 +316,7 @@ pub enum Error {
     UnexpectedResponseType,
 
     /// Received an unknown error code from the camera.
-    #[error("Unknown error code: {0:#02X}")]
+    #[error("Unknown error code: {0:#04X}")]
     Unknown(u8),
 
     /// Invalid request to socket manager.
@@ -373,7 +373,7 @@ pub enum Error {
     },
 
     /// Parameter value is out of the acceptable range.
-    #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..{max})")]
+    #[error("Parameter out of range: {parameter} = {value} (valid range: {min}..={max})")]
     #[non_exhaustive]
     ParameterOutOfRange {
         /// Name of the parameter.
@@ -705,11 +705,12 @@ pub enum Error {
         max_size: usize,
     },
 
-    /// Inquiry not cancelable: `*_with_id` APIs are for commands only.
+    /// Cancellation was requested for an inquiry.
     ///
-    /// Inquiries are not cancelable because they complete immediately without
-    /// occupying a VISCA socket. Use `send_inquiry` or `send_inquiry_typed` instead.
-    #[error("Inquiries cannot be canceled: use send_inquiry instead of *_with_id APIs")]
+    /// Only operations that occupy a VISCA socket can be canceled. An inquiry
+    /// holds no socket and completes when its reply arrives, so canceling its
+    /// handle fails with this error; wait for the reply or drop the handle.
+    #[error("Inquiries cannot be canceled: an inquiry holds no VISCA socket and completes with its reply")]
     InquiryNotCancelable,
 
     /// Invalid network address format.
