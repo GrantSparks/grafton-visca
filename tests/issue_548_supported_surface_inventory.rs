@@ -103,6 +103,8 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "TallyBrightness",
     "PtzOpticsTally",
     "VersionInquiry",
+    "ColorTemperatureInquiry",
+    "NoiseReduction2DMode",
 ];
 
 const EXPECTED_ACCESSORS: &[&str] = &[
@@ -175,17 +177,106 @@ fn built_in_profile_and_transport_inventory_is_closed() {
         .collect();
     assert_eq!(actual, EXPECTED_PROFILES);
 
-    for profile in ProfileId::all() {
-        let raw = !profile.uses_sony_encapsulation();
-        assert_eq!(profile.supports_tcp(), raw, "{profile:?} TCP drift");
-        assert!(profile.supports_udp(), "{profile:?} must retain UDP");
-        assert_eq!(profile.supports_serial(), raw, "{profile:?} serial drift");
-        assert_eq!(profile.default_tcp_port(), raw.then_some(5678));
+    // (TCP port, UDP port, serial) per profile, from each model's source:
+    // PTZOptics R1/R5 raw ports, Sony R7/R11 encapsulated UDP, and the
+    // RS-232C/RS-422-only EVI-H100 (R8), BRC-300 (R12) and Nearus (R21).
+    let expected = [
+        (Some(5678), Some(1259), true),
+        (Some(5678), Some(1259), true),
+        (Some(5678), Some(1259), true),
+        (None, Some(52381), false),
+        (None, Some(52381), false),
+        (None, None, true),
+        (None, None, true),
+        (None, None, true),
+        (Some(5678), Some(1259), true),
+    ];
+    for (profile, (tcp, udp, serial)) in ProfileId::all().iter().zip(expected) {
+        assert_eq!(profile.default_tcp_port(), tcp, "{profile:?} TCP drift");
+        assert_eq!(profile.default_udp_port(), udp, "{profile:?} UDP drift");
         assert_eq!(
-            profile.default_udp_port(),
-            Some(if raw { 1259 } else { 52381 })
+            profile.supports_serial(),
+            serial,
+            "{profile:?} serial drift"
+        );
+        assert_eq!(profile.supports_tcp(), tcp.is_some());
+        assert_eq!(profile.supports_udp(), udp.is_some());
+    }
+}
+
+#[test]
+fn built_in_group_and_vendor_inventory_is_closed() {
+    use grafton_visca::{camera::profiles::ProfileGroup, capabilities::InquirySupport};
+
+    let expected = [
+        (
+            ProfileGroup::GenericVisca,
+            &[
+                ProfileId::GenericVisca,
+                ProfileId::SonyBrc300,
+                ProfileId::SonyEviH100,
+                ProfileId::NearusBrc300,
+            ][..],
+            (false, false, true, false),
+            InquirySupport::Partial,
+        ),
+        (
+            ProfileGroup::PtzOpticsG2,
+            &[
+                ProfileId::PtzOpticsG2,
+                ProfileId::PtzOpticsG3,
+                ProfileId::PtzOptics30X,
+            ][..],
+            (true, true, true, false),
+            InquirySupport::Full,
+        ),
+        (
+            ProfileGroup::SonyProfessional,
+            &[ProfileId::SonyFr7, ProfileId::SonyBrcH900][..],
+            (false, true, false, true),
+            InquirySupport::Full,
+        ),
+    ];
+    for (group, members, (tcp, udp, serial, sony), inquiry) in expected {
+        assert_eq!(group.profiles(), members, "{group:?} membership");
+        for member in members {
+            assert_eq!(member.profile_group(), group, "{member:?} group");
+        }
+        assert_eq!(
+            (
+                group.supports_tcp(),
+                group.supports_udp(),
+                group.supports_serial(),
+                group.uses_sony_encapsulation()
+            ),
+            (tcp, udp, serial, sony),
+            "{group:?} transport facts"
+        );
+        assert_eq!(
+            group.inquiry_support(),
+            inquiry,
+            "{group:?} inquiry support"
         );
     }
+
+    let vendors: Vec<_> = ProfileId::all()
+        .iter()
+        .map(|profile| profile.vendor())
+        .collect();
+    assert_eq!(
+        vendors,
+        [
+            "PtzOptics",
+            "PtzOptics",
+            "PtzOptics",
+            "Sony",
+            "Sony",
+            "Sony",
+            "Sony",
+            "Nearus",
+            "Generic"
+        ]
+    );
 }
 
 #[test]

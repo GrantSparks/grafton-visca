@@ -135,33 +135,16 @@ pub enum ErrorKind {
 ///
 /// Errors are categorized into two main types:
 ///
-/// ## Retryable Errors
-/// These errors indicate temporary conditions that may succeed on retry:
-/// - `CommandPending` - Command acknowledged but not yet complete
-/// - `CommandBufferFull` - Camera's command buffer is full (always retry)
-/// - `NoSocket` - The addressed command socket is no longer available
-/// - `RuntimeQueueFull` - The local admission queue is full
-/// - `ControlReserveExhausted` - A camera's stop reserve and the ordinary queue are both full
-/// - `TransportError` - One transport operation failed while the session remains live
-/// - `Timeout` - A deadline expired; [`Error::failure_context`] says which
-///   one and whether resubmitting is safe
-///
-/// Use [`Error::is_retryable()`] to check if an error can be retried, and
-/// [`Error::suggested_retry_delay()`] to get the recommended delay before retrying.
-///
-/// ## Non-Retryable Errors
-/// These errors indicate permanent failures or invalid operations:
-/// - `SyntaxError` - Invalid VISCA command format
-/// - `CommandNotExecutable` - Command invalid in current state
-/// - `InvalidParameter` - Parameter value is invalid
-/// - `FeatureNotSupported` - Camera model doesn't support this feature
-/// - `InvalidPreset` - Requested preset is outside the profile's supported range
-/// - `InquiryCorrelationLost` - A camera's raw stream inquiries cannot be
-///   correlated on this session; reopen it to recover
-/// - `CommandCorrelationLost` - A camera's ordinary raw stream commands cannot
-///   be correlated on this session until an owed answer arrives
-/// - `CommandFailedAfterAck` - The camera failed a command it had accepted;
-///   it may have partly executed
+/// ## Retryable and Non-Retryable Errors
+/// Every variant has one [`ErrorKind`] ([`Error::kind()`]). Retryability is a
+/// function of that kind: [`ErrorKind::Timeout`], [`ErrorKind::BufferFull`],
+/// [`ErrorKind::Busy`] and [`ErrorKind::Transport`] describe temporary
+/// conditions, apart from the few variants whose new attempt would loop or
+/// duplicate a live request (see [`Error::suggested_retry_delay()`]). Use
+/// [`Error::is_retryable()`] to check whether an error can be retried, and
+/// [`Error::suggested_retry_delay()`] for the recommended delay. Whether a
+/// resubmission could duplicate a physical effect is a separate question that
+/// [`Error::failure_context`] answers.
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
@@ -360,16 +343,6 @@ pub enum Error {
         required: usize,
         /// Actual buffer size provided.
         actual: usize,
-    },
-
-    /// Invalid preset number for the camera model.
-    #[error("Invalid preset {preset}: must be <= {max}")]
-    #[non_exhaustive]
-    InvalidPreset {
-        /// The requested preset number.
-        preset: u8,
-        /// Maximum allowed preset for this camera.
-        max: u8,
     },
 
     /// Parameter value is out of the acceptable range.
@@ -673,22 +646,6 @@ pub enum Error {
         reason: Cow<'static, str>,
     },
 
-    /// No decoder found for the specified inquiry kind.
-    ///
-    /// This error indicates that none of the domain-specific decoders
-    /// could handle the given `InquiryKind`. This typically means:
-    /// - A new `InquiryKind` was added but no decoder was implemented
-    /// - The camera returned an unexpected response format
-    /// - A decoder is missing for a specific profile's inquiry needs
-    #[error("No decoder found for {inquiry_kind:?} (payload: {payload_hex})")]
-    #[non_exhaustive]
-    DecoderNotFound {
-        /// The inquiry kind that no decoder could handle.
-        inquiry_kind: crate::command::inquiry_structs::InquiryKind,
-        /// Hex representation of the payload for debugging.
-        payload_hex: Box<str>,
-    },
-
     /// Invalid camera ID provided.
     #[error("Invalid camera ID {id}: must be 1-7 for individual cameras or 8 for broadcast")]
     #[non_exhaustive]
@@ -899,12 +856,6 @@ impl Error {
         }
     }
 
-    /// Reports a preset outside the supported range.
-    #[must_use]
-    pub const fn invalid_preset(preset: u8, max: u8) -> Self {
-        Self::InvalidPreset { preset, max }
-    }
-
     /// Reports a numeric parameter outside its inclusive bounds.
     #[must_use]
     pub const fn parameter_out_of_range(
@@ -991,18 +942,6 @@ impl Error {
     pub fn stream_poisoned(reason: impl Into<Cow<'static, str>>) -> Self {
         Self::StreamPoisoned {
             reason: reason.into(),
-        }
-    }
-
-    /// Reports an inquiry payload with no registered decoder.
-    #[must_use]
-    pub fn decoder_not_found(
-        inquiry_kind: crate::command::inquiry_structs::InquiryKind,
-        payload_hex: impl Into<Box<str>>,
-    ) -> Self {
-        Self::DecoderNotFound {
-            inquiry_kind,
-            payload_hex: payload_hex.into(),
         }
     }
 
@@ -1097,7 +1036,6 @@ impl Error {
             | Self::MessageLengthError
             | Self::InvalidResponse { .. }
             | Self::Unknown(..)
-            | Self::DecoderNotFound { .. }
             | Self::ResponseTooLarge { .. } => ErrorKind::Protocol,
 
             // Unsupported: feature/capability not available
@@ -1107,7 +1045,6 @@ impl Error {
 
             // InvalidParameter: caller-supplied value is invalid
             Self::InvalidParameter { .. }
-            | Self::InvalidPreset { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::SyntaxError
             | Self::InvalidRequest(..)
@@ -1250,7 +1187,6 @@ impl Error {
             | Self::TransportError(..)
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
-            | Self::InvalidPreset { .. }
             | Self::ParameterOutOfRange { .. }
             | Self::Timeout { .. }
             | Self::ObservationTimeout { .. }
@@ -1267,7 +1203,6 @@ impl Error {
             | Self::RuntimeIdentityExhausted
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
-            | Self::DecoderNotFound { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
             | Self::InquiryNotCancelable
@@ -1306,21 +1241,16 @@ impl Error {
 
     /// Check if this error is potentially retryable.
     ///
-    /// Returns `true` for errors that represent temporary conditions
-    /// that may succeed if the operation is retried. This includes:
-    /// - Camera capacity states (`CommandBufferFull`, `NoSocket`)
-    /// - Queue capacity (`RuntimeQueueFull`, `ControlReserveExhausted`)
-    /// - Pending operations (`CommandPending`)
-    /// - Isolated live-session transport failures (`TransportError`)
-    /// - Deadline expiry (`Timeout` and timed-out I/O)
+    /// Exactly the errors with a [`Self::suggested_retry_delay()`] are
+    /// retryable: the temporary [`ErrorKind`]s (`Timeout`, `BufferFull`,
+    /// `Busy`, `Transport`), except an error whose new attempt would loop or
+    /// duplicate a live request.
     ///
     /// This classifies the *condition*, not replay safety. Whether submitting
     /// the same request again could duplicate a physical effect is a separate
     /// question that [`Self::failure_context`] answers: only
     /// [`Certainty::NotAccepted`] and [`Certainty::FailedConclusively`] are
-    /// replay-safe. An
-    /// [`Self::ObservationTimeout`] is never retryable, because its request is
-    /// still running.
+    /// replay-safe.
     ///
     /// # Example
     ///
@@ -1334,33 +1264,26 @@ impl Error {
     /// ```
     #[must_use]
     pub fn is_retryable(&self) -> bool {
-        match self {
-            Self::WithContext { source, .. } => source.is_retryable(),
-            // MaxRetriesExceeded maps to Timeout (retryable kind) but must not
-            // itself be retried — doing so would cause infinite retry loops.
-            Self::MaxRetriesExceeded => false,
-            // The request is still running; a new attempt would duplicate it.
-            Self::ObservationTimeout { .. } | Self::SettlementObservationFailed { .. } => false,
-            _ => matches!(
-                self.kind(),
-                ErrorKind::Timeout | ErrorKind::BufferFull | ErrorKind::Busy | ErrorKind::Transport
-            ),
-        }
+        self.suggested_retry_delay().is_some()
     }
 
     /// Get a suggested retry delay for retryable errors.
     ///
-    /// Returns `Some(Duration)` with a recommended delay before retrying
-    /// the operation, or `None` if the error is not retryable.
-    /// Every error for which [`Self::is_retryable()`] returns `true` has a
-    /// suggested delay.
+    /// Returns `Some(Duration)` with a recommended delay before retrying the
+    /// operation, or `None` if the error is not retryable. The delay depends
+    /// only on [`Self::kind()`]:
     ///
-    /// The suggested delays are based on typical camera response times:
-    /// - `CommandPending`: 50ms (command acknowledged, waiting for completion)
-    /// - `CommandBufferFull`: 200ms (wait for buffer space)
-    /// - `NoSocket`: 200ms (wait for camera socket state to advance)
-    /// - `TransportError`: 50ms (retry one isolated live-session operation)
-    /// - `Timeout`: 2s (general timeout, allow more time)
+    /// - [`ErrorKind::Busy`] and [`ErrorKind::Transport`]: 50 ms, for camera
+    ///   contention or one failed transport operation on a live session.
+    /// - [`ErrorKind::BufferFull`]: 200 ms, for camera or local capacity to
+    ///   free up.
+    /// - [`ErrorKind::Timeout`]: 2 s, to allow more time.
+    ///
+    /// Three errors of a retryable kind have no delay, because a new attempt
+    /// would loop or duplicate a live request: [`Self::MaxRetriesExceeded`]
+    /// (the retry budget is already spent), [`Self::ObservationTimeout`] and
+    /// [`Self::SettlementObservationFailed`] (the request is still running or
+    /// already applied). [`Self::WithContext`] reports its source's delay.
     ///
     /// # Example
     ///
@@ -1377,26 +1300,33 @@ impl Error {
     /// ```
     #[must_use]
     pub fn suggested_retry_delay(&self) -> Option<Duration> {
+        /// Delay for camera contention or one failed live-session transport operation.
+        const CONTENTION_RETRY_DELAY: Duration = Duration::from_millis(50);
+        /// Delay for camera or local capacity to free up.
+        const CAPACITY_RETRY_DELAY: Duration = Duration::from_millis(200);
+        /// Delay after an expired deadline.
+        const TIMEOUT_RETRY_DELAY: Duration = Duration::from_secs(2);
+
         match self {
-            Self::CommandPending => Some(Duration::from_millis(50)),
-            Self::TransportError(..) => Some(Duration::from_millis(50)),
-            Self::CommandBufferFull
-            | Self::RuntimeQueueFull { .. }
-            | Self::ControlReserveExhausted { .. }
-            | Self::NoSocket => Some(Duration::from_millis(200)),
-            Self::Timeout { .. } => Some(Duration::from_secs(2)),
-            Self::ObservationTimeout { .. }
-            | Self::SettlementObservationFailed { .. }
-            | Self::MaxRetriesExceeded => None,
             Self::WithContext { source, .. } => source.suggested_retry_delay(),
-            // Keep the fallback aligned with `is_retryable()`'s `ErrorKind`
-            // classification. This includes I/O timeout spellings and gives
-            // newly classified retryable errors a safe default delay.
+            // A retryable kind, but a new attempt would loop or duplicate a
+            // live request.
+            Self::MaxRetriesExceeded
+            | Self::ObservationTimeout { .. }
+            | Self::SettlementObservationFailed { .. } => None,
             _ => match self.kind() {
-                ErrorKind::Timeout => Some(Duration::from_secs(2)),
-                ErrorKind::BufferFull => Some(Duration::from_millis(200)),
-                ErrorKind::Busy | ErrorKind::Transport => Some(Duration::from_millis(50)),
-                _ => None,
+                ErrorKind::Busy | ErrorKind::Transport => Some(CONTENTION_RETRY_DELAY),
+                ErrorKind::BufferFull => Some(CAPACITY_RETRY_DELAY),
+                ErrorKind::Timeout => Some(TIMEOUT_RETRY_DELAY),
+                ErrorKind::Cancelled
+                | ErrorKind::NotExecutable
+                | ErrorKind::IoClosed
+                | ErrorKind::IoRefused
+                | ErrorKind::Unconfirmed
+                | ErrorKind::Protocol
+                | ErrorKind::Unsupported
+                | ErrorKind::InvalidParameter
+                | ErrorKind::Other => None,
             },
         }
     }
@@ -1801,7 +1731,6 @@ mod tests {
             reason: Cow::Borrowed("test reason"),
         }
         .is_retryable());
-        assert!(!Error::InvalidPreset { preset: 9, max: 8 }.is_retryable());
     }
 
     #[test]
@@ -1883,6 +1812,67 @@ mod tests {
                 Error::NoSocket,
                 ErrorKind::BufferFull,
                 Some(Duration::from_millis(200)),
+            ),
+            (
+                "urgent control reserve exhausted",
+                Error::control_reserve_exhausted(crate::CameraId::CAMERA_2, 3),
+                ErrorKind::BufferFull,
+                Some(Duration::from_millis(200)),
+            ),
+            (
+                "caller wait expired on a live request",
+                Error::observation_timeout(OperationId::from_raw(7)),
+                ErrorKind::Timeout,
+                None,
+            ),
+            (
+                "settlement polling failed after an applied movement",
+                Error::settlement_observation_failed(OperationId::from_raw(8), Error::io_timeout()),
+                ErrorKind::Timeout,
+                None,
+            ),
+            (
+                "contextual settlement polling failure",
+                Error::settlement_observation_failed(
+                    OperationId::from_raw(9),
+                    Error::CommandBufferFull,
+                )
+                .with_context("wait for settled"),
+                ErrorKind::BufferFull,
+                None,
+            ),
+            (
+                "motion superseded by an owner halt",
+                Error::motion_superseded(
+                    crate::AffectedAxes::PAN_TILT,
+                    FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted),
+                ),
+                ErrorKind::Cancelled,
+                None,
+            ),
+            (
+                "settlement superseded by an owner halt",
+                Error::settlement_superseded(OperationId::from_raw(10), crate::AffectedAxes::ZOOM),
+                ErrorKind::Cancelled,
+                None,
+            ),
+            (
+                "camera failed an acknowledged command",
+                Error::command_failed_after_ack(Error::CommandNotExecutable),
+                ErrorKind::Unconfirmed,
+                None,
+            ),
+            (
+                "raw stream inquiries cannot be correlated",
+                Error::inquiry_correlation_lost(crate::CameraId::CAMERA_2),
+                ErrorKind::NotExecutable,
+                None,
+            ),
+            (
+                "raw stream commands cannot be correlated",
+                Error::command_correlation_lost(crate::CameraId::CAMERA_2),
+                ErrorKind::NotExecutable,
+                None,
             ),
             (
                 "I/O timed out",
@@ -1978,12 +1968,6 @@ mod tests {
                 None,
             ),
             (
-                "invalid preset",
-                Error::InvalidPreset { preset: 9, max: 8 },
-                ErrorKind::InvalidParameter,
-                None,
-            ),
-            (
                 "unsupported feature",
                 Error::FeatureNotSupported { feature: "test" },
                 ErrorKind::Unsupported,
@@ -2071,10 +2055,6 @@ mod tests {
         assert_eq!(Error::MissingRuntime.kind(), ErrorKind::Unsupported);
 
         // InvalidParameter
-        assert_eq!(
-            Error::InvalidPreset { preset: 9, max: 8 }.kind(),
-            ErrorKind::InvalidParameter
-        );
         assert_eq!(
             Error::InvalidRequest(Cow::Borrowed("test")).kind(),
             ErrorKind::InvalidParameter

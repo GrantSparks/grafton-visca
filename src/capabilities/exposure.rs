@@ -1,9 +1,7 @@
 //! Exposure capability trait and associated types.
 
-use std::borrow::Cow;
-
 use crate::{
-    capabilities::{CapabilityRange, ValidationError},
+    capabilities::{CapabilityDomain, CapabilityRange, SupportedRange, ValidationError},
     command::exposure::ExposureMode,
     units::Fraction,
 };
@@ -27,8 +25,9 @@ pub trait Exposure {
     /// Supported exposure modes for this camera profile.
     const EXPOSURE_MODES: &'static [ExposureMode] = STANDARD_EXPOSURE_MODES;
 
-    /// Valid range for iris values in VISCA units, if iris control is supported.
-    const IRIS_RANGE: Option<CapabilityRange<u16>>;
+    /// Iris positions in VISCA units, if iris control is supported: the
+    /// bounds of the profile's iris table minus any position it does not list.
+    const IRIS_RANGE: Option<CapabilityDomain<u16>>;
 
     /// Supported shutter speeds as VISCA values.
     /// Each camera model has specific supported speeds.
@@ -37,21 +36,19 @@ pub trait Exposure {
     /// Valid range for gain values.
     const GAIN_RANGE: CapabilityRange<u8>;
 
-    /// Valid range for VISCA exposure bright/bright-direct values, if supported.
+    /// VISCA exposure bright positions, if supported: the bounds of the
+    /// profile's Bright table minus any position it does not list.
     ///
     /// This is the exposure bright control (`0x04 0x0D` / `0x04 0x4D`), not
     /// image luminance (`0x04 0xA1`).
-    const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = None;
+    const BRIGHTNESS_RANGE: Option<CapabilityDomain<u8>> = None;
 
     /// Whether camera supports backlight compensation.
     const SUPPORTS_BACKLIGHT_COMP: bool;
 
-    /// Whether camera supports exposure compensation.
-    const SUPPORTS_EXPOSURE_COMP: bool = false;
-
-    /// Range for exposure compensation if supported.
-    /// Typically -7 to +7 in steps.
-    const EXPOSURE_COMP_RANGE: CapabilityRange<i8> = CapabilityRange::<i8>::new(-7, 7);
+    /// Exposure-compensation levels, or `None` when exposure compensation is
+    /// not supported. Typically -7 to +7.
+    const EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>> = None;
 
     /// Whether camera supports wide dynamic range.
     const SUPPORTS_WDR: bool = false;
@@ -71,52 +68,17 @@ pub trait ExposureExt: Exposure {
 
     /// Validate iris value is within range.
     fn validate_iris(&self, iris: u16) -> Result<u16, ValidationError> {
-        let range = Self::IRIS_RANGE
-            .as_ref()
-            .ok_or(ValidationError::NotSupported("Iris control"))?;
-
-        if range.contains(iris) {
-            Ok(iris)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "iris",
-                value: iris as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            })
-        }
+        Self::IRIS_RANGE.validate_supported("iris", iris)
     }
 
     /// Validate gain value is within range.
     fn validate_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        if Self::GAIN_RANGE.contains(gain) {
-            Ok(gain)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "gain",
-                value: gain as f64,
-                min: Self::GAIN_RANGE.min() as f64,
-                max: Self::GAIN_RANGE.max() as f64,
-            })
-        }
+        Self::GAIN_RANGE.validate("gain", gain)
     }
 
     /// Validate exposure brightness value is within range.
-    fn validate_brightness(&self, brightness: u16) -> Result<u16, ValidationError> {
-        let range = Self::BRIGHTNESS_RANGE
-            .as_ref()
-            .ok_or(ValidationError::NotSupported("exposure brightness"))?;
-
-        if range.contains(brightness) {
-            Ok(brightness)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "exposure brightness",
-                value: brightness as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            })
-        }
+    fn validate_brightness(&self, brightness: u8) -> Result<u8, ValidationError> {
+        Self::BRIGHTNESS_RANGE.validate_supported("exposure brightness", brightness)
     }
 
     /// Validate shutter speed is supported.
@@ -124,10 +86,10 @@ pub trait ExposureExt: Exposure {
         if Self::SHUTTER_SPEEDS.iter().any(|s| s.value == value) {
             Ok(value)
         } else {
-            Err(ValidationError::InvalidValue {
-                parameter: "shutter speed",
-                message: Cow::Owned(format!("Unsupported shutter speed value: {value}")),
-            })
+            Err(ValidationError::invalid_value(
+                "shutter speed",
+                format!("Unsupported shutter speed value: {value}"),
+            ))
         }
     }
 
@@ -137,16 +99,7 @@ pub trait ExposureExt: Exposure {
     /// The compile-time check is enforced by requiring HasExposureCompensation marker trait
     /// on the methods that use exposure compensation.
     fn validate_exposure_comp(&self, value: i8) -> Result<i8, ValidationError> {
-        if Self::EXPOSURE_COMP_RANGE.contains(value) {
-            Ok(value)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "exposure compensation",
-                value: value as f64,
-                min: Self::EXPOSURE_COMP_RANGE.min() as f64,
-                max: Self::EXPOSURE_COMP_RANGE.max() as f64,
-            })
-        }
+        Self::EXPOSURE_COMP_RANGE.validate_supported("exposure compensation", value)
     }
 }
 
@@ -207,24 +160,28 @@ mod tests {
     struct TestCamera;
 
     impl Exposure for TestCamera {
-        const IRIS_RANGE: Option<CapabilityRange<u16>> =
-            Some(CapabilityRange::<u16>::new(0x00, 0x1C));
+        const IRIS_RANGE: Option<CapabilityDomain<u16>> = Some(CapabilityDomain::<u16>::with_gaps(
+            0x00,
+            0x1C,
+            &[0x01, 0x02],
+        ));
         const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
-        const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> =
-            Some(CapabilityRange::<u16>::new(0, 17));
+        const BRIGHTNESS_RANGE: Option<CapabilityDomain<u8>> =
+            Some(CapabilityDomain::<u8>::new(0, 17));
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
-        const SUPPORTS_EXPOSURE_COMP: bool = true;
+        const EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>> =
+            Some(CapabilityRange::<i8>::new(-7, 7));
     }
 
     struct NoIrisCamera;
 
     impl Exposure for NoIrisCamera {
         const EXPOSURE_MODES: &'static [ExposureMode] = &[ExposureMode::Auto, ExposureMode::Manual];
-        const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
+        const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
         const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
-        const BRIGHTNESS_RANGE: Option<CapabilityRange<u16>> = None;
+        const BRIGHTNESS_RANGE: Option<CapabilityDomain<u8>> = None;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
     }
 
@@ -233,8 +190,14 @@ mod tests {
         let camera = TestCamera;
 
         assert!(camera.validate_iris(0x00).is_ok());
+        assert!(camera.validate_iris(0x03).is_ok());
         assert!(camera.validate_iris(0x1C).is_ok());
         assert!(camera.validate_iris(0x1D).is_err());
+        // A gap in the iris table is refused even though it is inside the bounds.
+        assert!(matches!(
+            camera.validate_iris(0x01),
+            Err(ValidationError::InvalidValue { .. })
+        ));
     }
 
     #[test]
@@ -243,7 +206,7 @@ mod tests {
 
         assert_eq!(
             camera.validate_iris(0x00),
-            Err(ValidationError::NotSupported("Iris control"))
+            Err(ValidationError::NotSupported("iris"))
         );
     }
 

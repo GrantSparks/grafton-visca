@@ -89,6 +89,8 @@ pub use validation::ValidationError;
 // Structured capabilities response
 mod discovery;
 pub use discovery::Capabilities;
+#[cfg(test)]
+pub(crate) use discovery::SurfaceMetadata;
 
 /// Super-trait that encompasses all camera capabilities.
 ///
@@ -103,7 +105,7 @@ pub use discovery::Capabilities;
 ///     let model = P::MODEL_NAME;
 ///     let zoom_range = P::ZOOM_SPEED_RANGE;
 ///     let inquiry = P::INQUIRY_SUPPORT;
-///     let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
+///     let has_motion_sync = P::MOTION_SYNC_SPEED_RANGE.is_some();
 /// }
 /// ```
 pub trait Profile:

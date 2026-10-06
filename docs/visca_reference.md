@@ -345,7 +345,7 @@ PTZOptics specs list 16× digital zoom, but the checked PTZOptics Gen‑2 comman
 | Near standard | `81 01 04 08 03 FF` |
 | Far variable | `81 01 04 08 2p FF`, `p = 0–7` |
 | Near variable | `81 01 04 08 3p FF`, `p = 0–7` |
-| Direct focus | `81 01 04 48 0p 0q 0r 0s FF` |
+| Direct focus | `81 01 04 48 0p 0q 0r 0s FF`; no PTZOptics source gives numeric bounds for `pqrs` (the `0x1000–0xF000` range in §8 is Axis-only), so the library admits the full 16-bit wire domain. |
 | Auto focus | `81 01 04 38 02 FF` |
 | Manual focus | `81 01 04 38 03 FF` |
 | Auto/manual toggle | `81 01 04 38 10 FF` |
@@ -543,8 +543,10 @@ Replies are shown for single-camera IP use (`90 ...`) where the source table
 used `y0 ...` placeholders. The R14 noise-reduction rows are current G2/G3
 evidence; R1 is an archived legacy inquiry reference whose distinct 3D output
 range is called out below. Separately, R10/R14 independently document the G3
-AE/iris rows identified below. Entries without their own G3 source row remain
-out of G3 scope.
+AE/iris rows identified below. R14 is a G3 source exactly for the rows it lists
+itself; entries without their own G3 source row remain out of G3 scope. R14's
+Queries page (checked 2026-10-05) lists no `09 04 AA` AF-zone or UAC row, so
+those inquiries are G2/30X only.
 
 | Inquiry | Packet | Reply / values |
 |---|---|---|
@@ -594,10 +596,9 @@ command list instead documents a vendor-relative `7E 04 4B` Iris Up/Down family
 and `05 34` Auto Iris inquiry; it does not establish the shared `04 39`
 AE-mode command/inquiry family, standard Iris Direct command, or `09 04 4B`
 position inquiry. A generic VISCA opcode or encoder range alone does not
-establish those typed or targeted-inquiry guarantees for FR7. BRC-H900 and
-BRC-300 use their own R11/R12 rows; Nearus follows the BRC-300 compatibility
-contract, Generic VISCA explicitly assumes the Sony-standard set, and EVI-H100
-retains its 1.2 compatibility breadth pending the direct R8 row audit.
+establish those typed or targeted-inquiry guarantees for FR7. BRC-H900,
+EVI-H100, BRC-300 and Nearus BRC-300 use their own R11, R8, R12 and R21 rows;
+Generic VISCA grants only the families that R8, R12 and R21 all document.
 
 ### 7.11 PTZOptics block inquiries
 
@@ -633,6 +634,7 @@ cameras (PT30X-NDI G2, PT20X-NDI G2 and PT12X-NDI G2; firmware ARM
 | AF zone set `03` | `81 01 04 AA 03 FF` → `90 42`, `90 52`; a following inquiry reads `03` | `FocusZoneCommand::new(FocusZone::Zone03)` encodes it. |
 | AF zone set `01` | `81 01 04 AA 01 FF` → ACK and completion; a following inquiry reads `01` | `03` behaves as a peer of the documented values. |
 | Version inquiry | `81 09 00 02 FF` → `90 50 00 52 FF` (2-byte payload `00 52`) on all five cameras | Not decoded. The PTZOptics profiles do not implement `HasVersionInquiry`; use `raw::Inquiry` for the bytes. |
+| Socket cancel (2026-10-05) | With a slow absolute pan/tilt move executing on socket y (ACK `90 4y`), `81 2y FF` → `90 60 02 FF` (syntax error); the move continued to its target and completed (`90 5y`). Observed on PT30X-NDI G2 (ARM 6.3.51THI) and PT12X-NDI G2 (ARM 6.4.18SHI). | The G2 family does not implement socket cancel: `PtzOpticsG2` and `PtzOptics30X` report `supports_command_cancel = false`. G3 was not tested and no source documents the command, so `PtzOpticsG3` keeps it off as well. |
 
 **AF zone `03`.** No source names value `03`. The R14 portal's Focus page (R20)
 (`CAM_AFZone`, "AF Zone weight select") lists only Top `00`, Center `01` and
@@ -810,7 +812,7 @@ The fixed typed serializers are model-specific and use this narrow matrix:
 | Sony BRC-H900 | R11 | Spotlight `04 3A` | Automatic slow shutter `04 5A` |
 | Sony EVI-H100 | R8 | Automatic slow shutter `04 5A` | Spotlight `04 3A` |
 | Sony BRC-300 | R12 | Automatic slow shutter `04 5A` | Spotlight `04 3A` |
-| Nearus BRC-300 | No independent model source | None | Both families |
+| Nearus BRC-300 | R21 | Automatic slow shutter `04 5A` | Spotlight `04 3A` |
 
 For PTZOptics Gen-2, the checked sources do not establish the same
 automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
@@ -1119,10 +1121,9 @@ validated here.
 **Narrow shared exposure/iris exceptions:** R11 lines 706–717, 1003, and 1012
 establish BRC-H900 `04 39` exposure modes, standard iris controls, and matching
 inquiries. R12 lines 440–454 and 609–617 establish the same families for
-BRC-300; the Nearus compatibility profile follows that standard subset.
-Generic VISCA deliberately assumes this Sony-standard subset. EVI-H100 retains
-the same 1.2 compatibility breadth under #716 while a direct R8 line-item audit
-remains outstanding. These narrow grants do not validate unrelated model
+BRC-300, R21 for Nearus BRC-300, and R8's command list (2/4) and inquiry list
+(1/3) for EVI-H100. Generic VISCA grants only the families that R8, R12 and R21
+all document identically. These narrow grants do not validate unrelated model
 features or the distinct `09 04 2B` iris-status inquiry.
 
 **Narrow BRC-300 backlight exception:** R12's exact `CAM_BackLight` control
@@ -1136,9 +1137,11 @@ for the other image-processing rows.
 **Narrow BRC-300 coordinate exception:** R12's pan/tilt value table maps
 positive signed raw pan to left (`08A58`) and positive signed raw tilt to up
 (`493D`); the negative endpoints (`F75A8` and `E796`) are right and down. The
-library's BRC-300 profile therefore uses a negative signed degree-to-unit scale
-for both axes while retaining the documented signed wire fields. This
-profile-specific polarity must not be generalized to other VISCA profiles.
+library's degree convention is positive pan right and positive tilt up, so the
+BRC-300 profile uses a negative signed degree-to-unit scale for pan and a
+positive one for tilt while retaining the documented signed wire fields. The
+reversed pan axis is profile-specific and must not be generalized to other
+VISCA profiles.
 
 R12 also settles the position-frame layout independently of the common table
 in §7.6. Absolute position is
@@ -1270,7 +1273,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R4 | PTZOptics Firmware Changelog | https://ptzoptics.com/firmware-changelog/ | Sony VISCA-over-IP firmware support, SRT, image freeze, OnePush AF, Motion Sync, Snap Focus. |
 | R5 | PTZOptics SuperJoy G1 User Manual | https://ptzoptics.com/wp-content/uploads/2021/03/PT-SUPERJOY-G1-User-Manual.pdf | Port separation: PTZOptics UDP `1259`, TCP `5678`, Sony VISCA UDP `52381`. |
 | R10 | PTZOptics Move 4K G3 User Manual (manufacturer manual, reseller-hosted copy) | https://www.rcblogic.co.uk/images/product/PDFDocs/Product-Documentation-PT-4K-xx-G3-User-Manual.pdf | G3-specific `04 39` AE, `04 0B`/`04 4B` iris, and `09 04 39`/`09 04 4B` query rows; plus anti-flicker, settings-save, preset-recall-speed, multicast-streaming, and NDI-quality command families retained by `PtzOpticsG3`. It does not list `09 04 2B`. |
-| R14 | PTZOptics Developer Portal, API v1.0 (portal dated 2026-08-31) | https://docs.ptzoptics.com/articles/miscellaneous/misc-cameras/pt-limits-packet-sender/; https://docs.ptzoptics.com/dev/visca-api/exposure/; https://docs.ptzoptics.com/dev/visca-api/queries/ | Official current command portal described by PTZOptics as the full VISCA list for G2 and G3. Used for G2/G3 AE, iris, query, image, and NR rows; it documents `04 39`, `04 0B`/`04 4B`, and `09 04 39`/`09 04 4B`, but not `09 04 2B`. Its Exposure page documents NR command inputs `04 50` Auto/Manual, `04 53` off/`1–5`, and `04 54` off/`1–8`; its Queries page separately documents current `09 04 50` and `09 04 53`/`54` results of `0–5`. |
+| R14 | PTZOptics Developer Portal, API v1.0 (portal dated 2026-08-31) | https://docs.ptzoptics.com/articles/miscellaneous/misc-cameras/pt-limits-packet-sender/; https://docs.ptzoptics.com/dev/visca-api/exposure/; https://docs.ptzoptics.com/dev/visca-api/queries/ | Official current command portal described by PTZOptics as the full VISCA list for G2 and G3. Used for G2/G3 AE, iris, query, image, and NR rows; it documents `04 39`, `04 0B`/`04 4B`, and `09 04 39`/`09 04 4B`, but not `09 04 2B`. Its Exposure page documents NR command inputs `04 50` Auto/Manual, `04 53` off/`1–5`, and `04 54` off/`1–8`; its Queries page separately documents current `09 04 50` and `09 04 53`/`54` results of `0–5`, and lists no `09 04 AA` AF-zone or UAC inquiry (checked 2026-10-05). It is G3 evidence only for rows it lists itself. |
 | R15 | PTZOptics G2/Legacy camera index | https://docs.ptzoptics.com/docs/cameras/g2-legacy/ | Official legacy-scope index. It explicitly lists the 12X, 20X, and 30X SDI/NDI G2 models used to constrain the legacy `PtzOptics30X` profile; it does not generalize support to newer 30X, Move, or Link models. |
 | R20 | PTZOptics Developer Portal, Focus page (API v1.0) | https://docs.ptzoptics.com/dev/visca-api/focus/ | `CAM_AFZone` "AF Zone weight select": Top `81 01 04 AA 00 FF`, Center `01`, Bottom `02`. No other zone value. Checked 2026-10-04. The portal's Queries page (https://docs.ptzoptics.com/dev/visca-api/queries/) has no `CAM_VersionInq` row. |
 
@@ -1284,11 +1287,11 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 
 | Ref | Source | Link | Used for |
 |---|---|---|---|
-| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, shared `04 58` autofocus sensitivity, shared `04 50`/`04 53`/`04 54` noise reduction, or a `09 04 4B` position inquiry. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `051E` (ILME-FR7/FR7K), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Version 2.00 edition (https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf) because both editions refused direct download (HTTP 403). |
-| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, fixed `04 5A` automatic slow-shutter commands, and the 240 ms post-preset caveat. It remains the model authority for the EVI-H100 shared exposure/iris breadth restored by #716; the direct line-item audit is still pending because the linked technical-manual download was unavailable during that review. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050E` (EVI-H100V) / `050F` (EVI-H100S), ROM revision, maximum socket `02`; read on 2026-10-05 from a distributor copy of the same manual (A-E4U-100-11(1)), https://www.daitron.com/documents/evih100s_manual.pdf. |
+| R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, shared `04 58` autofocus sensitivity, shared `04 50`/`04 53`/`04 54` noise reduction, or a `09 04 4B` position inquiry. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `051E` (ILME-FR7/FR7K), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Version 2.00 edition (https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf) because both editions refused direct download (HTTP 403). Its shutter table has not been read (downloads refused), so `SonyFR7` advertises no shutter codes. |
+| R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, and fixed `04 5A` automatic slow-shutter commands. Line items checked on 2026-10-05 against a distributor copy of the same manual (A-E4U-100-11(1)), https://www.daitron.com/documents/evih100s_manual.pdf: command list (2/4) `CAM_AE` Full Auto/Manual/Shutter Priority/Iris Priority/Bright `8x 01 04 39 00/03/0A/0B/0D FF`, `CAM_Iris` reset/up/down `8x 01 04 0B 00/02/03 FF` and direct `8x 01 04 4B 00 00 0p 0q FF`; inquiry list (1/3) `CAM_AEModeInq` `8x 09 04 39 FF`, `CAM_IrisPosInq` `8x 09 04 4B FF`, `CAM_FocusNearLimitInq` `8x 09 04 28 FF`; iris table (p. 44) `00` CLOSE and `05`..`11` (F14..F1.6); focus position `1000` (far) to `F000` (near); `CAM_WB` Auto/Indoor/Outdoor/One Push/Manual with the `04 10 05` trigger and no color-temperature mode or `04 20` command; `CAM_RGain`/`CAM_BGain` `04 03`/`04 04` and direct `04 43`/`04 44` R/B gain `00..FF` with `09 04 43`/`44` inquiries (absolute gain, not signed tuning); `CAM_ExpComp` `04 3E`/`04 0E`/`04 4E` with `09 04 3E`/`4E` (`00`..`0E` = −7..+7); `CAM_Bright` `04 0D`/`04 4D` with `09 04 4D` (`00`, `05`..`1F`); `CAM_WD` `04 3D` (not the `04 25` dynamic-range command); gain `00` (−3 dB) to `0F` (+28 dB); no `04 61`/`04 66` flip/mirror command (image flip is a rear switch); `8x 2p FF` command cancel; command list (4/4) pan `E1E5`..`1E1B` (−170..+170°), tilt `FC75`..`0FF0` (−20..+90°, IMAGE FLIP off), pan speed `01`..`18`, tilt speed `01`..`17`; `CAM_Memory` p = 0..5; command list note 4: after a `CAM_Memory` recall completion, a following command may be answered `Command not executable` for at most 240 ms and should be sent again. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050E` (EVI-H100V) / `050F` (EVI-H100S), ROM revision, maximum socket `02`. Also: VISCA over RS-232C/RS-422 only (9,600 or 38,400 bps; no IP transport); shutter table (exposure control 1/2, 60/30 mode) `00` 1/1 s through `15` 1/10000 s (`05` 1/30, `0F` 1/1000); `CAM_Focus` One Push Trigger `04 18 01`; `CAM_DZoom` `04 06 02/03` with `09 04 06`; digital zoom positions `4000`..`7AC0`; AF sensitivity Normal `04 58 02` and Low `03` only; command list (3/4) `CAM_NR` `8x 01 04 53 0p FF` (0 off, 1–5) with `CAM_NRInq` `09 04 53` → `y0 50 0p FF`, `CAM_ColorGain` `04 49 00 00 00 0p` and `CAM_ColorHue` `04 4F 00 00 00 0p` (`0h`..`Eh`) with `09 04 49`/`4F` inquiries, `CAM_Aperture` reset/up/down `04 02` and direct `04 42 00 00 0p 0q` (level `00`..`0F`) with `09 04 42`, `CAM_PictureEffect` Off/Neg.Art/B&W `04 63 00/02/04` with `CAM_PictureEffectModeInq` replies `00`/`02`/`04`; no `04 50` NR mode, `04 54` 3D NR or `04 05` aperture mode; limit table UpRight pan `0001`..`1E1B`, tilt `0001`..`0FF0` (increasing raw pan is right, increasing raw tilt is up). |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
-| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050B` (BRC-H900), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Command List Version 1.00 (A-E99-100-11) because direct downloads were refused. |
-| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), and the exact paired `CAM_BackLight` rows: control `8x 01 04 33 02/03 FF` (manual p. 11; source text lines 404–405) and inquiry `8x 09 04 33 FF` with `y0 50 02/03 FF` replies (manual p. 14; source text lines 539–540). It also documents fixed `04 5A` automatic-slow-shutter commands and the `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). It does not establish the fixed `04 3A` spotlight or a broad image-processing family. `CAM_VersionInq`: vendor ID `0001` (Sony), model ID `040F` (BRC-300) / `0410` (BRU-300), ROM revision, maximum socket `02`. |
+| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050B` (BRC-H900), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Command List Version 1.00 (A-E99-100-11) because direct downloads were refused. Its shutter table has not been read (downloads refused), so `SonyBRCH900` advertises no shutter codes. |
+| R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), and the exact paired `CAM_BackLight` rows: control `8x 01 04 33 02/03 FF` (manual p. 11; source text lines 404–405) and inquiry `8x 09 04 33 FF` with `y0 50 02/03 FF` replies (manual p. 14; source text lines 539–540). It also documents fixed `04 5A` automatic-slow-shutter commands and the `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). `CAM_WB` lists One Push WB `8x 01 04 35 03 FF` and the One Push trigger `8x 01 04 10 05 FF`, and the iris table lists `00` CLOSE through `11` F1.6; `CAM_ImgFlip` `04 66 02/03` with `09 04 66` (no `04 61` mirror); `CAM_RGain`/`CAM_BGain` `04 43`/`04 44` `00..FF`; `CAM_ExpComp` `04 3E`/`04 4E` (−7..+7); `CAM_Bright` `04 4D` (`00`..`17`); gain `0`..`7` (checked 2026-10-05). It does not establish the fixed `04 3A` spotlight, the `04 28` focus near-limit command or inquiry, or a broad image-processing family. `CAM_VersionInq`: vendor ID `0001` (Sony), model ID `040F` (BRC-300) / `0410` (BRU-300), ROM revision, maximum socket `02`. Also: VISCA over RS-232C/RS-422 only; shutter table `02` 1/4 s through `15` 1/10000 s (BRC-300 column); x12 lens, optical zoom `0000`..`4000` and digital `4000`..`7F00` (x4) via `CAM_Zoom` Direct `04 47`; `CAM_DZoom` on/off `04 06 02/03` with `CAM_DZoomModeInq` `09 04 06`; `CAM_Focus` One Push Trigger `04 18 01`. |
 
 ## C.4 Supplemental explanatory source
 
@@ -1309,7 +1312,7 @@ R21 is the Nearus model source for the Nearus BRC-300 profile.
 | R18 | Minrray UV1201 "HD Color Video Camera User Manual" | https://www.rmaelectronics.com/content/minrray/Minrray%20UV1201%20User%20Manual.pdf | OSD "AF-Zone: Up, middle, down". `CAM_VersionInq` → `y0 50 ab cd mn pq rs tu vw FF`, "vender ID ( 0220 )", "model ID", "ARM Version", "vw: reserve". |
 | R19 | "VISCA Command List" (third-party mirror at ptzprotocols.com) | https://ptzprotocols.com/2%20Misc%20Protocols/Sony/VISCA%20Commands%20List.pdf | `CAM_AFZone` Top/Center/Bottom `8x 01 04 AA 00/01/02 FF` and the matching inquiry only. Secondary; not a manufacturer-hosted copy. |
 | B1 | PTZOptics G2 bench (#795): PT30X/PT20X/PT12X-NDI G2, firmware ARM 6.3.51THI, 6.3.76THI, 6.4.18SHI, 2026-10-04 | §7.13 | AF zone `03` read, set and read-back; `09 00 02` reply `90 50 00 52 FF`. |
-| R21 | Nearus, "Nearus VISCA Protocol via Sony" (BRC-300/300P Command List Version 1.20 text) | https://www.snapav.com/wcsstore/ExtendedSitesCatalogAssetStore/attachments/documents/USBProducts/ManualsAndGuides/Visca%20Protocol2.pdf | `CAM_VersionInq` `8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`: "GGGG = Vender ID (0001: Sony)", "HHHH = Model ID 040F: BRC-300/P 0410: BRU-300/P", "JJJJ = ROM revision", "KK = Maximum socket # (02)"; the command list repeats it as `y0 50 00 01 mn pq rs tu vw FF`, "mnpq: Model Code (04xx)", "vw: Socket Number (02)". Checked 2026-10-05. |
+| R21 | Nearus, "Nearus VISCA Protocol via Sony" (BRC-300/300P Command List Version 1.20 text) | https://www.snapav.com/wcsstore/ExtendedSitesCatalogAssetStore/attachments/documents/USBProducts/ManualsAndGuides/Visca%20Protocol2.pdf | `CAM_VersionInq` `8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`: "GGGG = Vender ID (0001: Sony)", "HHHH = Model ID 040F: BRC-300/P 0410: BRU-300/P", "JJJJ = ROM revision", "KK = Maximum socket # (02)"; the command list repeats it as `y0 50 00 01 mn pq rs tu vw FF`, "mnpq: Model Code (04xx)", "vw: Socket Number (02)". The same text is the BRC-300/300P command list: `CAM_AE` `04 39` modes and `09 04 39`, `CAM_Iris` `04 0B`/`04 4B` and `09 04 4B` (iris `00` CLOSE through `11` F1.6), `CAM_WB` One Push mode and `04 10 05` trigger, `CAM_SlowShutter` `04 5A` and `09 04 5A`, `CAM_BackLight` `04 33`, `CAM_ImgFlip` `04 66` and `09 04 66`, R/B gain `04 43`/`04 44` `00..FF`, `CAM_ExpComp` `04 3E`/`04 4E`, `CAM_Bright` `04 4D`, gain `0`..`7`, `CAM_Memory` p = 0..5, `Cmd_PT_M_Speed` 1..24, direct zoom `04 47`, `8x 2p FF` cancel; it lists no `04 49` saturation, no `04 28` focus near-limit and no `04 3A` spotlight row. Checked 2026-10-05. Also: VISCA over RS-232C/RS-422 only; `Pan-tiltDrive` speeds `01`..`18h`; one-speed absolute/relative frames with a five-nibble pan; limits pan `08A58`/`F75A8`, tilt `493D`/`E796`; shutter table `02` 1/4 s through `15` 1/10000 s (BRC-300 column); x12 lens, optical zoom `0000`..`4000` and digital `4000`..`7F00` (x4) via `CAM_Zoom` Direct `04 47`; `CAM_DZoom` on/off `04 06 02/03` with `CAM_DZoomModeInq` `09 04 06`; `CAM_Focus` One Push Trigger `04 18 01`. |
 
 ## C.5 Uploaded source bundle
 

@@ -107,15 +107,16 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 ///
 /// The budget tests below assert an exact number of writes on both sides of the
 /// limit, which is only meaningful against a limit this file states. The
-/// backoff is compressed at the same time so that the wall-clock retry budget
-/// can never be what ends a scenario about the attempt count.
+/// backoff stays at the profile's shortest bounds while the wall-clock retry
+/// budget is lengthened, so the budget can never be what ends a scenario about
+/// the attempt count.
 fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
     let config =
         session_config().with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
-            Duration::from_millis(1),
-            Duration::from_millis(2),
+            Duration::from_millis(50),
+            Duration::from_millis(500),
             Duration::from_secs(30),
         ));
     let session = Session::open(transport, config).expect("owner session");

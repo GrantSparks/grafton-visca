@@ -8,8 +8,8 @@ use std::{borrow::Cow, convert::TryFrom, fmt, str::FromStr};
 use crate::{
     error::Error,
     types::{
-        BrightnessLevel, ColorTemp, ContrastLevel, FocusPosition, GainLevel, HueLevel, IrisLevel,
-        PanSpeed, SaturationLevel, SharpnessLevel, TiltSpeed, ZoomPosition,
+        ColorTemp, ContrastLevel, FocusPosition, GainLevel, HueLevel, IrisLevel, PanSpeed,
+        SaturationLevel, SharpnessLevel, TiltSpeed, ZoomPosition,
     },
 };
 
@@ -418,7 +418,6 @@ scaled_value_conversions! {
     TiltSpeed: u8 => "tilt speed percentage",
     GainLevel: u8 => "gain percentage",
     SharpnessLevel: u8 => "sharpness percentage",
-    BrightnessLevel: u16 => "brightness percentage",
     ContrastLevel: u8 => "contrast percentage",
     SaturationLevel: u8 => "saturation percentage",
     HueLevel: u8 => "hue percentage",
@@ -503,7 +502,6 @@ mod tests {
         );
         assert!(PanSpeed::try_from(Raw(0x19_u8)).is_err());
         assert!(GainLevel::try_from(Raw(0x10_u8)).is_err());
-        assert!(BrightnessLevel::try_from(Raw(0x12_u16)).is_err());
         assert!(IrisLevel::try_from(Raw(0x1F_u8)).is_err());
     }
 
@@ -543,11 +541,6 @@ mod tests {
                 "sharpness",
                 SharpnessLevel::try_from(percentage).map(|value| u16::from(value.value())),
                 u16::from(SharpnessLevel::MAX.value()),
-            ),
-            (
-                "brightness",
-                BrightnessLevel::try_from(percentage).map(|value| value.value()),
-                BrightnessLevel::MAX.value(),
             ),
             (
                 "contrast",

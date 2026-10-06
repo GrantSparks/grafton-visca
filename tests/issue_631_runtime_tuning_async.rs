@@ -336,7 +336,7 @@ async fn the_installed_tuning_reads_back_and_invalid_updates_are_rejected<E: Exe
     let accepted = OperationalTuning::new()
         .ack_timeout(WIDE_ACK_TIMEOUT)
         .quick_timeout(Duration::from_secs(9))
-        .retry_limit(5);
+        .retry_limit(2);
     session.set_tuning(accepted).await.expect("accepted");
     assert_eq!(
         session.tuning(),
@@ -356,7 +356,8 @@ async fn the_installed_tuning_reads_back_and_invalid_updates_are_rejected<E: Exe
         OperationalTuning::new().quick_timeout(Duration::ZERO),
         OperationalTuning::new().maximum_command_sockets(3),
         OperationalTuning::new().maximum_command_sockets(0),
-        OperationalTuning::new().retry_limit(33),
+        // Tuning may only lower the default base retry count of 3.
+        OperationalTuning::new().retry_limit(4),
         OperationalTuning::new().retry_timing(
             Duration::from_millis(50),
             Duration::from_millis(10),
@@ -434,7 +435,7 @@ async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(e
     let second = OperationalTuning::new()
         .ack_timeout(Duration::from_millis(900))
         .quick_timeout(Duration::from_secs(11))
-        .retry_limit(9);
+        .retry_limit(3);
 
     for _ in 0..16 {
         let left = session.set_tuning(first);

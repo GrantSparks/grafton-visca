@@ -2,12 +2,13 @@ use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeedEntry, CapabilityRange, Exposure, Focus, HasDirectZoom,
-        HasMotionSync, ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata,
-        NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally,
-        TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
+        HasDirectZoom, HasMotionSync, ImageProcessing, InquirySupport, MenuCapability,
+        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
+        ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata,
+        WhiteBalance, Zoom,
     },
-    command::ExposureMode,
+    command::{ExposureMode, FocusZone},
     transport::RawVisca,
     AffectedAxes, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
     TransportCompatibility, WhiteBalanceMode,
@@ -94,13 +95,14 @@ macro_rules! synthetic_profile_impl {
             const FOCUS_FAR_LIMIT: u16 = 0xF000;
             const SUPPORTS_AUTO_FOCUS: bool = true;
             const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
-            const SUPPORTS_FOCUS_ZONE: bool = true;
+            const FOCUS_ZONES: &'static [FocusZone] =
+                &[FocusZone::Top, FocusZone::Center, FocusZone::Bottom];
             const SUPPORTS_AF_SENSITIVITY: bool = true;
         }
 
         impl Exposure for $profile {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
-            const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
+            const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
             const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
             const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
@@ -122,8 +124,9 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Presets for $profile {
-            const MAX_PRESETS: u8 = 6;
-            const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
+            const HIGHEST_PRESET: u8 = 6;
+            const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+                Some(CapabilityRange::<u8>::new(1, 23));
             const SUPPORTS_PRESET_TOUR: bool = false;
         }
 
@@ -249,7 +252,8 @@ impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
 /// The one fixture that documents the physical capability, so the typed
 /// `MotionSync` surface above has something real to gate.
 impl MotionSyncMetadata for MotionSyncTypedSupport {
-    const SUPPORTS_MOTION_SYNC: bool = true;
+    const MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>> =
+        Some(CapabilityRange::<u8>::new(1, 24));
 }
 
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}

@@ -100,10 +100,9 @@ pub mod r#async {
     pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
     pub use crate::Connect;
     // Camera profiles - these are the primary way to configure camera behavior
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
@@ -162,10 +161,9 @@ pub mod blocking {
     pub use crate::blocking::{CameraConfig, Connect};
     pub use crate::camera::{IdleWait, MotionQuery};
     // Camera profiles - these are the primary way to configure camera behavior
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};

@@ -34,7 +34,10 @@ pub(crate) fn request_write_count() -> usize {
 use crate::types::{
     FocusPosition, IrisLevel, PanSpeed, SpeedLevel, TiltSpeed, ZoomPosition, ZoomSpeed,
 };
-use crate::{capabilities::PanTiltWireCodec, command::pan_tilt::PanTiltProfiled};
+use crate::{
+    capabilities::PanTiltWireCodec,
+    command::pan_tilt::{PanTiltFraming, PanTiltProfiled},
+};
 use crate::{units::Degrees, PanTiltCoordinateConversion};
 
 macro_rules! impl_request {
@@ -248,6 +251,32 @@ where
     }
 }
 
+/// Rejects `value` that the profile's source table does not list: a value
+/// outside the bounds through [`require_in_range`], and a gap inside them as
+/// an invalid parameter. [`CapabilityDomain`]'s admission rule decides both.
+///
+/// [`CapabilityDomain`]: crate::capabilities::CapabilityDomain
+fn require_in_domain<T>(
+    parameter: &'static str,
+    value: T,
+    domain: &crate::capabilities::CapabilityDomain<T>,
+) -> Result<(), Error>
+where
+    T: Copy + PartialOrd + Into<i32> + std::fmt::LowerHex + 'static,
+{
+    match domain.admission(value) {
+        crate::capabilities::DomainAdmission::Admitted => Ok(()),
+        crate::capabilities::DomainAdmission::OutOfBounds => {
+            require_in_range(parameter, value, &domain.bounds())
+        }
+        crate::capabilities::DomainAdmission::Gap => Err(Error::InvalidParameter {
+            parameter,
+            value: Cow::Owned(format!("{value:#04x}")),
+            reason: Cow::Borrowed(crate::capabilities::DOMAIN_GAP),
+        }),
+    }
+}
+
 fn validate_pan_tilt(profile: &crate::ProfileSpec) -> Result<(), Error> {
     require(profile.capabilities().has_pan_tilt, "pan/tilt control")
 }
@@ -350,11 +379,11 @@ const fn pan_tilt_position_encoded_size(wire_codec: PanTiltWireCodec) -> usize {
 fn validate_iris_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(
-        capabilities.has_exposure && capabilities.has_iris_control,
+        capabilities.has_exposure && capabilities.iris_range.is_some(),
         "iris control",
     )?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::IrisControl),
+        capabilities.permits_typed(TypedSupportSurface::IrisControl),
         "typed iris control",
     )
 }
@@ -363,7 +392,7 @@ fn validate_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(), Error>
     let capabilities = profile.capabilities();
     require(capabilities.has_nd_filter, "ND filter control")?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::NdFilter),
+        capabilities.permits_typed(TypedSupportSurface::NdFilter),
         "typed ND filter control",
     )
 }
@@ -406,7 +435,7 @@ fn validate_tally_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_tally, "tally control")?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::Tally),
+        capabilities.permits_typed(TypedSupportSurface::Tally),
         "typed tally control",
     )
 }
@@ -426,7 +455,7 @@ fn validate_static_typed_command(
             "static typed-command gate is missing from the noun surface".into(),
         ));
     };
-    require(profile.capabilities().supports_typed(surface), feature)
+    require(profile.capabilities().permits_typed(surface), feature)
 }
 
 /// USB audio is a model capability, not a family-wide PTZOptics assumption.
@@ -438,7 +467,7 @@ fn validate_usb_audio_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_usb_audio, "USB audio control")?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::UsbAudio),
+        capabilities.permits_typed(TypedSupportSurface::UsbAudio),
         "typed USB audio control",
     )
 }
@@ -476,8 +505,7 @@ fn validate_exposure_compensation(
     let capabilities = profile.capabilities();
     require(capabilities.has_exposure, "exposure control")?;
     require(
-        capabilities.has_exposure_comp
-            && capabilities.supports_typed(TypedSupportSurface::ExposureCompensation),
+        capabilities.permits_typed(TypedSupportSurface::ExposureCompensation),
         "exposure compensation",
     )?;
     if let Some(value) = value {
@@ -517,12 +545,11 @@ fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(
     Ok(())
 }
 
-fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u16>) -> Result<(), Error> {
+fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_exposure, "exposure control")?;
     require(
-        capabilities.has_exposure
-            && capabilities.supports_typed(TypedSupportSurface::BrightnessControl),
+        capabilities.permits_typed(TypedSupportSurface::BrightnessControl),
         "brightness control",
     )?;
     if let Some(value) = value {
@@ -533,7 +560,7 @@ fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u16>) -> Resu
                 .ok_or(Error::FeatureNotSupported {
                     feature: "brightness range",
                 })?;
-        require_in_range("brightness level", value, range)?;
+        require_in_domain("brightness level", value, range)?;
     }
     Ok(())
 }
@@ -558,17 +585,15 @@ fn validate_white_balance_mode(
     )?;
     match mode {
         crate::command::WhiteBalanceMode::OnePush => require(
-            capabilities.has_one_push_wb
-                && capabilities.supports_typed(TypedSupportSurface::OnePushWhiteBalance),
+            capabilities.permits_typed(TypedSupportSurface::OnePushWhiteBalance),
             "one-push white balance",
         ),
         crate::command::WhiteBalanceMode::ATW => require(
-            capabilities.supports_typed(TypedSupportSurface::AutoTrackingWhiteBalance),
+            capabilities.permits_typed(TypedSupportSurface::AutoTrackingWhiteBalance),
             "auto-tracking white balance",
         ),
         crate::command::WhiteBalanceMode::ColorTemperature => require(
-            capabilities.has_color_temp
-                && capabilities.supports_typed(TypedSupportSurface::ColorTemperature),
+            capabilities.permits_typed(TypedSupportSurface::ColorTemperature),
             "color-temperature white balance",
         ),
         _ => Ok(()),
@@ -579,7 +604,7 @@ fn validate_awb_sensitivity(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::AutoWhiteBalanceSensitivity),
+        capabilities.permits_typed(TypedSupportSurface::AutoWhiteBalanceSensitivity),
         "auto white-balance sensitivity",
     )
 }
@@ -588,7 +613,7 @@ fn validate_tuning(profile: &crate::ProfileSpec, value: i8, red: bool) -> Result
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::RgbTuning),
+        capabilities.permits_typed(TypedSupportSurface::RgbTuning),
         "RGB tuning",
     )?;
     let range = if red {
@@ -610,8 +635,7 @@ fn validate_color_temperature(
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
     require(
-        capabilities.has_color_temp
-            && capabilities.supports_typed(TypedSupportSurface::ColorTemperature),
+        capabilities.permits_typed(TypedSupportSurface::ColorTemperature),
         "color temperature control",
     )?;
     if let Some(value) = value {
@@ -636,7 +660,7 @@ fn validate_rgb_gain(
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
     require(
-        capabilities.has_rgb_gain && capabilities.supports_typed(TypedSupportSurface::RgbGain),
+        capabilities.permits_typed(TypedSupportSurface::RgbGain),
         "RGB gain control",
     )?;
     if let Some(value) = value {
@@ -660,7 +684,7 @@ fn validate_image_control(
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(capabilities.has_image_processing, "image processing")?;
-    require(capabilities.supports_typed(surface), feature)
+    require(capabilities.permits_typed(surface), feature)
 }
 
 fn validate_image_range(
@@ -683,8 +707,7 @@ fn validate_flip_mode(
     let capabilities = profile.capabilities();
     require(capabilities.has_image_processing, "image processing")?;
     require(
-        capabilities.uses_combined_flip_command
-            && capabilities.supports_typed(TypedSupportSurface::CombinedImageFlip),
+        capabilities.permits_typed(TypedSupportSurface::CombinedImageFlip),
         "combined image flip",
     )?;
     match mode {
@@ -706,50 +729,46 @@ fn validate_separate_flip(profile: &crate::ProfileSpec, horizontal: bool) -> Res
     require(capabilities.has_image_processing, "image processing")?;
     if horizontal {
         require(
-            capabilities.supports_mirror
-                && capabilities.supports_typed(TypedSupportSurface::ImageMirror),
+            capabilities.permits_typed(TypedSupportSurface::ImageMirror),
             "horizontal image mirror",
         )
     } else {
         require(
-            capabilities.supports_flip
-                && capabilities.supports_typed(TypedSupportSurface::ImageFlip),
+            capabilities.permits_typed(TypedSupportSurface::ImageFlip),
             "vertical image flip",
         )
     }
 }
 
-fn validate_motion_sync(profile: &crate::ProfileSpec) -> Result<(), Error> {
+/// The profile's motion-sync speed range, which is also its only motion-sync
+/// fact: `None` means the camera has no motion sync.
+fn motion_sync_speed_range(
+    profile: &crate::ProfileSpec,
+) -> Result<&std::ops::RangeInclusive<u8>, Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_motion_sync, "motion sync")?;
+    let range =
+        capabilities
+            .motion_sync_speed_range
+            .as_ref()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "motion sync",
+            })?;
     require(
-        capabilities.supports_typed(TypedSupportSurface::MotionSync),
+        capabilities.permits_typed(TypedSupportSurface::MotionSync),
         "typed motion sync",
-    )
+    )?;
+    Ok(range)
 }
 
 fn validate_motion_sync_speed(
     profile: &crate::ProfileSpec,
     speed: crate::types::MotionSyncSpeed,
 ) -> Result<(), Error> {
-    validate_motion_sync(profile)?;
-    let maximum =
-        profile
-            .capabilities()
-            .max_motion_sync_speed
-            .ok_or(Error::FeatureNotSupported {
-                feature: "motion sync speed",
-            })?;
-    let speed = speed.value();
-    if speed > maximum {
-        return Err(Error::ParameterOutOfRange {
-            parameter: "motion sync speed",
-            value: i32::from(speed),
-            min: 1,
-            max: maximum as i32,
-        });
-    }
-    Ok(())
+    require_in_range(
+        "motion sync speed",
+        speed.value(),
+        motion_sync_speed_range(profile)?,
+    )
 }
 
 impl BuiltinValidation for crate::command::power::PowerOn {
@@ -773,7 +792,7 @@ impl BuiltinValidation for crate::command::exposure::ExposureCommand {
 impl BuiltinValidation for crate::command::exposure::ExposureCompensation {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let value = match self {
-            Self::SetLevel(level) => Some(level.to_protocol_value() as i8 - 7),
+            Self::SetLevel(level) => Some(level.value()),
             _ => None,
         };
         validate_exposure_compensation(profile, value)
@@ -784,10 +803,9 @@ impl BuiltinValidation for crate::command::exposure::DynamicRange {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         require(profile.capabilities().has_exposure, "exposure control")?;
         require(
-            profile.capabilities().has_wdr
-                && profile
-                    .capabilities()
-                    .supports_typed(TypedSupportSurface::WideDynamicRange),
+            profile
+                .capabilities()
+                .permits_typed(TypedSupportSurface::WideDynamicRange),
             "wide dynamic range",
         )
     }
@@ -850,8 +868,7 @@ impl BuiltinValidation for crate::command::color::OnePushTriggerCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_white_balance, "white balance control")?;
         require(
-            capabilities.has_one_push_wb
-                && capabilities.supports_typed(TypedSupportSurface::OnePushWhiteBalance),
+            capabilities.permits_typed(TypedSupportSurface::OnePushWhiteBalance),
             "one-push white balance",
         )
     }
@@ -1005,8 +1022,8 @@ impl BuiltinValidation for crate::command::image::NoiseReduction2DModeCommand {
         require(capabilities.has_2d_nr, "2D noise reduction")?;
         validate_image_control(
             profile,
-            TypedSupportSurface::NoiseReduction2DControl,
-            "2D noise reduction control",
+            TypedSupportSurface::NoiseReduction2DMode,
+            "2D noise reduction mode",
         )
     }
 }
@@ -1043,12 +1060,10 @@ impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // The combined opcode carries both axes in one parameter byte, so a
         // successful application establishes the complete pair.
-        let (horizontal, vertical) = match self.mode {
-            crate::command::ImageFlipMode::Off => (false, false),
-            crate::command::ImageFlipMode::Horizontal => (true, false),
-            crate::command::ImageFlipMode::Vertical => (false, true),
-            crate::command::ImageFlipMode::Both => (true, true),
-        };
+        let crate::command::FlipState {
+            horizontal,
+            vertical,
+        } = self.mode.into();
         state_projection::<Self>(&[i64::from(horizontal), i64::from(vertical)])
     }
 }
@@ -1068,8 +1083,7 @@ impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
         require(
-            capabilities.has_focus_zone
-                && capabilities.supports_typed(TypedSupportSurface::FocusZone),
+            capabilities.permits_typed(TypedSupportSurface::FocusZone),
             "focus zone",
         )?;
         if capabilities.supports_focus_zone(self.zone) {
@@ -1091,8 +1105,7 @@ impl BuiltinValidation for crate::command::focus::AutoFocusSensitivityCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
         require(
-            capabilities.has_af_sensitivity
-                && capabilities.supports_typed(TypedSupportSurface::AutoFocusSensitivity),
+            capabilities.permits_typed(TypedSupportSurface::AutoFocusSensitivity),
             "auto-focus sensitivity",
         )
     }
@@ -1103,8 +1116,7 @@ impl BuiltinValidation for crate::command::focus::FocusNearLimitCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
         require(
-            capabilities.has_focus_near_limit_inquiry
-                && capabilities.supports_typed(TypedSupportSurface::FocusNearLimitInquiry),
+            capabilities.permits_typed(TypedSupportSurface::FocusNearLimitInquiry),
             "focus near limit",
         )?;
         let value = self.position.value();
@@ -1146,8 +1158,7 @@ impl BuiltinValidation for crate::command::menu::DirectMenuControl {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         require(
-            capabilities.has_direct_menu_control
-                && capabilities.supports_typed(TypedSupportSurface::DirectMenu),
+            capabilities.permits_typed(TypedSupportSurface::DirectMenu),
             "direct menu control",
         )
     }
@@ -1191,7 +1202,7 @@ impl BuiltinValidation for crate::command::tally::TallyGreenOff {
 
 impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncMode {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_motion_sync(profile)
+        motion_sync_speed_range(profile).map(|_| ())
     }
 }
 
@@ -3280,8 +3291,7 @@ impl_profiled_request!(
         value.position.conversion.wire_codec()
     ),
     |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
-        codec: value.position.conversion.wire_codec(),
-        coordinate_system: value.position.conversion.coordinate_system(),
+        framing: PanTiltFraming::for_conversion(value.position.conversion),
         pan: value.position.pan,
         tilt: value.position.tilt,
         pan_speed: value.pan_speed,
@@ -3344,8 +3354,7 @@ impl_profiled_request!(
         value.position.conversion.wire_codec()
     ),
     |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
-        codec: value.position.conversion.wire_codec(),
-        coordinate_system: value.position.conversion.coordinate_system(),
+        framing: PanTiltFraming::for_conversion(value.position.conversion),
         pan: value.position.pan,
         tilt: value.position.tilt,
         pan_speed: value.pan_speed,
@@ -3392,8 +3401,7 @@ impl_profiled_request!(
         value.position.conversion.wire_codec()
     ),
     |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
-        codec: value.position.conversion.wire_codec(),
-        coordinate_system: value.position.conversion.coordinate_system(),
+        framing: PanTiltFraming::for_conversion(value.position.conversion),
         corner: value.corner,
         pan: value.position.pan,
         tilt: value.position.tilt,
@@ -4159,13 +4167,12 @@ impl BuiltinValidation for ZoomTarget {
         let capabilities = profile.capabilities();
         require(capabilities.has_zoom, "zoom control")?;
         require(
-            capabilities.supports_direct_zoom
-                && capabilities.supports_typed(TypedSupportSurface::DirectZoom),
+            capabilities.permits_typed(TypedSupportSurface::DirectZoom),
             "direct zoom positioning",
         )?;
         if matches!(self.1, Some(crate::ZoomDomain::OpticalPlusDigital)) {
             require(
-                capabilities.supports_typed(TypedSupportSurface::DigitalZoomRange),
+                capabilities.permits_typed(TypedSupportSurface::DigitalZoomRange),
                 "optical-plus-digital zoom positioning",
             )?;
         }
@@ -4173,7 +4180,7 @@ impl BuiltinValidation for ZoomTarget {
         // ends, so the accepted positions are one contiguous range.
         let optical = &capabilities.zoom_range_optical;
         let accepted = match capabilities.zoom_range_digital.as_ref() {
-            Some(digital) if capabilities.supports_typed(TypedSupportSurface::DigitalZoomRange) => {
+            Some(digital) if capabilities.permits_typed(TypedSupportSurface::DigitalZoomRange) => {
                 *optical.start()..=*digital.end()
             }
             _ => optical.clone(),
@@ -4239,13 +4246,11 @@ impl BuiltinValidation for FocusTrigger {
         require(capabilities.has_focus, "focus control")?;
         match self {
             Self::OnePush => require(
-                capabilities.has_one_push_focus
-                    && capabilities.supports_typed(TypedSupportSurface::OnePushFocus),
+                capabilities.permits_typed(TypedSupportSurface::OnePushFocus),
                 "one-push focus",
             ),
             Self::Snap => require(
-                capabilities.has_focus
-                    && capabilities.supports_typed(TypedSupportSurface::PtzOpticsSnapFocus),
+                capabilities.permits_typed(TypedSupportSurface::PtzOpticsSnapFocus),
                 "snap focus",
             ),
         }
@@ -4292,7 +4297,7 @@ impl BuiltinValidation for IrisDirect {
                 .ok_or(Error::FeatureNotSupported {
                     feature: "iris range",
                 })?;
-        require_in_range("iris level", u16::from(self.0.value()), range)
+        require_in_domain("iris level", u16::from(self.0.value()), range)
     }
 }
 
@@ -4336,7 +4341,7 @@ impl BuiltinValidation for PushAfPress {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
         require(
-            capabilities.supports_typed(TypedSupportSurface::PushAutoFocus),
+            capabilities.permits_typed(TypedSupportSurface::PushAutoFocus),
             "push autofocus",
         )
     }
@@ -4347,7 +4352,7 @@ impl BuiltinValidation for PushAfRelease {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
         require(
-            capabilities.supports_typed(TypedSupportSurface::PushAutoFocus),
+            capabilities.permits_typed(TypedSupportSurface::PushAutoFocus),
             "push autofocus",
         )
     }
@@ -4359,7 +4364,7 @@ fn validate_preset(profile: &crate::ProfileSpec, preset: PresetNumber) -> Result
     require_in_range(
         "preset number",
         preset.value(),
-        &(0..=capabilities.max_presets),
+        &(0..=capabilities.highest_preset),
     )
 }
 
@@ -4398,11 +4403,13 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
         let capabilities = profile.capabilities();
         require(capabilities.has_presets, "preset control")?;
         let speed = self.speed.value();
-        require_in_range(
-            "preset recall speed",
-            speed,
-            &capabilities.preset_speed_range,
-        )
+        let range = capabilities
+            .preset_speed_range
+            .as_ref()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "preset recall speed range",
+            })?;
+        require_in_range("preset recall speed", speed, range)
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4415,7 +4422,7 @@ impl BuiltinValidation for crate::command::focus::FocusLock {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus lock")?;
         require(
-            capabilities.supports_typed(TypedSupportSurface::FocusLock),
+            capabilities.permits_typed(TypedSupportSurface::FocusLock),
             "typed focus lock",
         )
     }
@@ -4523,9 +4530,9 @@ impl BuiltinValidation for crate::command::zoom::DigitalZoom {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         require(capabilities.has_zoom, "zoom control")?;
-        require(capabilities.has_digital_zoom, "digital zoom")?;
+        require(capabilities.zoom_range_digital.is_some(), "digital zoom")?;
         require(
-            capabilities.supports_typed(TypedSupportSurface::DigitalZoomToggle),
+            capabilities.permits_typed(TypedSupportSurface::DigitalZoomToggle),
             "typed digital zoom toggle",
         )
     }
@@ -4603,7 +4610,7 @@ impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode 
         require(capabilities.has_pan_tilt, "pan/tilt control")?;
         require(capabilities.has_variable_speed, "variable speed mode")?;
         require(
-            capabilities.supports_typed(TypedSupportSurface::VariableSpeed),
+            capabilities.permits_typed(TypedSupportSurface::VariableSpeed),
             "typed variable speed mode",
         )
     }
@@ -4733,12 +4740,12 @@ mod tests {
             (i32::from(*gain.start()), i32::from(*gain.end())),
         );
 
-        let above_presets = capabilities.max_presets + 1;
+        let above_presets = capabilities.highest_preset + 1;
         assert_profile_range_error(
             validate_preset(&g2, PresetNumber::new(above_presets).expect("preset")),
             "preset number",
             i32::from(above_presets),
-            (0, i32::from(capabilities.max_presets)),
+            (0, i32::from(capabilities.highest_preset)),
         );
 
         // The G2 tilt speed range is narrower than the syntactic `TiltSpeed`
@@ -4813,7 +4820,7 @@ mod tests {
                             OperationalTuning::new(),
                         )
                         .is_ok(),
-                        profile.capabilities().supports_typed($surface),
+                        profile.capabilities().permits_typed($surface),
                         "{request:?} runtime validation must match {:?} for {}",
                         $surface,
                         profile.capabilities().model_name,
@@ -4889,7 +4896,7 @@ mod tests {
 
         let brc300_absolute = PanTiltAbsolute::for_profile_speed_level(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             SpeedLevel::Fastest,
             &brc300,
         )
@@ -4904,7 +4911,7 @@ mod tests {
 
         let brc300_relative = PanTiltRelative::for_profile_speed_level(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             SpeedLevel::Fastest,
             &brc300,
         )
@@ -4950,16 +4957,17 @@ mod tests {
             pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &evi)
                 .expect("EVI-H100 fastest speed"),
             (
-                PanSpeed::new(18).expect("EVI pan maximum"),
-                TiltSpeed::new(18).expect("EVI tilt maximum"),
+                // R8: pan `01`..`18`, tilt `01`..`17`; `Fastest` tilt is 0x14.
+                PanSpeed::new(0x18).expect("EVI pan maximum"),
+                TiltSpeed::new(0x14).expect("fastest coarse tilt speed"),
             )
         );
         assert_eq!(
             pan_tilt_position_speeds_from_level(SpeedLevel::Fastest, &nearus)
                 .expect("Nearus fastest speed"),
             (
-                PanSpeed::new(18).expect("Nearus pan maximum"),
-                TiltSpeed::new(17).expect("Nearus tilt maximum"),
+                PanSpeed::new(0x18).expect("Nearus one-speed maximum (R21 `01`..`18h`)"),
+                TiltSpeed::new(0x18).expect("Nearus one-speed maximum (R21 `01`..`18h`)"),
             )
         );
     }
@@ -5845,7 +5853,7 @@ mod tests {
         ));
         assert_exact_request_size(&crate::command::Brightness::Reset);
         assert_exact_request_size(&crate::command::Brightness::SetLevel(
-            crate::types::BrightnessLevel::new(1).expect("valid brightness"),
+            crate::types::BrightnessLevel::new(1),
         ));
         assert_exact_request_size(&crate::command::Gain::Reset);
         assert_exact_request_size(&crate::command::Gain::SetValue(
@@ -6374,7 +6382,7 @@ mod tests {
         assert!(!generic.capabilities().exposure_modes.is_empty());
         assert!(!generic
             .capabilities()
-            .supports_typed(TypedSupportSurface::ExposureMode));
+            .permits_typed(TypedSupportSurface::ExposureMode));
 
         reset_request_write_count();
         let error = prepare_builtin_command(

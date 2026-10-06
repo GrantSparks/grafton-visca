@@ -15,7 +15,7 @@ use crate::{
 /// Represents a pan/tilt position in degrees.
 ///
 /// Degrees are the library's camera-independent convention: positive pan is
-/// right and positive tilt is down. Each profile's coordinate conversion maps
+/// right and positive tilt is up. Each profile's coordinate conversion maps
 /// them to its own raw units and range.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -23,7 +23,7 @@ use crate::{
 pub struct PanTiltPositionDeg {
     /// Pan position in degrees (positive is right).
     pub pan: Degrees<f32>,
-    /// Tilt position in degrees (positive is down).
+    /// Tilt position in degrees (positive is up).
     pub tilt: Degrees<f32>,
 }
 
@@ -165,7 +165,7 @@ mod tests {
     ) -> Result<(), crate::Error> {
         use crate::profiles::SonyBRC300;
 
-        let degrees = PanTiltPositionDeg::new(Degrees(45.0), Degrees(-15.0));
+        let degrees = PanTiltPositionDeg::new(Degrees(45.0), Degrees(15.0));
         let raw = degrees.to_raw_with_profile(&SonyBRC300)?;
         assert_eq!(raw, PanTiltPosition::new(-0x02490, 0x0C30));
         assert_eq!(raw.as_degrees_with_profile(&SonyBRC300), degrees);

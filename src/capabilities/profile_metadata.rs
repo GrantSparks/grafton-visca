@@ -111,26 +111,6 @@ pub trait ProfileMetadata {
     /// Default: [`InquirySupport::Full`] — most VISCA cameras support all inquiries.
     const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
 
-    /// Exact per-axis position-inquiry support used by motion observation.
-    ///
-    /// Runtime profiles must carry this fact in their [`ProfileSpec`](crate::ProfileSpec).
-    /// Static profiles may override this associated constant directly; built-in
-    /// registry profiles do so from their per-axis protocol facts. The default is
-    /// intentionally conservative for profiles that only declare the coarse
-    /// [`Self::INQUIRY_SUPPORT`] level: no inquiry support means no position polling,
-    /// while any inquiry support permits the three baseline PTZ position
-    /// inquiries. Iris and ND-filter inquiries remain conservative unless a
-    /// profile overrides this constant with explicit scalar facts.
-    const POSITION_INQUIRY_SUPPORT: crate::profile::PositionInquirySupport =
-        match Self::INQUIRY_SUPPORT {
-            InquirySupport::None => {
-                crate::profile::PositionInquirySupport::new(false, false, false)
-            }
-            InquirySupport::Full | InquirySupport::Partial => {
-                crate::profile::PositionInquirySupport::new(true, true, true)
-            }
-        };
-
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///
     /// Most VISCA-compliant cameras (Sony, Canon, Panasonic, PtzOptics, etc.)
@@ -186,26 +166,26 @@ pub trait ProfileMetadata {
 }
 
 /// Marker trait indicating that a profile supports standard TCP construction.
+///
+/// The default port is the profile's
+/// [`CompileTimeProfile::TRANSPORTS`](crate::CompileTimeProfile::TRANSPORTS) TCP port.
 #[diagnostic::on_unimplemented(
     message = "profile `{Self}` does not support TCP transport construction",
     label = "profile `{Self}` does not implement `SupportsTcp`",
     note = "use a transport supported by the selected profile; built-in profile transport support is registry-backed"
 )]
-pub trait SupportsTcp {
-    /// Default TCP port for this profile.
-    const DEFAULT_TCP_PORT: u16;
-}
+pub trait SupportsTcp {}
 
 /// Marker trait indicating that a profile supports standard UDP construction.
+///
+/// The default port is the profile's
+/// [`CompileTimeProfile::TRANSPORTS`](crate::CompileTimeProfile::TRANSPORTS) UDP port.
 #[diagnostic::on_unimplemented(
     message = "profile `{Self}` does not support UDP transport construction",
     label = "profile `{Self}` does not implement `SupportsUdp`",
     note = "use a transport supported by the selected profile; built-in profile transport support is registry-backed"
 )]
-pub trait SupportsUdp {
-    /// Default UDP port for this profile.
-    const DEFAULT_UDP_PORT: u16;
-}
+pub trait SupportsUdp {}
 
 /// Marker trait indicating that a profile supports standard serial construction.
 #[diagnostic::on_unimplemented(

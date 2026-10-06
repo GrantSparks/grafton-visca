@@ -377,6 +377,11 @@ macro_rules! surface_marker {
             $crate::capabilities::TypedSupportSurface::ColorTemperature,
         )
     };
+    (HasColorTemperatureInquiry) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::ColorTemperatureInquiry,
+        )
+    };
     (HasRgbGain) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::RgbGain,
@@ -440,6 +445,11 @@ macro_rules! surface_marker {
     (HasNoiseReduction3D) => {
         $crate::command::surface::StaticMarkerRequirement::Typed(
             $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
+        )
+    };
+    (HasNoiseReduction2DMode) => {
+        $crate::command::surface::StaticMarkerRequirement::Typed(
+            $crate::capabilities::TypedSupportSurface::NoiseReduction2DMode,
         )
     };
     (HasNoiseReduction2DControl) => {

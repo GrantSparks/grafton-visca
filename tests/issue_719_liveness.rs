@@ -89,11 +89,7 @@ impl BlockingTransport for LivenessTransport {
 
 fn config() -> SessionConfig {
     SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in profile"))
-        .with_tuning(OperationalTuning::new().retry_limit(0).retry_timing(
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(40),
-        ))
+        .with_tuning(OperationalTuning::new().retry_limit(0))
 }
 
 #[test]
@@ -110,7 +106,11 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
     assert!(matches!(error, Error::Timeout { .. }));
     assert!(error.is_retryable());
     assert!(!error.requires_new_session());
-    assert!(started.elapsed() < Duration::from_secs(1));
+    // The probe is bounded by the profile's own retry budget: ten seconds
+    // for a 1 s inquiry deadline. Tuning may lengthen that bound but never
+    // shorten it (#828 M3), so a faster liveness verdict is a caller-side
+    // deadline, not a tuning value.
+    assert!(started.elapsed() < Duration::from_secs(10));
     let after = silent.metrics().expect("metrics after probe");
     assert_eq!(before.received_frames, 0);
     assert_eq!(after.received_frames, before.received_frames);

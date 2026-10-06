@@ -449,7 +449,7 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("Brightness::SetLevel[{l:04X}]"),
-            Ok(Brightness::SetLevel(BrightnessLevel::new(l)?))
+            Ok(Brightness::SetLevel(BrightnessLevel::try_from(l)?))
         );
     }
     row!(

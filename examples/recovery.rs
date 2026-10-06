@@ -19,9 +19,10 @@
 //!
 //! This example uses an in-memory transport, so it runs with no hardware: the
 //! first transport stays open but never answers, and the factory's next
-//! transport answers the re-query inquiries. The demo uses an intentionally
-//! short retry budget; production supervisors should choose their own
-//! application silence threshold. Requires only the default `blocking` feature.
+//! transport answers the re-query inquiries. The demo disables retries
+//! (`retry_limit(0)`), so the silent probe ends at the profile's own deadline;
+//! production supervisors should choose their own application silence
+//! threshold. Requires only the default `blocking` feature.
 
 use std::{collections::VecDeque, time::Duration};
 
@@ -110,13 +111,8 @@ impl BlockingTransport for FakeCamera {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?).with_tuning(
-        OperationalTuning::new().retry_limit(0).retry_timing(
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(500),
-        ),
-    );
+    let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?)
+        .with_tuning(OperationalTuning::new().retry_limit(0));
 
     // A RE-CALLABLE factory (`FnMut`, not `FnOnce`): a supervisor can call it on
     // every reconnect. Here the first transport is silent and later ones

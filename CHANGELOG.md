@@ -314,6 +314,198 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on both, and lock-poisoning panics name the transport that owns the script.
   `ScriptedBlockingTransport::with_config` is added, matching the async
   transport. (#827)
+- **BREAKING (#818): capability flags that duplicated a fact are gone.**
+  Removed `Capabilities::{supports_hue, has_gamma, has_luminance,
+  has_color_temp, has_rgb_gain, has_noise_reduction, has_iris_control,
+  has_digital_zoom, has_focus_zone, has_exposure_comp,
+  exposure_comp_profile_range}` and the trait constants
+  `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE,
+  SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP,
+  SUPPORTS_RGB_GAIN}`, `Focus::SUPPORTS_FOCUS_ZONE` and
+  `Exposure::SUPPORTS_EXPOSURE_COMP`. The `Option` or list is the fact:
+  `hue_range`, `gamma_range`, `luminance_range`, `color_temp_range`,
+  `iris_range`, `zoom_range_digital`, `exposure_comp_range` `.is_some()`;
+  both `red_gain_range` and `blue_gain_range`; `!focus_zones.is_empty()`;
+  `has_2d_nr || has_3d_nr`. `Exposure::EXPOSURE_COMP_RANGE` is
+  `Option<CapabilityRange<i8>>` (default `None`), `Focus::FOCUS_ZONES`
+  defaults to empty, and `Presets::PRESET_SPEED_RANGE` /
+  `Capabilities::preset_speed_range` are `Option` (`None` where the model
+  documents no preset recall speed). One crate-private rule maps each typed
+  surface to its metadata; profile validation, typed request validation and
+  a both-direction registry test (with an explicit per-row `withheld` list)
+  all use it.
+
+- **BREAKING (#808, #828): positive tilt is up for every profile.** Degrees are positive
+  right and positive up. `SonyBRC300` and `NearusBRC300` mapped positive tilt
+  to down; their tilt scale is now `+208` units per degree (raw `493D`, up,
+  is about +90°), so every BRC-300/Nearus tilt angle and degree-based limit
+  changes sign. Pan is unchanged (BRC-300 raw pan stays reversed, `08A58` is
+  left), and so are raw positions and the other profiles, whose scales already
+  mapped positive tilt to up while the docs said down. A per-profile test pins
+  the encoded direction of +45° pan and tilt. PTZOptics, FR7 and BRC-H900 raw
+  directions follow the R8 convention unverified (see Known unverified facts).
+
+- **BREAKING (#828): `Presets::MAX_PRESETS` is `HIGHEST_PRESET`.**
+  `Presets::HIGHEST_PRESET` and `Capabilities::highest_preset` replace
+  `MAX_PRESETS` and `max_presets`, which were documented as a count but used
+  as the highest index: presets are `0..=highest_preset`. A runtime profile
+  with presets and `highest_preset: 0` (one preset) now builds. The
+  capability summary prints `Presets: 0..=N`.
+
+- **BREAKING (#818): the 2D noise-reduction mode has its own marker.**
+  `HasNoiseReduction2DMode` / `TypedSupportSurface::NoiseReduction2DMode`
+  (`noise-reduction2-d-mode`) gates `noise_reduction_2d_mode()` and
+  `set_noise_reduction_2d_mode` (`04 50`); `HasNoiseReduction2D` and
+  `HasNoiseReduction2DControl` now cover the `04 53` level only. The PTZOptics
+  profiles carry all three.
+
+- **BREAKING (#818): motion sync is one fact.**
+  `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>`
+  (default `None`) and `Capabilities::motion_sync_speed_range:
+  Option<RangeInclusive<u8>>` replace `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC,
+  MAX_MOTION_SYNC_SPEED}` and `Capabilities::{has_motion_sync,
+  max_motion_sync_speed, max_motion_sync_speed_profile}`. `None` means no
+  motion sync; a range must lie in `MotionSyncSpeed`'s `1..=24`, and typed
+  motion-sync speeds outside it are `ParameterOutOfRange` with its bounds.
+  The registry rows declare `motion_sync: { speed_range: None }`.
+
+- **BREAKING (#822): default ports and position inquiries have one source.**
+  `SupportsTcp` / `SupportsUdp` are plain markers (`DEFAULT_TCP_PORT` /
+  `DEFAULT_UDP_PORT` removed); `CameraConfig::tcp` / `udp` resolve a
+  host-only address through `CompileTimeProfile::TRANSPORTS`, exactly like
+  `.transport(TransportOptions::tcp(..))`, and fail to build for a profile
+  that implements the marker without declaring the port.
+  `Capabilities::{default_tcp_port, default_udp_port}` are removed (use
+  `ProfileSpec::transports()`), and `ProfileMetadata::POSITION_INQUIRY_SUPPORT`
+  is removed (`CompileTimeProfile::POSITION_INQUIRIES` is the fact motion
+  observation reads). `ProfileGroup::{uses_sony_encapsulation, supports_tcp,
+  supports_udp, supports_serial, inquiry_support}` are derived from the
+  member profiles (every member; weakest inquiry level).
+
+- **BREAKING (#823): `*Ext` validators validate once and never clamp.**
+  `CapabilityRange::validate` is the single range check behind every
+  `validate_*` helper, and `CapabilityRange::clamp` is removed.
+  `PanTiltExt::validate_{pan,tilt}_speed`, `ZoomExt::validate_zoom_speed` and
+  `FocusExt::validate_focus_speed` return `Result<u8, ValidationError>` and
+  reject out-of-range speeds, as request validation does, instead of
+  clamping. `ExposureExt::validate_iris` reports an absent iris as
+  `NotSupported("iris")`.
+
+- **BREAKING (#818, #828): iris and bright positions are table domains.**
+  `capabilities::CapabilityDomain<T>` (bounds plus the positions the source
+  table does not list; `new`, `with_gaps`, `min`, `max`, `gaps`, `bounds`,
+  `contains`, `validate`; serde `{min, max, gaps}`) is the type of
+  `Exposure::IRIS_RANGE`, `Exposure::BRIGHTNESS_RANGE`,
+  `Capabilities::iris_range` and `Capabilities::exposure_brightness_range`.
+  One admission rule serves the `*Ext` helpers and request validation: a
+  gap is `Error::InvalidParameter`, a value past the bounds
+  `ParameterOutOfRange`.
+
+- **BREAKING: `BrightnessLevel` is the Bright Direct wire byte.**
+  `types::BrightnessLevel(u8)` is a plain wire byte, not a range newtype:
+  `new` is infallible, `TryFrom<u16>` refuses a value above `0xFF`, and its
+  percentage and `Raw` conversions are removed. (This corrects the #824
+  entry, which lists `BrightnessLevel` among the newtypes declared as
+  ranges.) `ExposureExt::validate_brightness` takes `u8`. Each profile's
+  bright domain is the sole admission check.
+
+- **BREAKING (#828 M3): tuning may only make retries more conservative.**
+  `ProfileSpec::validate_tuning` rejects an `OperationalTuning::retry_timing`
+  first backoff below 50 ms, a ceiling below the larger of 500 ms and the
+  profile busy timeout, or a budget below the larger of ten seconds and the
+  busy timeout; a request whose own budget (twice its governing deadline) is
+  longer than the override keeps its own. `retry_limit` may only lower the
+  default base retry count of 3 (previously up to 32).
+
+- **BREAKING (#828 M4, L4, L7, #716): built-in profile facts follow their
+  cited sources.**
+  - PTZOptics G2/G3/30X: the focus range is the full `0x0000..=0xFFFF` wire
+    domain (the `0x1000..=0xF000` limits were Axis-only). None claims socket
+    cancel: on the PTZOptics G2 bench (PT30X-NDI G2 and PT12X-NDI G2,
+    2026-10-05) `81 2y FF` is answered with a syntax error and the move
+    completes; G3 is unsourced and untested.
+  - EVI-H100 (R8): serial only (RS-232C/RS-422); pan `-0x1E1B..=0x1E1B`
+    (±170°) and tilt `-0x038B..=0x0FF0` (−20°…+90°) at 7707 units per 170°;
+    pan/tilt speed maxima `0x18`/`0x17`; gain `0x00..=0x0F`; presets 0–5
+    with no preset recall speed; the 240 ms post-preset `Command not
+    executable` window as its busy timeout (FR7 no longer carries it); its
+    own shutter table `00` (1/1 s) through `15` (1/10000 s); iris `00` and
+    `05..=11`, bright `00` and `05..=1F`. Gains `HasRgbGain`,
+    `HasExposureCompensation`, `HasBrightnessControl`, `HasOnePushFocus`,
+    `HasDigitalZoomToggle` and `HasDigitalZoomRange` (digital positions up to
+    `0x7AC0`); drops color temperature, RGB tuning, image flip and mirror.
+    WDR is metadata only (R8's `04 3D` is not the typed `04 25` command).
+  - BRC-300 (R12) and Nearus BRC-300 (R21): serial only; their own shutter
+    table `02` (1/4 s) through `15`; gain `0x00..=0x07`, iris `0x00..=0x11`,
+    bright `0x00..=0x17`; gain `HasOnePushWhiteBalance`, `HasImageFlip`,
+    `HasRgbGain`, `HasExposureCompensation` and `HasBrightnessControl`; drop
+    the focus near-limit inquiry. Nearus uses the BRC-300 one-speed,
+    five-nibble pan/tilt frame, signed limits and `01..=18h` speeds that R21
+    documents, gains `HasSonyAutoSlowShutter`, drops saturation control,
+    and has presets 0–5 at speed 1–24.
+  - BRC-300 (R12) and Nearus BRC-300 (R21) zoom: optical `0000`..`4000` (x12;
+    was `0x1068`) and optical-plus-digital `4000`..`7F00` (x4) through
+    `04 47`; both gain `HasDigitalZoomToggle`, `HasDigitalZoomRange` (`CAM_DZoom`
+    `04 06`) and `HasOnePushFocus` (`04 18 01`). Normalized optical zoom `1.0`
+    now sends `0x4000`.
+  - EVI-H100 (R8) gains `HasNoiseReduction2D` and `HasNoiseReduction2DControl`
+    (`CAM_NR` `04 53 0p`, 0..5, and `09 04 53`), `HasSaturationControl`
+    (`CAM_ColorGain` `04 49`) and `HasHueControl` (`CAM_ColorHue` `04 4F`),
+    each byte for byte. R8's aperture and picture effect are reported as
+    metadata, but their typed surfaces are withheld: the sharpness surface also
+    sends the `04 05` mode R8 lacks, and R8's picture-effect inquiry reports
+    Neg.Art as `02`, which the typed inquiry decodes as Off.
+  - Generic VISCA: only what R8, R12 and R21 all document — shutter codes
+    `02` through `15`, iris `00` and `05..=11`, presets 0–5 with no preset
+    recall speed, and the One Push AF trigger (`HasOnePushFocus`); drops the
+    focus near-limit inquiry.
+  - Sony FR7 and BRC-H900 advertise no shutter codes: FR7 had been given the
+    PTZOptics table and the others a shared table that sent `05` (1/30 s) for
+    1/1000 s. **Known unverified:** the shutter tables of the FR7 (R7) and
+    BRC-H900 (R11) command lists could not be read, so their typed shutter
+    positions are refused until a sourced table is recorded; this is a gap in
+    the evidence, not a claim that the cameras lack shutter control. Use a
+    `raw::Plain` request meanwhile.
+  - **Known unverified:** the PTZOptics G2-family shutter table is retained
+    as shipped; its sources document only `pq = Shutter Position`. It is
+    pending a set/inquire round trip on the PTZOptics G2 bench.
+
+- **BREAKING (#828 M1): the color-temperature inquiry has its own marker.**
+  `camera.white_balance().color_temperature()` and `ColorTemperatureInquiry`
+  require `HasColorTemperatureInquiry` / `TypedSupportSurface::ColorTemperatureInquiry`
+  (wire tag `color-temperature-inquiry`), because only the PTZOptics G2
+  one-byte `90 50 pq FF` reply is sourced. `PtzOpticsG2` and `PtzOptics30X`
+  carry it; `PtzOpticsG3` and `SonyBRCH900` keep `HasColorTemperature` (mode
+  and setters) but the inquiry no longer compiles for them, and the dyn and
+  runtime paths return `FeatureNotSupported` before any I/O.
+
+- **BREAKING (#828 L2): an inconsistent pan/tilt framing cannot be built.**
+  Sony BRC-300 framing with unsigned-centered coordinates is rejected where a
+  profile is made: `ProfileSpecBuilder::build`, `ProfileSpec` and
+  `PanTiltCoordinateConversion` deserialization return `InvalidRequest`
+  naming `pan_tilt_coordinates`, and a compile-time profile declaring it
+  fails to build at `PanTiltCoordinateConversion::for_profile`. Encoding a
+  position or limit command, decoding the position reply and
+  `Response::parse_with_profile` no longer check it. The builder's
+  separate overlapping-speed rule now names only
+  `capabilities.pan_speed`/`tilt_speed`.
+
+- A runtime profile granting `PtzOpticsPresetRecallSpeed` without a
+  `preset_speed_range` is rejected by `ProfileSpecBuilder::build`; the
+  surface's metadata rule requires the range, so it no longer fails on every
+  request instead.
+
+- (#821) `ProfileSpec` stores one `ProfileFacts` value; the compile-time
+  identity check is its derived equality and the serde shape is unchanged.
+  The five command timeout categories are reached through one accessor.
+  `CommandTimeouts::DEFAULT` names the standard table.
+
+- (#820) `Error::is_retryable()` is `suggested_retry_delay().is_some()`; the
+  delay is chosen per `ErrorKind` (no behaviour change).
+
+- The `cancellation` example drives an EVI-H100 over RS-232C (both its
+  transport and socket cancel are documented) and needs
+  `transport-serial-tokio`.
 
 ### Removed
 
@@ -344,6 +536,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raw_ip_buffers, sony_ip_buffers}`, `declare_net_transport!`,
   `new_default`, the blocking `Tcp::connect` / `connect_timeout` and
   `Udp::connect`, and `serial::Config::camera_address`.
+- **BREAKING (#819):** `Error::InvalidPreset` and `Error::invalid_preset`. Nothing
+  produced it; an out-of-profile preset number is
+  `Error::ParameterOutOfRange`.
+- **BREAKING (#828 L2):** `Error::DecoderNotFound` and
+  `Error::decoder_not_found`. Its only producer became
+  `InvalidResponseLength` (see the #828 L2 entry under Changed).
 
 ### Fixed
 
@@ -483,6 +681,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   case are split into one case per scenario per runtime; the smol dyn-api and
   async-facade smoke files are folded into their Tokio counterparts over one
   fixture.
+- Exposure-compensation and combined image-flip validation read
+  `ExposureCompensationLevel::value` and `From<ImageFlipMode> for FlipState`
+  instead of restating the centred offset and the flip mapping.
+- The compile-fail harness accepts `//@ build` for fixtures whose contract is
+  a post-monomorphization error; the pan/tilt framing assert and the
+  `SupportsTcp`/`SupportsUdp` port asserts are pinned that way.
+- Registry tests no longer restate marker-versus-metadata agreement for
+  brightness, contrast, sharpness, iris and picture effect; the two-way
+  surface metadata test is the single check.
 
 ## [2.0.0-rc.3] - 2026-10-04
 

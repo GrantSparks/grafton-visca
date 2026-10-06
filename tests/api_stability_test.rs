@@ -128,6 +128,8 @@ fn profile_marker_and_capability_contract() {
 
     fn nd_filter<P: HasNdFilter>() {}
 
+    fn raw_ip<P: SupportsTcp + SupportsUdp>() {}
+
     profile::<PtzOpticsG2>();
     profile::<SonyFR7>();
     profile::<GenericVisca>();
@@ -135,22 +137,24 @@ fn profile_marker_and_capability_contract() {
     advanced::<SonyFR7>();
     advanced::<GenericVisca>();
     nd_filter::<SonyFR7>();
+    raw_ip::<PtzOpticsG2>();
+    raw_ip::<GenericVisca>();
 
     assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
     assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID, 1);
-    assert_eq!(<PtzOpticsG2 as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(<PtzOpticsG2 as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
-    assert_eq!(<GenericVisca as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(<GenericVisca as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
+    for transports in [PtzOpticsG2::TRANSPORTS, GenericVisca::TRANSPORTS] {
+        assert_eq!(transports.tcp_port(), Some(5678));
+        assert_eq!(transports.udp_port(), Some(1259));
+    }
     assert_eq!(SonyFR7::DEFAULT_CAMERA_ID, 1);
 
     let g2 = Capabilities::from_profile::<PtzOpticsG2>();
     assert!(g2.has_basic_features());
     assert!(g2.has_full_inquiry_support());
     assert_eq!(g2.inquiry_support, InquirySupport::Full);
-    assert!(!g2.has_motion_sync);
+    assert_eq!(g2.motion_sync_speed_range, None);
     assert!(!g2.has_nd_filter);
-    assert!(g2.has_iris_control);
+    assert!(g2.iris_range.is_some());
     assert!(g2.has_picture_effect);
 
     let fr7 = Capabilities::from_profile::<SonyFR7>();
@@ -158,8 +162,8 @@ fn profile_marker_and_capability_contract() {
     assert!(fr7.has_advanced_features());
     assert!(fr7.has_nd_filter);
     assert!(fr7.supports_wake_on_lan);
-    assert_eq!(fr7.default_tcp_port, None);
-    assert_eq!(fr7.default_udp_port, Some(52381));
+    assert_eq!(SonyFR7::TRANSPORTS.tcp_port(), None);
+    assert_eq!(SonyFR7::TRANSPORTS.udp_port(), Some(52381));
 }
 
 #[cfg(feature = "async")]

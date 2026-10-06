@@ -224,7 +224,7 @@ mod blocking_surface {
 
         camera
             .pan_tilt()
-            .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
             .expect("BRC-300 absolute noun")
             .applied()
             .expect("BRC-300 absolute applied");
@@ -232,7 +232,7 @@ mod blocking_surface {
 
         camera
             .pan_tilt()
-            .relative(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .relative(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
             .expect("BRC-300 relative noun")
             .applied()
             .expect("BRC-300 relative applied");
@@ -581,7 +581,7 @@ mod async_surface {
 
         camera
             .pan_tilt()
-            .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
             .await
             .expect("BRC-300 absolute noun")
             .applied()
@@ -591,7 +591,7 @@ mod async_surface {
 
         camera
             .pan_tilt()
-            .relative(Degrees(45.0), Degrees(-15.0), SpeedLevel::Fastest)
+            .relative(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
             .await
             .expect("BRC-300 relative noun")
             .applied()
@@ -764,6 +764,50 @@ mod async_surface {
             "a refused version inquiry must not reach the transport"
         );
         session.shutdown().expect("shutdown");
+    }
+
+    /// Only the PTZOptics G2 color-temperature reply layout is sourced (#828
+    /// M1), so the erased inquiry refuses every other profile before anything
+    /// is written, including G3, which keeps the color-temperature controls.
+    #[cfg(feature = "dyn-api")]
+    #[tokio::test]
+    async fn dynamic_color_temperature_inquiry_without_a_sourced_reply_fails_before_any_write() {
+        for (name, profile) in [
+            (
+                "PtzOpticsG3",
+                ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
+            ),
+            (
+                "SonyEVIH100",
+                ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyEVIH100>()
+                    .expect("EVI-H100 profile"),
+            ),
+        ] {
+            let fake = probe_camera();
+            let session = open_session(&fake, profile).await;
+            let camera = session.camera_dyn().expect("dynamic camera");
+
+            let error = camera
+                .white_balance()
+                .color_temperature()
+                .await
+                .expect_err("no sourced color-temperature reply layout");
+            assert!(
+                matches!(
+                    error,
+                    Error::FeatureNotSupported {
+                        feature: "typed inquiry ColorTemperatureInquiry",
+                        ..
+                    }
+                ),
+                "{name}: {error:?}"
+            );
+            assert!(
+                fake.writes().is_empty(),
+                "{name}: a refused color-temperature inquiry must not reach the transport"
+            );
+            session.shutdown().expect("shutdown");
+        }
     }
 
     #[cfg(feature = "dyn-api")]

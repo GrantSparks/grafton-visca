@@ -1,8 +1,11 @@
 //! A refused cancellation must never strand the caller (#612, #777).
 //!
-//! `PtzOpticsG2` is the one built-in profile without VISCA socket-cancel
-//! support, so cancelling one of its already-written commands is refused with
-//! [`Error::NotSupported`]. Dropping a handle is exactly `detach` — no STOP is
+//! `PtzOpticsG2` declares no VISCA socket-cancel support (the PTZOptics G2
+//! bench answers `81 2y FF` with a syntax error and completes the move), so
+//! cancelling one of its already-written commands is refused with
+//! [`Error::NotSupported`]. The other PTZOptics profiles declare none either;
+//! `the_profile_used_here_declares_no_socket_cancel` pins the fact these tests
+//! rely on. Dropping a handle is exactly `detach` — no STOP is
 //! emitted — so a refusal that also swallowed the handle would leave a caller
 //! watching a moving axis with nothing left to observe it through.
 //!
@@ -270,3 +273,9 @@ async fn dyn_refused_cancel_leaves_the_handle_observing<E: grafton_visca::Execut
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 runtime_matrix!(dyn_refused_cancel_leaves_the_handle_observing);
+
+#[test]
+fn the_profile_used_here_declares_no_socket_cancel() {
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in G2 profile");
+    assert!(!profile.supports_command_cancel());
+}

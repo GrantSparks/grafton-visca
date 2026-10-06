@@ -1197,10 +1197,10 @@ compile_error!(
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, ProfileGroup, ProfileId, PtzOptics30X, PtzOpticsG2,
-        PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
+    pub use crate::camera::profiles::{ProfileGroup, ProfileId};
     pub use crate::capabilities::InquirySupport;
 }
 

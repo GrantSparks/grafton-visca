@@ -67,7 +67,7 @@ where
     println!("  Digital zoom max: {:?}", P::DIGITAL_ZOOM_MAX);
     println!("  Exposure modes: {}", P::EXPOSURE_MODES.len());
     println!("  White-balance modes: {}", P::WB_MODES.len());
-    println!("  Preset max: {}", P::MAX_PRESETS);
+    println!("  Presets: 0..={}", P::HIGHEST_PRESET);
     println!("  ND filter: {}", profile.nd_filter_description());
     println!();
 }

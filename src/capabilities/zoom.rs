@@ -143,22 +143,15 @@ pub trait ZoomExt: Zoom {
     /// Validate a zoom position is within range.
     fn validate_zoom_position(&self, position: u16) -> Result<u16, ValidationError> {
         let max = Self::DIGITAL_ZOOM_MAX.unwrap_or(Self::OPTICAL_ZOOM_MAX);
-
-        if position <= max {
-            Ok(position)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "zoom position",
-                value: position as f64,
-                min: 0.0,
-                max: max as f64,
-            })
-        }
+        CapabilityRange::<u16>::new(0, max).validate("zoom position", position)
     }
 
-    /// Validate and clamp zoom speed to valid range.
-    fn validate_zoom_speed(&self, speed: u8) -> u8 {
-        Self::ZOOM_SPEED_RANGE.clamp(speed)
+    /// Validate a zoom speed against `ZOOM_SPEED_RANGE`.
+    ///
+    /// Rejects out-of-range speeds instead of clamping them, matching the
+    /// request path (`Capabilities::zoom_speed`).
+    fn validate_zoom_speed(&self, speed: u8) -> Result<u8, ValidationError> {
+        Self::ZOOM_SPEED_RANGE.validate("zoom speed", speed)
     }
 
     /// Check if position is in digital zoom range.
@@ -191,6 +184,18 @@ mod tests {
         assert!(camera.validate_zoom_position(0x4000).is_ok());
         assert!(camera.validate_zoom_position(0x7000).is_ok());
         assert!(camera.validate_zoom_position(0x8000).is_err());
+    }
+
+    #[test]
+    fn zoom_speed_validation_rejects_instead_of_clamping() {
+        let camera = TestCamera;
+
+        assert_eq!(camera.validate_zoom_speed(0), Ok(0));
+        assert_eq!(camera.validate_zoom_speed(7), Ok(7));
+        assert_eq!(
+            camera.validate_zoom_speed(8),
+            Err(ValidationError::out_of_range("zoom speed", 8.0, 0.0, 7.0))
+        );
     }
 
     #[test]

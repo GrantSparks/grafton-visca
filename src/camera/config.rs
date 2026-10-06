@@ -85,21 +85,6 @@ pub enum TransportOptions {
     Custom,
 }
 
-/// How a standard network constructor obtains a port for a host-only address.
-///
-/// An `Option<u16>` cannot distinguish an explicitly selected default from
-/// the normal profile-default behavior, so keep those policies separate until
-/// endpoint canonicalization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NetworkDefaultPort {
-    /// Use the selected profile's TCP or UDP default port.
-    Profile,
-    /// Use this constructor-selected default instead of looking up profile facts.
-    Explicit(u16),
-    /// Require an explicit port in the supplied endpoint.
-    Disabled,
-}
-
 impl TransportOptions {
     /// Returns the selected transport kind.
     pub const fn kind(&self) -> TransportKind {
@@ -192,8 +177,6 @@ impl TransportOptions {
 pub struct CameraConfig<P> {
     /// Transport configuration.
     pub(crate) transport: TransportOptions,
-    /// Policy for resolving a missing TCP or UDP port.
-    network_default_port: NetworkDefaultPort,
     /// The session policy passed to the owner session.
     policy: crate::session_config::SessionPolicy,
     /// Caller-supplied transport configuration; `None` selects the
@@ -220,7 +203,6 @@ where
     pub fn new() -> Self {
         Self {
             transport: TransportOptions::Custom,
-            network_default_port: NetworkDefaultPort::Profile,
             policy: crate::session_config::SessionPolicy::DEFAULT,
             transport_config: None,
             #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
@@ -242,25 +224,43 @@ where
     }
 
     /// Create a TCP camera configuration.
+    ///
+    /// A host-only address uses the profile's TCP port
+    /// ([`crate::CompileTimeProfile::TRANSPORTS`]), exactly as
+    /// `CameraConfig::new().transport(TransportOptions::tcp(address))` does.
+    /// A profile that implements [`SupportsTcp`] without declaring a TCP port
+    /// in `TRANSPORTS` fails to build at this call.
     pub fn tcp(address: impl Into<String>) -> Self
     where
-        P: SupportsTcp,
+        P: SupportsTcp + crate::CompileTimeProfile,
     {
-        Self::new().with_transport(
-            TransportOptions::tcp(address),
-            NetworkDefaultPort::Explicit(<P as SupportsTcp>::DEFAULT_TCP_PORT),
-        )
+        const {
+            assert!(
+                P::TRANSPORTS.tcp_port().is_some(),
+                "a profile implementing `SupportsTcp` must declare a TCP port in `TRANSPORTS`"
+            );
+        }
+        Self::new().transport(TransportOptions::tcp(address))
     }
 
     /// Create a UDP camera configuration.
+    ///
+    /// A host-only address uses the profile's UDP port
+    /// ([`crate::CompileTimeProfile::TRANSPORTS`]), exactly as
+    /// `CameraConfig::new().transport(TransportOptions::udp(address))` does.
+    /// A profile that implements [`SupportsUdp`] without declaring a UDP port
+    /// in `TRANSPORTS` fails to build at this call.
     pub fn udp(address: impl Into<String>) -> Self
     where
-        P: SupportsUdp,
+        P: SupportsUdp + crate::CompileTimeProfile,
     {
-        Self::new().with_transport(
-            TransportOptions::udp(address),
-            NetworkDefaultPort::Explicit(<P as SupportsUdp>::DEFAULT_UDP_PORT),
-        )
+        const {
+            assert!(
+                P::TRANSPORTS.udp_port().is_some(),
+                "a profile implementing `SupportsUdp` must declare a UDP port in `TRANSPORTS`"
+            );
+        }
+        Self::new().transport(TransportOptions::udp(address))
     }
 
     /// Create a serial camera configuration.
@@ -268,20 +268,7 @@ where
     where
         P: SupportsSerial,
     {
-        Self::new().with_transport(
-            TransportOptions::serial(port, baud_rate),
-            NetworkDefaultPort::Disabled,
-        )
-    }
-
-    fn with_transport(
-        mut self,
-        transport: TransportOptions,
-        default_port: NetworkDefaultPort,
-    ) -> Self {
-        self.transport = transport;
-        self.network_default_port = default_port;
-        self
+        Self::new().transport(TransportOptions::serial(port, baud_rate))
     }
 
     /// Set the connection address.
@@ -313,10 +300,6 @@ where
 
     /// Set custom transport options.
     pub fn transport(mut self, transport: TransportOptions) -> Self {
-        self.network_default_port = match transport.kind() {
-            TransportKind::Tcp | TransportKind::Udp => NetworkDefaultPort::Profile,
-            TransportKind::Serial | TransportKind::Custom => NetworkDefaultPort::Disabled,
-        };
         self.transport = transport;
         self
     }
@@ -437,14 +420,10 @@ where
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
-        match self.network_default_port {
-            NetworkDefaultPort::Profile => match kind {
-                TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
-                TransportKind::Udp => P::TRANSPORTS.udp_port(),
-                TransportKind::Serial | TransportKind::Custom => None,
-            },
-            NetworkDefaultPort::Explicit(port) => Some(port),
-            NetworkDefaultPort::Disabled => None,
+        match kind {
+            TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
+            TransportKind::Udp => P::TRANSPORTS.udp_port(),
+            TransportKind::Serial | TransportKind::Custom => None,
         }
     }
 
@@ -656,6 +635,163 @@ where
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    /// #822: a downstream profile's host-only TCP/UDP address resolves to
+    /// its `CompileTimeProfile::TRANSPORTS` port, whether the configuration is
+    /// built with `CameraConfig::tcp`/`udp` or with `.transport(..)`.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn standard_constructors_and_transport_options_share_the_profile_port() {
+        use std::time::Duration;
+
+        use crate::{
+            camera::{CameraConfig, TransportOptions},
+            capabilities::{
+                exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
+                ImageProcessing, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt,
+                Power, Presets, ProfileMetadata, ProfileTypedSupport, SupportsTcp, SupportsUdp,
+                Tally, TypedSupportSet, VariableSpeedMetadata, WhiteBalance, Zoom,
+            },
+            profiles::GenericVisca as Base,
+            AffectedAxes, CompileTimeProfile, PositionInquirySupport, TransportCompatibility,
+            WhiteBalanceMode,
+        };
+
+        macro_rules! downstream_profile {
+            ($name:ident, $transports:expr) => {
+                #[derive(Debug, Default, Clone, Copy)]
+                struct $name;
+
+                impl ProfileMetadata for $name {
+                    const MODEL_NAME: &'static str = stringify!($name);
+                    const DEFAULT_CAMERA_ID: u8 = 1;
+                    type Envelope = crate::transport::RawVisca;
+                    const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
+                    const COMMAND_TIMEOUTS: crate::CommandTimeouts =
+                        crate::CommandTimeouts::DEFAULT;
+                }
+                impl PanTilt for $name {
+                    const PAN_RANGE: CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
+                    const TILT_RANGE: CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+                    const MAX_PAN_SPEED: u8 = <Base as PanTilt>::MAX_PAN_SPEED;
+                    const MAX_TILT_SPEED: u8 = <Base as PanTilt>::MAX_TILT_SPEED;
+                    const PAN_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::PAN_DEGREES_TO_UNITS;
+                    const TILT_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::TILT_DEGREES_TO_UNITS;
+                }
+                impl Zoom for $name {
+                    const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
+                    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+                    const ZOOM_SPEED_RANGE: CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
+                    const OPTICAL_ZOOM_RATIO: Option<f32> = None;
+                }
+                impl Focus for $name {
+                    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
+                    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+                    const SUPPORTS_AUTO_FOCUS: bool = true;
+                    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+                }
+                impl Exposure for $name {
+                    const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
+                    const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] =
+                        <Base as Exposure>::SHUTTER_SPEEDS;
+                    const GAIN_RANGE: CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+                    const SUPPORTS_BACKLIGHT_COMP: bool = false;
+                }
+                impl WhiteBalance for $name {
+                    const WB_MODES: &'static [WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
+                    const SUPPORTS_ONE_PUSH_WB: bool = false;
+                    const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+                    const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+                }
+                impl ImageProcessing for $name {
+                    const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SUPPORTS_FLIP: bool = false;
+                    const SUPPORTS_MIRROR: bool = false;
+                }
+                impl Presets for $name {
+                    const HIGHEST_PRESET: u8 = 6;
+                    const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+                        <Base as Presets>::PRESET_SPEED_RANGE;
+                    const SUPPORTS_PRESET_TOUR: bool = false;
+                }
+                impl Power for $name {
+                    const POWER_ON_TIME: Duration = Duration::from_secs(5);
+                    const SUPPORTS_STANDBY: bool = false;
+                }
+                impl MenuCapability for $name {}
+                impl Tally for $name {}
+                impl MotionSyncMetadata for $name {}
+                impl NdFilterMetadata for $name {}
+                impl VariableSpeedMetadata for $name {}
+                impl ProfileTypedSupport for $name {
+                    const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
+                }
+                impl CompileTimeProfile for $name {
+                    const TRANSPORTS: TransportCompatibility = $transports;
+                    const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
+                    const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
+                    const AMBIGUITY_TIMEOUT: Duration = Duration::from_secs(1);
+                    const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
+                    const PRESET_RECALL_AXES: Option<AffectedAxes> =
+                        Some(AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM));
+                    const POSITION_INQUIRIES: PositionInquirySupport =
+                        PositionInquirySupport::new(true, true, true);
+                }
+            };
+        }
+
+        downstream_profile!(
+            Downstream,
+            TransportCompatibility::new(Some(9876), Some(9877), false)
+        );
+        downstream_profile!(
+            UdpOnly,
+            TransportCompatibility::new(None, Some(9877), false)
+        );
+        impl SupportsTcp for Downstream {}
+        impl SupportsUdp for Downstream {}
+
+        let endpoint = |config: CameraConfig<Downstream>| {
+            config
+                .standard_connection_plan()
+                .expect("downstream plan")
+                .endpoint
+        };
+        assert_eq!(
+            endpoint(CameraConfig::tcp("camera.local")),
+            "camera.local:9876"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::new().transport(TransportOptions::tcp("camera.local"))),
+            "camera.local:9876"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::udp("camera.local")),
+            "camera.local:9877"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::new().transport(TransportOptions::udp("camera.local"))),
+            "camera.local:9877"
+        );
+
+        // A profile that declares no TCP port gets no `CameraConfig::tcp`
+        // (it fails to build for a `SupportsTcp` implementor without one), and
+        // an explicit TCP transport is refused before any I/O.
+        impl SupportsUdp for UdpOnly {}
+        assert!(CameraConfig::<UdpOnly>::new()
+            .transport(TransportOptions::tcp("camera.local"))
+            .standard_connection_plan()
+            .is_err());
+        assert_eq!(
+            CameraConfig::<UdpOnly>::udp("camera.local")
+                .standard_connection_plan()
+                .expect("UDP plan")
+                .endpoint,
+            "camera.local:9877"
+        );
+    }
+
     #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]
     fn canonical_standard_plan_records_defaults_and_transport_options_without_io() {

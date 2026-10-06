@@ -260,6 +260,7 @@ visca_command! {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode::WireEncode;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
@@ -720,7 +721,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_00,
-        Brightness::SetLevel(BrightnessLevel::new(0x00).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x00)),
         &[
             0x81,
             0x01,
@@ -737,7 +738,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_08,
-        Brightness::SetLevel(BrightnessLevel::new(0x08).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x08)),
         &[
             0x81,
             0x01,
@@ -754,7 +755,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_10,
-        Brightness::SetLevel(BrightnessLevel::new(0x10).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x10)),
         &[
             0x81,
             0x01,
@@ -771,7 +772,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_11,
-        Brightness::SetLevel(BrightnessLevel::new(0x11).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x11)),
         &[
             0x81,
             0x01,
@@ -786,12 +787,34 @@ mod tests {
     );
 
     #[test]
-    fn test_brightness_valid_values() {
-        for value in 0x00..=0x11 {
-            let level = BrightnessLevel::new(value)
+    fn every_bright_position_is_a_wire_byte() {
+        let mut buffer = [0; 16];
+        for value in u8::MIN..=u8::MAX {
+            let written = Brightness::SetLevel(BrightnessLevel::new(value))
+                .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let _cmd = Brightness::SetLevel(level);
+            assert_eq!(
+                &buffer[..written],
+                &[
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x4D,
+                    0x00,
+                    0x00,
+                    value >> 4,
+                    value & 0x0F,
+                    VISCA_TERMINATOR
+                ]
+            );
         }
+        assert!(BrightnessLevel::try_from(0x0100_u16).is_err());
+        assert_eq!(
+            BrightnessLevel::try_from(0x001F_u16)
+                .map(BrightnessLevel::value)
+                .ok(),
+            Some(0x1F)
+        );
     }
 
     visca_test!(

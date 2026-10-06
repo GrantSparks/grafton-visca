@@ -224,7 +224,7 @@ name = "validate_ae_commands"
 
 [[example]]
 name = "cancellation"
-required-features = ["runtime-tokio"]
+required-features = ["runtime-tokio", "transport-serial-tokio"]
 
 [[example]]
 name = "cancellation_blocking"

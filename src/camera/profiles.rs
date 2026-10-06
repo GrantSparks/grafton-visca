@@ -47,21 +47,61 @@ mod profile_constants {
         entry(10000, 0x11),
     ];
 
-    /// Shutter codes shared by the BRC-H900, EVI-H100, BRC-300, Nearus
-    /// BRC-300 and Generic VISCA profiles. None of R8, R11, R12 or R21 in
-    /// `docs/visca_reference.md` records a shutter table for these models; it
-    /// is retained as shipped, unsourced.
-    pub const GENERIC_VISCA_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
-        entry(30, 0x00),
-        entry(60, 0x01),
-        entry(100, 0x02),
-        entry(250, 0x03),
-        entry(500, 0x04),
-        entry(1000, 0x05),
-        entry(2000, 0x06),
-        entry(4000, 0x07),
-        entry(10000, 0x08),
+    /// Sony EVI-H100 shutter codes (R8, VISCA Command Setting Values,
+    /// exposure control 1/2, 60/30 mode column).
+    pub const SONY_EVI_H100_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
+        entry(1, 0x00),
+        entry(2, 0x01),
+        entry(4, 0x02),
+        entry(8, 0x03),
+        entry(15, 0x04),
+        entry(30, 0x05),
+        entry(60, 0x06),
+        entry(90, 0x07),
+        entry(100, 0x08),
+        entry(125, 0x09),
+        entry(180, 0x0A),
+        entry(250, 0x0B),
+        entry(350, 0x0C),
+        entry(500, 0x0D),
+        entry(725, 0x0E),
+        entry(1000, 0x0F),
+        entry(1500, 0x10),
+        entry(2000, 0x11),
+        entry(3000, 0x12),
+        entry(4000, 0x13),
+        entry(6000, 0x14),
+        entry(10000, 0x15),
     ];
+
+    /// Sony BRC-300 shutter codes (R12 and the Nearus text R21, BRC-300
+    /// column), which are also the codes R8, R12 and R21 share and so the
+    /// Generic VISCA table.
+    pub const SONY_BRC300_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[
+        entry(4, 0x02),
+        entry(8, 0x03),
+        entry(15, 0x04),
+        entry(30, 0x05),
+        entry(60, 0x06),
+        entry(90, 0x07),
+        entry(100, 0x08),
+        entry(125, 0x09),
+        entry(180, 0x0A),
+        entry(250, 0x0B),
+        entry(350, 0x0C),
+        entry(500, 0x0D),
+        entry(725, 0x0E),
+        entry(1000, 0x0F),
+        entry(1500, 0x10),
+        entry(2000, 0x11),
+        entry(3000, 0x12),
+        entry(4000, 0x13),
+        entry(6000, 0x14),
+        entry(10000, 0x15),
+    ];
+
+    /// Profiles whose shutter table could not be read from their source.
+    pub const NO_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[];
 
     /// The five shared AE modes; also the `Exposure::EXPOSURE_MODES` default.
     pub(crate) use crate::capabilities::exposure::STANDARD_EXPOSURE_MODES;
@@ -126,7 +166,7 @@ mod profile_constants {
 #[path = "profile_registry.rs"]
 pub(crate) mod profile_registry;
 
-define_builtin_profiles!();
+builtin_profile_registry!(__define_builtin_profiles);
 
 #[cfg(test)]
 mod tests {
@@ -171,13 +211,19 @@ mod tests {
     }
 
     /// #808: raw positions convert with each camera's own scale. The removed
-    /// profile-less helper reported EVI-H100 `1440` as 100° and GenericVisca
-    /// `2880` as NaN by applying the G2 scale to every camera.
+    /// profile-less helper applied the G2 scale to every camera, which made
+    /// GenericVisca `2880` NaN.
     #[test]
     fn raw_positions_convert_with_the_profiles_own_scale() {
-        let evi =
-            crate::camera::PanTiltPosition::new(1440, 0).as_degrees_with_profile(&SonyEVIH100);
-        assert_eq!(evi.pan.0, 90.0);
+        // R8's position table: pan `1E1B` is +170°, tilt `FC75` -20° and
+        // `0FF0` +90°.
+        let evi = crate::camera::PanTiltPosition::new(0x1E1B, -0x038B)
+            .as_degrees_with_profile(&SonyEVIH100);
+        assert!((evi.pan.0 - 170.0).abs() < 0.01, "{}", evi.pan.0);
+        assert!((evi.tilt.0 + 20.0).abs() < 0.01, "{}", evi.tilt.0);
+        let evi_up =
+            crate::camera::PanTiltPosition::new(0, 0x0FF0).as_degrees_with_profile(&SonyEVIH100);
+        assert!((evi_up.tilt.0 - 90.0).abs() < 0.01, "{}", evi_up.tilt.0);
         let generic =
             crate::camera::PanTiltPosition::new(2880, -1440).as_degrees_with_profile(&GenericVisca);
         assert_eq!((generic.pan.0, generic.tilt.0), (180.0, -90.0));
@@ -188,26 +234,60 @@ mod tests {
 
     /// #807: a shutter fraction maps through the profile's own table. The
     /// removed profile-independent conversion encoded 1/60 as `0x07` for
-    /// every camera.
+    /// every camera, and the Sony profiles shared a table that sent `05`
+    /// (1/30 s on every Sony source) for 1/1000 s. Each code below is the
+    /// model source's own: R8 for EVI-H100, R12/R21 for BRC-300 and Nearus,
+    /// and their shared codes for Generic VISCA.
     #[test]
     fn shutter_fractions_resolve_through_each_profile_table() {
         use crate::{capabilities::Capabilities, units::Fraction};
 
-        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
-        let generic = Capabilities::from_profile::<GenericVisca>();
         let code = |caps: &Capabilities, n, d| {
             Fraction::new(n, d)
                 .and_then(|exposure| caps.shutter_speed_for(exposure).ok())
                 .map(|s| s.value())
         };
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
         assert_eq!(code(&g2, 1, 60), Some(0x02));
-        assert_eq!(code(&generic, 1, 60), Some(0x01));
         assert_eq!(code(&g2, 1, 1000), Some(0x0B));
-        assert_eq!(code(&generic, 1, 1000), Some(0x05));
-        assert_eq!(code(&generic, 1, 30), Some(0x00));
         assert_eq!(code(&g2, 2, 120), Some(0x02));
-        assert_eq!(code(&generic, 1, 90), None);
         assert_eq!(code(&g2, 1, 0), None);
+
+        let evi = Capabilities::from_profile::<SonyEVIH100>();
+        for (denominator, expected) in [
+            (1, 0x00),
+            (2, 0x01),
+            (30, 0x05),
+            (60, 0x06),
+            (1000, 0x0F),
+            (10000, 0x15),
+        ] {
+            assert_eq!(
+                code(&evi, 1, denominator),
+                Some(expected),
+                "EVI-H100 1/{denominator}"
+            );
+        }
+        for caps in [
+            Capabilities::from_profile::<SonyBRC300>(),
+            Capabilities::from_profile::<NearusBRC300>(),
+            Capabilities::from_profile::<GenericVisca>(),
+        ] {
+            assert_eq!(code(&caps, 1, 4), Some(0x02), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 30), Some(0x05), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 90), Some(0x07), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 1000), Some(0x0F), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 10000), Some(0x15), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 1), None, "{}", caps.model_name);
+        }
+        // No sourced table: no typed shutter code at all.
+        for caps in [
+            Capabilities::from_profile::<SonyFR7>(),
+            Capabilities::from_profile::<SonyBRCH900>(),
+        ] {
+            assert!(caps.shutter_speeds.is_empty(), "{}", caps.model_name);
+            assert_eq!(code(&caps, 1, 60), None, "{}", caps.model_name);
+        }
     }
 
     #[test]
@@ -225,75 +305,27 @@ mod tests {
         assert_eq!(SonyFR7::MODEL_NAME, "Sony FR7");
     }
 
+    /// Every profile belongs to exactly the group that lists it. The literal
+    /// membership is pinned once, in the closed inventory of
+    /// `tests/issue_548_supported_surface_inventory.rs`.
     #[test]
-    fn test_profile_groups() {
-        assert_eq!(
-            ProfileId::PtzOpticsG2.profile_group(),
-            ProfileGroup::PtzOpticsG2
-        );
-        assert_eq!(
-            ProfileId::PtzOpticsG3.profile_group(),
-            ProfileGroup::PtzOpticsG2
-        );
-        assert_eq!(
-            ProfileId::PtzOptics30X.profile_group(),
-            ProfileGroup::PtzOpticsG2
-        );
-        assert_eq!(
-            ProfileId::SonyFr7.profile_group(),
-            ProfileGroup::SonyProfessional
-        );
-        assert_eq!(
-            ProfileId::SonyBrcH900.profile_group(),
-            ProfileGroup::SonyProfessional
-        );
-        assert_eq!(
-            ProfileId::GenericVisca.profile_group(),
-            ProfileGroup::GenericVisca
-        );
-        assert_eq!(
-            ProfileId::SonyBrc300.profile_group(),
-            ProfileGroup::GenericVisca
-        );
-        assert_eq!(
-            ProfileId::SonyEviH100.profile_group(),
-            ProfileGroup::GenericVisca
-        );
-        assert_eq!(
-            ProfileId::NearusBrc300.profile_group(),
-            ProfileGroup::GenericVisca
-        );
-    }
-
-    #[test]
-    fn test_profile_group_profiles() {
-        let generic_profiles = ProfileGroup::GenericVisca.profiles();
-        assert_eq!(generic_profiles.len(), 4);
-        assert!(generic_profiles.contains(&ProfileId::GenericVisca));
-        assert!(generic_profiles.contains(&ProfileId::SonyBrc300));
-        assert!(generic_profiles.contains(&ProfileId::SonyEviH100));
-        assert!(generic_profiles.contains(&ProfileId::NearusBrc300));
-
-        let ptzoptics_profiles = ProfileGroup::PtzOpticsG2.profiles();
-        assert_eq!(ptzoptics_profiles.len(), 3);
-        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG2));
-        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOpticsG3));
-        assert!(ptzoptics_profiles.contains(&ProfileId::PtzOptics30X));
-
-        let sony_pro_profiles = ProfileGroup::SonyProfessional.profiles();
-        assert_eq!(sony_pro_profiles.len(), 2);
-        assert!(sony_pro_profiles.contains(&ProfileId::SonyFr7));
-        assert!(sony_pro_profiles.contains(&ProfileId::SonyBrcH900));
-
+    fn every_profile_is_listed_by_exactly_its_group() {
         for profile in ProfileId::all() {
             let group = profile.profile_group();
             assert!(
                 group.profiles().contains(profile),
-                "Profile {:?} not found in its group {:?}",
-                profile,
-                group
+                "{profile:?} not in {group:?}"
             );
         }
+        let listed: usize = [
+            ProfileGroup::GenericVisca,
+            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::SonyProfessional,
+        ]
+        .iter()
+        .map(|group| group.profiles().len())
+        .sum();
+        assert_eq!(listed, ProfileId::all().len());
     }
 
     #[test]
@@ -309,51 +341,64 @@ mod tests {
         assert_eq!(format!("{}", ProfileGroup::PtzOpticsG2), "PtzOptics Series");
     }
 
+    /// A group reports a transport or envelope fact only when every member
+    /// has it, and its weakest member's inquiry support.
     #[test]
-    fn test_profile_group_transport_support() {
-        for group in &[ProfileGroup::GenericVisca, ProfileGroup::PtzOpticsG2] {
-            assert!(group.supports_tcp());
-            assert!(group.supports_udp());
-            assert!(group.supports_serial());
+    fn group_facts_hold_for_every_member() {
+        for group in [
+            ProfileGroup::GenericVisca,
+            ProfileGroup::PtzOpticsG2,
+            ProfileGroup::SonyProfessional,
+        ] {
+            let members = group.profiles();
+            assert_eq!(
+                group.supports_tcp(),
+                members.iter().all(ProfileId::supports_tcp)
+            );
+            assert_eq!(
+                group.supports_udp(),
+                members.iter().all(ProfileId::supports_udp)
+            );
+            assert_eq!(
+                group.supports_serial(),
+                members.iter().all(ProfileId::supports_serial)
+            );
+            assert_eq!(
+                group.uses_sony_encapsulation(),
+                members.iter().all(ProfileId::uses_sony_encapsulation)
+            );
+            for member in members {
+                assert!(
+                    !matches!(
+                        (group.inquiry_support(), member.inquiry_support()),
+                        (
+                            crate::capabilities::InquirySupport::Full,
+                            crate::capabilities::InquirySupport::Partial
+                        ) | (
+                            crate::capabilities::InquirySupport::Full
+                                | crate::capabilities::InquirySupport::Partial,
+                            crate::capabilities::InquirySupport::None
+                        )
+                    ),
+                    "{group:?} reports more inquiry support than {member:?}"
+                );
+            }
         }
-
-        assert!(!ProfileGroup::SonyProfessional.supports_tcp());
-        assert!(ProfileGroup::SonyProfessional.supports_udp());
-        assert!(!ProfileGroup::SonyProfessional.supports_serial());
-    }
-
-    #[test]
-    fn test_profile_group_encapsulation() {
-        assert!(!ProfileGroup::GenericVisca.uses_sony_encapsulation());
-        assert!(!ProfileGroup::PtzOpticsG2.uses_sony_encapsulation());
-        assert!(ProfileGroup::SonyProfessional.uses_sony_encapsulation());
     }
 
     #[test]
     fn test_profile_transport_support() {
         for profile in ProfileId::all() {
-            let sony_encapsulated = profile.uses_sony_encapsulation();
-            assert_eq!(profile.supports_tcp(), !sony_encapsulated);
-            assert!(profile.supports_udp());
-            assert_eq!(profile.supports_serial(), !sony_encapsulated);
+            assert!(
+                profile.supports_tcp() || profile.supports_udp() || profile.supports_serial(),
+                "{profile:?} has no transport"
+            );
+            if profile.uses_sony_encapsulation() {
+                assert!(!profile.supports_tcp() && !profile.supports_serial());
+            }
             assert_eq!(profile.default_tcp_port().is_some(), profile.supports_tcp());
             assert_eq!(profile.default_udp_port().is_some(), profile.supports_udp());
         }
-    }
-
-    #[test]
-    fn test_profile_vendor() {
-        assert_eq!(ProfileId::PtzOpticsG2.vendor(), "PtzOptics");
-        assert_eq!(ProfileId::PtzOpticsG3.vendor(), "PtzOptics");
-        assert_eq!(ProfileId::PtzOptics30X.vendor(), "PtzOptics");
-
-        assert_eq!(ProfileId::SonyFr7.vendor(), "Sony");
-        assert_eq!(ProfileId::SonyBrcH900.vendor(), "Sony");
-        assert_eq!(ProfileId::SonyEviH100.vendor(), "Sony");
-        assert_eq!(ProfileId::SonyBrc300.vendor(), "Sony");
-
-        assert_eq!(ProfileId::NearusBrc300.vendor(), "Nearus");
-        assert_eq!(ProfileId::GenericVisca.vendor(), "Generic");
     }
 
     #[test]

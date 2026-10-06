@@ -4,27 +4,31 @@
 //! Queued work is always locally cancellable, and on a socket-cancel-capable
 //! profile a command that has already been written can be cancelled too.
 //! There, `cancel_with_timeout()` concludes with `Cancelled` or `Completed`.
-//! This example uses the cancel-capable `PtzOpticsG3` by default, so that
-//! supported path is reachable on the hardware it names. Pass
-//! `--g2-unsupported` to demonstrate the sole built-in profile without socket
-//! cancellation: after a G2 command is written, `cancel()` refuses with
-//! `Error::NotSupported`, and the same handle still observes the command.
-//! On real G2 hardware a continuous zoom drive usually reports ACK and
-//! completion together about 50 ms after the write while the lens keeps
-//! moving, so `cancel()` typically returns `Ok(Completed)` rather than the
-//! refusal. Either way the drive is still running, so the G2 path applies an
-//! explicit zoom STOP unconditionally after the cancellation attempt, whatever
-//! `cancel()` returned. The G3 path does the same.
 //!
-//! This example moves real hardware. Set `VISCA_CAMERA_ADDR` or pass an address
-//! on the command line.
+//! By default this example drives a Sony EVI-H100 over RS-232C at 9,600 bps.
+//! Its technical manual documents both that serial link and the `8x 2p FF`
+//! socket cancel, so the supported path runs on a documented transport. Pass
+//! `--g2-unsupported` with a TCP address to demonstrate a profile without
+//! socket cancellation: on the PTZOptics G2 bench a G2 answers `81 2y FF`
+//! with a syntax error and the command completes, so after a G2 command is
+//! written, `cancel()` refuses with `Error::NotSupported` and the same handle
+//! still observes the command. On real G2 hardware a continuous zoom drive
+//! usually reports ACK and completion together about 50 ms after the write
+//! while the lens keeps moving, so `cancel()` typically returns
+//! `Ok(Completed)` rather than the refusal. Either way the drive is still
+//! running, so both paths apply an explicit zoom STOP unconditionally after
+//! the cancellation attempt, whatever `cancel()` returned.
+//!
+//! This example moves real hardware. Pass the serial port (or, with
+//! `--g2-unsupported`, the G2 address) on the command line or in
+//! `VISCA_CAMERA_ADDR`.
 
 mod support;
 
 use std::{env, time::Duration};
 
 use grafton_visca::{
-    camera::profiles::{PtzOpticsG2, PtzOpticsG3},
+    camera::profiles::{PtzOpticsG2, SonyEVIH100},
     runtime::TokioRuntime,
     Camera, CancellationOutcome, Connect, Error,
 };
@@ -47,7 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let address = address
         .or_else(|| env::var("VISCA_CAMERA_ADDR").ok())
-        .ok_or("camera address required (argument or VISCA_CAMERA_ADDR)")?;
+        .ok_or("serial port or camera address required (argument or VISCA_CAMERA_ADDR)")?;
 
     let runtime = TokioRuntime::from_current()?;
     if g2_unsupported {
@@ -55,14 +59,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let result = cancel_g2_drive(session.camera()).await;
         finish_session(result, session.close().await)?;
     } else {
-        let session = Connect::open_tcp::<PtzOpticsG3, _>(&address, runtime).await?;
-        let result = cancel_g3_drive(session.camera()).await;
+        let session = Connect::open_serial::<SonyEVIH100, _>(&address, 9_600, runtime).await?;
+        let result = match session.camera::<SonyEVIH100>() {
+            Ok(camera) => cancel_supported_drive(&camera).await,
+            Err(error) => Err(error),
+        };
         finish_session(result, session.close().await)?;
     }
     Ok(())
 }
 
-async fn cancel_g3_drive(camera: &Camera<PtzOpticsG3>) -> Result<(), Error> {
+async fn cancel_supported_drive(camera: &Camera<SonyEVIH100>) -> Result<(), Error> {
     // Start a continuous zoom drive and let its first write reach the camera, so
     // the cancel below exercises the post-send path rather than a local queue
     // removal.
