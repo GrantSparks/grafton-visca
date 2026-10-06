@@ -13284,8 +13284,6 @@ pub const fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Sel
 pub const fn grafton_visca::types::PanSpeed::value(self) -> u8
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::ZERO: Self
-impl grafton_visca::types::PanSpeed
-pub fn grafton_visca::types::PanSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::PanSpeed
 pub fn grafton_visca::types::PanSpeed::clone(&self) -> grafton_visca::types::PanSpeed
 impl core::cmp::Eq for grafton_visca::types::PanSpeed
@@ -14788,8 +14786,6 @@ pub const fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Se
 pub const fn grafton_visca::types::TiltSpeed::value(self) -> u8
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::ZERO: Self
-impl grafton_visca::types::TiltSpeed
-pub fn grafton_visca::types::TiltSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::TiltSpeed
 pub fn grafton_visca::types::TiltSpeed::clone(&self) -> grafton_visca::types::TiltSpeed
 impl core::cmp::Eq for grafton_visca::types::TiltSpeed
@@ -21276,8 +21272,6 @@ pub const fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<S
 pub const fn grafton_visca::types::FocusSpeed::value(self) -> u8
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::ZERO: Self
-impl grafton_visca::types::FocusSpeed
-pub fn grafton_visca::types::FocusSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::FocusSpeed
 pub fn grafton_visca::types::FocusSpeed::clone(&self) -> grafton_visca::types::FocusSpeed
 impl core::cmp::Eq for grafton_visca::types::FocusSpeed
@@ -21629,8 +21623,6 @@ pub const fn grafton_visca::types::PanSpeed::new(u8) -> core::result::Result<Sel
 pub const fn grafton_visca::types::PanSpeed::value(self) -> u8
 impl grafton_visca::types::PanSpeed
 pub const grafton_visca::types::PanSpeed::ZERO: Self
-impl grafton_visca::types::PanSpeed
-pub fn grafton_visca::types::PanSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::PanSpeed
 pub fn grafton_visca::types::PanSpeed::clone(&self) -> grafton_visca::types::PanSpeed
 impl core::cmp::Eq for grafton_visca::types::PanSpeed
@@ -21833,8 +21825,6 @@ pub const fn grafton_visca::types::TiltSpeed::new(u8) -> core::result::Result<Se
 pub const fn grafton_visca::types::TiltSpeed::value(self) -> u8
 impl grafton_visca::types::TiltSpeed
 pub const grafton_visca::types::TiltSpeed::ZERO: Self
-impl grafton_visca::types::TiltSpeed
-pub fn grafton_visca::types::TiltSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::TiltSpeed
 pub fn grafton_visca::types::TiltSpeed::clone(&self) -> grafton_visca::types::TiltSpeed
 impl core::cmp::Eq for grafton_visca::types::TiltSpeed
@@ -21908,8 +21898,6 @@ pub const fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Se
 pub const fn grafton_visca::types::ZoomSpeed::value(self) -> u8
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::ZERO: Self
-impl grafton_visca::types::ZoomSpeed
-pub fn grafton_visca::types::ZoomSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::ZoomSpeed
 pub fn grafton_visca::types::ZoomSpeed::clone(&self) -> grafton_visca::types::ZoomSpeed
 impl core::cmp::Eq for grafton_visca::types::ZoomSpeed
@@ -21945,7 +21933,6 @@ impl grafton_visca::types::IntoIrisLevel for grafton_visca::units::Percentage<f3
 pub fn grafton_visca::units::Percentage<f32>::into_iris_level(self) -> core::result::Result<grafton_visca::types::IrisLevel, grafton_visca::Error>
 impl grafton_visca::types::IntoIrisLevel for u8
 pub fn u8::into_iris_level(self) -> core::result::Result<grafton_visca::types::IrisLevel, grafton_visca::Error>
-pub type grafton_visca::types::Coarse = grafton_visca::types::SpeedLevel
 pub mod grafton_visca::units
 pub struct grafton_visca::units::Degrees<T>(pub T)
 impl<T> grafton_visca::units::Degrees<T>
@@ -24164,8 +24151,6 @@ pub const fn grafton_visca::types::FocusSpeed::new(u8) -> core::result::Result<S
 pub const fn grafton_visca::types::FocusSpeed::value(self) -> u8
 impl grafton_visca::types::FocusSpeed
 pub const grafton_visca::types::FocusSpeed::ZERO: Self
-impl grafton_visca::types::FocusSpeed
-pub fn grafton_visca::types::FocusSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::FocusSpeed
 pub fn grafton_visca::types::FocusSpeed::clone(&self) -> grafton_visca::types::FocusSpeed
 impl core::cmp::Eq for grafton_visca::types::FocusSpeed
@@ -25167,8 +25152,6 @@ pub const fn grafton_visca::types::ZoomSpeed::new(u8) -> core::result::Result<Se
 pub const fn grafton_visca::types::ZoomSpeed::value(self) -> u8
 impl grafton_visca::types::ZoomSpeed
 pub const grafton_visca::types::ZoomSpeed::ZERO: Self
-impl grafton_visca::types::ZoomSpeed
-pub fn grafton_visca::types::ZoomSpeed::from_coarse(grafton_visca::types::Coarse) -> Self
 impl core::clone::Clone for grafton_visca::types::ZoomSpeed
 pub fn grafton_visca::types::ZoomSpeed::clone(&self) -> grafton_visca::types::ZoomSpeed
 impl core::cmp::Eq for grafton_visca::types::ZoomSpeed
@@ -26183,7 +26166,7 @@ pub fn grafton_visca::Request::reply_shape(&self) -> grafton_visca::raw::RawRepl
 pub fn grafton_visca::Request::retry_class(&self) -> grafton_visca::RetryClass
 pub fn grafton_visca::Request::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub fn grafton_visca::Request::validate_for_profile(&self, &grafton_visca::profile::ProfileSpec) -> grafton_visca::Result<()>
-pub fn grafton_visca::Request::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> grafton_visca::Result<usize, grafton_visca::EncodeError>
+pub fn grafton_visca::Request::write_into(&self, grafton_visca::CameraId, &mut [u8]) -> grafton_visca::Result<usize>
 impl grafton_visca::Request for grafton_visca::command::AWBSensitivityCommand
 pub type grafton_visca::command::AWBSensitivityCommand::Class = grafton_visca::request::Plain
 pub const grafton_visca::command::AWBSensitivityCommand::CONTROL_CLASS: grafton_visca::ControlClass
@@ -28453,7 +28436,5 @@ pub fn grafton_visca::TokioRuntime::now(&self) -> std::time::Instant
 pub fn grafton_visca::submit_applied<'a>(&'a grafton_visca::DynSessionCamera, &'a dyn grafton_visca::DynAppliedRequest) -> grafton_visca::DynFuture<'a, core::result::Result<grafton_visca::DynAppliedOperation, grafton_visca::Error>>
 pub fn grafton_visca::submit_targeted<'a>(&'a grafton_visca::DynSessionCamera, &'a dyn grafton_visca::DynTargetedRequest) -> grafton_visca::DynFuture<'a, core::result::Result<grafton_visca::DynTargetedOperation, grafton_visca::Error>>
 pub fn grafton_visca::zoom_from_normalized(grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain, u16, core::option::Option<u16>) -> core::result::Result<grafton_visca::types::ZoomPosition, grafton_visca::Error>
-pub type grafton_visca::Coarse = grafton_visca::types::SpeedLevel
 pub type grafton_visca::DynFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = T> + core::marker::Send + 'a)>>
-pub type grafton_visca::EncodeError = grafton_visca::Error
 pub type grafton_visca::Result<T, E> = core::result::Result<T, E>

@@ -653,7 +653,7 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 &self,
                 camera_id: #crate_path::CameraId,
                 buffer: &mut [u8],
-            ) -> ::core::result::Result<usize, #crate_path::EncodeError> {
+            ) -> ::core::result::Result<usize, #crate_path::Error> {
                 #crate_path::__macro_support::write_frame(
                     camera_id,
                     &[&Self::__GRAFTON_VISCA_INQUIRY_BODY],

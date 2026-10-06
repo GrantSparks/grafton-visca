@@ -2550,14 +2550,13 @@ fn request_transmit_optional(
 
 #[test]
 fn sending_and_pre_ack_cancellation_record_intent_then_emit_one_cancel_on_ack() {
-    use crate::command::semantics::WriteOnlyState;
+    use crate::StateKey;
 
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let mut request = command(1, CancellationPolicy::Supported);
     if let RuntimeRequest::Command { applied_state, .. } = &mut request {
-        *applied_state =
-            Some(AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap());
+        *applied_state = Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap());
     }
     let admitted_effects = engine.handle(
         Input::Admit {
@@ -3384,7 +3383,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
 fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let start = Instant::now();
     let projection = AppliedStateProjection::set(
-        crate::command::semantics::WriteOnlyState::PanTiltLimits,
+        crate::StateKey::PanTiltLimits,
         &[
             i64::from(crate::command::PanTiltLimitCorner::UpRight.to_byte()),
             1,
@@ -3452,13 +3451,13 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
 
 #[test]
 fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
-    use crate::command::semantics::WriteOnlyState;
+    use crate::StateKey;
 
     let start = Instant::now();
     let projections = [
-        AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap(),
-        AppliedStateProjection::clear(WriteOnlyState::ImageFreeze),
-        AppliedStateProjection::invalidate(WriteOnlyState::TallyMode),
+        AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap(),
+        AppliedStateProjection::clear(StateKey::ImageFreeze),
+        AppliedStateProjection::invalidate(StateKey::TallyMode),
     ];
 
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -3522,7 +3521,7 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                 wire: wire(0x81),
                 context,
                 applied_state: Some(
-                    AppliedStateProjection::set(WriteOnlyState::Spotlight, &[0]).unwrap(),
+                    AppliedStateProjection::set(StateKey::Spotlight, &[0]).unwrap(),
                 ),
             },
             slot: AdmissionSlot::Ordinary,
@@ -8467,7 +8466,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
 /// become an applied state transition.
 #[test]
 fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
-    use crate::command::semantics::WriteOnlyState;
+    use crate::StateKey;
 
     let start = Instant::now();
     let budget_deadline = start + Duration::from_millis(10);
@@ -8484,8 +8483,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
             retry,
         );
         if let RuntimeRequest::Command { applied_state, .. } = &mut request {
-            *applied_state =
-                Some(AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap());
+            *applied_state = Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap());
         }
         let admission = engine.handle(
             Input::Admit {
@@ -8535,8 +8533,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
             retry,
         );
         if let RuntimeRequest::Command { applied_state, .. } = &mut request {
-            *applied_state =
-                Some(AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap());
+            *applied_state = Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap());
         }
         let admission = engine.handle(
             Input::Admit {

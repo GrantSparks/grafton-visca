@@ -5,8 +5,8 @@ use std::{num::NonZeroU64, sync::Arc, time::Duration};
 use smallvec::SmallVec;
 
 use crate::{
-    command::semantics::WriteOnlyState, protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES,
-    raw::MAX_BYTES, CameraId, Error, ViscaSocket,
+    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, CameraId, Error,
+    StateKey, ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
@@ -330,22 +330,22 @@ impl AppliedStateValue {
 pub(crate) enum AppliedStateProjection {
     /// Replace the key with a bounded known value.
     Set {
-        key: WriteOnlyState,
+        key: StateKey,
         value: AppliedStateValue,
     },
     /// Record a known absence for the key.
     Clear {
-        key: WriteOnlyState,
+        key: StateKey,
         /// Bounded discriminator naming what the clear is local to: a pan/tilt
         /// limit clear names the corner it clears, exactly as a limit set does.
         value: AppliedStateValue,
     },
     /// Record that the key's value is unknown.
-    Invalidate { key: WriteOnlyState },
+    Invalidate { key: StateKey },
 }
 
 impl AppliedStateProjection {
-    pub(crate) fn set(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
+    pub(crate) fn set(key: StateKey, values: &[i64]) -> Result<Self, Error> {
         Ok(Self::Set {
             key,
             value: AppliedStateValue::new(values)?,
@@ -355,7 +355,7 @@ impl AppliedStateProjection {
     // A value-less clear for engine tests; production preparation builds every
     // clear with its discriminator through `clear_with_values`.
     #[cfg(test)]
-    pub(crate) const fn clear(key: WriteOnlyState) -> Self {
+    pub(crate) const fn clear(key: StateKey) -> Self {
         Self::Clear {
             key,
             value: AppliedStateValue {
@@ -365,18 +365,18 @@ impl AppliedStateProjection {
         }
     }
 
-    pub(crate) fn clear_with_values(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
+    pub(crate) fn clear_with_values(key: StateKey, values: &[i64]) -> Result<Self, Error> {
         Ok(Self::Clear {
             key,
             value: AppliedStateValue::new(values)?,
         })
     }
 
-    pub(crate) const fn invalidate(key: WriteOnlyState) -> Self {
+    pub(crate) const fn invalidate(key: StateKey) -> Self {
         Self::Invalidate { key }
     }
 
-    pub(crate) const fn state(self) -> WriteOnlyState {
+    pub(crate) const fn state(self) -> StateKey {
         match self {
             Self::Set { key, .. } | Self::Clear { key, .. } | Self::Invalidate { key } => key,
         }

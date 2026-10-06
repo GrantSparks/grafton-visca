@@ -35,7 +35,7 @@ use grafton_visca::{
         ZoomDrive, ZoomStop,
     },
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
-    CameraId, Coarse, ControlClass, Error, PresetNumber, Request, RetryClass, TimeoutClass,
+    CameraId, ControlClass, Error, PresetNumber, Request, RetryClass, SpeedLevel, TimeoutClass,
     ZoomSpeed,
 };
 
@@ -113,7 +113,7 @@ fn built_in_commands_end_with_the_exported_terminator() {
         PanTiltReset,
         ZoomDrive::Tele,
         ZoomDrive::Wide,
-        ZoomDrive::TeleVariable(ZoomSpeed::from(Coarse::Fast)),
+        ZoomDrive::TeleVariable(ZoomSpeed::from(SpeedLevel::Fast)),
         ZoomDrive::WideVariable(ZoomSpeed::ZERO),
         ZoomStop,
         FocusInfinity,

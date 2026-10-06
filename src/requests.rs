@@ -53,9 +53,6 @@ impl BuiltinInquiryAuthority {
     }
 }
 
-/// Encoding error reported before a request is admitted to a camera owner.
-pub type EncodeError = Error;
-
 /// Deadline family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -717,7 +714,7 @@ pub trait Request: Send + Sync {
     /// capability or profile-range validation. Shared preparation calls
     /// [`Self::validate_for_profile`] first and encodes only after that check
     /// succeeds.
-    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError>;
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
     /// Validates value-specific capability and range facts before encoding.
     ///

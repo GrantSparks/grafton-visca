@@ -1,5 +1,5 @@
 fn main() {
-    let _ = grafton_visca::command::semantics::WriteOnlyState::ImageFreeze;
+    let _ = grafton_visca::command::semantics::BuiltinCommand::PanTiltHome;
 }
 
 //~ E0603
