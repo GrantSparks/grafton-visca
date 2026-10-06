@@ -649,7 +649,7 @@ records the representative scenarios required before a stable release (#753).
   `MotionSyncSpeed::from_preset` and the `motion_sync().set_preset(u8)`
   accessor.
 - **BREAKING** (#807): `TryFrom<Fraction> for ShutterSpeed` (its table matched
-  no profile) and `Fraction::same_value`.
+  no profile).
 - **BREAKING** (#808): the profile-less G2-geometry helpers
   (`PanTiltPosition::as_degrees`, `PanTiltPositionDeg::to_raw`),
   `PanTiltPositionRaw`, `types::{PanPosition, TiltPosition}`, the
@@ -666,11 +666,11 @@ records the representative scenarios required before a stable release (#753).
   raw_ip_buffers, sony_ip_buffers}`, `declare_net_transport!`,
   `new_default`, the blocking `Tcp::connect` / `connect_timeout` and
   `Udp::connect`, and `serial::Config::camera_address`.
-- **BREAKING** (#819): `Error::InvalidPreset` and `Error::invalid_preset`.
-  Nothing produced it; an out-of-profile preset number is
+- **BREAKING** (#819): `Error::InvalidPreset`, whose only producer was the
+  removed `G2PresetId::new`. An out-of-profile preset number is
   `Error::ParameterOutOfRange`.
-- **BREAKING** (#828): `Error::DecoderNotFound` and
-  `Error::decoder_not_found`. Its only producer became
+- **BREAKING** (#828): `Error::DecoderNotFound`, which a Sony BRC-300
+  pan/tilt reply of the wrong length returned. That reply is now
   `InvalidResponseLength` (see the Sony BRC-300 pan/tilt reply entry under
   Changed).
 - (#796) The executable 1.x behavioural-parity corpus

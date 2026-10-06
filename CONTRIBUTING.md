@@ -433,7 +433,9 @@ The `release-validation` CI job enforces four parts of this record mechanically:
   published one that have no tag (prepared but never published) may change,
   and such an untagged section may be folded back into Unreleased. A release
   cut that moves the prior Unreleased lines in order into one new strict dated
-  section below an otherwise empty Unreleased heading is also accepted.
+  section below an otherwise empty Unreleased heading is also accepted, but
+  only once no unpublished section remains below it: fold those first. Each
+  version has exactly one dated heading.
   Correct a published statement with an entry under Unreleased; do not edit the
   published entry. The validator needs the release tags, so run it from a
   full-history checkout with tags; it fails rather than guess when none are

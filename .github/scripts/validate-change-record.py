@@ -148,6 +148,17 @@ def unpublished_release_versions(suffix: str, revision: str) -> frozenset[str]:
     return frozenset()
 
 
+def release_versions(suffix: str) -> list[str]:
+    """Return the version of every dated release section, in file order."""
+
+    versions = []
+    for start, end in top_level_sections(suffix):
+        version = dated_release_version(suffix[start:end])
+        if version is not None:
+            versions.append(version)
+    return versions
+
+
 def published_suffix(suffix: str, unpublished: frozenset[str]) -> str:
     """Drop the leading unpublished release sections from a changelog suffix."""
 
@@ -474,6 +485,28 @@ def main(argv: list[str]) -> int:
                 "restore the published text and record any correction under "
                 f"Unreleased\n{preview}"
             )
+
+        versions = release_versions(head_suffix)
+        duplicates = sorted(
+            {version for version in versions if versions.count(version) > 1}
+        )
+        if duplicates:
+            errors.append(
+                f"{CHANGELOG} has more than one release section for "
+                f"{', '.join(duplicates)}; each version gets exactly one dated heading"
+            )
+
+        if release_cut is not None:
+            # RELEASING.md: fold every unpublished section back into Unreleased
+            # before cutting. A cut above one would make it permanently
+            # immutable once the new release is tagged.
+            stale = [version for version in versions[1:] if version in unpublished]
+            if stale:
+                errors.append(
+                    f"{CHANGELOG} release cut leaves unpublished release "
+                    f"section(s) {', '.join(stale)} below it; fold them into "
+                    "Unreleased before cutting a release"
+                )
 
         snapshots = changed_paths(merge_base, head, API_SNAPSHOT_GLOB)
         if snapshots and not path_changed(merge_base, head, CHANGELOG):
