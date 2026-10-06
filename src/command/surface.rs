@@ -8,7 +8,7 @@
 
 use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 
-use super::semantics::{BuiltinCommand, BuiltinRequestClass};
+use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 
 // MSRV note: Rust 1.88's dead-code analysis does not follow uses produced by
 // the continuation-style `noun_table!` expansion or by the const ledger below.
@@ -159,7 +159,7 @@ macro_rules! broadcast_entry {
         StaticSurfaceEntry {
             command: BuiltinCommand::$command,
             disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
-            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
+            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
         }
     };
 }
@@ -169,39 +169,24 @@ macro_rules! internal_entry {
         StaticSurfaceEntry {
             command: BuiltinCommand::$command,
             disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
-            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
+            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
         }
     };
 }
 
-/// The request kind recorded by one noun-table row.
-///
-/// `BuiltinRequestClass` carries more information than a facade needs (axes,
-/// state effects, and completion policy).  Keeping this small projection in
-/// the surface consumer lets the registry check that its `plain`/`applied`/
-/// `targeted` spelling agrees with the authoritative semantic ledger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-enum RegistryKind {
-    Plain,
-    AppliedOnly,
-    Targeted,
-}
-
-/// Resolve a registry kind against the authoritative semantic classification.
+/// Resolve a noun-table row kind against the authoritative semantic
+/// classification.
 ///
 /// This is deliberately a const function with no fallback: a row whose kind
 /// does not match its command ID fails during const evaluation below, before a
 /// facade can accidentally expose the wrong operation handle.
 #[allow(clippy::panic)]
-#[allow(dead_code)]
-const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinRequestClass {
+const fn registry_class(command: BuiltinCommand, kind: BuiltinRequestKind) -> BuiltinRequestClass {
     let class = command.classification();
-    match (kind, class) {
-        (RegistryKind::Plain, BuiltinRequestClass::Plain { .. })
-        | (RegistryKind::AppliedOnly, BuiltinRequestClass::AppliedOnly { .. })
-        | (RegistryKind::Targeted, BuiltinRequestClass::Targeted { .. }) => class,
-        _ => panic!("noun-table request kind disagrees with BuiltinCommand::classification"),
+    if class.kind() as u8 == kind as u8 {
+        class
+    } else {
+        panic!("noun-table request kind disagrees with BuiltinCommand::classification")
     }
 }
 
@@ -218,13 +203,13 @@ pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
 
 macro_rules! registry_class {
     (plain) => {
-        RegistryKind::Plain
+        BuiltinRequestKind::Plain
     };
     (applied) => {
-        RegistryKind::AppliedOnly
+        BuiltinRequestKind::AppliedOnly
     };
     (targeted) => {
-        RegistryKind::Targeted
+        BuiltinRequestKind::Targeted
     };
 }
 

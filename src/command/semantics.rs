@@ -24,13 +24,12 @@
 //! both have exact position inquiries in the built-in inquiry inventory. They
 //! are intentionally not silently mapped to an all-axis movement query.
 //!
-//! The production typed-request lowering consumes this ledger through the
-//! private contracts near [`BuiltinRequestClass`].  Every concrete built-in
-//! request row supplies a monomorphized contract marker; the marker compares
-//! the request's closed class, fixed/profile-dependent axes, and (where
-//! applicable) applied-state requirement with the ledger row's
-//! classification.  The inventory is therefore useful in ordinary builds, not
-//! only in the independent semantic tests.
+//! The production typed-request lowering consumes this ledger through
+//! [`BuiltinRequestContract`]: every built-in request type names one ledger
+//! row, its declared class is checked against that row at compile time, and
+//! its fixed operation axes and write-only state effect are read from it.
+//! The ledger is therefore load-bearing in ordinary builds, not only in the
+//! independent semantic tests.
 
 use crate::AffectedAxes;
 
@@ -44,6 +43,19 @@ pub(crate) enum BuiltinAxisSelection {
     /// This is not an all-axis fallback: a profile must provide a concrete,
     /// non-empty set before a preset request can be prepared.
     ProfilePresetRecall,
+}
+
+impl BuiltinAxisSelection {
+    /// Returns whether two selections are the same exact axes or both
+    /// profile-selected.
+    const fn same_selection(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Exact(left), Self::Exact(right)) => left.bits() == right.bits(),
+            (Self::ProfilePresetRecall, Self::ProfilePresetRecall) => true,
+            (Self::Exact(_), Self::ProfilePresetRecall)
+            | (Self::ProfilePresetRecall, Self::Exact(_)) => false,
+        }
+    }
 }
 
 /// Private semantic spelling for the public [`crate::state_cache::StateKey`].
@@ -71,6 +83,16 @@ pub(crate) enum AppliedStateEffectRequirement {
 }
 
 impl AppliedStateEffectRequirement {
+    /// Returns whether two effects have the same verb and state key.
+    const fn same_effect(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Set(left), Self::Set(right))
+            | (Self::Clear(left), Self::Clear(right))
+            | (Self::Invalidate(left), Self::Invalidate(right)) => left as u8 == right as u8,
+            _ => false,
+        }
+    }
+
     /// Returns the affected write-only state key.
     #[cfg(test)]
     #[must_use]
@@ -128,8 +150,40 @@ impl BuiltinRequestClass {
         }
     }
 
+    /// Returns the request kind this class requires.
+    #[must_use]
+    pub(crate) const fn kind(self) -> BuiltinRequestKind {
+        match self {
+            Self::Plain { .. } => BuiltinRequestKind::Plain,
+            Self::Targeted { .. } => BuiltinRequestKind::Targeted,
+            Self::AppliedOnly { .. } => BuiltinRequestKind::AppliedOnly,
+        }
+    }
+
+    /// Returns whether two classes impose the same request contract: the
+    /// same class, the same axis selection and the same state effect.
+    #[must_use]
+    pub(crate) const fn same_contract(self, other: Self) -> bool {
+        match (self, other) {
+            (
+                Self::Plain { state_effect: left },
+                Self::Plain {
+                    state_effect: right,
+                },
+            ) => match (left, right) {
+                (None, None) => true,
+                (Some(left), Some(right)) => left.same_effect(right),
+                (None, Some(_)) | (Some(_), None) => false,
+            },
+            (Self::Targeted { axes: left }, Self::Targeted { axes: right })
+            | (Self::AppliedOnly { axes: left }, Self::AppliedOnly { axes: right }) => {
+                left.same_selection(right)
+            }
+            _ => false,
+        }
+    }
+
     /// Returns the closed write-only state requirement, if any.
-    #[cfg(test)]
     #[must_use]
     pub(crate) const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         match self {
@@ -140,6 +194,7 @@ impl BuiltinRequestClass {
 }
 
 /// Completion class selected by a built-in operation.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum BuiltinCompletionClass {
     /// Physical motion has a meaningful terminal state.
@@ -148,209 +203,96 @@ pub(crate) enum BuiltinCompletionClass {
     AppliedOnly,
 }
 
-/// Private class contract implemented by the two closed operation markers.
+/// The request kind of one ledger row: the closed `Request::Class` a typed
+/// request serving it must declare, and the kind a noun-table row spells as
+/// `plain`, `applied` or `targeted`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum BuiltinRequestKind {
+    /// `request::Plain`.
+    Plain,
+    /// `request::Operation<completion::AppliedOnly>`.
+    AppliedOnly,
+    /// `request::Operation<completion::Targeted>`.
+    Targeted,
+}
+
+/// The ledger kind of a closed request class marker.
+pub(crate) trait BuiltinClassMarker {
+    /// Kind a built-in request with this class must serve.
+    const KIND: BuiltinRequestKind;
+}
+
+impl BuiltinClassMarker for crate::request::Plain {
+    const KIND: BuiltinRequestKind = BuiltinRequestKind::Plain;
+}
+
+impl BuiltinClassMarker for crate::request::Operation<crate::completion::Targeted> {
+    const KIND: BuiltinRequestKind = BuiltinRequestKind::Targeted;
+}
+
+impl BuiltinClassMarker for crate::request::Operation<crate::completion::AppliedOnly> {
+    const KIND: BuiltinRequestKind = BuiltinRequestKind::AppliedOnly;
+}
+
+/// A built-in request type's tie to the ledger.
 ///
-/// This keeps the expected completion class in the type-level request
-/// contract. A coverage marker that names `Operation<Targeted>` therefore
-/// cannot accidentally validate an `AppliedOnly` ledger row (or vice versa).
-pub(crate) trait BuiltinCompletionContract {
-    /// Ledger completion class represented by this request marker.
-    const CLASS: BuiltinCompletionClass;
+/// Everything else in the type's contract (the class check, fixed operation
+/// axes, the write-only state effect and the typed capability gate) is read
+/// from [`Self::LEDGER_ROW`].
+pub(crate) trait BuiltinRequestContract: crate::Request {
+    /// A ledger row this type serves. Every ledger row served by the type
+    /// must classify identically and, unless [`Self::GATE_BY_VALUE`], share
+    /// its typed capability gate; the typed-request inventory checks both at
+    /// compile time.
+    const LEDGER_ROW: BuiltinCommand;
+    /// The type's rows carry different typed capability gates, so its
+    /// validator names the row for each value.
+    const GATE_BY_VALUE: bool = false;
 }
 
-impl BuiltinCompletionContract for crate::completion::Targeted {
-    const CLASS: BuiltinCompletionClass = BuiltinCompletionClass::Targeted;
-}
-
-impl BuiltinCompletionContract for crate::completion::AppliedOnly {
-    const CLASS: BuiltinCompletionClass = BuiltinCompletionClass::AppliedOnly;
-}
-
-/// Private operation contract shared by concrete built-in operation types.
+/// The exact fixed axes of `T`'s ledger row.
 ///
-/// `AXIS_SELECTION` is the exact ledger spelling. Profile-dependent
-/// operations use [`BuiltinAxisSelection::ProfilePresetRecall`]; they never
-/// manufacture a broad fallback set.
-pub(crate) trait BuiltinOperationContract {
-    /// Exact fixed axes or the profile-selected preset-recall marker.
-    const AXIS_SELECTION: BuiltinAxisSelection;
-}
-
-/// Private fixed-axis contract consumed by production operation methods.
+/// # Panics
 ///
-/// The associated constant is deliberately separate from
-/// [`BuiltinOperationContract::AXIS_SELECTION`]: a profile-dependent
-/// operation has no fixed `AffectedAxes` value and must retain its validated
-/// runtime profile selection.
-pub(crate) trait BuiltinFixedOperationContract: BuiltinOperationContract {
-    /// Concrete non-empty axes returned by `OperationCommand::affected_axes`.
-    const AFFECTED_AXES: AffectedAxes;
-}
-
-/// Private state-effect contract consumed by production applied-state
-/// projection.
-///
-/// Only built-in request types with a write-only state effect implement this
-/// trait. Plain rows without an effect use the `None` branch of the plain
-/// coverage marker, so an omitted implementation cannot hide a state row.
-pub(crate) trait BuiltinStateEffectContract {
-    /// Closed state effect required after exact protocol application.
-    const STATE_EFFECT: AppliedStateEffectRequirement;
-}
-
-/// Fails const evaluation when a plain ledger row and its typed request
-/// disagree about class or state effect.
-pub(crate) const fn assert_plain_request_contract(
-    row: BuiltinCommand,
-    expected_effect: Option<AppliedStateEffectRequirement>,
-) {
-    let contract_matches = match row.classification() {
-        BuiltinRequestClass::Plain { state_effect } => {
-            option_state_effect_equal(state_effect, expected_effect)
+/// Fails const evaluation when the row is plain or selects its axes from the
+/// profile.
+#[allow(clippy::panic)]
+pub(crate) const fn fixed_axes<T: BuiltinRequestContract>() -> AffectedAxes {
+    match T::LEDGER_ROW.classification() {
+        BuiltinRequestClass::Targeted {
+            axes: BuiltinAxisSelection::Exact(axes),
         }
-        BuiltinRequestClass::Targeted { .. } | BuiltinRequestClass::AppliedOnly { .. } => false,
-    };
-    assert!(contract_matches);
-}
-
-const fn option_state_effect_equal(
-    left: Option<AppliedStateEffectRequirement>,
-    right: Option<AppliedStateEffectRequirement>,
-) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) => state_effect_equal(left, right),
-        (None, Some(_)) | (Some(_), None) => false,
+        | BuiltinRequestClass::AppliedOnly {
+            axes: BuiltinAxisSelection::Exact(axes),
+        } => axes,
+        _ => panic!("ledger row has no fixed operation axes"),
     }
 }
 
-const fn state_effect_equal(
-    left: AppliedStateEffectRequirement,
-    right: AppliedStateEffectRequirement,
-) -> bool {
-    match (left, right) {
-        (AppliedStateEffectRequirement::Set(left), AppliedStateEffectRequirement::Set(right))
-        | (
-            AppliedStateEffectRequirement::Clear(left),
-            AppliedStateEffectRequirement::Clear(right),
-        )
-        | (
-            AppliedStateEffectRequirement::Invalidate(left),
-            AppliedStateEffectRequirement::Invalidate(right),
-        ) => state_key_equal(left, right),
-        _ => false,
+/// The write-only state effect of `T`'s ledger row.
+///
+/// # Panics
+///
+/// Fails const evaluation when the row has no state effect.
+#[allow(clippy::panic)]
+pub(crate) const fn state_effect<T: BuiltinRequestContract>() -> AppliedStateEffectRequirement {
+    match T::LEDGER_ROW.classification().state_effect() {
+        Some(effect) => effect,
+        None => panic!("ledger row has no write-only state effect"),
     }
 }
 
-const fn state_key_equal(left: WriteOnlyState, right: WriteOnlyState) -> bool {
-    left as u8 == right as u8
-}
-
-/// Monomorphizes the closed plain-request class marker and validates the
-/// ledger row in a production const initializer.
-pub(crate) const fn plain_request_contract<T>(
-    row: BuiltinCommand,
-    expected_effect: Option<AppliedStateEffectRequirement>,
-) -> fn()
+/// Fails const evaluation when `T`'s declared request class disagrees with
+/// its ledger row.
+pub(crate) const fn assert_request_contract<T>()
 where
-    T: crate::requests::Request<Class = crate::request::Plain>,
+    T: BuiltinRequestContract,
+    T::Class: BuiltinClassMarker,
 {
-    assert_plain_request_contract(row, expected_effect);
-    builtin_plain_marker::<T>
-}
-
-/// Monomorphizes a state-bearing plain request and derives its expected ledger
-/// effect from the private production state contract.
-pub(crate) const fn state_request_contract<T>(row: BuiltinCommand) -> fn()
-where
-    T: crate::requests::Request<Class = crate::request::Plain> + BuiltinStateEffectContract,
-{
-    assert_plain_request_contract(row, Some(<T as BuiltinStateEffectContract>::STATE_EFFECT));
-    builtin_plain_marker::<T>
-}
-
-const fn builtin_plain_marker<T>()
-where
-    T: crate::requests::Request<Class = crate::request::Plain>,
-{
-}
-
-/// Fails const evaluation when a fixed-axis operation row and its typed
-/// request disagree about completion class or axes.
-pub(crate) const fn assert_fixed_operation_contract<T, K>(row: BuiltinCommand) -> fn()
-where
-    T: crate::requests::Request<Class = crate::request::Operation<K>>
-        + crate::requests::OperationCommand<K>
-        + BuiltinFixedOperationContract,
-    K: crate::completion::Kind + BuiltinCompletionContract,
-{
-    let expected_axes = <T as BuiltinOperationContract>::AXIS_SELECTION;
-    let concrete_axes = <T as BuiltinFixedOperationContract>::AFFECTED_AXES;
-    assert!(matches!(expected_axes, BuiltinAxisSelection::Exact(_)));
-    if let BuiltinAxisSelection::Exact(axes) = expected_axes {
-        assert!(axes.bits() == concrete_axes.bits());
-    }
-    assert_operation_classification(row, K::CLASS, expected_axes);
-    builtin_operation_marker::<T, K>
-}
-
-/// Fails const evaluation when a profile-dependent operation row and its
-/// typed request disagree about completion class or axis-selection mode.
-pub(crate) const fn assert_profile_operation_contract<T, K>(row: BuiltinCommand) -> fn()
-where
-    T: crate::requests::Request<Class = crate::request::Operation<K>>
-        + crate::requests::OperationCommand<K>
-        + BuiltinOperationContract,
-    K: crate::completion::Kind + BuiltinCompletionContract,
-{
-    let expected_axes = <T as BuiltinOperationContract>::AXIS_SELECTION;
-    assert!(matches!(
-        expected_axes,
-        BuiltinAxisSelection::ProfilePresetRecall
-    ));
-    assert_operation_classification(row, K::CLASS, expected_axes);
-    builtin_operation_marker::<T, K>
-}
-
-const fn assert_operation_classification(
-    row: BuiltinCommand,
-    expected_class: BuiltinCompletionClass,
-    expected_axes: BuiltinAxisSelection,
-) {
-    let contract_matches = match (row.classification(), expected_class) {
-        (BuiltinRequestClass::Targeted { axes }, BuiltinCompletionClass::Targeted)
-        | (BuiltinRequestClass::AppliedOnly { axes }, BuiltinCompletionClass::AppliedOnly) => {
-            axis_selection_equal(axes, expected_axes)
-        }
-        (
-            BuiltinRequestClass::Plain { .. },
-            BuiltinCompletionClass::Targeted | BuiltinCompletionClass::AppliedOnly,
-        )
-        | (BuiltinRequestClass::Targeted { .. }, BuiltinCompletionClass::AppliedOnly)
-        | (BuiltinRequestClass::AppliedOnly { .. }, BuiltinCompletionClass::Targeted) => false,
-    };
-    assert!(contract_matches);
-}
-
-const fn axis_selection_equal(left: BuiltinAxisSelection, right: BuiltinAxisSelection) -> bool {
-    match (left, right) {
-        (BuiltinAxisSelection::Exact(left), BuiltinAxisSelection::Exact(right)) => {
-            left.bits() == right.bits()
-        }
-        (BuiltinAxisSelection::ProfilePresetRecall, BuiltinAxisSelection::ProfilePresetRecall) => {
-            true
-        }
-        (BuiltinAxisSelection::Exact(_), BuiltinAxisSelection::ProfilePresetRecall)
-        | (BuiltinAxisSelection::ProfilePresetRecall, BuiltinAxisSelection::Exact(_)) => false,
-    }
-}
-
-const fn builtin_operation_marker<T, K>()
-where
-    T: crate::requests::Request<Class = crate::request::Operation<K>>
-        + crate::requests::OperationCommand<K>,
-    K: crate::completion::Kind,
-{
+    assert!(
+        T::LEDGER_ROW.classification().kind() as u8 == <T::Class as BuiltinClassMarker>::KIND as u8,
+        "request class disagrees with its ledger row",
+    );
 }
 
 /// The closed semantic ledger: one row per built-in command, in protocol

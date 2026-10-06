@@ -7,10 +7,10 @@
 use crate::{
     capabilities::TypedSupportSurface,
     command::{
-        encode::WireEncode, semantics::BuiltinCommand as StaticBuiltinCommand,
-        surface::typed_surface_for_command, Flip, Focus, Iris, NdFilterMode, NdFilterStep,
-        NdFilterStepCommand, NdFilterValue, PanTilt, PanTiltDirection, PanTiltLimitCorner,
-        PresetAction, PresetCommand, PresetNumber, PushAF, Zoom,
+        encode::WireEncode, semantics::BuiltinCommand, surface::typed_surface_for_command, Flip,
+        Focus, Iris, NdFilterMode, NdFilterStep, NdFilterStepCommand, NdFilterValue, PanTilt,
+        PanTiltDirection, PanTiltLimitCorner, PresetAction, PresetCommand, PresetNumber, PushAF,
+        Zoom,
     },
     completion, request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
     RetryClass, TimeoutClass,
@@ -40,68 +40,103 @@ use crate::{
 };
 use crate::{units::Degrees, PanTiltCoordinateConversion};
 
-macro_rules! impl_request {
-    ($type:ty, $class:ty, $size:expr, $timeout:expr, $retry:expr, $control:expr, $wire:expr) => {
-        impl Request for $type {
-            type Class = $class;
+/// Implements the typed request contract of built-in request types from
+/// their ledger rows.
+///
+/// One entry per request type:
+///
+/// ```text
+/// <type> => <BuiltinCommand row>: <Plain | Targeted | AppliedOnly> [(<flag>)] {
+///     size: <MAX_SIZE>
+///     [, policy: (<TimeoutClass>, <RetryClass>, <ControlClass>)]
+///     [, wire: <closure from &type to its wire value>]
+/// };
+/// ```
+///
+/// The row is the type's one tie to the semantic ledger: the class is
+/// checked against it at compile time, and fixed operation axes, the
+/// write-only state effect and the typed capability gate are all read from
+/// it. `size` stays explicit because the allocation bound must be a
+/// constant; the exact encoded length is measured from the encoder. Without
+/// `policy`, a plain request is `(Quick, Standard, Normal)` and an operation
+/// `(Movement, Movement, User)`; without `wire`, the type is its own wire
+/// encoder.
+///
+/// Flags: `profile_axes` marks an operation whose axes come from the profile,
+/// so it implements `OperationCommand` itself; `gate_by_value` marks a type
+/// whose rows carry different typed capability gates, so its validator names
+/// the row for each value.
+macro_rules! builtin_request {
+    (@class Plain) => { request::Plain };
+    (@class Targeted) => { request::Operation<completion::Targeted> };
+    (@class AppliedOnly) => { request::Operation<completion::AppliedOnly> };
 
-            const MAX_SIZE: usize = $size;
-            const TIMEOUT_CLASS: TimeoutClass = $timeout;
-            const RETRY_CLASS: RetryClass = $retry;
-            const CONTROL_CLASS: ControlClass = $control;
+    (@policy $class:ident ($timeout:ident, $retry:ident, $control:ident)) => {
+        (TimeoutClass::$timeout, RetryClass::$retry, ControlClass::$control)
+    };
+    (@policy Plain) => {
+        (TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal)
+    };
+    (@policy $operation:ident) => {
+        (TimeoutClass::Movement, RetryClass::Movement, ControlClass::User)
+    };
 
-            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                #[cfg(test)]
-                REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-                let wire = ($wire)(self);
-                WireEncode::write_into(&wire, camera_id, buffer)
-            }
+    (@wire $this:tt) => { *$this };
+    (@wire $this:tt, $wire:expr) => { ($wire)($this) };
 
-            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-                <Self as BuiltinValidation>::validate(self, profile)
-            }
+    (@contract $type:ty, $row:ident, gate_by_value) => {
+        impl crate::command::semantics::BuiltinRequestContract for $type {
+            const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
+            const GATE_BY_VALUE: bool = true;
+        }
+    };
+    (@contract $type:ty, $row:ident $(, $flag:ident)?) => {
+        impl crate::command::semantics::BuiltinRequestContract for $type {
+            const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
+        }
+    };
 
-            #[doc(hidden)]
-            #[allow(private_interfaces)]
-            fn admission_control_class(
-                &self,
-                _authority: crate::requests::RequestContractAuthority,
-            ) -> Result<ControlClass, Error> {
-                Ok(Self::CONTROL_CLASS)
-            }
-
-            #[allow(private_interfaces)]
-            fn applied_state_projection(
-                &self,
-                _authority: crate::requests::AppliedStateAuthority,
-            ) -> Option<crate::runtime::engine::AppliedStateProjection> {
-                <Self as BuiltinValidation>::applied_state(self)
+    (@operation $type:ty, Plain $(, $flag:ident)?) => {};
+    (@operation $type:ty, $class:ident, profile_axes) => {};
+    (@operation $type:ty, $class:ident $(, $flag:ident)?) => {
+        impl OperationCommand<completion::$class> for $type {
+            fn affected_axes(&self) -> AffectedAxes {
+                const { crate::command::semantics::fixed_axes::<$type>() }
             }
         }
     };
-}
 
-/// Implements a typed request whose profile-owned wire codec changes its
-/// exact encoded length while retaining one conservative maximum allocation.
-macro_rules! impl_profiled_request {
-    ($type:ty, $class:ty, $size:expr, $timeout:expr, $retry:expr, $control:expr, $encoded_size:expr, $wire:expr) => {
+    ($(
+        $type:ty => $row:ident: $class:ident $(($flag:ident))? {
+            size: $size:expr
+            $(, policy: ($timeout:ident, $retry:ident, $control:ident))?
+            $(, wire: $wire:expr)?
+            $(,)?
+        };
+    )+) => {$(
         impl Request for $type {
-            type Class = $class;
+            type Class = builtin_request!(@class $class);
 
             const MAX_SIZE: usize = $size;
-            const TIMEOUT_CLASS: TimeoutClass = $timeout;
-            const RETRY_CLASS: RetryClass = $retry;
-            const CONTROL_CLASS: ControlClass = $control;
+            const TIMEOUT_CLASS: TimeoutClass =
+                builtin_request!(@policy $class $(($timeout, $retry, $control))?).0;
+            const RETRY_CLASS: RetryClass =
+                builtin_request!(@policy $class $(($timeout, $retry, $control))?).1;
+            const CONTROL_CLASS: ControlClass =
+                builtin_request!(@policy $class $(($timeout, $retry, $control))?).2;
 
             fn encoded_size(&self) -> usize {
-                ($encoded_size)(self)
+                encoded_len(&builtin_request!(@wire self $(, $wire)?), Self::MAX_SIZE)
             }
 
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 #[cfg(test)]
                 REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-                let wire = ($wire)(self);
-                WireEncode::write_into(&wire, camera_id, buffer)
+                WireEncode::write_into(
+                    &builtin_request!(@wire self $(, $wire)?),
+                    camera_id,
+                    buffer,
+                )
             }
 
             fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -125,7 +160,26 @@ macro_rules! impl_profiled_request {
                 <Self as BuiltinValidation>::applied_state(self)
             }
         }
-    };
+
+        builtin_request!(@contract $type, $row $(, $flag)?);
+        const _: () = crate::command::semantics::assert_request_contract::<$type>();
+        builtin_request!(@operation $type, $class $(, $flag)?);
+    )+};
+}
+
+/// Exact frame length of a built-in wire value, measured by a dry run into an
+/// empty buffer.
+///
+/// Every built-in encoder writes through the crate's frame writer, which
+/// counts a frame that does not fit and reports its exact length. A value the
+/// encoder rejects reports `fallback`; writing it then fails with the same
+/// error.
+fn encoded_len(wire: &impl WireEncode, fallback: usize) -> usize {
+    match WireEncode::write_into(wire, CameraId::CAMERA_1, &mut []) {
+        Ok(length) => length,
+        Err(Error::BufferTooSmall { required, .. }) => required,
+        Err(_) => fallback,
+    }
 }
 
 pub(crate) trait BuiltinValidation {
@@ -134,91 +188,6 @@ pub(crate) trait BuiltinValidation {
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         None
     }
-}
-
-/// Implements the typed plain-request contract directly for one homogeneous
-/// built-in command. The command remains the sole wire encoder; this helper
-/// supplies only the closed class, policy, profile validation, and applied-state
-/// projection selected by the semantic ledger.
-macro_rules! impl_plain_request {
-    ($type:ty, $size:expr, $timeout:expr, $retry:expr, $control:expr, $encoded_size:expr) => {
-        impl Request for $type {
-            type Class = request::Plain;
-
-            const MAX_SIZE: usize = $size;
-            const TIMEOUT_CLASS: TimeoutClass = $timeout;
-            const RETRY_CLASS: RetryClass = $retry;
-            const CONTROL_CLASS: ControlClass = $control;
-
-            fn encoded_size(&self) -> usize {
-                ($encoded_size)(self)
-            }
-
-            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                #[cfg(test)]
-                REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-                WireEncode::write_into(self, camera_id, buffer)
-            }
-
-            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-                <Self as BuiltinValidation>::validate(self, profile)
-            }
-
-            #[doc(hidden)]
-            #[allow(private_interfaces)]
-            fn admission_control_class(
-                &self,
-                _authority: crate::requests::RequestContractAuthority,
-            ) -> Result<ControlClass, Error> {
-                Ok(Self::CONTROL_CLASS)
-            }
-
-            #[allow(private_interfaces)]
-            fn applied_state_projection(
-                &self,
-                _authority: crate::requests::AppliedStateAuthority,
-            ) -> Option<crate::runtime::engine::AppliedStateProjection> {
-                <Self as BuiltinValidation>::applied_state(self)
-            }
-        }
-    };
-    ($type:ty, $size:expr, $timeout:expr, $retry:expr, $control:expr) => {
-        impl Request for $type {
-            type Class = request::Plain;
-
-            const MAX_SIZE: usize = $size;
-            const TIMEOUT_CLASS: TimeoutClass = $timeout;
-            const RETRY_CLASS: RetryClass = $retry;
-            const CONTROL_CLASS: ControlClass = $control;
-
-            fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                #[cfg(test)]
-                REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-                WireEncode::write_into(self, camera_id, buffer)
-            }
-
-            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-                <Self as BuiltinValidation>::validate(self, profile)
-            }
-
-            #[doc(hidden)]
-            #[allow(private_interfaces)]
-            fn admission_control_class(
-                &self,
-                _authority: crate::requests::RequestContractAuthority,
-            ) -> Result<ControlClass, Error> {
-                Ok(Self::CONTROL_CLASS)
-            }
-
-            #[allow(private_interfaces)]
-            fn applied_state_projection(
-                &self,
-                _authority: crate::requests::AppliedStateAuthority,
-            ) -> Option<crate::runtime::engine::AppliedStateProjection> {
-                <Self as BuiltinValidation>::applied_state(self)
-            }
-        }
-    };
 }
 
 fn require(supported: bool, feature: &'static str) -> Result<(), Error> {
@@ -369,13 +338,6 @@ fn validate_pan_tilt_position(
     Ok(())
 }
 
-const fn pan_tilt_position_encoded_size(wire_codec: PanTiltWireCodec) -> usize {
-    match wire_codec {
-        PanTiltWireCodec::StandardVisca => 15,
-        PanTiltWireCodec::SonyBrc300 => 16,
-    }
-}
-
 fn validate_iris_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
     let capabilities = profile.capabilities();
     require(
@@ -447,7 +409,7 @@ fn validate_tally_state(profile: &crate::ProfileSpec) -> Result<(), Error> {
 /// Only rows with a typed surface may call this helper.
 fn validate_static_typed_command(
     profile: &crate::ProfileSpec,
-    command: StaticBuiltinCommand,
+    command: BuiltinCommand,
     feature: &'static str,
 ) -> Result<(), Error> {
     let Some(surface) = typed_surface_for_command(command) else {
@@ -493,7 +455,7 @@ fn validate_exposure_mode(
     )?;
     validate_static_typed_command(
         profile,
-        StaticBuiltinCommand::ExposureMode,
+        BuiltinCommand::ExposureMode,
         crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )
 }
@@ -837,11 +799,7 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
 
 impl BuiltinValidation for crate::command::exposure::AntiFlickerCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            StaticBuiltinCommand::AntiFlicker,
-            "anti-flicker control",
-        )
+        validate_static_typed_command(profile, BuiltinCommand::AntiFlicker, "anti-flicker control")
     }
 }
 
@@ -1172,7 +1130,7 @@ impl BuiltinValidation for crate::command::streaming::UsbAudio {
 
 impl BuiltinValidation for crate::command::system::SettingsSaveCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, StaticBuiltinCommand::SettingsSave, "settings save")
+        validate_static_typed_command(profile, BuiltinCommand::SettingsSave, "settings save")
     }
 }
 
@@ -1258,12 +1216,12 @@ impl BuiltinValidation for ImageMirrorCommand {
     }
 }
 
-fn state_projection<T: crate::command::semantics::BuiltinStateEffectContract>(
+fn state_projection<T: crate::command::semantics::BuiltinRequestContract>(
     values: &[i64],
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     use crate::command::semantics::AppliedStateEffectRequirement;
 
-    match <T as crate::command::semantics::BuiltinStateEffectContract>::STATE_EFFECT {
+    match const { crate::command::semantics::state_effect::<T>() } {
         AppliedStateEffectRequirement::Set(state) => {
             crate::runtime::engine::AppliedStateProjection::set(state, values).ok()
         }
@@ -1276,13 +1234,13 @@ fn state_projection<T: crate::command::semantics::BuiltinStateEffectContract>(
     }
 }
 
-fn bool_projection<T: crate::command::semantics::BuiltinStateEffectContract>(
+fn bool_projection<T: crate::command::semantics::BuiltinRequestContract>(
     enabled: bool,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     state_projection::<T>(&[i64::from(enabled)])
 }
 
-fn scalar_projection<T: crate::command::semantics::BuiltinStateEffectContract>(
+fn scalar_projection<T: crate::command::semantics::BuiltinRequestContract>(
     value: i64,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     state_projection::<T>(&[value])
@@ -1323,524 +1281,105 @@ impl PreparedPanTiltPosition {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PanTiltHome;
 
-impl_request!(
-    PanTiltHome,
-    request::Operation<completion::Targeted>,
-    5,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &PanTiltHome| PanTilt::Home
-);
+builtin_request! {
+    PanTiltHome => PanTiltHome: Targeted {
+        size: 5,
+        wire: |_: &PanTiltHome| PanTilt::Home,
+    };
+}
 
-// Plain state commands whose public values are already structurally homogeneous.
-// Keeping these implementations on the original command types
-// avoids a second public noun for every on/off or mode value.
-impl_plain_request!(
-    crate::command::preset::PresetRecallSpeedCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::focus::FocusLock,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::SpotlightOn,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::SpotlightOff,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::AutoSlowShutterOn,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::AutoSlowShutterOff,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::nd_filter::NdFilterModeCommand,
-    7,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::nd_filter::AutoNdCommand,
-    7,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::flip::ImageFreeze,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::zoom::DigitalZoom,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::streaming::MulticastStreaming,
-    6,
-    TimeoutClass::Network,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::streaming::SetNdiQuality,
-    6,
-    TimeoutClass::Network,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyBrightLo,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyBrightHi,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::variable_speed::SetVariableSpeedMode,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyOn,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyOff,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyFlash,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-
-// Stateless built-in commands. These values are homogeneous: every
-// branch represented by the type is a configuration, mode, persistence, or
-// output-policy write.  The request implementation therefore lives directly
-// on the public command type and does not need a second noun or a branch
-// discriminator.  Mixed physical enums (PanTilt, Zoom, Focus, Iris, ND, and
-// Preset) remain represented by the structurally distinct request types below.
-impl_plain_request!(
-    crate::command::power::PowerOn,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::power::PowerStandby,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::ExposureCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::ExposureCompensation,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::exposure::ExposureCompensation| match value {
-        crate::command::exposure::ExposureCompensation::SetLevel(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::exposure::DynamicRange,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::exposure::Shutter,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::exposure::Shutter| match value {
-        crate::command::exposure::Shutter::SetSpeed(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::exposure::Brightness,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::exposure::Brightness| match value {
-        crate::command::exposure::Brightness::SetLevel(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::exposure::AntiFlickerCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::gain::Gain,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::gain::Gain| match value {
-        crate::command::gain::Gain::SetValue(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::gain::GainLimitCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::OnePushTriggerCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::RedTuningCommand,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::BlueTuningCommand,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::SaturationCommand,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::HueCommand,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::color::ColorTemperature,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::color::ColorTemperature| match value {
-        crate::command::color::ColorTemperature::SetTemperature(_) => 7,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::color::RedGain,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::color::RedGain| match value {
-        crate::command::color::RedGain::SetValue(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::color::BlueGain,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::color::BlueGain| match value {
-        crate::command::color::BlueGain::SetValue(_) => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::image::Sharpness,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &crate::command::image::Sharpness| match value {
-        crate::command::image::Sharpness::SetLevel { .. } => 9,
-        _ => 6,
-    }
-);
-impl_plain_request!(
-    crate::command::image::Luminance,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::Contrast,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::GammaCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::BacklightCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::NoiseReduction2DModeCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::NoiseReduction2D,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::NoiseReduction3D,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::ImageFlipCombinedCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::image::PictureEffectCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::focus::FocusZoneCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::focus::AutoFocusSensitivityCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::focus::FocusNearLimitCommand,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::white_balance::WhiteBalanceCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::white_balance::AWBSensitivityCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::menu::SetMenuDisplay,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::menu::MenuNavigate,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::menu::PerformMenuAction,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::menu::DirectMenuControl,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::streaming::UsbAudio,
-    7,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::system::SettingsSaveCommand,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyRedOn,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyRedOff,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyGreenOn,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::tally::TallyGreenOff,
-    8,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::motion_sync::SetMotionSyncMode,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::motion_sync::SetMotionSyncPreset,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-// These three protocol controls deliberately have crate-private request
-// implementations. Address assignment and interface clear run only while the
-// serial transport handshake owns the wire; socket cancellation is emitted by
-// the operation owner that holds the exact request/socket correlation.
-impl_plain_request!(
-    crate::command::system::AddressSetCommand,
-    4,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::system::InterfaceClearCommand,
-    5,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal
-);
-impl_plain_request!(
-    crate::command::system::CommandCancelCommand,
-    3,
-    TimeoutClass::Quick,
-    RetryClass::Never,
-    ControlClass::Urgent
-);
+// Built-in command values that are already structurally homogeneous carry
+// their request contract directly: every branch represented by the type is a
+// configuration, mode, persistence, or output-policy write, so it needs no
+// second public noun or branch discriminator. Mixed physical enums (PanTilt,
+// Zoom, Focus, Iris, ND, and Preset) are represented by the structurally
+// distinct request types below.
+builtin_request! {
+    crate::command::preset::PresetRecallSpeedCommand => PresetRecallSpeed: Plain { size: 6 };
+    crate::command::focus::FocusLock => FocusLock: Plain { size: 6 };
+    crate::command::exposure::SpotlightOn => SpotlightOn: Plain { size: 6 };
+    crate::command::exposure::SpotlightOff => SpotlightOff: Plain { size: 6 };
+    crate::command::exposure::AutoSlowShutterOn => AutoSlowShutterOn: Plain { size: 6 };
+    crate::command::exposure::AutoSlowShutterOff => AutoSlowShutterOff: Plain { size: 6 };
+    crate::command::nd_filter::NdFilterModeCommand => NdFilterMode: Plain { size: 7 };
+    crate::command::nd_filter::AutoNdCommand => NdFilterAutoOn: Plain { size: 7 };
+    crate::command::flip::ImageFreeze => ImageFreezeOn: Plain { size: 6 };
+    crate::command::zoom::DigitalZoom => DigitalZoom: Plain { size: 6 };
+    crate::command::streaming::MulticastStreaming => MulticastStreamingOn: Plain {
+        size: 6,
+        policy: (Network, Standard, Normal),
+    };
+    crate::command::streaming::SetNdiQuality => NdiQuality: Plain {
+        size: 6,
+        policy: (Network, Standard, Normal),
+    };
+    crate::command::tally::TallyBrightLo => TallyBrightLow: Plain { size: 8 };
+    crate::command::tally::TallyBrightHi => TallyBrightHigh: Plain { size: 8 };
+    crate::command::variable_speed::SetVariableSpeedMode => VariableSpeedMode: Plain { size: 6 };
+    crate::command::tally::TallyOn => TallyOn: Plain { size: 6 };
+    crate::command::tally::TallyOff => TallyOff: Plain { size: 6 };
+    crate::command::tally::TallyFlash => TallyFlash: Plain { size: 6 };
+    crate::command::power::PowerOn => PowerOn: Plain { size: 6 };
+    crate::command::power::PowerStandby => PowerStandby: Plain { size: 6 };
+    crate::command::exposure::ExposureCommand => ExposureMode: Plain { size: 6 };
+    crate::command::exposure::ExposureCompensation => ExposureCompensationOn: Plain { size: 9 };
+    crate::command::exposure::DynamicRange => DynamicRange: Plain { size: 9 };
+    crate::command::exposure::Shutter => ShutterReset: Plain { size: 9 };
+    crate::command::exposure::Brightness => BrightnessReset: Plain { size: 9 };
+    crate::command::exposure::AntiFlickerCommand => AntiFlicker: Plain { size: 6 };
+    crate::command::gain::Gain => GainReset: Plain { size: 9 };
+    crate::command::gain::GainLimitCommand => GainLimit: Plain { size: 6 };
+    crate::command::color::OnePushTriggerCommand => OnePushWhiteBalanceTrigger: Plain { size: 6 };
+    crate::command::color::RedTuningCommand => RedTuning: Plain { size: 9 };
+    crate::command::color::BlueTuningCommand => BlueTuning: Plain { size: 9 };
+    crate::command::color::SaturationCommand => Saturation: Plain { size: 9 };
+    crate::command::color::HueCommand => Hue: Plain { size: 9 };
+    crate::command::color::ColorTemperature => ColorTemperatureReset: Plain { size: 7 };
+    crate::command::color::RedGain => RedGainReset: Plain { size: 9 };
+    crate::command::color::BlueGain => BlueGainReset: Plain { size: 9 };
+    crate::command::image::Sharpness => SharpnessMode: Plain { size: 9 };
+    crate::command::image::Luminance => Luminance: Plain { size: 9 };
+    crate::command::image::Contrast => Contrast: Plain { size: 9 };
+    crate::command::image::GammaCommand => Gamma: Plain { size: 6 };
+    crate::command::image::BacklightCommand => Backlight: Plain { size: 6 };
+    crate::command::image::NoiseReduction2DModeCommand => NoiseReduction2dMode: Plain { size: 6 };
+    crate::command::image::NoiseReduction2D => NoiseReduction2d: Plain { size: 6 };
+    crate::command::image::NoiseReduction3D => NoiseReduction3d: Plain { size: 6 };
+    crate::command::image::ImageFlipCombinedCommand => ImageFlipBoth: Plain { size: 6 };
+    crate::command::image::PictureEffectCommand => PictureEffect: Plain { size: 6 };
+    crate::command::focus::FocusZoneCommand => FocusZone: Plain { size: 6 };
+    crate::command::focus::AutoFocusSensitivityCommand => FocusAutoSensitivity: Plain { size: 6 };
+    crate::command::focus::FocusNearLimitCommand => FocusNearLimit: Plain { size: 9 };
+    crate::command::white_balance::WhiteBalanceCommand => WhiteBalanceAuto: Plain(gate_by_value) {
+        size: 6,
+    };
+    crate::command::white_balance::AWBSensitivityCommand => AutoWhiteBalanceSensitivity: Plain {
+        size: 6,
+    };
+    crate::command::menu::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
+    crate::command::menu::MenuNavigate => MenuNavigate: Plain { size: 9 };
+    crate::command::menu::PerformMenuAction => MenuSelect: Plain { size: 6 };
+    crate::command::menu::DirectMenuControl => DirectMenu: Plain { size: 8 };
+    crate::command::streaming::UsbAudio => UsbAudioOn: Plain { size: 7 };
+    crate::command::system::SettingsSaveCommand => SettingsSave: Plain { size: 6 };
+    crate::command::tally::TallyRedOn => TallyRedOn: Plain { size: 8 };
+    crate::command::tally::TallyRedOff => TallyRedOff: Plain { size: 8 };
+    crate::command::tally::TallyGreenOn => TallyGreenOn: Plain { size: 8 };
+    crate::command::tally::TallyGreenOff => TallyGreenOff: Plain { size: 8 };
+    crate::command::motion_sync::SetMotionSyncMode => MotionSyncMode: Plain { size: 6 };
+    crate::command::motion_sync::SetMotionSyncPreset => MotionSyncPreset: Plain { size: 6 };
+    // These three protocol controls deliberately have crate-private request
+    // implementations. Address assignment and interface clear run only while
+    // the serial transport handshake owns the wire; socket cancellation is
+    // emitted by the operation owner that holds the exact request/socket
+    // correlation.
+    crate::command::system::AddressSetCommand => AddressSet: Plain { size: 4 };
+    crate::command::system::InterfaceClearCommand => InterfaceClear: Plain { size: 5 };
+    crate::command::system::CommandCancelCommand => CommandCancel: Plain {
+        size: 3,
+        policy: (Quick, Never, Urgent),
+    };
+}
 
 /// Separate vertical-flip command with its own VISCA opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1854,15 +1393,12 @@ impl ImageFlipCommand {
     }
 }
 
-impl_request!(
-    ImageFlipCommand,
-    request::Plain,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &ImageFlipCommand| crate::command::flip::ImageFlip { flip: value.0 }
-);
+builtin_request! {
+    ImageFlipCommand => ImageFlipOff: Plain {
+        size: 6,
+        wire: |value: &ImageFlipCommand| crate::command::flip::ImageFlip { flip: value.0 },
+    };
+}
 
 /// Separate horizontal-mirror command with its own VISCA opcode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1884,178 +1420,23 @@ impl ImageMirrorCommand {
     }
 }
 
-impl_request!(
-    ImageMirrorCommand,
-    request::Plain,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &ImageMirrorCommand| crate::command::flip::HorizontalFlip { on: value.enabled }
-);
-
-// State-bearing built-ins expose their closed effect through this private
-// associated constant. Production projection helpers below consume the same
-// constant, and the unconditional ledger markers compare it with the
-// corresponding `BuiltinCommand` row.
-macro_rules! state_effect_contract {
-    ($type:ty, $effect:expr) => {
-        impl crate::command::semantics::BuiltinStateEffectContract for $type {
-            const STATE_EFFECT: crate::command::semantics::AppliedStateEffectRequirement = $effect;
-        }
+builtin_request! {
+    ImageMirrorCommand => ImageFlipHorizontal: Plain {
+        size: 6,
+        wire: |value: &ImageMirrorCommand| crate::command::flip::HorizontalFlip { on: value.enabled },
     };
 }
 
-state_effect_contract!(
-    PanTiltLimitSet,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::PanTiltLimits
-    )
-);
-state_effect_contract!(
-    PanTiltLimitClear,
-    crate::command::semantics::AppliedStateEffectRequirement::Clear(
-        crate::command::semantics::WriteOnlyState::PanTiltLimits
-    )
-);
-state_effect_contract!(
-    crate::command::DigitalZoom,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::DigitalZoomMode
-    )
-);
-state_effect_contract!(
-    crate::command::FocusLock,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::FocusLockMode
-    )
-);
-state_effect_contract!(
-    crate::command::PresetRecallSpeedCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::PresetRecallSpeed
-    )
-);
-state_effect_contract!(
-    crate::command::SpotlightOn,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::Spotlight
-    )
-);
-state_effect_contract!(
-    crate::command::SpotlightOff,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::Spotlight
-    )
-);
-state_effect_contract!(
-    crate::command::AutoSlowShutterOn,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::AutoSlowShutter
-    )
-);
-state_effect_contract!(
-    crate::command::AutoSlowShutterOff,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::AutoSlowShutter
-    )
-);
-state_effect_contract!(
-    ImageFlipCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Invalidate(
-        crate::command::semantics::WriteOnlyState::Flip
-    )
-);
-state_effect_contract!(
-    ImageMirrorCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Invalidate(
-        crate::command::semantics::WriteOnlyState::Flip
-    )
-);
-state_effect_contract!(
-    crate::command::ImageFlipCombinedCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::Flip
-    )
-);
-state_effect_contract!(
-    crate::command::ImageFreeze,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::ImageFreeze
-    )
-);
-state_effect_contract!(
-    crate::command::NdFilterModeCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::NdFilterMode
-    )
-);
-state_effect_contract!(
-    crate::command::AutoNdCommand,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::AutoNdFilter
-    )
-);
-state_effect_contract!(
-    crate::command::TallyBrightLo,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::TallyBrightness
-    )
-);
-state_effect_contract!(
-    crate::command::TallyBrightHi,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::TallyBrightness
-    )
-);
-state_effect_contract!(
-    crate::command::TallyFlash,
-    crate::command::semantics::AppliedStateEffectRequirement::Invalidate(
-        crate::command::semantics::WriteOnlyState::TallyMode
-    )
-);
-state_effect_contract!(
-    crate::command::TallyOn,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::TallyMode
-    )
-);
-state_effect_contract!(
-    crate::command::TallyOff,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::TallyMode
-    )
-);
-state_effect_contract!(
-    crate::command::MulticastStreaming,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::MulticastStreaming
-    )
-);
-state_effect_contract!(
-    crate::command::SetNdiQuality,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::NdiQuality
-    )
-);
-state_effect_contract!(
-    crate::command::SetVariableSpeedMode,
-    crate::command::semantics::AppliedStateEffectRequirement::Set(
-        crate::command::semantics::WriteOnlyState::VariableSpeedMode
-    )
-);
-
 /// One semantic row tied to a concrete typed request implementation.
 ///
-/// Each inventory entry is an inline const that evaluates a monomorphized
-/// request-contract assertion while the `#[used]` inventory is initialized.
-/// The test-only metadata then gives the runtime audit a readable row without
-/// retaining a marker function pointer in every entry.
+/// Each inventory entry is an inline const that asserts, while the `#[used]`
+/// inventory is initialized, that its request type may serve its row. The
+/// test-only metadata then gives the runtime audit a readable row.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuiltinTypedRequestCoverage {
     /// Authoritative semantic ledger row.
     #[cfg(test)]
-    pub row: crate::command::semantics::BuiltinCommand,
+    pub row: BuiltinCommand,
     /// Stable source type name used by diagnostics and audits.
     #[cfg(test)]
     pub type_name: &'static str,
@@ -2064,26 +1445,18 @@ pub(crate) struct BuiltinTypedRequestCoverage {
     pub branch: &'static str,
 }
 
-macro_rules! typed_plain_coverage {
-    ($row:path, $ty:ty, $branch:literal) => {
+/// The one construction site of [`BuiltinTypedRequestCoverage`].
+///
+/// The inline const asserts at compile time that `$ty` serves `$row`: the
+/// row classifies exactly like the type's own ledger row and, unless the type
+/// gates by value, carries the same typed capability gate.
+macro_rules! typed_request_coverage {
+    ($row:ident, $ty:ty, $branch:expr) => {
         const {
-            let _ = crate::command::semantics::plain_request_contract::<$ty>($row, None);
+            assert_row_served_by::<$ty>(BuiltinCommand::$row);
             BuiltinTypedRequestCoverage {
                 #[cfg(test)]
-                row: $row,
-                #[cfg(test)]
-                type_name: stringify!($ty),
-                #[cfg(test)]
-                branch: $branch,
-            }
-        }
-    };
-    ($row:path, $ty:ty, $branch:literal, state) => {
-        const {
-            let _ = crate::command::semantics::state_request_contract::<$ty>($row);
-            BuiltinTypedRequestCoverage {
-                #[cfg(test)]
-                row: $row,
+                row: BuiltinCommand::$row,
                 #[cfg(test)]
                 type_name: stringify!($ty),
                 #[cfg(test)]
@@ -2093,41 +1466,36 @@ macro_rules! typed_plain_coverage {
     };
 }
 
-macro_rules! typed_fixed_operation_coverage {
-    ($row:path, $ty:ty, $branch:literal, $completion:ty) => {
-        const {
-            let _ = crate::command::semantics::assert_fixed_operation_contract::<$ty, $completion>(
-                $row,
-            );
-            BuiltinTypedRequestCoverage {
-                #[cfg(test)]
-                row: $row,
-                #[cfg(test)]
-                type_name: stringify!($ty),
-                #[cfg(test)]
-                branch: $branch,
-            }
-        }
-    };
+/// Fails const evaluation unless `T` may serve `row`: the row must classify
+/// exactly like `T`'s own ledger row (class, axes and state effect) and,
+/// unless `T` gates by value, carry the same typed capability gate.
+const fn assert_row_served_by<T: crate::command::semantics::BuiltinRequestContract>(
+    row: BuiltinCommand,
+) {
+    assert!(
+        row.classification()
+            .same_contract(T::LEDGER_ROW.classification()),
+        "a typed request serves a ledger row whose classification differs from its own row",
+    );
+    assert!(
+        T::GATE_BY_VALUE
+            || same_typed_gate(
+                typed_surface_for_command(row),
+                typed_surface_for_command(T::LEDGER_ROW),
+            ),
+        "a typed request serves ledger rows with different typed capability gates",
+    );
 }
 
-macro_rules! typed_profile_operation_coverage {
-    ($row:path, $ty:ty, $branch:literal, $completion:ty) => {
-        const {
-            let _ = crate::command::semantics::assert_profile_operation_contract::<
-                $ty,
-                $completion,
-            >($row);
-            BuiltinTypedRequestCoverage {
-                #[cfg(test)]
-                row: $row,
-                #[cfg(test)]
-                type_name: stringify!($ty),
-                #[cfg(test)]
-                branch: $branch,
-            }
-        }
-    };
+const fn same_typed_gate(
+    left: Option<TypedSupportSurface>,
+    right: Option<TypedSupportSurface>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => left as u8 == right as u8,
+        (None, Some(_)) | (Some(_), None) => false,
+    }
 }
 
 /// Mechanically tied coverage for every semantic built-in row.
@@ -2139,975 +1507,342 @@ macro_rules! typed_profile_operation_coverage {
 /// coverage at runtime.
 #[used]
 pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = &[
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltLimitSet,
-        PanTiltLimitSet,
-        "LimitSet",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltLimitClear,
-        PanTiltLimitClear,
-        "LimitClear",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::DigitalZoom,
-        crate::command::DigitalZoom,
-        "false/true",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusAuto,
-        FocusModeCommand,
-        "Auto"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusManual,
-        FocusModeCommand,
-        "Manual"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusToggle,
-        FocusModeCommand,
-        "Toggle"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusZone,
+    typed_request_coverage!(PanTiltLimitSet, PanTiltLimitSet, "LimitSet"),
+    typed_request_coverage!(PanTiltLimitClear, PanTiltLimitClear, "LimitClear"),
+    typed_request_coverage!(DigitalZoom, crate::command::DigitalZoom, "false/true"),
+    typed_request_coverage!(FocusAuto, FocusModeCommand, "Auto"),
+    typed_request_coverage!(FocusManual, FocusModeCommand, "Manual"),
+    typed_request_coverage!(FocusToggle, FocusModeCommand, "Toggle"),
+    typed_request_coverage!(
+        FocusZone,
         crate::command::FocusZoneCommand,
         "Top/Center/Bottom"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusAutoSensitivity,
+    typed_request_coverage!(
+        FocusAutoSensitivity,
         crate::command::AutoFocusSensitivityCommand,
         "Low/Normal/High"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusNearLimit,
+    typed_request_coverage!(
+        FocusNearLimit,
         crate::command::FocusNearLimitCommand,
         "position"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusLock,
-        crate::command::FocusLock,
-        "On/Off",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PresetRecallSpeed,
+    typed_request_coverage!(FocusLock, crate::command::FocusLock, "On/Off"),
+    typed_request_coverage!(
+        PresetRecallSpeed,
         crate::command::PresetRecallSpeedCommand,
-        "speed",
-        state
+        "speed"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PresetSet,
-        PresetSet,
-        "Set"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PresetReset,
-        PresetReset,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PowerOn,
-        crate::command::PowerOn,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PowerStandby,
-        crate::command::PowerStandby,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureMode,
+    typed_request_coverage!(PresetSet, PresetSet, "Set"),
+    typed_request_coverage!(PresetReset, PresetReset, "Reset"),
+    typed_request_coverage!(PowerOn, crate::command::PowerOn, "value"),
+    typed_request_coverage!(PowerStandby, crate::command::PowerStandby, "value"),
+    typed_request_coverage!(
+        ExposureMode,
         crate::command::ExposureCommand,
         "Auto/Manual/Shutter/Iris/Bright"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationOn,
+    typed_request_coverage!(
+        ExposureCompensationOn,
         crate::command::ExposureCompensation,
         "On"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationOff,
+    typed_request_coverage!(
+        ExposureCompensationOff,
         crate::command::ExposureCompensation,
         "Off"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationReset,
+    typed_request_coverage!(
+        ExposureCompensationReset,
         crate::command::ExposureCompensation,
         "Reset"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationUp,
+    typed_request_coverage!(
+        ExposureCompensationUp,
         crate::command::ExposureCompensation,
         "Up"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationDown,
+    typed_request_coverage!(
+        ExposureCompensationDown,
         crate::command::ExposureCompensation,
         "Down"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ExposureCompensationDirect,
+    typed_request_coverage!(
+        ExposureCompensationDirect,
         crate::command::ExposureCompensation,
         "SetLevel"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::DynamicRange,
-        crate::command::DynamicRange,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ShutterReset,
-        crate::command::Shutter,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ShutterUp,
-        crate::command::Shutter,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ShutterDown,
-        crate::command::Shutter,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ShutterDirect,
-        crate::command::Shutter,
-        "SetSpeed"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessReset,
-        crate::command::Brightness,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessUp,
-        crate::command::Brightness,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessDown,
-        crate::command::Brightness,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BrightnessSet,
-        crate::command::Brightness,
-        "SetLevel"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::AntiFlicker,
+    typed_request_coverage!(DynamicRange, crate::command::DynamicRange, "value"),
+    typed_request_coverage!(ShutterReset, crate::command::Shutter, "Reset"),
+    typed_request_coverage!(ShutterUp, crate::command::Shutter, "Up"),
+    typed_request_coverage!(ShutterDown, crate::command::Shutter, "Down"),
+    typed_request_coverage!(ShutterDirect, crate::command::Shutter, "SetSpeed"),
+    typed_request_coverage!(BrightnessReset, crate::command::Brightness, "Reset"),
+    typed_request_coverage!(BrightnessUp, crate::command::Brightness, "Up"),
+    typed_request_coverage!(BrightnessDown, crate::command::Brightness, "Down"),
+    typed_request_coverage!(BrightnessSet, crate::command::Brightness, "SetLevel"),
+    typed_request_coverage!(
+        AntiFlicker,
         crate::command::AntiFlickerCommand,
         "Off/Hz50/Hz60"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SpotlightOn,
-        crate::command::SpotlightOn,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SpotlightOff,
-        crate::command::SpotlightOff,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::AutoSlowShutterOn,
+    typed_request_coverage!(SpotlightOn, crate::command::SpotlightOn, "value"),
+    typed_request_coverage!(SpotlightOff, crate::command::SpotlightOff, "value"),
+    typed_request_coverage!(
+        AutoSlowShutterOn,
         crate::command::AutoSlowShutterOn,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::AutoSlowShutterOff,
-        crate::command::AutoSlowShutterOff,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::GainReset,
-        crate::command::Gain,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::GainUp,
-        crate::command::Gain,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::GainDown,
-        crate::command::Gain,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::GainDirect,
-        crate::command::Gain,
-        "SetValue"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::GainLimit,
-        crate::command::GainLimitCommand,
         "value"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceAuto,
+    typed_request_coverage!(
+        AutoSlowShutterOff,
+        crate::command::AutoSlowShutterOff,
+        "value"
+    ),
+    typed_request_coverage!(GainReset, crate::command::Gain, "Reset"),
+    typed_request_coverage!(GainUp, crate::command::Gain, "Up"),
+    typed_request_coverage!(GainDown, crate::command::Gain, "Down"),
+    typed_request_coverage!(GainDirect, crate::command::Gain, "SetValue"),
+    typed_request_coverage!(GainLimit, crate::command::GainLimitCommand, "value"),
+    typed_request_coverage!(
+        WhiteBalanceAuto,
         crate::command::WhiteBalanceCommand,
         "Auto"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceIndoor,
+    typed_request_coverage!(
+        WhiteBalanceIndoor,
         crate::command::WhiteBalanceCommand,
         "Indoor"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceOutdoor,
+    typed_request_coverage!(
+        WhiteBalanceOutdoor,
         crate::command::WhiteBalanceCommand,
         "Outdoor"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceOnePush,
+    typed_request_coverage!(
+        WhiteBalanceOnePush,
         crate::command::WhiteBalanceCommand,
         "OnePush"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceAutoTracking,
+    typed_request_coverage!(
+        WhiteBalanceAutoTracking,
         crate::command::WhiteBalanceCommand,
         "ATW"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceManual,
+    typed_request_coverage!(
+        WhiteBalanceManual,
         crate::command::WhiteBalanceCommand,
         "Manual"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::WhiteBalanceColorTemperature,
+    typed_request_coverage!(
+        WhiteBalanceColorTemperature,
         crate::command::WhiteBalanceCommand,
         "ColorTemperature"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::AutoWhiteBalanceSensitivity,
+    typed_request_coverage!(
+        AutoWhiteBalanceSensitivity,
         crate::command::AWBSensitivityCommand,
         "High/Normal/Low"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::OnePushWhiteBalanceTrigger,
+    typed_request_coverage!(
+        OnePushWhiteBalanceTrigger,
         crate::command::OnePushTriggerCommand,
         "value"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::RedTuning,
-        crate::command::RedTuningCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BlueTuning,
-        crate::command::BlueTuningCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Saturation,
-        crate::command::SaturationCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Hue,
-        crate::command::HueCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ColorTemperatureReset,
+    typed_request_coverage!(RedTuning, crate::command::RedTuningCommand, "value"),
+    typed_request_coverage!(BlueTuning, crate::command::BlueTuningCommand, "value"),
+    typed_request_coverage!(Saturation, crate::command::SaturationCommand, "value"),
+    typed_request_coverage!(Hue, crate::command::HueCommand, "value"),
+    typed_request_coverage!(
+        ColorTemperatureReset,
         crate::command::ColorTemperature,
         "Reset"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ColorTemperatureUp,
-        crate::command::ColorTemperature,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ColorTemperatureDown,
+    typed_request_coverage!(ColorTemperatureUp, crate::command::ColorTemperature, "Up"),
+    typed_request_coverage!(
+        ColorTemperatureDown,
         crate::command::ColorTemperature,
         "Down"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ColorTemperatureDirect,
+    typed_request_coverage!(
+        ColorTemperatureDirect,
         crate::command::ColorTemperature,
         "SetTemperature"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::RedGainReset,
-        crate::command::RedGain,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::RedGainUp,
-        crate::command::RedGain,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::RedGainDown,
-        crate::command::RedGain,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::RedGainDirect,
-        crate::command::RedGain,
-        "SetValue"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BlueGainReset,
-        crate::command::BlueGain,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BlueGainUp,
-        crate::command::BlueGain,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BlueGainDown,
-        crate::command::BlueGain,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::BlueGainDirect,
-        crate::command::BlueGain,
-        "SetValue"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SharpnessMode,
-        crate::command::Sharpness,
-        "Mode"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SharpnessReset,
-        crate::command::Sharpness,
-        "Reset"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SharpnessUp,
-        crate::command::Sharpness,
-        "Up"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SharpnessDown,
-        crate::command::Sharpness,
-        "Down"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SharpnessDirect,
-        crate::command::Sharpness,
-        "SetLevel"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Luminance,
-        crate::command::Luminance,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Contrast,
-        crate::command::Contrast,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Gamma,
-        crate::command::GammaCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::Backlight,
-        crate::command::BacklightCommand,
-        "false/true"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NoiseReduction2dMode,
+    typed_request_coverage!(RedGainReset, crate::command::RedGain, "Reset"),
+    typed_request_coverage!(RedGainUp, crate::command::RedGain, "Up"),
+    typed_request_coverage!(RedGainDown, crate::command::RedGain, "Down"),
+    typed_request_coverage!(RedGainDirect, crate::command::RedGain, "SetValue"),
+    typed_request_coverage!(BlueGainReset, crate::command::BlueGain, "Reset"),
+    typed_request_coverage!(BlueGainUp, crate::command::BlueGain, "Up"),
+    typed_request_coverage!(BlueGainDown, crate::command::BlueGain, "Down"),
+    typed_request_coverage!(BlueGainDirect, crate::command::BlueGain, "SetValue"),
+    typed_request_coverage!(SharpnessMode, crate::command::Sharpness, "Mode"),
+    typed_request_coverage!(SharpnessReset, crate::command::Sharpness, "Reset"),
+    typed_request_coverage!(SharpnessUp, crate::command::Sharpness, "Up"),
+    typed_request_coverage!(SharpnessDown, crate::command::Sharpness, "Down"),
+    typed_request_coverage!(SharpnessDirect, crate::command::Sharpness, "SetLevel"),
+    typed_request_coverage!(Luminance, crate::command::Luminance, "value"),
+    typed_request_coverage!(Contrast, crate::command::Contrast, "value"),
+    typed_request_coverage!(Gamma, crate::command::GammaCommand, "value"),
+    typed_request_coverage!(Backlight, crate::command::BacklightCommand, "false/true"),
+    typed_request_coverage!(
+        NoiseReduction2dMode,
         crate::command::NoiseReduction2DModeCommand,
         "Auto/Manual"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NoiseReduction2d,
+    typed_request_coverage!(
+        NoiseReduction2d,
         crate::command::NoiseReduction2D,
         "Some(level)"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NoiseReduction2dOff,
+    typed_request_coverage!(
+        NoiseReduction2dOff,
         crate::command::NoiseReduction2D,
         "None"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NoiseReduction3d,
+    typed_request_coverage!(
+        NoiseReduction3d,
         crate::command::NoiseReduction3D,
         "Some(level)"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NoiseReduction3dOff,
+    typed_request_coverage!(
+        NoiseReduction3dOff,
         crate::command::NoiseReduction3D,
         "None"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipOff,
-        ImageFlipCommand,
-        "Flip::Off",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipVertical,
-        ImageFlipCommand,
-        "Flip::On",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipHorizontal,
-        ImageMirrorCommand,
-        "true",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipHorizontalOff,
-        ImageMirrorCommand,
-        "false",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipBoth,
+    typed_request_coverage!(ImageFlipOff, ImageFlipCommand, "Flip::Off"),
+    typed_request_coverage!(ImageFlipVertical, ImageFlipCommand, "Flip::On"),
+    typed_request_coverage!(ImageFlipHorizontal, ImageMirrorCommand, "true"),
+    typed_request_coverage!(ImageFlipHorizontalOff, ImageMirrorCommand, "false"),
+    typed_request_coverage!(
+        ImageFlipBoth,
         crate::command::ImageFlipCombinedCommand,
-        "Both",
-        state
+        "Both"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFlipCombined,
+    typed_request_coverage!(
+        ImageFlipCombined,
         crate::command::ImageFlipCombinedCommand,
-        "encoder",
-        state
+        "encoder"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFreezeOn,
-        crate::command::ImageFreeze,
-        "true",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::ImageFreezeOff,
-        crate::command::ImageFreeze,
-        "false",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::PictureEffect,
-        crate::command::PictureEffectCommand,
-        "mode"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterMode,
+    typed_request_coverage!(ImageFreezeOn, crate::command::ImageFreeze, "true"),
+    typed_request_coverage!(ImageFreezeOff, crate::command::ImageFreeze, "false"),
+    typed_request_coverage!(PictureEffect, crate::command::PictureEffectCommand, "mode"),
+    typed_request_coverage!(
+        NdFilterMode,
         crate::command::NdFilterModeCommand,
-        "Preset/Variable",
-        state
+        "Preset/Variable"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterAutoOn,
-        crate::command::AutoNdCommand,
-        "true",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterAutoOff,
-        crate::command::AutoNdCommand,
-        "false",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyRedOn,
-        crate::command::TallyRedOn,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyRedOff,
-        crate::command::TallyRedOff,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyBrightLow,
-        crate::command::TallyBrightLo,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyBrightHigh,
-        crate::command::TallyBrightHi,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyGreenOn,
-        crate::command::TallyGreenOn,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyGreenOff,
-        crate::command::TallyGreenOff,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyFlash,
-        crate::command::TallyFlash,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyOn,
-        crate::command::TallyOn,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::TallyOff,
-        crate::command::TallyOff,
-        "value",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MenuDisplay,
-        crate::command::SetMenuDisplay,
-        "false/true"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MenuNavigate,
+    typed_request_coverage!(NdFilterAutoOn, crate::command::AutoNdCommand, "true"),
+    typed_request_coverage!(NdFilterAutoOff, crate::command::AutoNdCommand, "false"),
+    typed_request_coverage!(TallyRedOn, crate::command::TallyRedOn, "value"),
+    typed_request_coverage!(TallyRedOff, crate::command::TallyRedOff, "value"),
+    typed_request_coverage!(TallyBrightLow, crate::command::TallyBrightLo, "value"),
+    typed_request_coverage!(TallyBrightHigh, crate::command::TallyBrightHi, "value"),
+    typed_request_coverage!(TallyGreenOn, crate::command::TallyGreenOn, "value"),
+    typed_request_coverage!(TallyGreenOff, crate::command::TallyGreenOff, "value"),
+    typed_request_coverage!(TallyFlash, crate::command::TallyFlash, "value"),
+    typed_request_coverage!(TallyOn, crate::command::TallyOn, "value"),
+    typed_request_coverage!(TallyOff, crate::command::TallyOff, "value"),
+    typed_request_coverage!(MenuDisplay, crate::command::SetMenuDisplay, "false/true"),
+    typed_request_coverage!(
+        MenuNavigate,
         crate::command::MenuNavigate,
         "Up/Down/Left/Right"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MenuSelect,
-        crate::command::PerformMenuAction,
-        "Select"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MenuCancel,
-        crate::command::PerformMenuAction,
-        "Cancel"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::DirectMenu,
+    typed_request_coverage!(MenuSelect, crate::command::PerformMenuAction, "Select"),
+    typed_request_coverage!(MenuCancel, crate::command::PerformMenuAction, "Cancel"),
+    typed_request_coverage!(
+        DirectMenu,
         crate::command::DirectMenuControl,
         "control1/control2"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MulticastStreamingOn,
+    typed_request_coverage!(
+        MulticastStreamingOn,
         crate::command::MulticastStreaming,
-        "On",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MulticastStreamingOff,
-        crate::command::MulticastStreaming,
-        "Off",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::NdiQuality,
-        crate::command::SetNdiQuality,
-        "High/Medium/Low/Off",
-        state
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::UsbAudioOn,
-        crate::command::UsbAudio,
         "On"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::UsbAudioOff,
-        crate::command::UsbAudio,
+    typed_request_coverage!(
+        MulticastStreamingOff,
+        crate::command::MulticastStreaming,
         "Off"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::AddressSet,
+    typed_request_coverage!(
+        NdiQuality,
+        crate::command::SetNdiQuality,
+        "High/Medium/Low/Off"
+    ),
+    typed_request_coverage!(UsbAudioOn, crate::command::UsbAudio, "On"),
+    typed_request_coverage!(UsbAudioOff, crate::command::UsbAudio, "Off"),
+    typed_request_coverage!(
+        AddressSet,
         crate::command::system::AddressSetCommand,
         "value"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::InterfaceClear,
+    typed_request_coverage!(
+        InterfaceClear,
         crate::command::system::InterfaceClearCommand,
         "value"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::CommandCancel,
+    typed_request_coverage!(
+        CommandCancel,
         crate::command::system::CommandCancelCommand,
         "socket"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::SettingsSave,
-        crate::command::SettingsSaveCommand,
-        "value"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MotionSyncMode,
-        crate::command::SetMotionSyncMode,
-        "On/Off"
-    ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::MotionSyncPreset,
+    typed_request_coverage!(SettingsSave, crate::command::SettingsSaveCommand, "value"),
+    typed_request_coverage!(MotionSyncMode, crate::command::SetMotionSyncMode, "On/Off"),
+    typed_request_coverage!(
+        MotionSyncPreset,
         crate::command::SetMotionSyncPreset,
         "speed"
     ),
-    typed_plain_coverage!(
-        crate::command::semantics::BuiltinCommand::VariableSpeedMode,
+    typed_request_coverage!(
+        VariableSpeedMode,
         crate::command::SetVariableSpeedMode,
-        "Standard24/Fine50",
-        state
+        "Standard24/Fine50"
     ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltHome,
-        PanTiltHome,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltReset,
-        PanTiltReset,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltDrive,
-        PanTiltDrive,
-        "direction/speeds",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltStop,
-        PanTiltStop,
-        "stop speeds",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltAbsolute,
-        PanTiltAbsolute,
-        "position/speeds",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PanTiltRelative,
-        PanTiltRelative,
-        "offset/speeds",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomStop,
-        ZoomStop,
-        "value",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomTele,
-        ZoomDrive,
-        "Tele",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomWide,
-        ZoomDrive,
-        "Wide",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomTeleVariable,
-        ZoomDrive,
-        "TeleVariable",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomWideVariable,
-        ZoomDrive,
-        "WideVariable",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::ZoomPosition,
-        ZoomTarget,
-        "position",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusStop,
-        FocusStop,
-        "value",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusFar,
-        FocusDrive,
-        "Far",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusNear,
-        FocusDrive,
-        "Near",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusFarVariable,
-        FocusDrive,
-        "FarVariable",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusNearVariable,
-        FocusDrive,
-        "NearVariable",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusPosition,
-        FocusTarget,
-        "position",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusOnePush,
-        FocusTrigger,
-        "OnePush",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusInfinity,
-        FocusInfinity,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::FocusSnap,
-        FocusTrigger,
-        "Snap",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PushAfPress,
-        PushAfPress,
-        "value",
-        completion::AppliedOnly
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PushAfRelease,
-        PushAfRelease,
-        "value",
-        completion::AppliedOnly
-    ),
-    typed_profile_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::PresetRecall,
-        PresetRecall,
-        "profile axes",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::IrisReset,
-        IrisReset,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::IrisUp,
-        IrisUp,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::IrisDown,
-        IrisDown,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::IrisDirect,
-        IrisDirect,
-        "level",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterDirect,
-        NdFilterDirect,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterStepUp,
-        NdFilterStepUp,
-        "value",
-        completion::Targeted
-    ),
-    typed_fixed_operation_coverage!(
-        crate::command::semantics::BuiltinCommand::NdFilterStepDown,
-        NdFilterStepDown,
-        "value",
-        completion::Targeted
-    ),
+    typed_request_coverage!(PanTiltHome, PanTiltHome, "value"),
+    typed_request_coverage!(PanTiltReset, PanTiltReset, "value"),
+    typed_request_coverage!(PanTiltDrive, PanTiltDrive, "direction/speeds"),
+    typed_request_coverage!(PanTiltStop, PanTiltStop, "stop speeds"),
+    typed_request_coverage!(PanTiltAbsolute, PanTiltAbsolute, "position/speeds"),
+    typed_request_coverage!(PanTiltRelative, PanTiltRelative, "offset/speeds"),
+    typed_request_coverage!(ZoomStop, ZoomStop, "value"),
+    typed_request_coverage!(ZoomTele, ZoomDrive, "Tele"),
+    typed_request_coverage!(ZoomWide, ZoomDrive, "Wide"),
+    typed_request_coverage!(ZoomTeleVariable, ZoomDrive, "TeleVariable"),
+    typed_request_coverage!(ZoomWideVariable, ZoomDrive, "WideVariable"),
+    typed_request_coverage!(ZoomPosition, ZoomTarget, "position"),
+    typed_request_coverage!(FocusStop, FocusStop, "value"),
+    typed_request_coverage!(FocusFar, FocusDrive, "Far"),
+    typed_request_coverage!(FocusNear, FocusDrive, "Near"),
+    typed_request_coverage!(FocusFarVariable, FocusDrive, "FarVariable"),
+    typed_request_coverage!(FocusNearVariable, FocusDrive, "NearVariable"),
+    typed_request_coverage!(FocusPosition, FocusTarget, "position"),
+    typed_request_coverage!(FocusOnePush, FocusTrigger, "OnePush"),
+    typed_request_coverage!(FocusInfinity, FocusInfinity, "value"),
+    typed_request_coverage!(FocusSnap, FocusTrigger, "Snap"),
+    typed_request_coverage!(PushAfPress, PushAfPress, "value"),
+    typed_request_coverage!(PushAfRelease, PushAfRelease, "value"),
+    typed_request_coverage!(PresetRecall, PresetRecall, "profile axes"),
+    typed_request_coverage!(IrisReset, IrisReset, "value"),
+    typed_request_coverage!(IrisUp, IrisUp, "value"),
+    typed_request_coverage!(IrisDown, IrisDown, "value"),
+    typed_request_coverage!(IrisDirect, IrisDirect, "level"),
+    typed_request_coverage!(NdFilterDirect, NdFilterDirect, "value"),
+    typed_request_coverage!(NdFilterStepUp, NdFilterStepUp, "value"),
+    typed_request_coverage!(NdFilterStepDown, NdFilterStepDown, "value"),
 ];
-
-// These private implementations are the production axis authority for
-// concrete built-in operations. The public `OperationCommand` trait keeps its
-// existing method-only shape; each built-in implementation below delegates
-// that method to this associated constant. The semantic coverage markers use
-// the same constants when they compare each ledger row.
-macro_rules! fixed_operation_contract {
-    ($type:ty, $selection:expr, $axes:expr) => {
-        impl crate::command::semantics::BuiltinOperationContract for $type {
-            const AXIS_SELECTION: crate::command::semantics::BuiltinAxisSelection = $selection;
-        }
-
-        impl crate::command::semantics::BuiltinFixedOperationContract for $type {
-            const AFFECTED_AXES: AffectedAxes = $axes;
-        }
-    };
-}
-
-fixed_operation_contract!(
-    PanTiltHome,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    PanTiltReset,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    PanTiltDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    PanTiltStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    PanTiltAbsolute,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    PanTiltRelative,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
-    AffectedAxes::PAN_TILT
-);
-fixed_operation_contract!(
-    ZoomTarget,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
-    AffectedAxes::ZOOM
-);
-fixed_operation_contract!(
-    ZoomDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
-    AffectedAxes::ZOOM
-);
-fixed_operation_contract!(
-    ZoomStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
-    AffectedAxes::ZOOM
-);
-fixed_operation_contract!(
-    FocusTarget,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    FocusInfinity,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    FocusDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    FocusStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    FocusTrigger,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    IrisReset,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
-    AffectedAxes::IRIS
-);
-fixed_operation_contract!(
-    IrisUp,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
-    AffectedAxes::IRIS
-);
-fixed_operation_contract!(
-    IrisDown,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
-    AffectedAxes::IRIS
-);
-fixed_operation_contract!(
-    IrisDirect,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
-    AffectedAxes::IRIS
-);
-fixed_operation_contract!(
-    NdFilterDirect,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
-    AffectedAxes::ND_FILTER
-);
-fixed_operation_contract!(
-    NdFilterStepUp,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
-    AffectedAxes::ND_FILTER
-);
-fixed_operation_contract!(
-    NdFilterStepDown,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
-    AffectedAxes::ND_FILTER
-);
-fixed_operation_contract!(
-    PushAfPress,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-fixed_operation_contract!(
-    PushAfRelease,
-    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
-    AffectedAxes::FOCUS
-);
-
-impl crate::command::semantics::BuiltinOperationContract for PresetRecall {
-    const AXIS_SELECTION: crate::command::semantics::BuiltinAxisSelection =
-        crate::command::semantics::BuiltinAxisSelection::ProfilePresetRecall;
-}
-
-impl OperationCommand<completion::Targeted> for PanTiltHome {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
-}
 
 /// Reset the pan/tilt mechanism.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PanTiltReset;
 
-impl_request!(
-    PanTiltReset,
-    request::Operation<completion::Targeted>,
-    5,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &PanTiltReset| PanTilt::Reset
-);
-
-impl OperationCommand<completion::Targeted> for PanTiltReset {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PanTiltReset => PanTiltReset: Targeted {
+        size: 5,
+        wire: |_: &PanTiltReset| PanTilt::Reset,
+    };
 }
 
 /// Continuous pan/tilt directional drive.
@@ -3138,24 +1873,15 @@ impl PanTiltDrive {
     }
 }
 
-impl_request!(
-    PanTiltDrive,
-    request::Operation<completion::AppliedOnly>,
-    9,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &PanTiltDrive| PanTilt::Move {
-        direction: value.direction,
-        pan_speed: value.pan_speed,
-        tilt_speed: value.tilt_speed,
-    }
-);
-
-impl OperationCommand<completion::AppliedOnly> for PanTiltDrive {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PanTiltDrive => PanTiltDrive: AppliedOnly {
+        size: 9,
+        wire: |value: &PanTiltDrive| PanTilt::Move {
+            direction: value.direction,
+            pan_speed: value.pan_speed,
+            tilt_speed: value.tilt_speed,
+        },
+    };
 }
 
 /// Stop pan/tilt movement.
@@ -3176,24 +1902,16 @@ impl PanTiltStop {
     }
 }
 
-impl_request!(
-    PanTiltStop,
-    request::Operation<completion::AppliedOnly>,
-    9,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::Urgent,
-    |value: &PanTiltStop| PanTilt::Move {
-        direction: PanTiltDirection::Stop,
-        pan_speed: value.pan_speed,
-        tilt_speed: value.tilt_speed,
-    }
-);
-
-impl OperationCommand<completion::AppliedOnly> for PanTiltStop {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PanTiltStop => PanTiltStop: AppliedOnly {
+        size: 9,
+        policy: (Quick, Movement, Urgent),
+        wire: |value: &PanTiltStop| PanTilt::Move {
+            direction: PanTiltDirection::Stop,
+            pan_speed: value.pan_speed,
+            tilt_speed: value.tilt_speed,
+        },
+    };
 }
 
 /// Absolute pan/tilt target converted from degrees through one validated profile.
@@ -3234,29 +1952,17 @@ impl PanTiltAbsolute {
     }
 }
 
-impl_profiled_request!(
-    PanTiltAbsolute,
-    request::Operation<completion::Targeted>,
-    16,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &PanTiltAbsolute| pan_tilt_position_encoded_size(
-        value.position.conversion.wire_codec()
-    ),
-    |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
-        framing: PanTiltFraming::for_conversion(value.position.conversion),
-        pan: value.position.pan,
-        tilt: value.position.tilt,
-        pan_speed: value.pan_speed,
-        tilt_speed: value.tilt_speed,
-    }
-);
-
-impl OperationCommand<completion::Targeted> for PanTiltAbsolute {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PanTiltAbsolute => PanTiltAbsolute: Targeted {
+        size: 16,
+        wire: |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
+            framing: PanTiltFraming::for_conversion(value.position.conversion),
+            pan: value.position.pan,
+            tilt: value.position.tilt,
+            pan_speed: value.pan_speed,
+            tilt_speed: value.tilt_speed,
+        },
+    };
 }
 
 /// Relative pan/tilt offset converted from degrees through one validated profile.
@@ -3297,29 +2003,17 @@ impl PanTiltRelative {
     }
 }
 
-impl_profiled_request!(
-    PanTiltRelative,
-    request::Operation<completion::Targeted>,
-    16,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &PanTiltRelative| pan_tilt_position_encoded_size(
-        value.position.conversion.wire_codec()
-    ),
-    |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
-        framing: PanTiltFraming::for_conversion(value.position.conversion),
-        pan: value.position.pan,
-        tilt: value.position.tilt,
-        pan_speed: value.pan_speed,
-        tilt_speed: value.tilt_speed,
-    }
-);
-
-impl OperationCommand<completion::Targeted> for PanTiltRelative {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PanTiltRelative => PanTiltRelative: Targeted {
+        size: 16,
+        wire: |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
+            framing: PanTiltFraming::for_conversion(value.position.conversion),
+            pan: value.position.pan,
+            tilt: value.position.tilt,
+            pan_speed: value.pan_speed,
+            tilt_speed: value.tilt_speed,
+        },
+    };
 }
 
 /// Set one pan/tilt movement-limit corner from profile-converted degree values.
@@ -3344,23 +2038,17 @@ impl PanTiltLimitSet {
     }
 }
 
-impl_profiled_request!(
-    PanTiltLimitSet,
-    request::Plain,
-    16,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &PanTiltLimitSet| pan_tilt_position_encoded_size(
-        value.position.conversion.wire_codec()
-    ),
-    |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
-        framing: PanTiltFraming::for_conversion(value.position.conversion),
-        corner: value.corner,
-        pan: value.position.pan,
-        tilt: value.position.tilt,
-    }
-);
+builtin_request! {
+    PanTiltLimitSet => PanTiltLimitSet: Plain {
+        size: 16,
+        wire: |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
+            framing: PanTiltFraming::for_conversion(value.position.conversion),
+            corner: value.corner,
+            pan: value.position.pan,
+            tilt: value.position.tilt,
+        },
+    };
+}
 
 /// Clear one pan/tilt movement-limit corner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3400,19 +2088,15 @@ impl PanTiltLimitClear {
     }
 }
 
-impl_profiled_request!(
-    PanTiltLimitClear,
-    request::Plain,
-    16,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &PanTiltLimitClear| pan_tilt_position_encoded_size(value.wire_codec),
-    |value: &PanTiltLimitClear| PanTiltProfiled::LimitClear {
-        codec: value.wire_codec,
-        corner: value.corner,
-    }
-);
+builtin_request! {
+    PanTiltLimitClear => PanTiltLimitClear: Plain {
+        size: 16,
+        wire: |value: &PanTiltLimitClear| PanTiltProfiled::LimitClear {
+            codec: value.wire_codec,
+            corner: value.corner,
+        },
+    };
+}
 
 /// Direct zoom target.
 ///
@@ -3465,20 +2149,11 @@ impl ZoomTarget {
     }
 }
 
-impl_request!(
-    ZoomTarget,
-    request::Operation<completion::Targeted>,
-    9,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &ZoomTarget| Zoom::Position(value.0)
-);
-
-impl OperationCommand<completion::Targeted> for ZoomTarget {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    ZoomTarget => ZoomPosition: Targeted {
+        size: 9,
+        wire: |value: &ZoomTarget| Zoom::Position(value.0),
+    };
 }
 
 /// Continuous zoom-drive direction and speed.
@@ -3494,45 +2169,28 @@ pub enum ZoomDrive {
     WideVariable(ZoomSpeed),
 }
 
-impl_request!(
-    ZoomDrive,
-    request::Operation<completion::AppliedOnly>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &ZoomDrive| match value {
-        ZoomDrive::Tele => Zoom::TeleStd,
-        ZoomDrive::Wide => Zoom::WideStd,
-        ZoomDrive::TeleVariable(speed) => Zoom::TeleVariable(*speed),
-        ZoomDrive::WideVariable(speed) => Zoom::WideVariable(*speed),
-    }
-);
-
-impl OperationCommand<completion::AppliedOnly> for ZoomDrive {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    ZoomDrive => ZoomTele: AppliedOnly {
+        size: 6,
+        wire: |value: &ZoomDrive| match value {
+            ZoomDrive::Tele => Zoom::TeleStd,
+            ZoomDrive::Wide => Zoom::WideStd,
+            ZoomDrive::TeleVariable(speed) => Zoom::TeleVariable(*speed),
+            ZoomDrive::WideVariable(speed) => Zoom::WideVariable(*speed),
+        },
+    };
 }
 
 /// Stop zoom movement.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ZoomStop;
 
-impl_request!(
-    ZoomStop,
-    request::Operation<completion::AppliedOnly>,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::Urgent,
-    |_: &ZoomStop| Zoom::Stop
-);
-
-impl OperationCommand<completion::AppliedOnly> for ZoomStop {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    ZoomStop => ZoomStop: AppliedOnly {
+        size: 6,
+        policy: (Quick, Movement, Urgent),
+        wire: |_: &ZoomStop| Zoom::Stop,
+    };
 }
 
 /// Direct focus target.
@@ -3547,40 +2205,22 @@ impl FocusTarget {
     }
 }
 
-impl_request!(
-    FocusTarget,
-    request::Operation<completion::Targeted>,
-    9,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &FocusTarget| Focus::Position(value.0)
-);
-
-impl OperationCommand<completion::Targeted> for FocusTarget {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    FocusTarget => FocusPosition: Targeted {
+        size: 9,
+        wire: |value: &FocusTarget| Focus::Position(value.0),
+    };
 }
 
 /// Move focus to infinity.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct FocusInfinity;
 
-impl_request!(
-    FocusInfinity,
-    request::Operation<completion::Targeted>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &FocusInfinity| Focus::Infinity
-);
-
-impl OperationCommand<completion::Targeted> for FocusInfinity {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    FocusInfinity => FocusInfinity: Targeted {
+        size: 6,
+        wire: |_: &FocusInfinity| Focus::Infinity,
+    };
 }
 
 /// Continuous focus drive direction and speed.
@@ -3596,45 +2236,28 @@ pub enum FocusDrive {
     NearVariable(crate::types::FocusSpeed),
 }
 
-impl_request!(
-    FocusDrive,
-    request::Operation<completion::AppliedOnly>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &FocusDrive| match value {
-        FocusDrive::Far => Focus::Far,
-        FocusDrive::Near => Focus::Near,
-        FocusDrive::FarVariable(speed) => Focus::FarWithSpeed(*speed),
-        FocusDrive::NearVariable(speed) => Focus::NearWithSpeed(*speed),
-    }
-);
-
-impl OperationCommand<completion::AppliedOnly> for FocusDrive {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    FocusDrive => FocusFar: AppliedOnly {
+        size: 6,
+        wire: |value: &FocusDrive| match value {
+            FocusDrive::Far => Focus::Far,
+            FocusDrive::Near => Focus::Near,
+            FocusDrive::FarVariable(speed) => Focus::FarWithSpeed(*speed),
+            FocusDrive::NearVariable(speed) => Focus::NearWithSpeed(*speed),
+        },
+    };
 }
 
 /// Stop focus movement.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct FocusStop;
 
-impl_request!(
-    FocusStop,
-    request::Operation<completion::AppliedOnly>,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::Urgent,
-    |_: &FocusStop| Focus::Stop
-);
-
-impl OperationCommand<completion::AppliedOnly> for FocusStop {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    FocusStop => FocusStop: AppliedOnly {
+        size: 6,
+        policy: (Quick, Movement, Urgent),
+        wire: |_: &FocusStop| Focus::Stop,
+    };
 }
 
 /// Instantaneous autofocus trigger.
@@ -3646,23 +2269,15 @@ pub enum FocusTrigger {
     Snap,
 }
 
-impl_request!(
-    FocusTrigger,
-    request::Operation<completion::AppliedOnly>,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &FocusTrigger| match value {
-        FocusTrigger::OnePush => Focus::OnePushTrigger,
-        FocusTrigger::Snap => Focus::Snap,
-    }
-);
-
-impl OperationCommand<completion::AppliedOnly> for FocusTrigger {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    FocusTrigger => FocusOnePush: AppliedOnly(gate_by_value) {
+        size: 6,
+        policy: (Quick, Movement, User),
+        wire: |value: &FocusTrigger| match value {
+            FocusTrigger::OnePush => Focus::OnePushTrigger,
+            FocusTrigger::Snap => Focus::Snap,
+        },
+    };
 }
 
 /// Focus-mode configuration command.
@@ -3676,19 +2291,16 @@ pub enum FocusModeCommand {
     Toggle,
 }
 
-impl_request!(
-    FocusModeCommand,
-    request::Plain,
-    6,
-    TimeoutClass::Quick,
-    RetryClass::Standard,
-    ControlClass::Normal,
-    |value: &FocusModeCommand| match value {
-        FocusModeCommand::Auto => Focus::Auto,
-        FocusModeCommand::Manual => Focus::Manual,
-        FocusModeCommand::Toggle => Focus::Toggle,
-    }
-);
+builtin_request! {
+    FocusModeCommand => FocusAuto: Plain {
+        size: 6,
+        wire: |value: &FocusModeCommand| match value {
+            FocusModeCommand::Auto => Focus::Auto,
+            FocusModeCommand::Manual => Focus::Manual,
+            FocusModeCommand::Toggle => Focus::Toggle,
+        },
+    };
+}
 
 /// Reset the iris/aperture to its camera-defined default.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
@@ -3702,20 +2314,11 @@ impl IrisReset {
     }
 }
 
-impl_request!(
-    IrisReset,
-    request::Operation<completion::Targeted>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &IrisReset| Iris::Reset
-);
-
-impl OperationCommand<completion::Targeted> for IrisReset {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    IrisReset => IrisReset: Targeted {
+        size: 6,
+        wire: |_: &IrisReset| Iris::Reset,
+    };
 }
 
 /// Increase the iris/aperture by one camera-defined step.
@@ -3730,20 +2333,11 @@ impl IrisUp {
     }
 }
 
-impl_request!(
-    IrisUp,
-    request::Operation<completion::Targeted>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &IrisUp| Iris::Up
-);
-
-impl OperationCommand<completion::Targeted> for IrisUp {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    IrisUp => IrisUp: Targeted {
+        size: 6,
+        wire: |_: &IrisUp| Iris::Up,
+    };
 }
 
 /// Decrease the iris/aperture by one camera-defined step.
@@ -3758,20 +2352,11 @@ impl IrisDown {
     }
 }
 
-impl_request!(
-    IrisDown,
-    request::Operation<completion::Targeted>,
-    6,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &IrisDown| Iris::Down
-);
-
-impl OperationCommand<completion::Targeted> for IrisDown {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    IrisDown => IrisDown: Targeted {
+        size: 6,
+        wire: |_: &IrisDown| Iris::Down,
+    };
 }
 
 /// Set an explicit iris/aperture target.
@@ -3792,20 +2377,11 @@ impl IrisDirect {
     }
 }
 
-impl_request!(
-    IrisDirect,
-    request::Operation<completion::Targeted>,
-    9,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &IrisDirect| Iris::SetAperture(value.0)
-);
-
-impl OperationCommand<completion::Targeted> for IrisDirect {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    IrisDirect => IrisDirect: Targeted {
+        size: 9,
+        wire: |value: &IrisDirect| Iris::SetAperture(value.0),
+    };
 }
 
 /// Set an explicit variable ND-filter target.
@@ -3826,20 +2402,11 @@ impl NdFilterDirect {
     }
 }
 
-impl_request!(
-    NdFilterDirect,
-    request::Operation<completion::Targeted>,
-    9,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |value: &NdFilterDirect| value.0
-);
-
-impl OperationCommand<completion::Targeted> for NdFilterDirect {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    NdFilterDirect => NdFilterDirect: Targeted {
+        size: 9,
+        wire: |value: &NdFilterDirect| value.0,
+    };
 }
 
 /// Increase the ND filter by one camera-defined step.
@@ -3854,20 +2421,11 @@ impl NdFilterStepUp {
     }
 }
 
-impl_request!(
-    NdFilterStepUp,
-    request::Operation<completion::Targeted>,
-    7,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &NdFilterStepUp| NdFilterStepCommand::new(NdFilterStep::Up)
-);
-
-impl OperationCommand<completion::Targeted> for NdFilterStepUp {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    NdFilterStepUp => NdFilterStepUp: Targeted {
+        size: 7,
+        wire: |_: &NdFilterStepUp| NdFilterStepCommand::new(NdFilterStep::Up),
+    };
 }
 
 /// Decrease the ND filter by one camera-defined step.
@@ -3882,20 +2440,11 @@ impl NdFilterStepDown {
     }
 }
 
-impl_request!(
-    NdFilterStepDown,
-    request::Operation<completion::Targeted>,
-    7,
-    TimeoutClass::Movement,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &NdFilterStepDown| NdFilterStepCommand::new(NdFilterStep::Down)
-);
-
-impl OperationCommand<completion::Targeted> for NdFilterStepDown {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    NdFilterStepDown => NdFilterStepDown: Targeted {
+        size: 7,
+        wire: |_: &NdFilterStepDown| NdFilterStepCommand::new(NdFilterStep::Down),
+    };
 }
 
 /// Press Sony's Push-AF control.
@@ -3910,20 +2459,12 @@ impl PushAfPress {
     }
 }
 
-impl_request!(
-    PushAfPress,
-    request::Operation<completion::AppliedOnly>,
-    7,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &PushAfPress| PushAF::Press
-);
-
-impl OperationCommand<completion::AppliedOnly> for PushAfPress {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PushAfPress => PushAfPress: AppliedOnly {
+        size: 7,
+        policy: (Quick, Movement, User),
+        wire: |_: &PushAfPress| PushAF::Press,
+    };
 }
 
 /// Release Sony's Push-AF control.
@@ -3938,20 +2479,12 @@ impl PushAfRelease {
     }
 }
 
-impl_request!(
-    PushAfRelease,
-    request::Operation<completion::AppliedOnly>,
-    7,
-    TimeoutClass::Quick,
-    RetryClass::Movement,
-    ControlClass::User,
-    |_: &PushAfRelease| PushAF::Release
-);
-
-impl OperationCommand<completion::AppliedOnly> for PushAfRelease {
-    fn affected_axes(&self) -> AffectedAxes {
-        <Self as crate::command::semantics::BuiltinFixedOperationContract>::AFFECTED_AXES
-    }
+builtin_request! {
+    PushAfRelease => PushAfRelease: AppliedOnly {
+        size: 7,
+        policy: (Quick, Movement, User),
+        wire: |_: &PushAfRelease| PushAF::Release,
+    };
 }
 
 /// Recall a stored preset.
@@ -3973,18 +2506,16 @@ impl PresetRecall {
     }
 }
 
-impl_request!(
-    PresetRecall,
-    request::Operation<completion::Targeted>,
-    7,
-    TimeoutClass::Preset,
-    RetryClass::Preset,
-    ControlClass::User,
-    |value: &PresetRecall| PresetCommand {
-        action: PresetAction::Recall,
-        preset_number: value.preset,
-    }
-);
+builtin_request! {
+    PresetRecall => PresetRecall: Targeted(profile_axes) {
+        size: 7,
+        policy: (Preset, Preset, User),
+        wire: |value: &PresetRecall| PresetCommand {
+            action: PresetAction::Recall,
+            preset_number: value.preset,
+        },
+    };
+}
 
 impl OperationCommand<completion::Targeted> for PresetRecall {
     fn affected_axes(&self) -> AffectedAxes {
@@ -4004,18 +2535,16 @@ impl PresetSet {
     }
 }
 
-impl_request!(
-    PresetSet,
-    request::Plain,
-    7,
-    TimeoutClass::Preset,
-    RetryClass::Preset,
-    ControlClass::Normal,
-    |value: &PresetSet| PresetCommand {
-        action: PresetAction::Set,
-        preset_number: value.0,
-    }
-);
+builtin_request! {
+    PresetSet => PresetSet: Plain {
+        size: 7,
+        policy: (Preset, Preset, Normal),
+        wire: |value: &PresetSet| PresetCommand {
+            action: PresetAction::Set,
+            preset_number: value.0,
+        },
+    };
+}
 
 /// Clear a stored preset slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4029,18 +2558,16 @@ impl PresetReset {
     }
 }
 
-impl_request!(
-    PresetReset,
-    request::Plain,
-    7,
-    TimeoutClass::Preset,
-    RetryClass::Preset,
-    ControlClass::Normal,
-    |value: &PresetReset| PresetCommand {
-        action: PresetAction::Reset,
-        preset_number: value.0,
-    }
-);
+builtin_request! {
+    PresetReset => PresetReset: Plain {
+        size: 7,
+        policy: (Preset, Preset, Normal),
+        wire: |value: &PresetReset| PresetCommand {
+            action: PresetAction::Reset,
+            preset_number: value.0,
+        },
+    };
+}
 
 impl BuiltinValidation for PanTiltHome {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -4351,7 +2878,7 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::PresetRecallSpeed,
+            BuiltinCommand::PresetRecallSpeed,
             "preset recall speed",
         )?;
         let capabilities = profile.capabilities();
@@ -4388,11 +2915,7 @@ impl BuiltinValidation for crate::command::focus::FocusLock {
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            StaticBuiltinCommand::SpotlightOn,
-            "spotlight control",
-        )
+        validate_static_typed_command(profile, BuiltinCommand::SpotlightOn, "spotlight control")
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4402,11 +2925,7 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOn {
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            StaticBuiltinCommand::SpotlightOff,
-            "spotlight control",
-        )
+        validate_static_typed_command(profile, BuiltinCommand::SpotlightOff, "spotlight control")
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4418,7 +2937,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::AutoSlowShutterOn,
+            BuiltinCommand::AutoSlowShutterOn,
             "auto slow shutter control",
         )
     }
@@ -4432,7 +2951,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::AutoSlowShutterOff,
+            BuiltinCommand::AutoSlowShutterOff,
             "auto slow shutter control",
         )
     }
@@ -4468,9 +2987,9 @@ impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
 impl BuiltinValidation for crate::command::flip::ImageFreeze {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let command = if self.enabled() {
-            StaticBuiltinCommand::ImageFreezeOn
+            BuiltinCommand::ImageFreezeOn
         } else {
-            StaticBuiltinCommand::ImageFreezeOff
+            BuiltinCommand::ImageFreezeOff
         };
         validate_static_typed_command(profile, command, "validated image-freeze command")
     }
@@ -4499,8 +3018,8 @@ impl BuiltinValidation for crate::command::zoom::DigitalZoom {
 impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let command = match self {
-            Self::On => StaticBuiltinCommand::MulticastStreamingOn,
-            Self::Off => StaticBuiltinCommand::MulticastStreamingOff,
+            Self::On => BuiltinCommand::MulticastStreamingOn,
+            Self::Off => BuiltinCommand::MulticastStreamingOff,
         };
         validate_static_typed_command(profile, command, "multicast streaming")
     }
@@ -4512,11 +3031,7 @@ impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
 
 impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            StaticBuiltinCommand::NdiQuality,
-            "NDI quality control",
-        )
+        validate_static_typed_command(profile, BuiltinCommand::NdiQuality, "NDI quality control")
     }
 
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -4534,7 +3049,7 @@ impl BuiltinValidation for crate::command::tally::TallyBrightLo {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::TallyBrightLow,
+            BuiltinCommand::TallyBrightLow,
             "validated tally-brightness command",
         )
     }
@@ -4548,7 +3063,7 @@ impl BuiltinValidation for crate::command::tally::TallyBrightHi {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::TallyBrightHigh,
+            BuiltinCommand::TallyBrightHigh,
             "validated tally-brightness command",
         )
     }
@@ -4582,7 +3097,7 @@ impl BuiltinValidation for crate::command::tally::TallyOn {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::TallyOn,
+            BuiltinCommand::TallyOn,
             "validated PTZOptics tally-mode command",
         )
     }
@@ -4596,7 +3111,7 @@ impl BuiltinValidation for crate::command::tally::TallyOff {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::TallyOff,
+            BuiltinCommand::TallyOff,
             "validated PTZOptics tally-mode command",
         )
     }
@@ -4610,7 +3125,7 @@ impl BuiltinValidation for crate::command::tally::TallyFlash {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_static_typed_command(
             profile,
-            StaticBuiltinCommand::TallyFlash,
+            BuiltinCommand::TallyFlash,
             "validated PTZOptics tally-mode command",
         )
     }
@@ -5096,7 +3611,7 @@ mod tests {
         name: &str,
         command: &C,
         profile: &ProfileSpec,
-        semantic: crate::command::semantics::BuiltinCommand,
+        semantic: BuiltinCommand,
         requirement: crate::command::semantics::AppliedStateEffectRequirement,
         expected: crate::runtime::engine::AppliedStateProjection,
     ) where
@@ -5121,7 +3636,7 @@ mod tests {
     fn assert_semantic_state_row<C>(
         name: &str,
         command: &C,
-        semantic: crate::command::semantics::BuiltinCommand,
+        semantic: BuiltinCommand,
         requirement: crate::command::semantics::AppliedStateEffectRequirement,
         expected: crate::runtime::engine::AppliedStateProjection,
     ) where
@@ -5795,6 +4310,18 @@ mod tests {
         assert_exact_declared_wire_size(&crate::command::TallyGreenOff::new(), 8);
     }
 
+    /// #814: `ColorTemperature` declared a maximum one byte longer than its
+    /// longest frame, `SetTemperature`.
+    #[test]
+    fn color_temperature_declares_its_longest_frame_as_max_size() {
+        assert_exact_declared_wire_size(
+            &crate::command::ColorTemperature::SetTemperature(
+                crate::types::ColorTemp::new(0x20).expect("valid color temperature"),
+            ),
+            7,
+        );
+    }
+
     #[test]
     fn plain_command_values_report_exact_wire_sizes() {
         assert_exact_request_size(&crate::command::ExposureCompensation::On);
@@ -5859,10 +4386,7 @@ mod tests {
 
     #[test]
     fn typed_request_inventory_covers_exactly_every_ledger_row() {
-        let ledger_rows: HashSet<_> = crate::command::semantics::BuiltinCommand::ALL
-            .iter()
-            .copied()
-            .collect();
+        let ledger_rows: HashSet<_> = BuiltinCommand::ALL.iter().copied().collect();
         let inventory_rows: HashSet<_> = BUILTIN_TYPED_REQUEST_INVENTORY
             .iter()
             .map(|entry| {
