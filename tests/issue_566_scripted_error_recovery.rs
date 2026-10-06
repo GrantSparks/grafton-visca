@@ -22,6 +22,8 @@
 
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
+#[path = "common/retry_requests.rs"]
+mod retry_requests;
 
 use std::time::Duration;
 
@@ -30,16 +32,17 @@ use grafton_visca::{
     command::ZoomPositionInquiry,
     completion::AppliedOnly,
     profile::ProfileSpec,
-    request::{self, builtin::ZoomStop},
+    request::builtin::ZoomStop,
     testing::testkit::{
         helpers::{self, errors},
         ScriptedBlockingTransport, Step,
     },
     types::ZoomPosition,
-    CameraId, ControlClass, Error, OperationalTuning, Request, RetryClass, TimeoutClass,
+    Error, OperationalTuning,
 };
 
 use profile_fixtures::NonDefaultCompileTimeProfile;
+use retry_requests::{MovementCommand, StandardCommand};
 
 /// The exact bytes a zoom-position inquiry puts on the wire for camera 1.
 const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
@@ -49,45 +52,6 @@ const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
 /// quick timeout class grants. Named once so the two halves of the budget —
 /// staying inside it and running past it — cannot drift apart.
 const TUNED_QUICK_WRITES: usize = 4;
-
-/// A plain command in the standard retry class, so the class under test is
-/// stated rather than inherited from a built-in.
-#[derive(Debug)]
-struct StandardCommand;
-
-impl Request for StandardCommand {
-    type Class = request::Plain;
-    const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Standard;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
-        Ok(3)
-    }
-}
-
-/// A plain command in the movement retry class and quick timeout class.
-///
-/// `0x41` is replayed for ordinary movement. A typed STOP is deliberately not
-/// this vehicle: a STOP the camera finds not executable (for example a focus
-/// STOP under auto-focus) is reported at once rather than rewritten.
-#[derive(Debug)]
-struct MovementCommand;
-
-impl Request for MovementCommand {
-    type Class = request::Plain;
-    const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Movement;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
-        Ok(3)
-    }
-}
 
 fn session_config() -> SessionConfig {
     SessionConfig::new(

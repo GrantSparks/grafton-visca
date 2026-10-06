@@ -674,7 +674,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and async wires, and bounded wait helpers with one budget. Blocking fakes
   share one documented idle-read model. About 55 hand-written fake transports,
   the copied Sony envelope builders, wait helpers, `one_frame` and reply
-  constants are gone; the one remaining local fake states why.
+  constants are gone; each remaining local fake states why.
 - (#826) Async/blocking twin test files are merged into single scenarios run
   on both facades and on Tokio and smol (`tests/common/matrix.rs`); the
   runtime matrix is defined once; tests that awaited several scenarios in one

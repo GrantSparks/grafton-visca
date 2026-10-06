@@ -68,6 +68,8 @@ macro_rules! runtime_matrix {
 /// * `open!(camera, config)` — opens the facade's `Session` over that
 ///   facade's wire onto the `FakeCamera` `camera` (async sessions run on the
 ///   case's runtime);
+/// * `open_camera!(camera, &config)` — the same for the facade's single-camera
+///   `CameraSession`, from a `&CameraConfig<P>`;
 /// * `wait_for_writes!(camera, n)` / `wait_for_reads!(camera, n)` — the
 ///   facade's bounded wait helper;
 /// * `pause!(duration)` — sleeps the test thread on the blocking facade and
@@ -104,6 +106,12 @@ macro_rules! facade_matrix {
                     macro_rules! open {
                         ($camera:expr, $config:expr) => {
                             grafton_visca::blocking::Session::open($camera.blocking_wire(), $config)
+                        };
+                    }
+                    #[allow(unused_macros)]
+                    macro_rules! open_camera {
+                        ($camera:expr, $config:expr) => {
+                            grafton_visca::blocking::CameraSession::open($camera.blocking_wire(), $config)
                         };
                     }
                     #[allow(unused_macros)]
@@ -166,6 +174,13 @@ macro_rules! facade_matrix {
         macro_rules! open {
             ($camera:expr, $config:expr) => {
                 grafton_visca::Session::open($camera.async_wire(), $config, $executor.clone())
+                    .await
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! open_camera {
+            ($camera:expr, $config:expr) => {
+                grafton_visca::CameraSession::open($camera.async_wire(), $config, $executor.clone())
                     .await
             };
         }

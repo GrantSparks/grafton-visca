@@ -5,7 +5,13 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-use std::{future::Future, sync::Arc};
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
+
+use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
@@ -14,93 +20,25 @@ use grafton_visca::{
     dynapi::DynSessionCameraNouns,
     profile::{PositionInquirySupport, ProfileSpec},
     profiles::{SonyBRC300, SonyFR7},
-    transport::{
-        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
     types::ZoomPosition,
     units::UnitInterval,
     CameraId, CommandTimeouts, Error, ExposureMode, ProfileEnvelope, ProfileTiming, Session,
     SessionConfig, TransportCompatibility, ZoomDomain,
 };
-use std::time::Duration;
 
-#[derive(Debug)]
-struct ScriptedTransport {
-    config: TransportConfig,
-    replies: flume::Receiver<Vec<u8>>,
-    reply_tx: flume::Sender<Vec<u8>>,
-    writes: Arc<std::sync::Mutex<Vec<Vec<u8>>>>,
-}
+use fake_camera::{frames, FakeCamera};
 
-impl HasTransportConfig for ScriptedTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl AsyncTransport for ScriptedTransport {
-    fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-        let bytes = bytes.to_vec();
-        let reply_tx = self.reply_tx.clone();
-        self.writes
-            .lock()
-            .expect("scripted transport writes lock")
-            .push(bytes.clone());
-        async move {
-            if bytes.get(1) == Some(&0x09) {
-                // Sony BRC-300 returns five pan and four tilt nibbles.
-                reply_tx
-                    .send_async(vec![
-                        0x90, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
-                    ])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-            } else {
-                reply_tx
-                    .send_async(vec![0x90, 0x41, 0xff])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-                reply_tx
-                    .send_async(vec![0x90, 0x51, 0xff])
-                    .await
-                    .map_err(|_| Error::connection_closed(None))?;
-            }
-            Ok(())
+/// A camera that answers every inquiry with Sony BRC-300 pan and tilt data (five
+/// pan and four tilt nibbles, all zero) and every command with ACK and
+/// completion on socket 1, as separate reads.
+fn camera() -> FakeCamera {
+    FakeCamera::new(|write, answer| {
+        if write.get(1) == Some(&0x09) {
+            answer.reply(frames::inquiry_reply(&[0; 9]));
+        } else {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
         }
-    }
-
-    #[allow(clippy::manual_async_fn)]
-    fn recv_into<'a>(
-        &'a mut self,
-        dst: &'a mut [u8],
-    ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send {
-        async move {
-            let bytes = self
-                .replies
-                .recv_async()
-                .await
-                .map_err(|_| Error::connection_closed(None))?;
-            Ok(ReceiveOutcome::copy_message(&bytes, dst))
-        }
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
-
-fn transport() -> (ScriptedTransport, Arc<std::sync::Mutex<Vec<Vec<u8>>>>) {
-    let (reply_tx, replies) = flume::bounded(32);
-    let writes = Arc::new(std::sync::Mutex::new(Vec::new()));
-    (
-        ScriptedTransport {
-            config: TransportConfig::default(),
-            replies,
-            reply_tx,
-            writes: Arc::clone(&writes),
-        },
-        writes,
-    )
+    })
 }
 
 fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
@@ -230,7 +168,7 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
         .expect("documented exposure-mode profile without typed permission")
 }
 
-async fn dynamic_targeted_polling<E>(runtime: E)
+async fn dynamic_targeted_projection_uses_owner_settlement_wait<E>(runtime: E)
 where
     E: grafton_visca::Executor,
 {
@@ -243,9 +181,9 @@ where
     let runtime_profile = runtime_equivalent(&static_profile);
     assert_eq!(static_profile, runtime_profile);
 
-    let (transport, writes) = transport();
+    let fake = camera();
     let session = Session::open(
-        transport,
+        fake.async_wire(),
         SessionConfig::new(runtime_profile.clone()),
         runtime,
     )
@@ -269,26 +207,24 @@ where
         .await
         .expect("targeted dynamic settlement");
 
-    {
-        let writes = writes.lock().expect("writes lock");
-        assert_eq!(writes.len(), 3, "command plus two exact pan/tilt inquiries");
-        assert_eq!(writes[0].get(1), Some(&0x01));
-        assert!(writes[1].starts_with(&[0x81, 0x09, 0x06, 0x12]));
-        assert!(writes[2].starts_with(&[0x81, 0x09, 0x06, 0x12]));
-    }
+    let writes = fake.writes();
+    assert_eq!(writes.len(), 3, "command plus two exact pan/tilt inquiries");
+    assert_eq!(writes[0].get(1), Some(&0x01));
+    assert!(writes[1].starts_with(&[0x81, 0x09, 0x06, 0x12]));
+    assert!(writes[2].starts_with(&[0x81, 0x09, 0x06, 0x12]));
 
     session.shutdown().expect("session shutdown");
 }
 
-async fn dynamic_combined_normalized_zoom_respects_typed_permission<E>(runtime: E)
+async fn dynamic_combined_normalized_zoom_requires_typed_digital_range<E>(runtime: E)
 where
     E: grafton_visca::Executor,
 {
     let midpoint = UnitInterval::new(0.5).expect("unit interval midpoint");
     let partial_profile = documented_digital_zoom_profile(false);
-    let (partial_transport, partial_writes) = transport();
+    let partial_fake = camera();
     let partial_session = Session::open(
-        partial_transport,
+        partial_fake.async_wire(),
         SessionConfig::new(partial_profile),
         runtime.clone(),
     )
@@ -316,10 +252,7 @@ where
         ));
     }
     assert!(
-        partial_writes
-            .lock()
-            .expect("partial writes lock")
-            .is_empty(),
+        partial_fake.writes().is_empty(),
         "rejected dynamic nouns must not reach the transport"
     );
 
@@ -350,7 +283,7 @@ where
         .await
         .expect("explicit optical-domain target applied");
     assert_eq!(
-        partial_writes.lock().expect("partial writes lock").len(),
+        partial_fake.write_count(),
         3,
         "only the three direct/optical positive controls reach the transport"
     );
@@ -362,9 +295,9 @@ where
     // both the overlap midpoint and the combined endpoint through the exact
     // same erased noun path.
     let supported_profile = documented_digital_zoom_profile(true);
-    let (supported_transport, supported_writes) = transport();
+    let supported_fake = camera();
     let supported_session = Session::open(
-        supported_transport,
+        supported_fake.async_wire(),
         SessionConfig::new(supported_profile),
         runtime,
     )
@@ -384,10 +317,7 @@ where
             .expect("combined normalized target applied");
     }
     assert_eq!(
-        supported_writes
-            .lock()
-            .expect("supported writes lock")
-            .len(),
+        supported_fake.write_count(),
         2,
         "both supported combined-domain controls reach the transport"
     );
@@ -410,9 +340,9 @@ where
         .capabilities()
         .supports_typed(TypedSupportSurface::ExposureMode));
 
-    let (fr7_transport, fr7_writes) = transport();
+    let fr7_fake = camera();
     let fr7_session = Session::open(
-        fr7_transport,
+        fr7_fake.async_wire(),
         SessionConfig::new(fr7_profile),
         runtime.clone(),
     )
@@ -446,7 +376,7 @@ where
         }
     ));
     assert!(
-        fr7_writes.lock().expect("Sony FR7 writes lock").is_empty(),
+        fr7_fake.writes().is_empty(),
         "both rejected Sony FR7 exposure-mode noun calls must stay preflight"
     );
     fr7_session.shutdown().expect("Sony FR7 session shutdown");
@@ -461,9 +391,9 @@ where
         .capabilities()
         .supports_typed(TypedSupportSurface::ExposureMode));
 
-    let (partial_transport, partial_writes) = transport();
+    let partial_fake = camera();
     let partial_session = Session::open(
-        partial_transport,
+        partial_fake.async_wire(),
         SessionConfig::new(partial_profile),
         runtime,
     )
@@ -499,10 +429,7 @@ where
         }
     ));
     assert!(
-        partial_writes
-            .lock()
-            .expect("partial exposure-mode writes lock")
-            .is_empty(),
+        partial_fake.writes().is_empty(),
         "both rejected partial-profile exposure-mode noun calls must stay preflight"
     );
     partial_session
@@ -510,48 +437,8 @@ where
         .expect("partial exposure-mode session shutdown");
 }
 
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_dynamic_targeted_projection_uses_owner_settlement_wait() {
-    dynamic_targeted_polling(grafton_visca::TokioRuntime::from_current().expect("runtime")).await;
-}
-
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
-    dynamic_combined_normalized_zoom_respects_typed_permission(
-        grafton_visca::TokioRuntime::from_current().expect("runtime"),
-    )
-    .await;
-}
-
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_dynamic_shared_exposure_modes_require_typed_permission() {
-    dynamic_shared_exposure_modes_require_typed_permission(
-        grafton_visca::TokioRuntime::from_current().expect("runtime"),
-    )
-    .await;
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_dynamic_targeted_projection_uses_owner_settlement_wait() {
-    smol::block_on(dynamic_targeted_polling(grafton_visca::SmolRuntime::new()));
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_dynamic_combined_normalized_zoom_requires_typed_digital_range() {
-    smol::block_on(dynamic_combined_normalized_zoom_respects_typed_permission(
-        grafton_visca::SmolRuntime::new(),
-    ));
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_dynamic_shared_exposure_modes_require_typed_permission() {
-    smol::block_on(dynamic_shared_exposure_modes_require_typed_permission(
-        grafton_visca::SmolRuntime::new(),
-    ));
-}
+runtime_matrix!(
+    dynamic_targeted_projection_uses_owner_settlement_wait,
+    dynamic_combined_normalized_zoom_requires_typed_digital_range,
+    dynamic_shared_exposure_modes_require_typed_permission,
+);

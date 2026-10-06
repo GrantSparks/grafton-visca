@@ -227,13 +227,12 @@ expect_facade_required() {
     printf '%b✓ %s without a facade is rejected with its explanation%b\n\n' "$GREEN" "$feature" "$NC"
 }
 
-# The compatibility names must remain unknown rather than silently selecting a
+# Removed feature names must remain unknown rather than silently selecting a
 # second implementation, and `dyn-api` alone must be rejected rather than
 # compile to an empty feature. These live-compiler checks run in `rejections`
 # mode (CI runs it as its own step) and in the full `test` run; the manifest
 # side of the removed names is also pinned by
-# `ecosystem_feature_inventory_matches_cargo_manifest` and
-# `removed_1x_feature_aliases_are_absent_from_the_manifest` in
+# `ecosystem_feature_inventory_matches_cargo_manifest` in
 # `tests/issue_548_supported_surface_inventory.rs`.
 run_rejections() {
     expect_unknown_feature "mode-async"
