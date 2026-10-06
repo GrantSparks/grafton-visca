@@ -582,7 +582,7 @@ macro_rules! surface_rows {
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
-        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
         surface_rows!(@entries $input;
             $( $noun [ $( $kind [$($command)?] $method [$($gate)?]; )* ] )*

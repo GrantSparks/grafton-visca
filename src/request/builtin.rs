@@ -12,8 +12,10 @@ use crate::{
         PanTiltDirection, PanTiltLimitCorner, PresetAction, PresetCommand, PresetNumber, PushAF,
         Zoom,
     },
-    completion, request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request,
-    RetryClass, TimeoutClass,
+    completion,
+    noun_table::noun_table,
+    request, AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request, RetryClass,
+    TimeoutClass,
 };
 use std::borrow::Cow;
 
@@ -1498,341 +1500,52 @@ const fn same_typed_gate(
     }
 }
 
-/// Mechanically tied coverage for every semantic built-in row.
+/// Generates the typed-request inventory from the noun table.
 ///
-/// Rows are intentionally repeated when one homogeneous enum represents
-/// several protocol branches. Each entry is an unconditional const
-/// instantiation of a concrete `Request` class contract. The independent
-/// semantic inventory tests below still check row uniqueness and exact
-/// coverage at runtime.
-#[used]
-pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = &[
-    typed_request_coverage!(PanTiltLimitSet, PanTiltLimitSet, "LimitSet"),
-    typed_request_coverage!(PanTiltLimitClear, PanTiltLimitClear, "LimitClear"),
-    typed_request_coverage!(DigitalZoom, crate::command::DigitalZoom, "false/true"),
-    typed_request_coverage!(FocusAuto, FocusModeCommand, "Auto"),
-    typed_request_coverage!(FocusManual, FocusModeCommand, "Manual"),
-    typed_request_coverage!(FocusToggle, FocusModeCommand, "Toggle"),
-    typed_request_coverage!(
-        FocusZone,
-        crate::command::FocusZoneCommand,
-        "Top/Center/Bottom"
-    ),
-    typed_request_coverage!(
-        FocusAutoSensitivity,
-        crate::command::AutoFocusSensitivityCommand,
-        "Low/Normal/High"
-    ),
-    typed_request_coverage!(
-        FocusNearLimit,
-        crate::command::FocusNearLimitCommand,
-        "position"
-    ),
-    typed_request_coverage!(FocusLock, crate::command::FocusLock, "On/Off"),
-    typed_request_coverage!(
-        PresetRecallSpeed,
-        crate::command::PresetRecallSpeedCommand,
-        "speed"
-    ),
-    typed_request_coverage!(PresetSet, PresetSet, "Set"),
-    typed_request_coverage!(PresetReset, PresetReset, "Reset"),
-    typed_request_coverage!(PowerOn, crate::command::PowerOn, "value"),
-    typed_request_coverage!(PowerStandby, crate::command::PowerStandby, "value"),
-    typed_request_coverage!(
-        ExposureMode,
-        crate::command::ExposureCommand,
-        "Auto/Manual/Shutter/Iris/Bright"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationOn,
-        crate::command::ExposureCompensation,
-        "On"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationOff,
-        crate::command::ExposureCompensation,
-        "Off"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationReset,
-        crate::command::ExposureCompensation,
-        "Reset"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationUp,
-        crate::command::ExposureCompensation,
-        "Up"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationDown,
-        crate::command::ExposureCompensation,
-        "Down"
-    ),
-    typed_request_coverage!(
-        ExposureCompensationDirect,
-        crate::command::ExposureCompensation,
-        "SetLevel"
-    ),
-    typed_request_coverage!(DynamicRange, crate::command::DynamicRange, "value"),
-    typed_request_coverage!(ShutterReset, crate::command::Shutter, "Reset"),
-    typed_request_coverage!(ShutterUp, crate::command::Shutter, "Up"),
-    typed_request_coverage!(ShutterDown, crate::command::Shutter, "Down"),
-    typed_request_coverage!(ShutterDirect, crate::command::Shutter, "SetSpeed"),
-    typed_request_coverage!(BrightnessReset, crate::command::Brightness, "Reset"),
-    typed_request_coverage!(BrightnessUp, crate::command::Brightness, "Up"),
-    typed_request_coverage!(BrightnessDown, crate::command::Brightness, "Down"),
-    typed_request_coverage!(BrightnessSet, crate::command::Brightness, "SetLevel"),
-    typed_request_coverage!(
-        AntiFlicker,
-        crate::command::AntiFlickerCommand,
-        "Off/Hz50/Hz60"
-    ),
-    typed_request_coverage!(SpotlightOn, crate::command::SpotlightOn, "value"),
-    typed_request_coverage!(SpotlightOff, crate::command::SpotlightOff, "value"),
-    typed_request_coverage!(
-        AutoSlowShutterOn,
-        crate::command::AutoSlowShutterOn,
-        "value"
-    ),
-    typed_request_coverage!(
-        AutoSlowShutterOff,
-        crate::command::AutoSlowShutterOff,
-        "value"
-    ),
-    typed_request_coverage!(GainReset, crate::command::Gain, "Reset"),
-    typed_request_coverage!(GainUp, crate::command::Gain, "Up"),
-    typed_request_coverage!(GainDown, crate::command::Gain, "Down"),
-    typed_request_coverage!(GainDirect, crate::command::Gain, "SetValue"),
-    typed_request_coverage!(GainLimit, crate::command::GainLimitCommand, "value"),
-    typed_request_coverage!(
-        WhiteBalanceAuto,
-        crate::command::WhiteBalanceCommand,
-        "Auto"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceIndoor,
-        crate::command::WhiteBalanceCommand,
-        "Indoor"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceOutdoor,
-        crate::command::WhiteBalanceCommand,
-        "Outdoor"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceOnePush,
-        crate::command::WhiteBalanceCommand,
-        "OnePush"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceAutoTracking,
-        crate::command::WhiteBalanceCommand,
-        "ATW"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceManual,
-        crate::command::WhiteBalanceCommand,
-        "Manual"
-    ),
-    typed_request_coverage!(
-        WhiteBalanceColorTemperature,
-        crate::command::WhiteBalanceCommand,
-        "ColorTemperature"
-    ),
-    typed_request_coverage!(
-        AutoWhiteBalanceSensitivity,
-        crate::command::AWBSensitivityCommand,
-        "High/Normal/Low"
-    ),
-    typed_request_coverage!(
-        OnePushWhiteBalanceTrigger,
-        crate::command::OnePushTriggerCommand,
-        "value"
-    ),
-    typed_request_coverage!(RedTuning, crate::command::RedTuningCommand, "value"),
-    typed_request_coverage!(BlueTuning, crate::command::BlueTuningCommand, "value"),
-    typed_request_coverage!(Saturation, crate::command::SaturationCommand, "value"),
-    typed_request_coverage!(Hue, crate::command::HueCommand, "value"),
-    typed_request_coverage!(
-        ColorTemperatureReset,
-        crate::command::ColorTemperature,
-        "Reset"
-    ),
-    typed_request_coverage!(ColorTemperatureUp, crate::command::ColorTemperature, "Up"),
-    typed_request_coverage!(
-        ColorTemperatureDown,
-        crate::command::ColorTemperature,
-        "Down"
-    ),
-    typed_request_coverage!(
-        ColorTemperatureDirect,
-        crate::command::ColorTemperature,
-        "SetTemperature"
-    ),
-    typed_request_coverage!(RedGainReset, crate::command::RedGain, "Reset"),
-    typed_request_coverage!(RedGainUp, crate::command::RedGain, "Up"),
-    typed_request_coverage!(RedGainDown, crate::command::RedGain, "Down"),
-    typed_request_coverage!(RedGainDirect, crate::command::RedGain, "SetValue"),
-    typed_request_coverage!(BlueGainReset, crate::command::BlueGain, "Reset"),
-    typed_request_coverage!(BlueGainUp, crate::command::BlueGain, "Up"),
-    typed_request_coverage!(BlueGainDown, crate::command::BlueGain, "Down"),
-    typed_request_coverage!(BlueGainDirect, crate::command::BlueGain, "SetValue"),
-    typed_request_coverage!(SharpnessMode, crate::command::Sharpness, "Mode"),
-    typed_request_coverage!(SharpnessReset, crate::command::Sharpness, "Reset"),
-    typed_request_coverage!(SharpnessUp, crate::command::Sharpness, "Up"),
-    typed_request_coverage!(SharpnessDown, crate::command::Sharpness, "Down"),
-    typed_request_coverage!(SharpnessDirect, crate::command::Sharpness, "SetLevel"),
-    typed_request_coverage!(Luminance, crate::command::Luminance, "value"),
-    typed_request_coverage!(Contrast, crate::command::Contrast, "value"),
-    typed_request_coverage!(Gamma, crate::command::GammaCommand, "value"),
-    typed_request_coverage!(Backlight, crate::command::BacklightCommand, "false/true"),
-    typed_request_coverage!(
-        NoiseReduction2dMode,
-        crate::command::NoiseReduction2DModeCommand,
-        "Auto/Manual"
-    ),
-    typed_request_coverage!(
-        NoiseReduction2d,
-        crate::command::NoiseReduction2D,
-        "Some(level)"
-    ),
-    typed_request_coverage!(
-        NoiseReduction2dOff,
-        crate::command::NoiseReduction2D,
-        "None"
-    ),
-    typed_request_coverage!(
-        NoiseReduction3d,
-        crate::command::NoiseReduction3D,
-        "Some(level)"
-    ),
-    typed_request_coverage!(
-        NoiseReduction3dOff,
-        crate::command::NoiseReduction3D,
-        "None"
-    ),
-    typed_request_coverage!(ImageFlipOff, ImageFlipCommand, "Flip::Off"),
-    typed_request_coverage!(ImageFlipVertical, ImageFlipCommand, "Flip::On"),
-    typed_request_coverage!(ImageFlipHorizontal, ImageMirrorCommand, "true"),
-    typed_request_coverage!(ImageFlipHorizontalOff, ImageMirrorCommand, "false"),
-    typed_request_coverage!(
-        ImageFlipBoth,
-        crate::command::ImageFlipCombinedCommand,
-        "Both"
-    ),
-    typed_request_coverage!(
-        ImageFlipCombined,
-        crate::command::ImageFlipCombinedCommand,
-        "encoder"
-    ),
-    typed_request_coverage!(ImageFreezeOn, crate::command::ImageFreeze, "true"),
-    typed_request_coverage!(ImageFreezeOff, crate::command::ImageFreeze, "false"),
-    typed_request_coverage!(PictureEffect, crate::command::PictureEffectCommand, "mode"),
-    typed_request_coverage!(
-        NdFilterMode,
-        crate::command::NdFilterModeCommand,
-        "Preset/Variable"
-    ),
-    typed_request_coverage!(NdFilterAutoOn, crate::command::AutoNdCommand, "true"),
-    typed_request_coverage!(NdFilterAutoOff, crate::command::AutoNdCommand, "false"),
-    typed_request_coverage!(TallyRedOn, crate::command::TallyRedOn, "value"),
-    typed_request_coverage!(TallyRedOff, crate::command::TallyRedOff, "value"),
-    typed_request_coverage!(TallyBrightLow, crate::command::TallyBrightLo, "value"),
-    typed_request_coverage!(TallyBrightHigh, crate::command::TallyBrightHi, "value"),
-    typed_request_coverage!(TallyGreenOn, crate::command::TallyGreenOn, "value"),
-    typed_request_coverage!(TallyGreenOff, crate::command::TallyGreenOff, "value"),
-    typed_request_coverage!(TallyFlash, crate::command::TallyFlash, "value"),
-    typed_request_coverage!(TallyOn, crate::command::TallyOn, "value"),
-    typed_request_coverage!(TallyOff, crate::command::TallyOff, "value"),
-    typed_request_coverage!(MenuDisplay, crate::command::SetMenuDisplay, "false/true"),
-    typed_request_coverage!(
-        MenuNavigate,
-        crate::command::MenuNavigate,
-        "Up/Down/Left/Right"
-    ),
-    typed_request_coverage!(MenuSelect, crate::command::PerformMenuAction, "Select"),
-    typed_request_coverage!(MenuCancel, crate::command::PerformMenuAction, "Cancel"),
-    typed_request_coverage!(
-        DirectMenu,
-        crate::command::DirectMenuControl,
-        "control1/control2"
-    ),
-    typed_request_coverage!(
-        MulticastStreamingOn,
-        crate::command::MulticastStreaming,
-        "On"
-    ),
-    typed_request_coverage!(
-        MulticastStreamingOff,
-        crate::command::MulticastStreaming,
-        "Off"
-    ),
-    typed_request_coverage!(
-        NdiQuality,
-        crate::command::SetNdiQuality,
-        "High/Medium/Low/Off"
-    ),
-    typed_request_coverage!(UsbAudioOn, crate::command::UsbAudio, "On"),
-    typed_request_coverage!(UsbAudioOff, crate::command::UsbAudio, "Off"),
-    typed_request_coverage!(
-        AddressSet,
-        crate::command::system::AddressSetCommand,
-        "value"
-    ),
-    typed_request_coverage!(
-        InterfaceClear,
-        crate::command::system::InterfaceClearCommand,
-        "value"
-    ),
-    typed_request_coverage!(
-        CommandCancel,
-        crate::command::system::CommandCancelCommand,
-        "socket"
-    ),
-    typed_request_coverage!(SettingsSave, crate::command::SettingsSaveCommand, "value"),
-    typed_request_coverage!(MotionSyncMode, crate::command::SetMotionSyncMode, "On/Off"),
-    typed_request_coverage!(
-        MotionSyncPreset,
-        crate::command::SetMotionSyncPreset,
-        "speed"
-    ),
-    typed_request_coverage!(
-        VariableSpeedMode,
-        crate::command::SetVariableSpeedMode,
-        "Standard24/Fine50"
-    ),
-    typed_request_coverage!(PanTiltHome, PanTiltHome, "value"),
-    typed_request_coverage!(PanTiltReset, PanTiltReset, "value"),
-    typed_request_coverage!(PanTiltDrive, PanTiltDrive, "direction/speeds"),
-    typed_request_coverage!(PanTiltStop, PanTiltStop, "stop speeds"),
-    typed_request_coverage!(PanTiltAbsolute, PanTiltAbsolute, "position/speeds"),
-    typed_request_coverage!(PanTiltRelative, PanTiltRelative, "offset/speeds"),
-    typed_request_coverage!(ZoomStop, ZoomStop, "value"),
-    typed_request_coverage!(ZoomTele, ZoomDrive, "Tele"),
-    typed_request_coverage!(ZoomWide, ZoomDrive, "Wide"),
-    typed_request_coverage!(ZoomTeleVariable, ZoomDrive, "TeleVariable"),
-    typed_request_coverage!(ZoomWideVariable, ZoomDrive, "WideVariable"),
-    typed_request_coverage!(ZoomPosition, ZoomTarget, "position"),
-    typed_request_coverage!(FocusStop, FocusStop, "value"),
-    typed_request_coverage!(FocusFar, FocusDrive, "Far"),
-    typed_request_coverage!(FocusNear, FocusDrive, "Near"),
-    typed_request_coverage!(FocusFarVariable, FocusDrive, "FarVariable"),
-    typed_request_coverage!(FocusNearVariable, FocusDrive, "NearVariable"),
-    typed_request_coverage!(FocusPosition, FocusTarget, "position"),
-    typed_request_coverage!(FocusOnePush, FocusTrigger, "OnePush"),
-    typed_request_coverage!(FocusInfinity, FocusInfinity, "value"),
-    typed_request_coverage!(FocusSnap, FocusTrigger, "Snap"),
-    typed_request_coverage!(PushAfPress, PushAfPress, "value"),
-    typed_request_coverage!(PushAfRelease, PushAfRelease, "value"),
-    typed_request_coverage!(PresetRecall, PresetRecall, "profile axes"),
-    typed_request_coverage!(IrisReset, IrisReset, "value"),
-    typed_request_coverage!(IrisUp, IrisUp, "value"),
-    typed_request_coverage!(IrisDown, IrisDown, "value"),
-    typed_request_coverage!(IrisDirect, IrisDirect, "level"),
-    typed_request_coverage!(NdFilterDirect, NdFilterDirect, "value"),
-    typed_request_coverage!(NdFilterStepUp, NdFilterStepUp, "value"),
-    typed_request_coverage!(NdFilterStepDown, NdFilterStepDown, "value"),
-];
+/// Every noun row that names a command contributes one entry for its request
+/// type, and every protocol exception one entry for its request type, so the
+/// inventory has no hand-written row. Rows are repeated when one homogeneous
+/// type serves several protocol branches. Inquiry and convenience rows (`[]`)
+/// contribute nothing: their request types are checked by the facades'
+/// `execute`/`submit` bounds. The first arm normalizes each row to its
+/// command, request type and bracketed request tokens; the second emits the
+/// entries.
+macro_rules! typed_request_inventory {
+    (@entries
+        $( [$($command:ident)?] $ret:ty, $request:tt; )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exty:ty; )*
+    ) => {
+        /// Compile-time coverage of every semantic built-in row by its typed
+        /// request; see `typed_request_coverage!`.
+        #[used]
+        pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = {
+            use crate::{command, request::builtin};
+            &[
+                $( $( typed_request_coverage!($command, $ret, stringify! $request), )? )*
+                $( typed_request_coverage!($excommand, $exty, stringify!($exkind)), )*
+            ]
+        };
+    };
+
+    (
+        $(
+            @noun $noun:ident;
+            $(
+                $(#[$doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions;
+        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
+    ) => {
+        typed_request_inventory!(@entries
+            $( $( [$($command)?] $ret, [$($request)*]; )* )*
+            @exceptions; $( $exkind [$excommand] $exty; )*);
+    };
+}
+
+noun_table!(All => typed_request_inventory);
 
 /// Reset the pan/tilt mechanism.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

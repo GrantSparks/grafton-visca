@@ -45,6 +45,10 @@
 //!   * `with_profile |<name>| <expr>` — a fallible constructor that needs the
 //!     session's profile; the binder names it.
 //!
+//! The table ends with the three protocol exceptions, which are never noun
+//! methods: `<broadcast | internal> [<BuiltinCommand>] <name> -> <request
+//! type>;`.
+//!
 //! Rustdoc is a per-row attribute, so the three surfaces cannot document the
 //! same method differently.  The `@noun` marker is an internal callback
 //! context used by the all-rows projection; ordinary consumers strip it before
@@ -1016,9 +1020,9 @@ macro_rules! noun_table {
         $consumer! {
             $($acc)*
             @exceptions;
-            broadcast [AddressSet] address_set;
-            broadcast [InterfaceClear] interface_clear;
-            internal [CommandCancel] cancel_command;
+            broadcast [AddressSet] address_set -> command::system::AddressSetCommand;
+            broadcast [InterfaceClear] interface_clear -> command::system::InterfaceClearCommand;
+            internal [CommandCancel] cancel_command -> command::system::CommandCancelCommand;
         }
     };
 
