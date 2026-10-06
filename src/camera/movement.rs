@@ -314,19 +314,20 @@ mod tests {
     fn pan_tilt_position_profile_conversion_preserves_brc300_axis_polarity() {
         use crate::profiles::SonyBRC300;
 
+        // Positive degrees are right and up; BRC-300 raw pan is reversed.
         let left_up = PanTiltPosition::new(0x08A58, 0x493D);
         let degrees = left_up.as_degrees_with_profile(&SonyBRC300);
         assert!(degrees.pan.0 < 0.0);
-        assert!(degrees.tilt.0 < 0.0);
+        assert!(degrees.tilt.0 > 0.0);
         assert_eq!(degrees.pan.0, -(0x08A58 as f32) / 208.0);
-        assert_eq!(degrees.tilt.0, -(0x493D as f32) / 208.0);
+        assert_eq!(degrees.tilt.0, 0x493D as f32 / 208.0);
 
         let right_down = PanTiltPosition::new(-0x08A58, -0x186A);
         let degrees = right_down.as_degrees_with_profile(&SonyBRC300);
         assert!(degrees.pan.0 > 0.0);
-        assert!(degrees.tilt.0 > 0.0);
+        assert!(degrees.tilt.0 < 0.0);
         assert_eq!(degrees.pan.0, 0x08A58 as f32 / 208.0);
-        assert_eq!(degrees.tilt.0, 0x186A as f32 / 208.0);
+        assert_eq!(degrees.tilt.0, -(0x186A as f32) / 208.0);
     }
 
     #[test]

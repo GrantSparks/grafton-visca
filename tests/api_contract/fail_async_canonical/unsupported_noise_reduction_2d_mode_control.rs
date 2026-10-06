@@ -1,8 +1,9 @@
 #![cfg(feature = "async")]
 
-use grafton_visca::{command::NoiseReduction2DMode, profiles::SonyFR7, Camera};
+use grafton_visca::{command::NoiseReduction2DMode, profiles::SonyEVIH100, Camera};
 
-fn sony_fr7_cannot_set_2d_noise_reduction_mode(camera: &Camera<SonyFR7>) {
+/// The EVI-H100 has the R8 `04 53` 2D level control but no `04 50` mode.
+fn sony_evi_h100_cannot_set_2d_noise_reduction_mode(camera: &Camera<SonyEVIH100>) {
     let _ = camera
         .image()
         .set_noise_reduction_2d_mode(NoiseReduction2DMode::Manual);
@@ -11,4 +12,4 @@ fn sony_fr7_cannot_set_2d_noise_reduction_mode(camera: &Camera<SonyFR7>) {
 fn main() {}
 
 //~ E0277
-//~ "profile `SonyFR7` does not declare 2D noise-reduction control support"
+//~ "profile `SonyEVIH100` does not declare 2D noise-reduction mode support"

@@ -490,9 +490,7 @@ mod tests {
             ("Brightness::Reset", Box::new(Brightness::Reset)),
             (
                 "Brightness::SetLevel",
-                Box::new(Brightness::SetLevel(
-                    BrightnessLevel::new(0x11).expect("bright"),
-                )),
+                Box::new(Brightness::SetLevel(BrightnessLevel::new(0x11))),
             ),
             ("Gain::Up", Box::new(Gain::Up)),
             (

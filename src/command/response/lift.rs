@@ -93,7 +93,7 @@ impl Response {
         response_type: &InquiryKind,
     ) -> Result<Self, Error> {
         let framing =
-            PanTiltFraming::for_conversion(PanTiltCoordinateConversion::for_profile::<P>())?;
+            PanTiltFraming::for_conversion(PanTiltCoordinateConversion::for_profile::<P>());
         lift_inquiry(&decode_frame(bytes)?, Some(response_type), framing)
     }
 }

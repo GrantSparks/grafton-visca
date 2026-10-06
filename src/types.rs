@@ -145,16 +145,67 @@ impl fmt::Display for ShutterSpeed {
     }
 }
 
-crate::__grafton_visca_newtype! {
-    /// Brightness level for direct brightness control.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(
-        min = "0x00",
-        max = "0x11",
-        display_format = "hex",
-        display_prefix = "Brightness"
-    )]
-    pub struct BrightnessLevel(u16);
+/// Bright position for direct exposure brightness control.
+///
+/// This is the byte carried by the `0p 0q` field of `CAM_Bright` Direct
+/// (`8x 01 04 4D 00 00 0p 0q FF`), so every `u8` is a well-formed position.
+/// Bright positions are camera-specific: the selected profile's
+/// `Capabilities::exposure_brightness_range` is the only authority for which
+/// positions a camera accepts, and request preparation rejects any other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(transparent))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct BrightnessLevel(u8);
+
+impl BrightnessLevel {
+    /// Creates a bright position.
+    #[must_use]
+    pub const fn new(position: u8) -> Self {
+        Self(position)
+    }
+
+    /// Returns the bright position.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl From<u8> for BrightnessLevel {
+    fn from(position: u8) -> Self {
+        Self::new(position)
+    }
+}
+
+impl From<BrightnessLevel> for u8 {
+    fn from(level: BrightnessLevel) -> Self {
+        level.value()
+    }
+}
+
+/// A four-nibble bright reply field whose upper byte is not zero is not a
+/// bright position.
+impl TryFrom<u16> for BrightnessLevel {
+    type Error = Error;
+
+    fn try_from(position: u16) -> Result<Self, Self::Error> {
+        u8::try_from(position).map(Self::new).map_err(|_| {
+            Error::parameter_out_of_range(
+                "brightness level",
+                i32::from(position),
+                0,
+                i32::from(u8::MAX),
+            )
+        })
+    }
+}
+
+impl fmt::Display for BrightnessLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Brightness {:#04x}", self.0)
+    }
 }
 
 crate::__grafton_visca_newtype! {

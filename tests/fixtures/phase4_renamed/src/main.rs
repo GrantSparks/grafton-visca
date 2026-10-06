@@ -523,11 +523,11 @@ impl Focus for DownstreamProfile {
 impl Exposure for DownstreamProfile {
     const EXPOSURE_MODES: &'static [visca_renamed::ExposureMode] =
         <Base as Exposure>::EXPOSURE_MODES;
-    const IRIS_RANGE: Option<capabilities::CapabilityRange<u16>> = <Base as Exposure>::IRIS_RANGE;
+    const IRIS_RANGE: Option<capabilities::CapabilityDomain<u16>> = <Base as Exposure>::IRIS_RANGE;
     const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeedEntry] =
         <Base as Exposure>::SHUTTER_SPEEDS;
     const GAIN_RANGE: capabilities::CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
-    const BRIGHTNESS_RANGE: Option<capabilities::CapabilityRange<u16>> =
+    const BRIGHTNESS_RANGE: Option<capabilities::CapabilityDomain<u8>> =
         <Base as Exposure>::BRIGHTNESS_RANGE;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
 }
@@ -550,7 +550,6 @@ impl ImageProcessing for DownstreamProfile {
         <Base as ImageProcessing>::SATURATION_RANGE;
     const SUPPORTS_FLIP: bool = true;
     const SUPPORTS_MIRROR: bool = true;
-    const SUPPORTS_HUE: bool = true;
     const HUE_RANGE: Option<capabilities::CapabilityRange<u8>> =
         Some(capabilities::CapabilityRange::<u8>::new(0, 14));
     const SUPPORTS_IMAGE_PROCESSING: bool = true;
@@ -565,8 +564,8 @@ impl HasImageProcessing for DownstreamProfile {}
 fn assert_image_marker<P: HasImageProcessing>() {}
 
 impl Presets for DownstreamProfile {
-    const MAX_PRESETS: u8 = 8;
-    const PRESET_SPEED_RANGE: capabilities::CapabilityRange<u8> =
+    const HIGHEST_PRESET: u8 = 8;
+    const PRESET_SPEED_RANGE: Option<capabilities::CapabilityRange<u8>> =
         <Base as Presets>::PRESET_SPEED_RANGE;
     const SUPPORTS_PRESET_TOUR: bool = false;
 }

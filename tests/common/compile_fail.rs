@@ -27,6 +27,11 @@
 //!   and `\\` are the two escapes. This is how a lint-only fixture (which has
 //!   no error code at all) pins its diagnostic.
 //!
+//! A fixture whose contract is a post-monomorphization error, such as a
+//! failing `const { assert!(..) }` inside a generic function, adds the line
+//! `//@ build`. `cargo check` never instantiates generic code, so those
+//! fixtures are compiled with `cargo build` instead.
+//!
 //! The rules the harness enforces:
 //!
 //! 1. Every fixture declares at least one expectation. A fixture with none is
@@ -603,7 +608,7 @@ fn compile_fixture(
     });
 
     nested_cargo_command()
-        .arg("check")
+        .arg(compile_command(source))
         .arg("--offline")
         .arg("--quiet")
         .arg("--manifest-path")
@@ -643,6 +648,16 @@ fn nested_cargo_command() -> Command {
         command.env_remove(variable);
     }
     command
+}
+
+/// The Cargo command a fixture is compiled with: `build` when it declares
+/// `//@ build` (its contract is a post-monomorphization error), else `check`.
+fn compile_command(source: &str) -> &'static str {
+    if source.lines().any(|line| line.trim() == "//@ build") {
+        "build"
+    } else {
+        "check"
+    }
 }
 
 /// Reads the `//~` declaration block out of a fixture's source.
@@ -906,6 +921,15 @@ mod tests {
                 Expectation::Code("E0603".to_owned()),
                 Expectation::Message("module `camera_id` is private".to_owned()),
             ]
+        );
+    }
+
+    #[test]
+    fn build_directive_selects_a_full_build() {
+        assert_eq!(compile_command("fn main() {}\n//~ E0080\n"), "check");
+        assert_eq!(
+            compile_command("//@ build\nfn main() {}\n//~ E0080\n"),
+            "build"
         );
     }
 

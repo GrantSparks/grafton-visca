@@ -371,7 +371,7 @@ fn the_installed_tuning_reads_back_through_the_session() {
     let tuning = OperationalTuning::new()
         .ack_timeout(WIDE_ACK_TIMEOUT)
         .quick_timeout(Duration::from_secs(9))
-        .retry_limit(5);
+        .retry_limit(2);
     session.set_tuning(tuning).expect("accepted");
     assert_eq!(session.tuning(), tuning, "the getter reports what was set");
 
@@ -444,7 +444,8 @@ fn an_invalid_update_is_rejected_and_changes_nothing() {
         // Zero sockets is not a capacity.
         OperationalTuning::new().maximum_command_sockets(0),
         // Beyond the bounded retry maximum.
-        OperationalTuning::new().retry_limit(33),
+        // Tuning may only lower the default base retry count of 3.
+        OperationalTuning::new().retry_limit(4),
         // Backoff that is not ordered, with a budget that cannot hold it.
         OperationalTuning::new().retry_timing(
             Duration::from_millis(50),

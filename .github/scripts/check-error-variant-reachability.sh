@@ -81,8 +81,6 @@ record_construction InvalidParameter src/units.rs \
   'return Err(Error::InvalidParameter {'
 record_construction BufferTooSmall src/command/bytes/frame.rs \
   'Err(Error::buffer_too_small(frame.len, frame.buffer.len()))'
-record_construction InvalidPreset src/camera/profiles.rs \
-  'Err(Error::InvalidPreset {'
 record_construction ParameterOutOfRange src/units.rs \
   'return Err(Error::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \

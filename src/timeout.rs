@@ -2,13 +2,54 @@
 
 use std::time::{Duration, Instant};
 
-use crate::{Error, Result};
+use crate::{Error, Result, TimeoutClass};
+
+/// The five command completion categories: every [`TimeoutClass`] except
+/// [`TimeoutClass::Inquiry`], whose deadline is the profile's inquiry timing
+/// fact.
+///
+/// Every per-category table ([`CommandTimeouts`], the operational overrides,
+/// and the validation that relates them) is reached through this one
+/// vocabulary, so a new category cannot be added without supplying each of
+/// its values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandCategory {
+    Quick,
+    Movement,
+    Preset,
+    LongRunning,
+    Network,
+}
+
+impl CommandCategory {
+    /// Every command category.
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Quick,
+        Self::Movement,
+        Self::Preset,
+        Self::LongRunning,
+        Self::Network,
+    ];
+
+    /// The command category a request's timeout class selects, or `None` for
+    /// an inquiry.
+    pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
+        match class {
+            TimeoutClass::Quick => Some(Self::Quick),
+            TimeoutClass::Movement => Some(Self::Movement),
+            TimeoutClass::Preset => Some(Self::Preset),
+            TimeoutClass::LongRunning => Some(Self::LongRunning),
+            TimeoutClass::Network => Some(Self::Network),
+            TimeoutClass::Inquiry => None,
+        }
+    }
+}
 
 /// Exact completion values for the five command timeout classes.
 ///
-/// The defaults are Quick 5 seconds, Movement 30 seconds, Preset 60 seconds,
-/// LongRunning 300 seconds, and Network 5 seconds. Inquiry deadlines are
-/// profile timing facts and are intentionally not represented here.
+/// [`Self::DEFAULT`] is Quick 5 seconds, Movement 30 seconds, Preset 60
+/// seconds, LongRunning 300 seconds, and Network 5 seconds. Inquiry deadlines
+/// are profile timing facts and are intentionally not represented here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -21,6 +62,16 @@ pub struct CommandTimeouts {
 }
 
 impl CommandTimeouts {
+    /// The standard category deadlines: Quick 5 s, Movement 30 s, Preset
+    /// 60 s, LongRunning 300 s, and Network 5 s.
+    pub const DEFAULT: Self = Self::new(
+        Duration::from_secs(5),
+        Duration::from_secs(30),
+        Duration::from_secs(60),
+        Duration::from_secs(300),
+        Duration::from_secs(5),
+    );
+
     /// Creates exact category values.
     #[must_use]
     pub const fn new(
@@ -69,17 +120,22 @@ impl CommandTimeouts {
         self.network_timeout
     }
 
+    /// Returns one category's completion deadline.
+    pub(crate) const fn get(self, category: CommandCategory) -> Duration {
+        match category {
+            CommandCategory::Quick => self.quick_timeout,
+            CommandCategory::Movement => self.movement_timeout,
+            CommandCategory::Preset => self.preset_timeout,
+            CommandCategory::LongRunning => self.long_running_timeout,
+            CommandCategory::Network => self.network_timeout,
+        }
+    }
+
     /// Validates that every category has a non-zero deadline.
     pub(crate) fn validate(self) -> Result<()> {
-        if [
-            self.quick_timeout,
-            self.movement_timeout,
-            self.preset_timeout,
-            self.long_running_timeout,
-            self.network_timeout,
-        ]
-        .into_iter()
-        .any(|timeout| timeout.is_zero())
+        if CommandCategory::ALL
+            .into_iter()
+            .any(|category| self.get(category).is_zero())
         {
             return Err(Error::InvalidRequest(
                 "all command category timeouts must be non-zero".into(),
@@ -91,13 +147,7 @@ impl CommandTimeouts {
 
 impl Default for CommandTimeouts {
     fn default() -> Self {
-        Self::new(
-            Duration::from_secs(5),
-            Duration::from_secs(30),
-            Duration::from_secs(60),
-            Duration::from_secs(300),
-            Duration::from_secs(5),
-        )
+        Self::DEFAULT
     }
 }
 
@@ -193,6 +243,38 @@ mod tests {
         assert_eq!(defaults.preset_timeout(), Duration::from_secs(60));
         assert_eq!(defaults.long_running_timeout(), Duration::from_secs(300));
         assert_eq!(defaults.network_timeout(), Duration::from_secs(5));
+    }
+
+    #[test]
+    fn category_accessor_reads_each_named_deadline() {
+        let timeouts = CommandTimeouts::new(
+            Duration::from_secs(1),
+            Duration::from_secs(2),
+            Duration::from_secs(3),
+            Duration::from_secs(4),
+            Duration::from_secs(5),
+        );
+        assert_eq!(
+            CommandCategory::ALL.map(|category| timeouts.get(category)),
+            [
+                timeouts.quick_timeout(),
+                timeouts.movement_timeout(),
+                timeouts.preset_timeout(),
+                timeouts.long_running_timeout(),
+                timeouts.network_timeout(),
+            ]
+        );
+        assert_eq!(CommandCategory::of(TimeoutClass::Inquiry), None);
+        for (class, category) in [
+            (TimeoutClass::Quick, CommandCategory::Quick),
+            (TimeoutClass::Movement, CommandCategory::Movement),
+            (TimeoutClass::Preset, CommandCategory::Preset),
+            (TimeoutClass::LongRunning, CommandCategory::LongRunning),
+            (TimeoutClass::Network, CommandCategory::Network),
+        ] {
+            assert_eq!(CommandCategory::of(class), Some(category));
+        }
+        assert_eq!(CommandTimeouts::default(), CommandTimeouts::DEFAULT);
     }
 
     #[test]

@@ -213,9 +213,9 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
         .with_target(CameraId::CAMERA_2, profile)
         .expect("second serial target")
         .with_tuning(OperationalTuning::new().retry_timing(
-            Duration::from_millis(10),
-            Duration::from_millis(10),
-            Duration::from_secs(1),
+            Duration::from_millis(50),
+            Duration::from_millis(500),
+            Duration::from_secs(10),
         ));
     let transport = ProbeTransport::new(vec![
         vec![

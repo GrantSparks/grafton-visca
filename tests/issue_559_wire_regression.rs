@@ -8,9 +8,9 @@
 use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
-        AutoWhiteBalanceSensitivityInquiry, Brightness, BrightnessInquiry, DefogLevelInquiry,
-        FocusRangeInquiry, FocusZone, FocusZoneCommand, FocusZoneInquiry, GammaInquiry,
-        InquiryKind, NdFilterInquiry, NoiseReduction2D, NoiseReduction2DInquiry,
+        AutoWhiteBalanceSensitivityInquiry, Brightness, BrightnessInquiry, ColorTemperatureInquiry,
+        DefogLevelInquiry, FocusRangeInquiry, FocusZone, FocusZoneCommand, FocusZoneInquiry,
+        GammaInquiry, InquiryKind, NdFilterInquiry, NoiseReduction2D, NoiseReduction2DInquiry,
         NoiseReduction2DMode, NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry,
         NoiseReduction3D, NoiseReduction3DInquiry, PictureEffectInquiry, PictureEffectMode,
         Response, ResponseParser, SharpnessModeInquiry, UsbAudio, UsbAudioInquiry, VersionInfo,
@@ -187,7 +187,7 @@ fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
 
 #[test]
 fn brightness_set_and_inquiry_match_the_04_4d_family() {
-    let level = BrightnessLevel::new(0x11).expect("brightness level is valid");
+    let level = BrightnessLevel::new(0x11);
     let direct = [0x81, 0x01, 0x04, 0x4D, 0x00, 0x00, 0x01, 0x01, 0xFF];
 
     assert_eq!(wire(&Brightness::SetLevel(level)), direct);
@@ -368,6 +368,80 @@ fn version_inquiry_decodes_the_sony_reply_layout() {
             max_socket: 0x02,
         },
     );
+}
+
+/// #828 M1: only the PTZOptics G2 color-temperature reply layout is sourced
+/// (one data byte, `y0 50 pq FF`, PTZOptics G2 bench inquiry test #498). The
+/// typed inquiry needs `HasColorTemperatureInquiry`, and every other profile
+/// refuses it before I/O, including those that keep the color-temperature
+/// controls.
+#[test]
+fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() {
+    for (name, profile) in [
+        (
+            "PtzOpticsG2",
+            ProfileSpec::from_compile_time::<PtzOpticsG2>(),
+        ),
+        (
+            "PtzOptics30X",
+            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+        ),
+    ] {
+        let profile = profile.expect("built-in profile");
+        assert!(profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::ColorTemperatureInquiry));
+        ColorTemperatureInquiry
+            .validate_for_profile(&profile)
+            .unwrap_or_else(|error| panic!("{name} must admit the inquiry: {error}"));
+    }
+
+    for (name, profile, has_controls) in [
+        (
+            "PtzOpticsG3",
+            ProfileSpec::from_compile_time::<PtzOpticsG3>(),
+            true,
+        ),
+        (
+            "SonyBRCH900",
+            ProfileSpec::from_compile_time::<SonyBRCH900>(),
+            true,
+        ),
+        (
+            "SonyEVIH100",
+            ProfileSpec::from_compile_time::<SonyEVIH100>(),
+            false,
+        ),
+        (
+            "SonyFR7",
+            ProfileSpec::from_compile_time::<SonyFR7>(),
+            false,
+        ),
+        (
+            "GenericVisca",
+            ProfileSpec::from_compile_time::<GenericVisca>(),
+            false,
+        ),
+    ] {
+        let profile = profile.expect("built-in profile");
+        let capabilities = profile.capabilities();
+        assert_eq!(
+            capabilities.supports_typed(TypedSupportSurface::ColorTemperature),
+            has_controls,
+            "{name} color-temperature controls",
+        );
+        assert!(
+            !capabilities.supports_typed(TypedSupportSurface::ColorTemperatureInquiry),
+            "{name} must not advertise an unsourced color-temperature reply",
+        );
+        assert!(
+            matches!(
+                ColorTemperatureInquiry.validate_for_profile(&profile),
+                Err(Error::FeatureNotSupported { .. })
+            ),
+            "{name} must refuse the color-temperature inquiry before any I/O",
+        );
+    }
 }
 
 /// PTZOptics G2 bench regression (#795, 2026-10-04): the cameras answer
@@ -661,7 +735,6 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
 
     for profile in [&g2, &g3, &ptzoptics_30x] {
         let capabilities = profile.capabilities();
-        assert!(capabilities.has_noise_reduction);
         assert!(capabilities.has_2d_nr);
         assert!(capabilities.has_3d_nr);
         assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));
@@ -703,7 +776,6 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     // R14 directly documents the G3 inquiry rows, so this is a regression
     // guard against accidentally retaining the former inquiry denial.
     let g3_capabilities = g3.capabilities();
-    assert!(g3_capabilities.has_noise_reduction);
     assert!(g3_capabilities.has_2d_nr);
     assert!(g3_capabilities.has_3d_nr);
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));

@@ -1,9 +1,7 @@
 //! White balance capability trait and associated types.
 
-use std::borrow::Cow;
-
 use crate::{
-    capabilities::{CapabilityRange, ValidationError},
+    capabilities::{CapabilityRange, SupportedRange, ValidationError},
     WhiteBalanceMode,
 };
 
@@ -27,19 +25,15 @@ pub trait WhiteBalance {
     /// None if not supported.
     const BG_TUNING_RANGE: Option<CapabilityRange<i8>>;
 
-    /// Whether camera supports direct color temperature setting.
-    const SUPPORTS_COLOR_TEMP: bool = false;
-
-    /// Color temperature range in Kelvin if supported.
+    /// Direct color temperature range in Kelvin, or `None` when direct color
+    /// temperature setting is not supported.
     const COLOR_TEMP_RANGE: Option<CapabilityRange<u16>> = None;
 
-    /// Whether camera supports manual RGB gain control.
-    const SUPPORTS_RGB_GAIN: bool = false;
-
-    /// Red gain range if supported.
+    /// Manual red gain range, or `None` when RGB gain is not supported.
+    /// Manual RGB gain needs both this and [`Self::BLUE_GAIN_RANGE`].
     const RED_GAIN_RANGE: Option<CapabilityRange<u8>> = None;
 
-    /// Blue gain range if supported.
+    /// Manual blue gain range, or `None` when RGB gain is not supported.
     const BLUE_GAIN_RANGE: Option<CapabilityRange<u8>> = None;
 }
 
@@ -58,87 +52,42 @@ pub trait WhiteBalanceExt: WhiteBalance {
         if self.supports_wb_mode(mode) {
             Ok(mode)
         } else {
-            Err(ValidationError::InvalidValue {
-                parameter: "white balance mode",
-                message: Cow::Owned(format!("Mode {mode:?} not supported")),
-            })
+            Err(ValidationError::invalid_value(
+                "white balance mode",
+                format!("Mode {mode:?} not supported"),
+            ))
         }
     }
 
     /// Validate RG tuning value.
     fn validate_rg_tuning(&self, value: i8) -> Result<i8, ValidationError> {
-        match Self::RG_TUNING_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "RG tuning",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("RG tuning")),
-        }
+        Self::RG_TUNING_RANGE.validate_supported("RG tuning", value)
     }
 
     /// Validate BG tuning value.
     fn validate_bg_tuning(&self, value: i8) -> Result<i8, ValidationError> {
-        match Self::BG_TUNING_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "BG tuning",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("BG tuning")),
-        }
+        Self::BG_TUNING_RANGE.validate_supported("BG tuning", value)
     }
 
     /// Validate color temperature in Kelvin.
     ///
     /// Returns `NotSupported` error if `COLOR_TEMP_RANGE` is `None`.
     fn validate_color_temp(&self, kelvin: u16) -> Result<u16, ValidationError> {
-        match Self::COLOR_TEMP_RANGE {
-            Some(range) if range.contains(kelvin) => Ok(kelvin),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "color temperature",
-                value: kelvin as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("color temperature")),
-        }
+        Self::COLOR_TEMP_RANGE.validate_supported("color temperature", kelvin)
     }
 
     /// Validate red gain value.
     ///
     /// Returns `NotSupported` error if `RED_GAIN_RANGE` is `None`.
     fn validate_red_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        match Self::RED_GAIN_RANGE {
-            Some(range) if range.contains(gain) => Ok(gain),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "red gain",
-                value: gain as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("red gain")),
-        }
+        Self::RED_GAIN_RANGE.validate_supported("red gain", gain)
     }
 
     /// Validate blue gain value.
     ///
     /// Returns `NotSupported` error if `BLUE_GAIN_RANGE` is `None`.
     fn validate_blue_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        match Self::BLUE_GAIN_RANGE {
-            Some(range) if range.contains(gain) => Ok(gain),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "blue gain",
-                value: gain as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("blue gain")),
-        }
+        Self::BLUE_GAIN_RANGE.validate_supported("blue gain", gain)
     }
 }
 
@@ -169,10 +118,8 @@ mod tests {
             Some(CapabilityRange::<i8>::new(-7, 7));
         const BG_TUNING_RANGE: Option<CapabilityRange<i8>> =
             Some(CapabilityRange::<i8>::new(-7, 7));
-        const SUPPORTS_COLOR_TEMP: bool = true;
         const COLOR_TEMP_RANGE: Option<CapabilityRange<u16>> =
             Some(CapabilityRange::<u16>::new(2800, 7499));
-        const SUPPORTS_RGB_GAIN: bool = true;
         const RED_GAIN_RANGE: Option<CapabilityRange<u8>> =
             Some(CapabilityRange::<u8>::new(0x00, 0xFF));
         const BLUE_GAIN_RANGE: Option<CapabilityRange<u8>> =

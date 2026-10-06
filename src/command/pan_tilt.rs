@@ -454,8 +454,7 @@ mod tests {
         let tilt_speed = TiltSpeed::new(0x09).expect("matching paired API speed");
         assert_eq!(
             profiled_bytes(PanTiltProfiled::AbsolutePosition {
-                codec: PanTiltWireCodec::SonyBrc300,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::SonyBrc300,
                 pan: 0x02490,
                 tilt: -0x0C30,
                 pan_speed: speed,
@@ -470,8 +469,7 @@ mod tests {
         // Manual p. 22's positive endpoint is `08A58`/`493D`.
         assert_eq!(
             profiled_bytes(PanTiltProfiled::LimitSet {
-                codec: PanTiltWireCodec::SonyBrc300,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::SonyBrc300,
                 corner: PanTiltLimitCorner::UpRight,
                 pan: 0x08A58,
                 tilt: 0x493D,
@@ -485,8 +483,7 @@ mod tests {
         // `F75A8` and `E796` are the documented signed negative endpoints.
         assert_eq!(
             profiled_bytes(PanTiltProfiled::LimitSet {
-                codec: PanTiltWireCodec::SonyBrc300,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::SonyBrc300,
                 corner: PanTiltLimitCorner::DownLeft,
                 pan: -0x08A58,
                 tilt: -0x186A,
@@ -585,30 +582,27 @@ pub enum PanTilt {
 /// Sole position/limit encoder used by both public commands and typed requests.
 ///
 /// The public [`PanTilt`] command remains the baseline VISCA representation.
-/// It lowers through this crate-private discriminator with the standard codec;
-/// typed requests supply their profile's conversion and codec here as well, so
-/// each wire grammar has one implementation.
+/// It lowers through this crate-private discriminator with the standard
+/// framing; typed requests supply the framing their profile's validated
+/// conversion selects, so each wire grammar has one implementation.
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum PanTiltProfiled {
     AbsolutePosition {
-        codec: PanTiltWireCodec,
-        coordinate_system: CoordinateSystem,
+        framing: PanTiltFraming,
         pan: i32,
         tilt: i32,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     },
     RelativePosition {
-        codec: PanTiltWireCodec,
-        coordinate_system: CoordinateSystem,
+        framing: PanTiltFraming,
         pan: i32,
         tilt: i32,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
     },
     LimitSet {
-        codec: PanTiltWireCodec,
-        coordinate_system: CoordinateSystem,
+        framing: PanTiltFraming,
         corner: PanTiltLimitCorner,
         pan: i32,
         tilt: i32,
@@ -640,38 +634,56 @@ impl PanTiltFraming {
     /// The profile-less framing: standard words read as signed values.
     pub(crate) const STANDARD: Self = Self::Standard(CoordinateSystem::SignedCentered);
 
-    /// The framing for `codec` in `coordinate_system`.
+    /// Whether `codec` can frame `coordinate_system`. Sony BRC-300 framing is
+    /// signed by definition; standard framing carries either system.
+    pub(crate) const fn is_consistent(
+        codec: PanTiltWireCodec,
+        coordinate_system: CoordinateSystem,
+    ) -> bool {
+        !matches!(
+            (codec, coordinate_system),
+            (
+                PanTiltWireCodec::SonyBrc300,
+                CoordinateSystem::UnsignedCentered
+            )
+        )
+    }
+
+    /// The framing for `codec` in `coordinate_system`: the single rule every
+    /// profile construction path applies to its coordinate conversion.
     ///
     /// # Errors
     ///
-    /// Sony BRC-300 framing is signed by definition, so pairing it with
-    /// unsigned-centered coordinates is an inconsistent profile and returns
-    /// the profile-field error [`Error::InvalidRequest`]. No camera reply or
-    /// caller value can produce this error.
+    /// Pairing Sony BRC-300 framing with unsigned-centered coordinates is an
+    /// inconsistent profile and returns the profile-field error
+    /// [`Error::InvalidRequest`] naming `pan_tilt_coordinates`.
     pub(crate) fn new(
         codec: PanTiltWireCodec,
         coordinate_system: CoordinateSystem,
     ) -> Result<Self, Error> {
-        match (codec, coordinate_system) {
-            (PanTiltWireCodec::StandardVisca, coordinate_system) => {
-                Ok(Self::Standard(coordinate_system))
-            }
-            (PanTiltWireCodec::SonyBrc300, CoordinateSystem::SignedCentered) => Ok(Self::SonyBrc300),
-            (PanTiltWireCodec::SonyBrc300, CoordinateSystem::UnsignedCentered) => {
-                Err(Error::InvalidRequest(
-                    "profile field `pan_tilt_coordinates`: Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
-                        .into(),
-                ))
-            }
+        if Self::is_consistent(codec, coordinate_system) {
+            Ok(Self::select(codec, coordinate_system))
+        } else {
+            Err(Error::InvalidRequest(
+                "profile field `pan_tilt_coordinates`: Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+                    .into(),
+            ))
         }
     }
 
-    /// The framing a profile's coordinate conversion selects; see
-    /// [`Self::new`].
-    pub(crate) fn for_conversion(
-        conversion: crate::PanTiltCoordinateConversion,
-    ) -> Result<Self, Error> {
-        Self::new(conversion.wire_codec(), conversion.coordinate_system())
+    /// The framing a profile's coordinate conversion selects. Every
+    /// conversion passed [`Self::new`] when its profile was constructed.
+    pub(crate) const fn for_conversion(conversion: crate::PanTiltCoordinateConversion) -> Self {
+        Self::select(conversion.wire_codec(), conversion.coordinate_system())
+    }
+
+    /// The codec-led mapping: the codec picks the grammar and a standard
+    /// grammar reads words in `coordinate_system`.
+    const fn select(codec: PanTiltWireCodec, coordinate_system: CoordinateSystem) -> Self {
+        match codec {
+            PanTiltWireCodec::StandardVisca => Self::Standard(coordinate_system),
+            PanTiltWireCodec::SonyBrc300 => Self::SonyBrc300,
+        }
     }
 
     /// Writes the speed pair and the position words of an absolute or
@@ -784,13 +796,12 @@ impl WireEncode for PanTiltProfiled {
         let frame = FrameWriter::new(camera_id, buffer);
         match *self {
             Self::AbsolutePosition {
-                codec,
-                coordinate_system,
+                framing,
                 pan,
                 tilt,
                 pan_speed,
                 tilt_speed,
-            } => PanTiltFraming::new(codec, coordinate_system)?.write_move(
+            } => framing.write_move(
                 frame.bytes(&pan_tilt::ABSOLUTE),
                 pan,
                 tilt,
@@ -798,13 +809,12 @@ impl WireEncode for PanTiltProfiled {
                 tilt_speed,
             )?,
             Self::RelativePosition {
-                codec,
-                coordinate_system,
+                framing,
                 pan,
                 tilt,
                 pan_speed,
                 tilt_speed,
-            } => PanTiltFraming::new(codec, coordinate_system)?.write_move(
+            } => framing.write_move(
                 frame.bytes(&pan_tilt::RELATIVE),
                 pan,
                 tilt,
@@ -812,18 +822,17 @@ impl WireEncode for PanTiltProfiled {
                 tilt_speed,
             )?,
             Self::LimitSet {
-                codec,
-                coordinate_system,
+                framing,
                 corner,
                 pan,
                 tilt,
-            } => PanTiltFraming::new(codec, coordinate_system)?.write_position(
+            } => framing.write_position(
                 frame.bytes(&pan_tilt::LIMIT_SET).byte(corner.to_byte()),
                 pan,
                 tilt,
             )?,
             Self::LimitClear { codec, corner } => {
-                PanTiltFraming::new(codec, CoordinateSystem::SignedCentered)?
+                PanTiltFraming::select(codec, CoordinateSystem::SignedCentered)
                     .write_cleared_limit(frame.bytes(&pan_tilt::LIMIT_CLEAR).byte(corner.to_byte()))
             }
         }
@@ -864,8 +873,7 @@ impl WireEncode for PanTilt {
                 pan_speed,
                 tilt_speed,
             } => PanTiltProfiled::AbsolutePosition {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::STANDARD,
                 pan: i32::from(pan),
                 tilt: i32::from(tilt),
                 pan_speed,
@@ -878,8 +886,7 @@ impl WireEncode for PanTilt {
                 pan_speed,
                 tilt_speed,
             } => PanTiltProfiled::RelativePosition {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::STANDARD,
                 pan: i32::from(pan),
                 tilt: i32::from(tilt),
                 pan_speed,
@@ -887,8 +894,7 @@ impl WireEncode for PanTilt {
             }
             .write_into(camera_id, buffer),
             Self::LimitSet { corner, pan, tilt } => PanTiltProfiled::LimitSet {
-                codec: PanTiltWireCodec::StandardVisca,
-                coordinate_system: CoordinateSystem::SignedCentered,
+                framing: PanTiltFraming::STANDARD,
                 corner,
                 pan: i32::from(pan),
                 tilt: i32::from(tilt),

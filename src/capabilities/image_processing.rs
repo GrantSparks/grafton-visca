@@ -1,6 +1,6 @@
 //! Image processing capability trait and associated types.
 
-use crate::capabilities::{CapabilityRange, ValidationError};
+use crate::capabilities::{CapabilityRange, SupportedRange, ValidationError};
 
 /// Trait for cameras that report image-processing metadata.
 ///
@@ -24,14 +24,8 @@ pub trait ImageProcessing {
     /// Whether camera supports image mirror (horizontal).
     const SUPPORTS_MIRROR: bool;
 
-    /// Whether camera supports hue adjustment.
-    const SUPPORTS_HUE: bool = false;
-
-    /// Hue adjustment range if supported.
+    /// Hue adjustment range, or `None` when hue is not supported.
     const HUE_RANGE: Option<CapabilityRange<u8>> = None;
-
-    /// Whether camera supports noise reduction.
-    const SUPPORTS_NOISE_REDUCTION: bool = false;
 
     /// Whether camera supports 2D noise reduction.
     const SUPPORTS_2D_NR: bool = false;
@@ -39,14 +33,11 @@ pub trait ImageProcessing {
     /// Whether camera supports 3D noise reduction.
     const SUPPORTS_3D_NR: bool = false;
 
-    /// Whether camera supports luminance control.
-    const SUPPORTS_LUMINANCE: bool = false;
-
     /// Whether camera supports source-backed picture effects (Off and Black & White).
     /// Model-specific values remain available through `PictureEffectMode::Unknown`.
     const SUPPORTS_PICTURE_EFFECT: bool = false;
 
-    /// Luminance range if supported.
+    /// Luminance range, or `None` when luminance is not supported.
     const LUMINANCE_RANGE: Option<CapabilityRange<u8>> = None;
 
     /// Whether camera uses the combined flip command (0xA4) instead of legacy commands (0x61/0x66).
@@ -61,13 +52,9 @@ pub trait ImageProcessing {
     /// the changes persist across power cycles.
     const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = false;
 
-    /// Whether camera supports gamma curve control via VISCA command `0x5B`.
-    ///
-    /// When supported, the camera accepts direct gamma curve selection
-    /// (0=Standard, 1-4=different gamma curves depending on model).
-    const SUPPORTS_GAMMA: bool = false;
-
-    /// Valid range for gamma curve selection, if supported.
+    /// Valid range for gamma curve selection via VISCA command `0x5B`
+    /// (0=Standard, 1-4=model-specific curves), or `None` when gamma is not
+    /// supported.
     const GAMMA_RANGE: Option<CapabilityRange<u8>> = None;
 
     /// Whether the profile permits the base typed image noun.
@@ -87,92 +74,38 @@ pub trait ImageProcessing {
 pub trait ImageProcessingExt: ImageProcessing {
     /// Validate contrast value.
     fn validate_contrast(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::CONTRAST_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "contrast",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("contrast")),
-        }
+        Self::CONTRAST_RANGE.validate_supported("contrast", value)
     }
 
     /// Validate sharpness value.
     fn validate_sharpness(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::SHARPNESS_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "sharpness",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("sharpness")),
-        }
+        Self::SHARPNESS_RANGE.validate_supported("sharpness", value)
     }
 
     /// Validate saturation value.
     fn validate_saturation(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::SATURATION_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "saturation",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("saturation")),
-        }
+        Self::SATURATION_RANGE.validate_supported("saturation", value)
     }
 
     /// Validate hue value.
     ///
     /// Returns `NotSupported` error if `HUE_RANGE` is `None`.
     fn validate_hue(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::HUE_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "hue",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("hue")),
-        }
+        Self::HUE_RANGE.validate_supported("hue", value)
     }
 
     /// Validate luminance value.
     ///
     /// Returns `NotSupported` error if `LUMINANCE_RANGE` is `None`.
     fn validate_luminance(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::LUMINANCE_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "luminance",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("luminance")),
-        }
+        Self::LUMINANCE_RANGE.validate_supported("luminance", value)
     }
 
     /// Validate gamma value.
     ///
     /// Note: This method should only be called on profiles that support gamma.
     fn validate_gamma(&self, value: u8) -> Result<u8, ValidationError> {
-        match Self::GAMMA_RANGE {
-            Some(range) if range.contains(value) => Ok(value),
-            Some(ref range) => Err(ValidationError::OutOfRange {
-                parameter: "gamma",
-                value: value as f64,
-                min: range.min() as f64,
-                max: range.max() as f64,
-            }),
-            None => Err(ValidationError::NotSupported("gamma")),
-        }
+        Self::GAMMA_RANGE.validate_supported("gamma", value)
     }
 
     /// Check if flip is supported.
@@ -217,7 +150,6 @@ mod tests {
             Some(CapabilityRange::<u8>::new(0, 15));
         const SUPPORTS_FLIP: bool = true;
         const SUPPORTS_MIRROR: bool = true;
-        const SUPPORTS_HUE: bool = true;
         const HUE_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 14));
         const SUPPORTS_IMAGE_PROCESSING: bool = true;
     }

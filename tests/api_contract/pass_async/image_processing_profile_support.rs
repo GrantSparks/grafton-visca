@@ -14,6 +14,7 @@ where
         + grafton_visca::capabilities::HasNoiseReduction2D
         + grafton_visca::capabilities::HasNoiseReduction3D
         + grafton_visca::capabilities::HasNoiseReduction2DControl
+        + grafton_visca::capabilities::HasNoiseReduction2DMode
         + grafton_visca::capabilities::HasNoiseReduction3DControl,
 {
     let _ = camera.image().noise_reduction_2d();

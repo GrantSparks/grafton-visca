@@ -276,7 +276,7 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
 /// tilt nibbles. The manual (pp. 12 and 22) gives the endpoint polarity and
 /// approximates one degree as `0xD0`: positive raw pan is left and positive
 /// raw tilt is up. These profile-scale vectors therefore encode +45° right as
-/// negative pan and -15° up as positive tilt; exact endpoint bytes are pinned
+/// negative pan and +15° up as positive tilt; exact endpoint bytes are pinned
 /// separately.
 #[test]
 fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
@@ -292,11 +292,11 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         .expect("Sony BRC-300 pan/tilt conversion");
     assert_eq!(conversion.wire_codec(), PanTiltWireCodec::SonyBrc300);
     assert_eq!(SonyBRC300::PAN_DEGREES_TO_UNITS, -208.0);
-    assert_eq!(SonyBRC300::TILT_DEGREES_TO_UNITS, -208.0);
+    assert_eq!(SonyBRC300::TILT_DEGREES_TO_UNITS, 208.0);
 
     let absolute_error = PanTiltAbsolute::for_profile(
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x14),
         &profile,
@@ -309,7 +309,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let relative_error = PanTiltRelative::for_profile(
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x14),
         &profile,
@@ -322,7 +322,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let absolute = PanTiltAbsolute::for_profile(
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         pan_speed(0x09),
         tilt_speed(0x09),
         &profile,
@@ -339,7 +339,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let relative = PanTiltRelative::for_profile(
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         pan_speed(0x09),
         tilt_speed(0x09),
         &profile,
@@ -356,7 +356,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
 
     let fastest = PanTiltAbsolute::for_profile(
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x18),
         &profile,
@@ -374,7 +374,7 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     let limit = PanTiltLimitSet::for_profile(
         PanTiltLimitCorner::UpRight,
         Degrees(45.0),
-        Degrees(-15.0),
+        Degrees(15.0),
         &profile,
     )
     .expect("BRC-300 limit position");

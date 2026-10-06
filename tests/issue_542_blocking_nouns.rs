@@ -9,16 +9,16 @@ use grafton_visca::{
     blocking::{Camera, Operation},
     capabilities::{
         HasAutoFocusSensitivity, HasAutoWhiteBalanceSensitivity, HasBacklightCompensation,
-        HasBrightnessControl, HasColorTemperature, HasContrastControl, HasExposure,
-        HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry, HasFocusZone,
-        HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip, HasImageProcessing,
-        HasIrisControl, HasIrisControlInquiry, HasLuminanceControl, HasMenuControl, HasMotionSync,
-        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction3D, HasPanTilt, HasPictureEffect,
-        HasPower, HasPresets, HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming,
-        HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave,
-        HasRgbGain, HasRgbTuning, HasSaturationControl, HasSharpnessControl,
-        HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio, HasVersionInquiry,
-        HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
+        HasExposure, HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry,
+        HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
+        HasImageProcessing, HasIrisControl, HasIrisControlInquiry, HasLuminanceControl,
+        HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode,
+        HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
+        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
+        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning,
+        HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight,
+        HasTally, HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::MotionSyncMode,
     completion::{AppliedOnly, Targeted},
@@ -109,7 +109,7 @@ fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
 }
 
 #[allow(dead_code)]
-fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2D>(
+fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2DMode>(
     camera: &Camera<P>,
 ) {
     let _ = camera.image().noise_reduction_2d_mode();
@@ -124,6 +124,7 @@ where
         + HasBacklightCompensation
         + HasBrightnessControl
         + HasColorTemperature
+        + HasColorTemperatureInquiry
         + HasContrastControl
         + HasExposureCompensation
         + HasFocusNearLimitInquiry
@@ -138,6 +139,7 @@ where
         + HasMotionSync
         + HasNdFilter
         + HasNoiseReduction2D
+        + HasNoiseReduction2DMode
         + HasNoiseReduction3D
         + HasPictureEffect
         + HasRgbGain

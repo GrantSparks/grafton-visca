@@ -346,14 +346,20 @@ fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Er
 }
 
 /// Decodes a payload as `C`'s response with a profile's pan/tilt framing.
+///
+/// `framing` is `None` only for a profile without a pan/tilt coordinate
+/// conversion, which cannot decode a position reply.
 fn decode_payload_with_framing<C: GeneratedInquiry>(
-    framing: &Result<PanTiltFraming, Error>,
+    framing: &Option<PanTiltFraming>,
     payload: &[u8],
 ) -> Result<C::Response, Error> {
+    let framing = framing.ok_or(Error::FeatureNotSupported {
+        feature: "pan/tilt coordinate conversion",
+    })?;
     C::lift(dispatch_with_framing(
         C::KIND,
         Payload::new(payload),
-        framing.clone()?,
+        framing,
     )?)
 }
 
@@ -369,10 +375,7 @@ where
     if C::KIND == InquiryKind::PanTiltPosition {
         let framing = profile
             .pan_tilt_coordinates()
-            .ok_or(Error::FeatureNotSupported {
-                feature: "pan/tilt coordinate conversion",
-            })
-            .and_then(PanTiltFraming::for_conversion);
+            .map(PanTiltFraming::for_conversion);
         crate::ResponseDecoder::with_context(framing, decode_payload_with_framing::<C>)
     } else {
         crate::ResponseDecoder::from_fn(decode_payload::<C>)
@@ -887,8 +890,7 @@ define_builtin_inquiries! {
 
         /// The current brightness adjustment value.
         Brightness {
-            /// Brightness position `pq` (`00 00 0p 0q`; the value type admits
-            /// `0x00..=0x11`).
+            /// Bright position `pq` (`00 00 0p 0q`); every byte is a position.
             position: u8,
         } => |payload| Ok(InquiryData::Brightness {
             position: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
@@ -899,7 +901,7 @@ define_builtin_inquiries! {
                 bytes: exposure::BRIGHT_INQUIRY,
                 typed: (
                     crate::types::BrightnessLevel,
-                    { position } => crate::types::BrightnessLevel::new(u16::from(position))
+                    { position } => Ok(crate::types::BrightnessLevel::new(position))
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -2120,7 +2122,7 @@ define_builtin_inquiries! {
         WideDynamicRangeInquiryControl [typed HasWideDynamicRange] {
             DynamicRangeInquiry => dynamic_range: crate::types::DynamicRangeLevel;
         }
-        ColorTemperatureInquiryControl [typed HasColorTemperature] {
+        ColorTemperatureInquiryControl [typed HasColorTemperatureInquiry] {
             ColorTemperatureInquiry => color_temperature: crate::types::ColorTemp;
         }
         RgbGainInquiryControl [typed HasRgbGain] {
@@ -2147,8 +2149,10 @@ define_builtin_inquiries! {
             ImageFlipInquiry => image_flip: crate::command::FlipState;
             FlipStateInquiry => flip_mode: crate::command::FlipState;
         }
-        NoiseReduction2DInquiryControl [typed HasNoiseReduction2D] {
+        NoiseReduction2DModeInquiryControl [typed HasNoiseReduction2DMode] {
             NoiseReduction2DModeInquiry => noise_reduction_2d_mode: crate::command::NoiseReduction2DMode;
+        }
+        NoiseReduction2DInquiryControl [typed HasNoiseReduction2D] {
             NoiseReduction2DInquiry => noise_reduction_2d: crate::types::NoiseReduction2DLevel;
         }
         NoiseReduction3DInquiryControl [typed HasNoiseReduction3D] {
@@ -2545,11 +2549,7 @@ mod generated_invariant_tests {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod wire_decoder_regression_tests {
     use super::*;
-    use crate::{
-        capabilities::{CoordinateSystem, PanTiltWireCodec},
-        command::parse_inquiry_payload,
-        Inquiry,
-    };
+    use crate::{command::parse_inquiry_payload, Inquiry};
 
     #[test]
     fn iris_and_gain_typed_decoders_accept_their_profile_advertised_upper_halves() {
@@ -2895,16 +2895,10 @@ mod wire_decoder_regression_tests {
     }
 
     /// Issue #828 L2: a malformed pan/tilt reply reports the same
-    /// `InvalidResponseLength` whatever the profile's framing, and the
-    /// coordinate-system rule is a profile fact checked where the framing is
-    /// selected, not a decode-time caller error.
+    /// `InvalidResponseLength` whatever the profile's framing.
     #[test]
     fn pan_tilt_decode_errors_do_not_depend_on_the_profile_framing() {
-        let brc = PanTiltFraming::new(
-            PanTiltWireCodec::SonyBrc300,
-            CoordinateSystem::SignedCentered,
-        )
-        .unwrap();
+        let brc = PanTiltFraming::SonyBrc300;
         let standard = PanTiltFraming::STANDARD;
         let eight = [0x00; 8];
         let nine = [0x00; 9];
@@ -2935,10 +2929,6 @@ mod wire_decoder_regression_tests {
                 pan: -0x08A58,
                 tilt: -0x186A
             }))
-        ));
-        assert!(matches!(
-            PanTiltFraming::new(PanTiltWireCodec::SonyBrc300, CoordinateSystem::UnsignedCentered),
-            Err(Error::InvalidRequest(message)) if message.contains("pan_tilt_coordinates")
         ));
 
         // Every other kind decodes identically with any framing.

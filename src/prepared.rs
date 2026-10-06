@@ -18,6 +18,8 @@ use crate::{
         resolution::NdFilterPosition,
     },
     completion,
+    profile::{RetryBounds, DEFAULT_RETRY_BASE},
+    timeout::CommandCategory,
     types::{FocusPosition, IrisLevel, ZoomPosition},
     AffectedAxes, CameraId, ControlClass, Inquiry, InquiryRoute, OperationCommand,
     OperationalTuning, PlainCommand, ProfileSpec, Request, ResponseDecoder, RetryClass,
@@ -1027,26 +1029,14 @@ fn completion_timeout(
     profile: &ProfileSpec,
     tuning: OperationalTuning,
 ) -> Duration {
-    let timing = profile.timing();
-    match class {
-        TimeoutClass::Quick => tuning
-            .quick_timeout_override()
-            .unwrap_or(timing.command_timeouts().quick_timeout()),
-        TimeoutClass::Movement => tuning
-            .movement_timeout_override()
-            .unwrap_or(timing.command_timeouts().movement_timeout()),
-        TimeoutClass::Preset => tuning
-            .preset_timeout_override()
-            .unwrap_or(timing.command_timeouts().preset_timeout()),
-        TimeoutClass::LongRunning => tuning
-            .long_running_timeout_override()
-            .unwrap_or(timing.command_timeouts().long_running_timeout()),
-        TimeoutClass::Network => tuning
-            .network_timeout_override()
-            .unwrap_or(timing.command_timeouts().network_timeout()),
+    let timeouts = profile.timing().command_timeouts();
+    match CommandCategory::of(class) {
+        Some(category) => tuning
+            .command_override(category)
+            .unwrap_or(timeouts.get(category)),
         // Inquiry requests use `TimeoutPolicy::inquiry`; keep the otherwise
         // unused completion field on the Quick timeout.
-        TimeoutClass::Inquiry => timing.command_timeouts().quick_timeout(),
+        None => timeouts.get(CommandCategory::Quick),
     }
 }
 
@@ -1059,20 +1049,6 @@ fn settlement_budget(
         .settlement_timeout_override()
         .unwrap_or_else(|| completion_timeout(class, profile, tuning))
 }
-
-/// Base retry count every per-category budget is derived from.
-///
-/// [`OperationalTuning::retry_limit`] overrides exactly this number — not the
-/// final per-category count — so one setting scales every category's budget
-/// proportionally and the per-category ratios below stay intact.
-const DEFAULT_RETRY_BASE: u32 = 3;
-
-/// Floor for the total wall-clock a request may spend retrying, counted from
-/// admission.
-///
-/// The governing request deadline and profile busy timeout can raise this floor for a request whose
-/// first attempt is longer than ten seconds.
-const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
 
 /// Bounded retry count for one timeout category.
 ///
@@ -1112,13 +1088,8 @@ fn retry_policy(
     deadline: Duration,
     builtin_inquiry_syntax: bool,
 ) -> RetryPolicy {
-    let default_initial = Duration::from_millis(50);
-    let default_maximum = Duration::from_millis(500).max(busy_timeout);
-    let default_budget = MINIMUM_RETRY_BUDGET
-        .max(deadline.saturating_mul(2))
-        .max(busy_timeout);
-    let (initial, maximum, budget) = tuning.retry_timing_override();
-    let base = tuning.retry_limit_override().unwrap_or(DEFAULT_RETRY_BASE);
+    let bounds = tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline));
+    let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
     let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
     } else {
@@ -1135,9 +1106,9 @@ fn retry_policy(
     let replayable = !matches!(retry_class, RetryClass::Never);
     RetryPolicy {
         max_retries,
-        initial_backoff: initial.unwrap_or(default_initial),
-        maximum_backoff: maximum.unwrap_or(default_maximum),
-        total_budget: budget.unwrap_or(default_budget),
+        initial_backoff: bounds.initial_backoff,
+        maximum_backoff: bounds.maximum_backoff,
+        total_budget: bounds.total_budget,
         ack_timeout: replayable,
         completion_timeout: replayable,
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
@@ -1294,6 +1265,7 @@ mod tests {
             PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
             ZoomPositionInquiry, VISCA_TERMINATOR,
         },
+        profile::MINIMUM_RETRY_BUDGET,
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisDirect, IrisReset,
             NdFilterStepUp, PanTiltAbsolute, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
@@ -1328,11 +1300,7 @@ mod tests {
         preset_axes: AffectedAxes,
     ) -> ProfileSpec {
         capabilities.supports_operation_complete = operation_complete;
-        let transports = TransportCompatibility::new(
-            capabilities.default_tcp_port,
-            capabilities.default_udp_port,
-            false,
-        );
+        let transports = TransportCompatibility::new(Some(5678), Some(1259), false);
         ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(
                 crate::capabilities::CoordinateSystem::SignedCentered,
@@ -2891,8 +2859,8 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new().retry_timing(
-                Duration::from_millis(1),
-                Duration::from_millis(1),
+                Duration::from_millis(50),
+                Duration::from_millis(500),
                 Duration::from_secs(10),
             ),
             ClassSelection::Request,
@@ -2900,7 +2868,9 @@ mod tests {
         .expect("busy-command preparation");
         let busy_budget = busy.context.retry.total_budget;
         let busy_observer = busy.admit_with(|_request, timeout| timeout);
-        assert_eq!(busy_budget, Duration::from_secs(10));
+        // A shorter budget override never shortens the request's own budget:
+        // twice Generic VISCA's 10 s quick deadline (#828 M3).
+        assert_eq!(busy_budget, Duration::from_secs(20));
         assert!(
             busy_observer > Duration::from_secs(2),
             "the t=2 s CommandBufferFull retry must precede observer Timeout"
@@ -2969,7 +2939,7 @@ mod tests {
 
     #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
-        let tuning = OperationalTuning::new().retry_limit(7);
+        let tuning = OperationalTuning::new().retry_limit(2);
         let never = retry_policy(
             RetryClass::Never,
             TimeoutClass::Quick,
@@ -2989,7 +2959,7 @@ mod tests {
 
         assert_eq!(never.max_retries, 0);
         // `retry_limit` sets the base; a movement budget is the base itself.
-        assert_eq!(standard.max_retries, 7);
+        assert_eq!(standard.max_retries, 2);
     }
 
     /// Issue #566: the retry budgets follow the per-category table derived
@@ -3052,17 +3022,66 @@ mod tests {
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new().retry_timing(
-                Duration::from_millis(25),
-                Duration::from_millis(75),
-                Duration::from_secs(2),
+                Duration::from_millis(100),
+                Duration::from_millis(750),
+                Duration::from_secs(30),
             ),
             Duration::ZERO,
             Duration::from_secs(1),
             false,
         );
-        assert_eq!(tuned.initial_backoff, Duration::from_millis(25));
-        assert_eq!(tuned.maximum_backoff, Duration::from_millis(75));
-        assert_eq!(tuned.total_budget, Duration::from_secs(2));
+        assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
+        assert_eq!(tuned.maximum_backoff, Duration::from_millis(750));
+        assert_eq!(tuned.total_budget, Duration::from_secs(30));
+    }
+
+    /// #828 M3: retry timing is a profile bound that tuning may only
+    /// lengthen. An override shorter than a request's own bound (here even
+    /// one that validation would reject) leaves that bound in force, and a
+    /// budget override shorter than a long request's own budget does not
+    /// shorten it.
+    #[test]
+    fn retry_timing_overrides_never_shorten_a_request_bound() {
+        let shortened = OperationalTuning::new().retry_timing(
+            Duration::from_millis(1),
+            Duration::from_millis(2),
+            Duration::from_secs(3),
+        );
+        let quick = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            shortened,
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(quick.initial_backoff, Duration::from_millis(50));
+        assert_eq!(quick.maximum_backoff, Duration::from_millis(500));
+        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
+
+        let raised_budget = OperationalTuning::new().retry_timing(
+            Duration::from_millis(50),
+            Duration::from_millis(500),
+            Duration::from_secs(20),
+        );
+        let long = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::LongRunning,
+            raised_budget,
+            Duration::ZERO,
+            Duration::from_secs(300),
+            false,
+        );
+        assert_eq!(long.total_budget, Duration::from_secs(600));
+        let short = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            raised_budget,
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(short.total_budget, Duration::from_secs(20));
     }
 
     /// A network budget never reaches zero: the clamp keeps one attempt.
@@ -3264,7 +3283,7 @@ mod tests {
 
         let sony_absolute = PanTiltAbsolute::for_profile(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
             &sony,
@@ -3272,7 +3291,7 @@ mod tests {
         .expect("Sony BRC-300 absolute");
         let sony_relative = PanTiltRelative::for_profile(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
             &sony,
@@ -3281,7 +3300,7 @@ mod tests {
         let sony_limit = PanTiltLimitSet::for_profile(
             PanTiltLimitCorner::UpRight,
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             &sony,
         )
         .expect("Sony BRC-300 limit");
@@ -3343,87 +3362,74 @@ mod tests {
             crate::camera::PanTiltPosition::new(9360, -3120)
         );
 
+        // R21 documents the same one-speed, five-pan-nibble frame and limits
+        // for the Nearus BRC-300, so it encodes and decodes exactly as the
+        // Sony BRC-300 does.
         {
             let profile = &nearus;
-            let absolute = PanTiltAbsolute::for_profile(
-                Degrees(45.0),
-                Degrees(-15.0),
-                pan_speed,
-                tilt_speed,
-                profile,
-            )
-            .expect("Nearus standard absolute");
-            let relative = PanTiltRelative::for_profile(
-                Degrees(45.0),
-                Degrees(-15.0),
-                pan_speed,
-                tilt_speed,
-                profile,
-            )
-            .expect("Nearus standard relative");
-            let limit = PanTiltLimitSet::for_profile(
-                PanTiltLimitCorner::UpRight,
-                Degrees(45.0),
-                Degrees(-15.0),
-                profile,
-            )
-            .expect("Nearus standard limit");
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
-                &absolute,
+                &PanTiltAbsolute::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    sony_tilt_speed,
+                    profile,
+                )
+                .expect("Nearus absolute"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared absolute");
+            .expect("prepared Nearus absolute");
             let prepared_relative = prepare_builtin_operation::<completion::Targeted, _>(
-                &relative,
+                &PanTiltRelative::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    sony_tilt_speed,
+                    profile,
+                )
+                .expect("Nearus relative"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared relative");
+            .expect("prepared Nearus relative");
             let prepared_limit = prepare_builtin_command(
-                &limit,
+                &PanTiltLimitSet::for_profile(
+                    PanTiltLimitCorner::UpRight,
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    profile,
+                )
+                .expect("Nearus limit"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared limit");
-
+            .expect("prepared Nearus limit");
             assert_eq!(
                 prepared_absolute.wire.as_bytes(),
-                encoded(&PanTilt::AbsolutePosition {
-                    pan: 0x8249_u16 as i16,
-                    tilt: 0x7f3d_u16 as i16,
-                    pan_speed,
-                    tilt_speed,
-                })
+                prepared_sony_absolute.wire.as_bytes()
             );
             assert_eq!(
                 prepared_relative.wire.as_bytes(),
-                encoded(&PanTilt::RelativePosition {
-                    pan: 0x8249_u16 as i16,
-                    tilt: 0x7f3d_u16 as i16,
-                    pan_speed,
-                    tilt_speed,
-                })
+                prepared_sony_relative.wire.as_bytes()
             );
             assert_eq!(
                 prepared_limit.wire.as_bytes(),
-                encoded(&PanTilt::LimitSet {
-                    corner: PanTiltLimitCorner::UpRight,
-                    pan: 0x8249_u16 as i16,
-                    tilt: 0x7f3d_u16 as i16,
-                })
+                prepared_sony_limit.wire.as_bytes()
             );
             assert!(matches!(
-                prepared_limit.applied_state,
-                Some(AppliedStateProjection::Set {
-                    key: crate::command::semantics::WriteOnlyState::PanTiltLimits,
-                    value,
-                }) if value.value_count == 3
+                PanTiltAbsolute::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    tilt_speed,
+                    profile,
+                ),
+                Err(Error::InvalidRequest(_))
             ));
-
             let inquiry = prepare_inquiry(
                 &PanTiltPositionInquiry,
                 CameraId::CAMERA_1,
@@ -3431,13 +3437,13 @@ mod tests {
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
-            .expect("prepared Nearus standard inquiry");
+            .expect("prepared Nearus inquiry");
             assert_eq!(
                 inquiry
                     .decoder
-                    .decode(&[0x8, 0x2, 0x4, 0x9, 0x7, 0xf, 0x3, 0xd])
-                    .expect("Nearus standard position decode"),
-                crate::camera::PanTiltPosition::new(585, -195)
+                    .decode(&[0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D, 0x00])
+                    .expect("Nearus position decode"),
+                crate::camera::PanTiltPosition::new(9360, -3120)
             );
         }
 
@@ -3565,7 +3571,6 @@ mod tests {
         let mut bounded_zoom_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         bounded_zoom_caps.profile_id = None;
         bounded_zoom_caps.zoom_range_optical = 0..=0x4000;
-        bounded_zoom_caps.has_digital_zoom = true;
         bounded_zoom_caps.zoom_range_digital = Some(0x4000..=0x5000);
         bounded_zoom_caps.supports_direct_zoom = true;
         bounded_zoom_caps.typed_support = TypedSupportSet::from_surfaces(&[

@@ -147,7 +147,6 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
     let mut capabilities =
         Capabilities::runtime_baseline("Documented Digital Zoom", 1).expect("baseline profile");
     capabilities.has_zoom = true;
-    capabilities.has_digital_zoom = true;
     capabilities.zoom_range_optical = 0..=0x4000;
     capabilities.zoom_range_digital = Some(0x4000..=0x7000);
     capabilities.zoom_speed = 0..=7;

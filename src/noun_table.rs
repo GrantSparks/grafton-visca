@@ -579,7 +579,7 @@ macro_rules! noun_table {
                 = command::BlueTuningCommand::new(level);
             /// Returns the color temperature.
             inquiry command::ColorTemperatureInquiry color_temperature() -> types::ColorTemp
-                where HasColorTemperature
+                where HasColorTemperatureInquiry
                 = command::ColorTemperatureInquiry;
             /// Resets color temperature.
             plain [ColorTemperatureReset] reset_color_temperature() -> command::ColorTemperature
@@ -723,7 +723,7 @@ macro_rules! noun_table {
                 = command::NoiseReduction2DInquiry;
             /// Returns the 2D noise reduction mode.
             inquiry command::NoiseReduction2DModeInquiry noise_reduction_2d_mode()
-                -> command::NoiseReduction2DMode where HasNoiseReduction2D
+                -> command::NoiseReduction2DMode where HasNoiseReduction2DMode
                 = command::NoiseReduction2DModeInquiry;
             /// Returns 3D noise reduction level.
             inquiry command::NoiseReduction3DInquiry noise_reduction_3d()
@@ -732,7 +732,7 @@ macro_rules! noun_table {
             /// Sets the 2D noise-reduction mode.
             plain [NoiseReduction2dMode] set_noise_reduction_2d_mode(
                 mode: command::NoiseReduction2DMode
-            ) -> command::NoiseReduction2DModeCommand where HasNoiseReduction2DControl
+            ) -> command::NoiseReduction2DModeCommand where HasNoiseReduction2DMode
                 = command::NoiseReduction2DModeCommand::new(mode);
             /// Sets the 2D noise-reduction level.
             plain [NoiseReduction2d] set_noise_reduction_2d(level: types::NoiseReduction2DLevel)

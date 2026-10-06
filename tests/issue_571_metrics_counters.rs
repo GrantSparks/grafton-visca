@@ -91,8 +91,8 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
         OperationalTuning::new()
             .retry_limit(retry_limit)
             .retry_timing(
-                Duration::from_millis(1),
-                Duration::from_millis(2),
+                Duration::from_millis(50),
+                Duration::from_millis(500),
                 Duration::from_secs(30),
             ),
     );

@@ -83,7 +83,7 @@ custom integrations.
 | PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Sony spotlight controls | `SonyFR7`, `SonyBRCH900` |
-| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300` |
+| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
@@ -101,45 +101,50 @@ focus methods.
 
 Dynamic callers get the same marker-derived permission model through
 `Capabilities::typed_support` and `Capabilities::supports_typed(...)`. Metadata
-fields such as `has_digital_zoom` and `supports_direct_zoom` remain runtime
+fields such as `zoom_range_digital` and `supports_direct_zoom` remain runtime
 discovery facts; use typed support checks before calling optional dyn typed
 operations.
 
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
+| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
-| Standard one-push focus | No built-in profile currently marks this typed capability |
+| Standard one-push focus | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Push auto focus | `SonyFR7` |
 | Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 | Auto focus sensitivity | No built-in profile currently marks this typed capability |
-| Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `GenericVisca` |
+| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Color temperature controls and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100` |
-| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Flip and mirror controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Color temperature controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| Color temperature inquiry (sourced one-byte `pq` reply) | `PtzOpticsG2`, `PtzOptics30X` |
+| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Vertical image flip control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyBRC300`, `NearusBRC300` |
+| Horizontal image mirror control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Combined image flip mode | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Contrast control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `NearusBRC300` |
-| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| 2D mode and 2D/3D noise-reduction level inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| 2D mode and 2D/3D noise-reduction level controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
+| 3D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction level control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
+| 3D noise-reduction level control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction auto/manual mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | USB audio control and inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 
@@ -147,10 +152,10 @@ operations.
 exposure-mode command and inquiry are separately guarded by `HasExposureMode`;
 every built-in profile except `SonyFR7` has a nonempty shared-mode inventory and
 grants this typed surface. The PTZOptics profiles use R1/R10/R14 evidence;
-`SonyBRCH900` and `SonyBRC300` use R11/R12; `NearusBRC300` follows its BRC-300
-compatibility contract; `GenericVisca` deliberately assumes the standard Sony
-family; and `SonyEVIH100` retains its 1.2 compatibility breadth pending the R8
-line-item audit. A discovery inventory and the marker agree for every built-in;
+`SonyBRCH900`, `SonyEVIH100`, `SonyBRC300` and `NearusBRC300` use the command
+and inquiry rows of their own model sources (R11, R8, R12 and R21);
+`GenericVisca` grants only the Sony-standard families that R8, R12 and R21 all
+document. A discovery inventory and the marker agree for every built-in;
 custom runtime profiles must still supply both before encoding.
 
 `HasIrisControl` covers standard iris reset/up/down/direct control and the
@@ -159,7 +164,7 @@ surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
 Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
 for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
 PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
-R11/R12/R8 and compatibility evidence described above. `iris_control()` instead
+R11/R8/R12/R21 model rows described above. `iris_control()` instead
 sends the separate `09 04 2B` auto/manual-status inquiry and requires
 `HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
 checked sources establishes that distinct row, so no built-in profile enables
@@ -177,13 +182,15 @@ not document it. Coarse `SpeedLevel` position requests similarly clamp to each
 profile's documented pan and tilt maxima; `Fastest` therefore means the fastest
 valid speed for that selected camera.
 
-Noise-reduction inquiries remain independently gated by
-`HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate
-`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers. The
-control surface restores `set_noise_reduction_2d_mode`,
-`set_noise_reduction_2d`, `disable_noise_reduction_2d`,
-`set_noise_reduction_3d`, and `disable_noise_reduction_3d` only for the three
-profiles in the table. This is exact source-backed scope, not a grant inferred
+Noise-reduction level inquiries are gated by `HasNoiseReduction2D` and
+`HasNoiseReduction3D`; the level controls (`set_noise_reduction_2d`,
+`disable_noise_reduction_2d`, `set_noise_reduction_3d`,
+`disable_noise_reduction_3d`) require the separate
+`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers, and the
+`04 50` auto/manual mode (`noise_reduction_2d_mode`,
+`set_noise_reduction_2d_mode`) requires `HasNoiseReduction2DMode`. The
+EVI-H100 carries only the 2D level pair, because R8 documents `CAM_NR`
+`04 53` and its inquiry but no mode or 3D level. This is exact source-backed scope, not a grant inferred
 from a PTZOptics family grouping: `PtzOptics30X` is the explicitly legacy
 PT30X SDI/NDI G2/Gen-2 profile, and it does not extend to Move, Link, or newer
 30X models. See the separate R14 command-input and query-output domains in
@@ -544,15 +551,18 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 
 Profiles define protocol format, supported standard transports, and default ports:
 
-| Profile              | Protocol           | TCP Port | UDP Port |
-| -------------------- | ------------------ | -------: | -------: |
-| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |
-| `PtzOpticsG2/G3/30X` | Raw VISCA          |     5678 |     1259 |
-| `SonyEVIH100`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRC300`         | Raw VISCA          |     5678 |     1259 |
-| `NearusBRC300`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |
-| `SonyFR7`            | Sony encapsulation |      n/a |    52381 |
+| Profile              | Protocol           | TCP Port | UDP Port | Serial |
+| -------------------- | ------------------ | -------: | -------: | :----: |
+| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |  yes   |
+| `PtzOpticsG2/G3/30X` | Raw VISCA          |     5678 |     1259 |  yes   |
+| `SonyEVIH100`        | Raw VISCA          |      n/a |      n/a |  yes   |
+| `SonyBRC300`         | Raw VISCA          |      n/a |      n/a |  yes   |
+| `NearusBRC300`       | Raw VISCA          |      n/a |      n/a |  yes   |
+| `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |   no   |
+| `SonyFR7`            | Sony encapsulation |      n/a |    52381 |   no   |
+
+The EVI-H100, BRC-300 and Nearus BRC-300 sources document VISCA over RS-232C
+and RS-422 only, so those profiles are serial-only.
 
 Port can be omitted for supported network transports; the profile default for
 that transport is used. Unsupported profile/transport pairs are rejected by the

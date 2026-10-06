@@ -464,7 +464,7 @@ impl DiagnosticSubscription {
 
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase, SessionState};
+        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase};
         use crate::runtime::owner::{
             CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic,
             ResponseDiagnostic,
@@ -481,12 +481,6 @@ impl DiagnosticEvent {
             Phase::AwaitingCancellationResolution { .. } => {
                 DiagnosticPhase::AwaitingCancellationResolution
             }
-        };
-        let session = |value: SessionState| match value {
-            SessionState::Running => SessionStatus::Running,
-            SessionState::Closed => SessionStatus::Closed,
-            SessionState::Shutdown => SessionStatus::Shutdown,
-            SessionState::Poisoned => SessionStatus::Poisoned,
         };
         let lane = |value: Lane| match value {
             Lane::Command => DiagnosticLane::Command,
@@ -643,13 +637,27 @@ impl DiagnosticEvent {
                 outcome: outcome(value),
             },
             OwnerEvent::SessionChanged { from, to, reason } => Self::SessionChanged {
-                from: session(from),
-                to: session(to),
+                from: SessionStatus::from_engine(from),
+                to: SessionStatus::from_engine(to),
                 reason,
             },
             OwnerEvent::Ignored(value) => Self::Ignored {
                 reason: ignored(value),
             },
+        }
+    }
+}
+
+impl SessionStatus {
+    /// The public status of one engine session state.
+    pub(crate) const fn from_engine(state: crate::runtime::engine::SessionState) -> Self {
+        use crate::runtime::engine::SessionState;
+
+        match state {
+            SessionState::Running => Self::Running,
+            SessionState::Closed => Self::Closed,
+            SessionState::Shutdown => Self::Shutdown,
+            SessionState::Poisoned => Self::Poisoned,
         }
     }
 }
@@ -660,12 +668,7 @@ pub(crate) fn metrics_snapshot(
     pending: usize,
     session: crate::runtime::engine::SessionState,
 ) -> MetricsSnapshot {
-    let session = match session {
-        crate::runtime::engine::SessionState::Running => SessionStatus::Running,
-        crate::runtime::engine::SessionState::Closed => SessionStatus::Closed,
-        crate::runtime::engine::SessionState::Shutdown => SessionStatus::Shutdown,
-        crate::runtime::engine::SessionState::Poisoned => SessionStatus::Poisoned,
-    };
+    let session = SessionStatus::from_engine(session);
     MetricsSnapshot {
         admitted: metrics.admitted,
         admission_rejected: metrics.admission_rejected,

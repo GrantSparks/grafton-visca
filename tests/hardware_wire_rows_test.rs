@@ -71,9 +71,9 @@ use grafton_visca::{
     camera::profiles::{PtzOptics30X, PtzOpticsG2},
     capabilities::{
         Capabilities, HasDirectZoom, HasFocus, HasFocusZone, HasFocusZoneInquiry,
-        HasImageProcessing, HasNoiseReduction2D, HasNoiseReduction2DControl, HasNoiseReduction3D,
-        HasNoiseReduction3DControl, HasPanTilt, HasPictureEffect, HasPresets, HasZoom, PanTilt,
-        SupportsTcp,
+        HasImageProcessing, HasNoiseReduction2D, HasNoiseReduction2DControl,
+        HasNoiseReduction2DMode, HasNoiseReduction3D, HasNoiseReduction3DControl, HasPanTilt,
+        HasPictureEffect, HasPresets, HasZoom, PanTilt, SupportsTcp,
     },
     command::{FocusZone, NoiseReduction2DMode},
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel, SpeedLevel, ZoomPosition},
@@ -252,6 +252,7 @@ trait WireRowProfile:
     + HasFocusZoneInquiry
     + HasNoiseReduction2D
     + HasNoiseReduction2DControl
+    + HasNoiseReduction2DMode
     + HasNoiseReduction3D
     + HasNoiseReduction3DControl
     + HasPictureEffect
@@ -271,6 +272,7 @@ impl<P> WireRowProfile for P where
         + HasFocusZoneInquiry
         + HasNoiseReduction2D
         + HasNoiseReduction2DControl
+        + HasNoiseReduction2DMode
         + HasNoiseReduction3D
         + HasNoiseReduction3DControl
         + HasPictureEffect

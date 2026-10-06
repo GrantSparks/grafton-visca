@@ -1,6 +1,10 @@
 //! Focus capability trait and associated types.
 
-use crate::{capabilities::ValidationError, command::FocusZone, UnitInterval};
+use crate::{
+    capabilities::{CapabilityRange, ValidationError},
+    command::FocusZone,
+    UnitInterval,
+};
 
 /// The `CAM_AFZone` values every focus-zone source documents: Top, Center and
 /// Bottom (`8x 01 04 AA 00/01/02 FF`).
@@ -25,24 +29,22 @@ pub trait Focus {
     /// This triggers a single auto focus operation then returns to manual.
     const SUPPORTS_ONE_PUSH_FOCUS: bool;
 
-    /// Whether camera supports focus zone selection.
-    /// Allows selecting which part of image to focus on.
-    const SUPPORTS_FOCUS_ZONE: bool = false;
-
     /// Whether camera supports the focus-zone inquiry command.
     ///
-    /// This is distinct from [`Self::SUPPORTS_FOCUS_ZONE`]: some model
-    /// references document selection but not a reliable status response.
+    /// This is distinct from focus-zone selection ([`Self::FOCUS_ZONES`]):
+    /// some model references document selection but not a reliable status
+    /// response.
     const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = false;
 
-    /// Focus-zone values the typed setter may send to this camera.
+    /// Focus-zone values the typed setter may send to this camera; empty when
+    /// the camera has no focus-zone selection (the default).
     ///
-    /// Used only when [`Self::SUPPORTS_FOCUS_ZONE`] is true. The default is the
-    /// documented Top, Center and Bottom set. Add a value such as
-    /// [`FocusZone::Zone03`] only for a camera whose evidence shows it accepts
-    /// that value. The focus-zone inquiry decodes every known value whatever
-    /// this list says, because decoding a reply sends nothing.
-    const FOCUS_ZONES: &'static [FocusZone] = DOCUMENTED_FOCUS_ZONES;
+    /// A camera with the documented `CAM_AFZone` rows lists Top, Center and
+    /// Bottom. Add a value such as [`FocusZone::Zone03`]
+    /// only for a camera whose evidence shows it accepts that value. The
+    /// focus-zone inquiry decodes every known value whatever this list says,
+    /// because decoding a reply sends nothing.
+    const FOCUS_ZONES: &'static [FocusZone] = &[];
 
     /// Maximum focus speed for manual focus operations.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.
@@ -60,22 +62,20 @@ pub trait Focus {
 /// Extension trait that adds validation methods to cameras with focus support.
 pub trait FocusExt: Focus {
     /// Validate a focus position is within range.
+    ///
+    /// A profile whose `FOCUS_NEAR_LIMIT` exceeds its `FOCUS_FAR_LIMIT` fails to
+    /// compile a call to this method.
     fn validate_focus_position(&self, position: u16) -> Result<u16, ValidationError> {
-        if position >= Self::FOCUS_NEAR_LIMIT && position <= Self::FOCUS_FAR_LIMIT {
-            Ok(position)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "focus position",
-                value: position as f64,
-                min: Self::FOCUS_NEAR_LIMIT as f64,
-                max: Self::FOCUS_FAR_LIMIT as f64,
-            })
-        }
+        const { CapabilityRange::<u16>::new(Self::FOCUS_NEAR_LIMIT, Self::FOCUS_FAR_LIMIT) }
+            .validate("focus position", position)
     }
 
-    /// Validate and clamp focus speed.
-    fn validate_focus_speed(&self, speed: u8) -> u8 {
-        speed.min(Self::MAX_FOCUS_SPEED)
+    /// Validate a focus speed against `0..=MAX_FOCUS_SPEED`.
+    ///
+    /// Rejects out-of-range speeds instead of clamping them, matching the
+    /// request path (`Capabilities::focus_speed`).
+    fn validate_focus_speed(&self, speed: u8) -> Result<u8, ValidationError> {
+        CapabilityRange::<u8>::new(0, Self::MAX_FOCUS_SPEED).validate("focus speed", speed)
     }
 
     /// Convert a normalized focus position to VISCA units.
@@ -90,10 +90,10 @@ pub trait FocusExt: Focus {
         self.validate_focus_position(units)?;
         let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
         UnitInterval::new((units - Self::FOCUS_NEAR_LIMIT) as f32 / range as f32).map_err(|_| {
-            ValidationError::InvalidValue {
-                parameter: "focus position",
-                message: "could not convert VISCA units to a unit interval".into(),
-            }
+            ValidationError::invalid_value(
+                "focus position",
+                "could not convert VISCA units to a unit interval",
+            )
         })
     }
 
@@ -137,6 +137,18 @@ mod tests {
         assert!(camera.validate_focus_position(0x8000).is_ok());
         assert!(camera.validate_focus_position(0x0FFF).is_err());
         assert!(camera.validate_focus_position(0xF001).is_err());
+    }
+
+    #[test]
+    fn focus_speed_validation_rejects_instead_of_clamping() {
+        let camera = TestCamera;
+
+        assert_eq!(camera.validate_focus_speed(0), Ok(0));
+        assert_eq!(camera.validate_focus_speed(7), Ok(7));
+        assert_eq!(
+            camera.validate_focus_speed(8),
+            Err(ValidationError::out_of_range("focus speed", 8.0, 0.0, 7.0))
+        );
     }
 
     #[test]

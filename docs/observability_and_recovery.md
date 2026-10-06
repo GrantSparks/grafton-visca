@@ -202,7 +202,8 @@ at most one more attempt than its budget:
 | `Network` | base - 1, never below 1 | 3 |
 | `LongRunning` | 1 | 2 |
 
-`OperationalTuning::retry_limit` sets that base, which defaults to 3.
+`OperationalTuning::retry_limit` may lower that base, which defaults to 3;
+`validate_tuning` rejects a larger value, so tuning never adds retries.
 `RetryClass::Never` overrides the table with zero retries — one attempt — for
 every timeout category.
 
