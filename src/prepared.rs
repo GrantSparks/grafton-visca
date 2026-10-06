@@ -2059,10 +2059,17 @@ mod tests {
             deadline,
         );
         moving.observe(zoom_snapshot(10), start).expect("baseline");
-        assert!(matches!(
-            moving.observe(zoom_snapshot(900), deadline),
-            Err(Error::Timeout { .. })
-        ));
+        let timeout = moving
+            .observe(zoom_snapshot(900), deadline)
+            .expect_err("still moving at the deadline");
+        assert!(matches!(timeout, Error::Timeout { .. }));
+        assert_eq!(
+            timeout.failure_context(),
+            Some(crate::FailureContext::new(
+                crate::FailureStage::Observation,
+                crate::Certainty::NotAccepted
+            ))
+        );
     }
 
     #[test]

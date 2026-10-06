@@ -27,6 +27,10 @@ mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -39,6 +43,15 @@ use grafton_visca::{
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use profile_fixtures::MotionOwnerCompileTimeProfile;
+
+/// An idle-wait budget no settling wait reaches: the wait returns as soon as
+/// two samples agree, so the budget bounds only a failure and the outcome
+/// never depends on scheduling.
+const SETTLE_BUDGET: Duration = Duration::from_secs(30);
+
+/// The failure context of an idle wait that ran out of time (D20).
+const OBSERVATION_TIMEOUT: FailureContext =
+    FailureContext::new(FailureStage::Observation, Certainty::NotAccepted);
 
 /// The zoom position inquiry, camera address 1.
 const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
@@ -84,6 +97,23 @@ fn motion_camera(mut script: PositionScript, fail_first_pan_stop: bool) -> FakeC
     })
 }
 
+/// A camera whose zoom position alternates beyond tolerance at every inquiry
+/// until `stopped` is set, then holds still. Every other command is
+/// acknowledged and completed.
+fn moving_zoom_camera(stopped: Arc<AtomicBool>) -> FakeCamera {
+    let mut position: u16 = 0;
+    FakeCamera::visca(move |payload, answer| {
+        if payload.starts_with(&[0x81, 0x09, 0x04, 0x47]) {
+            if !stopped.load(Ordering::SeqCst) {
+                position ^= 0x100;
+            }
+            answer.reply(nibble_position(position));
+        } else {
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+    })
+}
+
 fn pan_tilt_position(pan: i16, tilt: i16) -> Vec<u8> {
     let [pan_high, pan_low] = pan.to_be_bytes();
     let [tilt_high, tilt_low] = tilt.to_be_bytes();
@@ -120,7 +150,7 @@ facade_matrix! {
             .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM)))
         .expect("zoom motion query"));
         wait!(camera.motion().wait_until_idle(
-            IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1)).with_interval(Duration::ZERO),
+            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
         ))
         .expect("zoom idle wait");
         let writes = fake.writes();
@@ -163,7 +193,7 @@ facade_matrix! {
             .expect("camera")
             .motion()
             .wait_until_idle(
-                IdleWait::new(AffectedAxes::ZOOM, Duration::from_secs(1))
+                IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET)
                     .with_interval(Duration::ZERO),
             ))
         .expect("moving then settled");
@@ -171,28 +201,67 @@ facade_matrix! {
         session.shutdown().expect("shutdown");
     }
 
-    /// An idle wait is a read-only query: its deadline is repeatable (D20).
+    /// An idle wait is a read-only query: its deadline is an
+    /// `Observation`/`NotAccepted` timeout (D20), and repeating the wait
+    /// answers again. The deadline bounds the whole wait, first sample
+    /// included, so a wait whose deadline has already passed samples nothing.
     fn owner_motion_idle_wait_deadline_is_a_repeatable_observation() {
-        let fake = motion_camera(PositionScript::zoom([0]), false);
+        let fake = motion_camera(PositionScript::zoom([0, 0]), false);
         let session = open!(fake, motion_config()).expect("deadline session");
-        let result = wait!(session
+        let camera = session
             .camera::<MotionOwnerCompileTimeProfile>()
-            .expect("camera")
-            .motion()
-            .wait_until_idle(
-                IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(5))
-                    .with_interval(Duration::from_secs(1)),
-            ));
+            .expect("camera");
+        let expired = IdleWait::new(AffectedAxes::ZOOM, Duration::ZERO)
+            .with_interval(Duration::ZERO);
+        for _ in 0..2 {
+            assert_eq!(
+                wait!(camera.motion().wait_until_idle(expired))
+                    .expect_err("the deadline has passed")
+                    .failure_context(),
+                Some(OBSERVATION_TIMEOUT)
+            );
+        }
+        assert_eq!(fake.write_count(), 0);
+        wait!(camera.motion().wait_until_idle(
+            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
+        ))
+        .expect("the repeated wait answers");
+        let writes = fake.writes();
+        assert_eq!(writes.len(), 2);
+        assert!(writes.iter().all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
+        session.shutdown().expect("shutdown");
+    }
+
+    /// A deadline that passes while the axis keeps moving ends the wait with
+    /// the same `Observation`/`NotAccepted` timeout wherever it lands: before
+    /// an inquiry is admitted, while a reply is awaited, or in a pause. The
+    /// wait writes only position inquiries, and a repeated wait settles once
+    /// the axis stops.
+    fn owner_motion_idle_wait_deadline_while_moving_is_an_observation() {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let fake = moving_zoom_camera(Arc::clone(&stopped));
+        let session = open!(fake, motion_config()).expect("moving session");
+        let camera = session
+            .camera::<MotionOwnerCompileTimeProfile>()
+            .expect("camera");
         assert_eq!(
-            result
-                .expect_err("the camera keeps moving")
-                .failure_context(),
-            Some(FailureContext::new(
-                FailureStage::Observation,
-                Certainty::NotAccepted
+            wait!(camera.motion().wait_until_idle(
+                IdleWait::new(AffectedAxes::ZOOM, Duration::from_millis(50))
+                    .with_interval(Duration::ZERO),
             ))
+            .expect_err("the camera keeps moving")
+            .failure_context(),
+            Some(OBSERVATION_TIMEOUT)
         );
-        assert_eq!(fake.write_count(), 1);
+        stopped.store(true, Ordering::SeqCst);
+        wait!(camera.motion().wait_until_idle(
+            IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
+        ))
+        .expect("the stopped axis settles");
+        assert!(fake
+            .writes()
+            .iter()
+            .all(|bytes| bytes == ZOOM_POSITION_INQUIRY));
         session.shutdown().expect("shutdown");
     }
 
