@@ -2,10 +2,11 @@
 //!
 //! This module is deliberately a small, data-oriented ledger.  It is the
 //! source that the typed-request conversion consumes; command bytes do not
-//! carry semantic metadata. In particular,
-//! adding a built-in command variant requires adding a row to
-//! [`BuiltinCommand::classification`], so an unreviewed variant cannot acquire
-//! an accidental plain/operation default.
+//! carry semantic metadata.  The `builtin_command_ledger!` list below is
+//! the one place a built-in command is named: [`BuiltinCommand`], its
+//! [`BuiltinCommand::ALL`] inventory and its
+//! [`BuiltinCommand::classification`] are all expanded from that list, so an
+//! unreviewed variant cannot exist and no second row list can drift.
 //!
 //! The classification rule from issue #542 is:
 //!
@@ -18,66 +19,31 @@
 //!   meaningful settled target; and
 //! * configuration, mode selection, and stored-state edits are plain.
 //!
-//! The first three movement axes mirror [`crate::AffectedAxes`]. Iris and ND
-//! filter are included here because their commands physically reposition a
-//! lens/filter and both have exact position inquiries in the built-in inquiry
-//! inventory. They are intentionally not silently mapped to an all-axis
-//! movement query. The later preparation phase must add matching profile
-//! inquiry facts before exposing targeted iris/ND requests.
+//! Operation axes are [`crate::AffectedAxes`]. Iris and ND filter are
+//! included because their commands physically reposition a lens/filter and
+//! both have exact position inquiries in the built-in inquiry inventory. They
+//! are intentionally not silently mapped to an all-axis movement query.
 //!
 //! The production typed-request lowering consumes this ledger through the
 //! private contracts near [`BuiltinRequestClass`].  Every concrete built-in
 //! request row supplies a monomorphized contract marker; the marker compares
 //! the request's closed class, fixed/profile-dependent axes, and (where
-//! applicable) applied-state requirement with this module's exhaustive
-//! [`BuiltinCommand::classification`] match.  The inventory is therefore
-//! useful in ordinary builds, not only in the independent semantic tests.
-//!
-//! # Why some ledger items carry `#[allow(dead_code)]`
-//!
-//! The ledger also records domains and axis vocabulary needed by the source
-//! audits. Items that are not yet needed by a runtime path carry a
-//! targeted allowance. [`WriteOnlyState`] is deliberately not among them: the
-//! engine's applied-state projection consumes it in production.
+//! applicable) applied-state requirement with the ledger row's
+//! classification.  The inventory is therefore useful in ordinary builds, not
+//! only in the independent semantic tests.
 
-/// A validated, non-empty set of physical axes used by a built-in operation.
-///
-/// The ledger deliberately reuses the request contract's canonical axis type:
-/// keeping another bit layout, validator, iterator, and formatter here once
-/// caused the semantic and preparation domains to evolve independently.
-pub type BuiltinAxes = crate::AffectedAxes;
+use crate::AffectedAxes;
 
 /// Exact axis selection for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum BuiltinAxisSelection {
+pub(crate) enum BuiltinAxisSelection {
     /// The command always affects this exact non-empty set.
-    Exact(BuiltinAxes),
+    Exact(AffectedAxes),
     /// Preset recall selects the exact set from validated profile facts.
     ///
     /// This is not an all-axis fallback: a profile must provide a concrete,
     /// non-empty set before a preset request can be prepared.
     ProfilePresetRecall,
-}
-
-#[allow(dead_code)]
-impl BuiltinAxisSelection {
-    /// Returns whether this selection is known to be non-empty.
-    #[must_use]
-    pub const fn is_non_empty(self) -> bool {
-        match self {
-            Self::Exact(_) | Self::ProfilePresetRecall => true,
-        }
-    }
-
-    /// Returns the exact fixed axes, if this is not profile-selected.
-    #[must_use]
-    pub const fn exact(self) -> Option<BuiltinAxes> {
-        match self {
-            Self::Exact(axes) => Some(axes),
-            Self::ProfilePresetRecall => None,
-        }
-    }
 }
 
 /// Private semantic spelling for the public [`crate::state_cache::StateKey`].
@@ -93,8 +59,7 @@ pub(crate) use crate::state_cache::StateKey as WriteOnlyState;
 /// tells preparation whether that value can be written,
 /// removed, or must be forgotten after exact application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum AppliedStateEffectRequirement {
+pub(crate) enum AppliedStateEffectRequirement {
     /// The request supplies a deterministic replacement value.
     Set(WriteOnlyState),
     /// The request removes one deterministic state entry (for example a
@@ -105,37 +70,15 @@ pub enum AppliedStateEffectRequirement {
     Invalidate(WriteOnlyState),
 }
 
-#[allow(dead_code)]
 impl AppliedStateEffectRequirement {
     /// Returns the affected write-only state key.
+    #[cfg(test)]
     #[must_use]
-    pub const fn state(self) -> WriteOnlyState {
+    pub(crate) const fn state(self) -> WriteOnlyState {
         match self {
             Self::Set(state) | Self::Clear(state) | Self::Invalidate(state) => state,
         }
     }
-
-    /// Returns the effect verb.
-    #[must_use]
-    pub const fn kind(self) -> AppliedStateEffectKind {
-        match self {
-            Self::Set(_) => AppliedStateEffectKind::Set,
-            Self::Clear(_) => AppliedStateEffectKind::Clear,
-            Self::Invalidate(_) => AppliedStateEffectKind::Invalidate,
-        }
-    }
-}
-
-/// The verb selected by [`AppliedStateEffectRequirement`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum AppliedStateEffectKind {
-    /// Replace a known cached value.
-    Set,
-    /// Remove a known cached value.
-    Clear,
-    /// Mark a cached value unknown.
-    Invalidate,
 }
 
 /// Semantic class of one built-in request.
@@ -144,8 +87,7 @@ pub enum AppliedStateEffectKind {
 /// the enum.  It is therefore impossible for a ledger row to represent an
 /// operation without affected axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum BuiltinRequestClass {
+pub(crate) enum BuiltinRequestClass {
     /// Configuration, mode, persistence, and stored-state edit.
     Plain {
         /// Closed cache requirement, when this is a write-only state edit.
@@ -164,17 +106,11 @@ pub enum BuiltinRequestClass {
     },
 }
 
-#[allow(dead_code)]
 impl BuiltinRequestClass {
-    /// Returns whether this is either operation class.
-    #[must_use]
-    pub const fn is_operation(self) -> bool {
-        !matches!(self, Self::Plain { .. })
-    }
-
     /// Returns the completion class, if this is an operation.
+    #[cfg(test)]
     #[must_use]
-    pub const fn completion(self) -> Option<BuiltinCompletionClass> {
+    pub(crate) const fn completion(self) -> Option<BuiltinCompletionClass> {
         match self {
             Self::Plain { .. } => None,
             Self::Targeted { .. } => Some(BuiltinCompletionClass::Targeted),
@@ -183,8 +119,9 @@ impl BuiltinRequestClass {
     }
 
     /// Returns the operation's exact axis selection, if any.
+    #[cfg(test)]
     #[must_use]
-    pub const fn axes(self) -> Option<BuiltinAxisSelection> {
+    pub(crate) const fn axes(self) -> Option<BuiltinAxisSelection> {
         match self {
             Self::Plain { .. } => None,
             Self::Targeted { axes } | Self::AppliedOnly { axes } => Some(axes),
@@ -192,8 +129,9 @@ impl BuiltinRequestClass {
     }
 
     /// Returns the closed write-only state requirement, if any.
+    #[cfg(test)]
     #[must_use]
-    pub const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
+    pub(crate) const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         match self {
             Self::Plain { state_effect } => state_effect,
             Self::Targeted { .. } | Self::AppliedOnly { .. } => None,
@@ -203,8 +141,7 @@ impl BuiltinRequestClass {
 
 /// Completion class selected by a built-in operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum BuiltinCompletionClass {
+pub(crate) enum BuiltinCompletionClass {
     /// Physical motion has a meaningful terminal state.
     Targeted,
     /// Physical actuation is observed only through command application.
@@ -247,7 +184,7 @@ pub(crate) trait BuiltinOperationContract {
 /// runtime profile selection.
 pub(crate) trait BuiltinFixedOperationContract: BuiltinOperationContract {
     /// Concrete non-empty axes returned by `OperationCommand::affected_axes`.
-    const AFFECTED_AXES: crate::requests::AffectedAxes;
+    const AFFECTED_AXES: AffectedAxes;
 }
 
 /// Private state-effect contract consumed by production applied-state
@@ -306,42 +243,7 @@ const fn state_effect_equal(
 }
 
 const fn state_key_equal(left: WriteOnlyState, right: WriteOnlyState) -> bool {
-    matches!(
-        (left, right),
-        (WriteOnlyState::PanTiltLimits, WriteOnlyState::PanTiltLimits)
-            | (
-                WriteOnlyState::PresetRecallSpeed,
-                WriteOnlyState::PresetRecallSpeed
-            )
-            | (WriteOnlyState::FocusLockMode, WriteOnlyState::FocusLockMode)
-            | (WriteOnlyState::Spotlight, WriteOnlyState::Spotlight)
-            | (
-                WriteOnlyState::AutoSlowShutter,
-                WriteOnlyState::AutoSlowShutter
-            )
-            | (WriteOnlyState::NdFilterMode, WriteOnlyState::NdFilterMode)
-            | (WriteOnlyState::AutoNdFilter, WriteOnlyState::AutoNdFilter)
-            | (WriteOnlyState::ImageFreeze, WriteOnlyState::ImageFreeze)
-            | (
-                WriteOnlyState::DigitalZoomMode,
-                WriteOnlyState::DigitalZoomMode
-            )
-            | (
-                WriteOnlyState::MulticastStreaming,
-                WriteOnlyState::MulticastStreaming
-            )
-            | (WriteOnlyState::NdiQuality, WriteOnlyState::NdiQuality)
-            | (
-                WriteOnlyState::TallyBrightness,
-                WriteOnlyState::TallyBrightness
-            )
-            | (
-                WriteOnlyState::VariableSpeedMode,
-                WriteOnlyState::VariableSpeedMode
-            )
-            | (WriteOnlyState::TallyMode, WriteOnlyState::TallyMode)
-            | (WriteOnlyState::Flip, WriteOnlyState::Flip)
-    )
+    left as u8 == right as u8
 }
 
 /// Monomorphizes the closed plain-request class marker and validates the
@@ -451,825 +353,277 @@ where
 {
 }
 
-/// Every built-in command request that must be audited before typed
-/// conversion.
+/// The closed semantic ledger: one row per built-in command, in protocol
+/// order.
 ///
-/// The enum is intentionally flat: each protocol variant gets one reviewable
-/// row.  `classification` is exhaustive, so adding a future variant without
-/// a semantic decision is a compile error.
-#[allow(missing_docs)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum BuiltinCommand {
+/// `plain`, `plain(Set(<key>))`, `plain(Clear(<key>))`,
+/// `plain(Invalidate(<key>))`, `targeted(<axes>)`,
+/// `targeted(profile_preset_recall)` and `applied(<axes>)` are the only row
+/// forms; `<key>` names a [`WriteOnlyState`] and `<axes>` an
+/// [`AffectedAxes`] constant. [`BuiltinCommand`], [`BuiltinCommand::ALL`] and
+/// [`BuiltinCommand::classification`] are all expanded from this one list, so
+/// a row cannot be declared without a classification, listed twice, or left
+/// out of the inventory.
+macro_rules! builtin_command_ledger {
+    ($( $(#[$meta:meta])* $command:ident => $class:ident $(($($effect:tt)*))? ),+ $(,)?) => {
+        /// Every built-in command request that must be audited before typed
+        /// conversion; generated from `builtin_command_ledger!`.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub(crate) enum BuiltinCommand {
+            $( $(#[$meta])* $command, )+
+        }
+
+        impl BuiltinCommand {
+            /// Every ledger row, in protocol order.
+            pub(crate) const ALL: &'static [Self] = &[ $( Self::$command, )+ ];
+
+            /// Returns the ledger's classification of this row.
+            #[must_use]
+            pub(crate) const fn classification(self) -> BuiltinRequestClass {
+                match self {
+                    $( Self::$command => ledger_class!($class $(($($effect)*))?), )+
+                }
+            }
+        }
+    };
+}
+
+/// Expands one ledger row form into its [`BuiltinRequestClass`].
+macro_rules! ledger_class {
+    (plain) => {
+        BuiltinRequestClass::Plain { state_effect: None }
+    };
+    (plain(Set($key:ident))) => {
+        BuiltinRequestClass::Plain {
+            state_effect: Some(AppliedStateEffectRequirement::Set(WriteOnlyState::$key)),
+        }
+    };
+    (plain(Clear($key:ident))) => {
+        BuiltinRequestClass::Plain {
+            state_effect: Some(AppliedStateEffectRequirement::Clear(WriteOnlyState::$key)),
+        }
+    };
+    (plain(Invalidate($key:ident))) => {
+        BuiltinRequestClass::Plain {
+            state_effect: Some(AppliedStateEffectRequirement::Invalidate(
+                WriteOnlyState::$key,
+            )),
+        }
+    };
+    // Must precede the generic `targeted($axes)` arm.
+    (targeted(profile_preset_recall)) => {
+        BuiltinRequestClass::Targeted {
+            axes: BuiltinAxisSelection::ProfilePresetRecall,
+        }
+    };
+    (targeted($axes:ident)) => {
+        BuiltinRequestClass::Targeted {
+            axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes),
+        }
+    };
+    (applied($axes:ident)) => {
+        BuiltinRequestClass::AppliedOnly {
+            axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes),
+        }
+    };
+}
+
+builtin_command_ledger! {
     // Pan/tilt.
-    PanTiltHome,
-    PanTiltReset,
-    PanTiltDrive,
-    PanTiltStop,
-    PanTiltAbsolute,
-    PanTiltRelative,
-    PanTiltLimitSet,
-    PanTiltLimitClear,
+    PanTiltHome => targeted(PAN_TILT),
+    PanTiltReset => targeted(PAN_TILT),
+    PanTiltDrive => applied(PAN_TILT),
+    PanTiltStop => applied(PAN_TILT),
+    PanTiltAbsolute => targeted(PAN_TILT),
+    PanTiltRelative => targeted(PAN_TILT),
+    PanTiltLimitSet => plain(Set(PanTiltLimits)),
+    PanTiltLimitClear => plain(Clear(PanTiltLimits)),
     // Zoom.
-    ZoomStop,
-    ZoomTele,
-    ZoomWide,
-    ZoomTeleVariable,
-    ZoomWideVariable,
-    ZoomPosition,
-    DigitalZoom,
+    ZoomStop => applied(ZOOM),
+    ZoomTele => applied(ZOOM),
+    ZoomWide => applied(ZOOM),
+    ZoomTeleVariable => applied(ZOOM),
+    ZoomWideVariable => applied(ZOOM),
+    ZoomPosition => targeted(ZOOM),
+    DigitalZoom => plain(Set(DigitalZoomMode)),
     // Focus.
-    FocusStop,
-    FocusFar,
-    FocusNear,
-    FocusFarVariable,
-    FocusNearVariable,
-    FocusPosition,
-    FocusAuto,
-    FocusManual,
-    FocusOnePush,
-    FocusInfinity,
-    FocusToggle,
-    FocusSnap,
-    FocusZone,
-    FocusAutoSensitivity,
-    FocusNearLimit,
-    FocusLock,
-    PushAfPress,
-    PushAfRelease,
+    FocusStop => applied(FOCUS),
+    FocusFar => applied(FOCUS),
+    FocusNear => applied(FOCUS),
+    FocusFarVariable => applied(FOCUS),
+    FocusNearVariable => applied(FOCUS),
+    FocusPosition => targeted(FOCUS),
+    FocusAuto => plain,
+    FocusManual => plain,
+    FocusOnePush => applied(FOCUS),
+    FocusInfinity => targeted(FOCUS),
+    FocusToggle => plain,
+    FocusSnap => applied(FOCUS),
+    FocusZone => plain,
+    FocusAutoSensitivity => plain,
+    FocusNearLimit => plain,
+    FocusLock => plain(Set(FocusLockMode)),
+    PushAfPress => applied(FOCUS),
+    PushAfRelease => applied(FOCUS),
     // Presets.
-    PresetRecall,
-    PresetRecallSpeed,
-    PresetSet,
-    PresetReset,
+    PresetRecall => targeted(profile_preset_recall),
+    PresetRecallSpeed => plain(Set(PresetRecallSpeed)),
+    PresetSet => plain,
+    PresetReset => plain,
     // Power.
-    PowerOn,
-    PowerStandby,
+    PowerOn => plain,
+    PowerStandby => plain,
     // Exposure and iris.
-    ExposureMode,
-    ExposureCompensationOn,
-    ExposureCompensationOff,
-    ExposureCompensationReset,
-    ExposureCompensationUp,
-    ExposureCompensationDown,
-    ExposureCompensationDirect,
-    DynamicRange,
-    IrisReset,
-    IrisUp,
-    IrisDown,
-    IrisDirect,
-    ShutterReset,
-    ShutterUp,
-    ShutterDown,
-    ShutterDirect,
-    BrightnessReset,
-    BrightnessUp,
-    BrightnessDown,
-    BrightnessSet,
-    AntiFlicker,
-    SpotlightOn,
-    SpotlightOff,
-    AutoSlowShutterOn,
-    AutoSlowShutterOff,
+    ExposureMode => plain,
+    ExposureCompensationOn => plain,
+    ExposureCompensationOff => plain,
+    ExposureCompensationReset => plain,
+    ExposureCompensationUp => plain,
+    ExposureCompensationDown => plain,
+    ExposureCompensationDirect => plain,
+    DynamicRange => plain,
+    // Iris commands are finite physical aperture movements.  They have a
+    // meaningful end state and an exact Iris inquiry, so every
+    // reset/step/direct form is targeted rather than applied-only.
+    IrisReset => targeted(IRIS),
+    IrisUp => targeted(IRIS),
+    IrisDown => targeted(IRIS),
+    IrisDirect => targeted(IRIS),
+    ShutterReset => plain,
+    ShutterUp => plain,
+    ShutterDown => plain,
+    ShutterDirect => plain,
+    BrightnessReset => plain,
+    BrightnessUp => plain,
+    BrightnessDown => plain,
+    BrightnessSet => plain,
+    AntiFlicker => plain,
+    SpotlightOn => plain(Set(Spotlight)),
+    SpotlightOff => plain(Set(Spotlight)),
+    AutoSlowShutterOn => plain(Set(AutoSlowShutter)),
+    AutoSlowShutterOff => plain(Set(AutoSlowShutter)),
     // Gain.
-    GainReset,
-    GainUp,
-    GainDown,
-    GainDirect,
-    GainLimit,
+    GainReset => plain,
+    GainUp => plain,
+    GainDown => plain,
+    GainDirect => plain,
+    GainLimit => plain,
     // White balance.
-    WhiteBalanceAuto,
-    WhiteBalanceIndoor,
-    WhiteBalanceOutdoor,
-    WhiteBalanceOnePush,
-    WhiteBalanceAutoTracking,
-    WhiteBalanceManual,
-    WhiteBalanceColorTemperature,
-    AutoWhiteBalanceSensitivity,
-    OnePushWhiteBalanceTrigger,
+    WhiteBalanceAuto => plain,
+    WhiteBalanceIndoor => plain,
+    WhiteBalanceOutdoor => plain,
+    WhiteBalanceOnePush => plain,
+    WhiteBalanceAutoTracking => plain,
+    WhiteBalanceManual => plain,
+    WhiteBalanceColorTemperature => plain,
+    AutoWhiteBalanceSensitivity => plain,
+    OnePushWhiteBalanceTrigger => plain,
     // Color.
-    RedTuning,
-    BlueTuning,
-    Saturation,
-    Hue,
-    ColorTemperatureReset,
-    ColorTemperatureUp,
-    ColorTemperatureDown,
-    ColorTemperatureDirect,
-    RedGainReset,
-    RedGainUp,
-    RedGainDown,
-    RedGainDirect,
-    BlueGainReset,
-    BlueGainUp,
-    BlueGainDown,
-    BlueGainDirect,
+    RedTuning => plain,
+    BlueTuning => plain,
+    Saturation => plain,
+    Hue => plain,
+    ColorTemperatureReset => plain,
+    ColorTemperatureUp => plain,
+    ColorTemperatureDown => plain,
+    ColorTemperatureDirect => plain,
+    RedGainReset => plain,
+    RedGainUp => plain,
+    RedGainDown => plain,
+    RedGainDirect => plain,
+    BlueGainReset => plain,
+    BlueGainUp => plain,
+    BlueGainDown => plain,
+    BlueGainDirect => plain,
     // Image processing and orientation.
-    SharpnessMode,
-    SharpnessReset,
-    SharpnessUp,
-    SharpnessDown,
-    SharpnessDirect,
-    Luminance,
-    Contrast,
-    Gamma,
-    Backlight,
-    NoiseReduction2dMode,
-    NoiseReduction2d,
-    NoiseReduction2dOff,
-    NoiseReduction3d,
-    NoiseReduction3dOff,
-    ImageFlipOff,
-    ImageFlipHorizontal,
-    ImageFlipHorizontalOff,
-    ImageFlipVertical,
-    ImageFlipBoth,
-    ImageFlipCombined,
-    ImageFreezeOn,
-    ImageFreezeOff,
-    PictureEffect,
+    SharpnessMode => plain,
+    SharpnessReset => plain,
+    SharpnessUp => plain,
+    SharpnessDown => plain,
+    SharpnessDirect => plain,
+    Luminance => plain,
+    Contrast => plain,
+    Gamma => plain,
+    Backlight => plain,
+    NoiseReduction2dMode => plain,
+    NoiseReduction2d => plain,
+    NoiseReduction2dOff => plain,
+    NoiseReduction3d => plain,
+    NoiseReduction3dOff => plain,
+    // The single-axis flip and mirror opcodes move one axis and say nothing
+    // about the other, so a complete pair stops being known.
+    ImageFlipOff => plain(Invalidate(Flip)),
+    ImageFlipHorizontal => plain(Invalidate(Flip)),
+    ImageFlipHorizontalOff => plain(Invalidate(Flip)),
+    ImageFlipVertical => plain(Invalidate(Flip)),
+    // The combined-flip opcode carries both axes in one parameter, so it
+    // establishes a complete horizontal/vertical pair.
+    ImageFlipBoth => plain(Set(Flip)),
+    ImageFlipCombined => plain(Set(Flip)),
+    // The `Off` request supplies `false`: a known value, not removal of the
+    // cache entry.
+    ImageFreezeOn => plain(Set(ImageFreeze)),
+    ImageFreezeOff => plain(Set(ImageFreeze)),
+    PictureEffect => plain,
     // Neutral-density filter.
-    NdFilterMode,
-    NdFilterDirect,
-    NdFilterStepUp,
-    NdFilterStepDown,
-    NdFilterAutoOn,
-    NdFilterAutoOff,
-    // Tally.
-    TallyRedOn,
-    TallyRedOff,
-    TallyBrightLow,
-    TallyBrightHigh,
-    TallyGreenOn,
-    TallyGreenOff,
-    TallyFlash,
-    TallyOn,
-    TallyOff,
+    NdFilterMode => plain(Set(NdFilterMode)),
+    // ND direct and step commands physically reposition the filter. The
+    // direct target and each finite step have meaningful end states and are
+    // therefore targeted on the ND axis.
+    NdFilterDirect => targeted(ND_FILTER),
+    NdFilterStepUp => targeted(ND_FILTER),
+    NdFilterStepDown => targeted(ND_FILTER),
+    NdFilterAutoOn => plain(Set(AutoNdFilter)),
+    NdFilterAutoOff => plain(Set(AutoNdFilter)),
+    // Tally. Red/green tally status has profile-gated inquiries. Brightness
+    // and vendor output mode do not, so their applied effects are either
+    // deterministic or explicitly invalidated.
+    TallyRedOn => plain,
+    TallyRedOff => plain,
+    TallyBrightLow => plain(Set(TallyBrightness)),
+    TallyBrightHigh => plain(Set(TallyBrightness)),
+    TallyGreenOn => plain,
+    TallyGreenOff => plain,
+    TallyFlash => plain(Invalidate(TallyMode)),
+    TallyOn => plain(Set(TallyMode)),
+    TallyOff => plain(Set(TallyMode)),
     // Menus.
-    MenuDisplay,
-    MenuNavigate,
-    MenuSelect,
-    MenuCancel,
-    DirectMenu,
-    // Streaming.
-    MulticastStreamingOn,
-    MulticastStreamingOff,
-    NdiQuality,
-    UsbAudioOn,
-    UsbAudioOff,
+    MenuDisplay => plain,
+    MenuNavigate => plain,
+    MenuSelect => plain,
+    MenuCancel => plain,
+    DirectMenu => plain,
+    // Streaming. The multicast `Off` request supplies `false`: a known value,
+    // not removal of the cache entry.
+    MulticastStreamingOn => plain(Set(MulticastStreaming)),
+    MulticastStreamingOff => plain(Set(MulticastStreaming)),
+    NdiQuality => plain(Set(NdiQuality)),
+    UsbAudioOn => plain,
+    UsbAudioOff => plain,
     // System.
-    AddressSet,
-    InterfaceClear,
-    CommandCancel,
-    SettingsSave,
+    AddressSet => plain,
+    InterfaceClear => plain,
+    CommandCancel => plain,
+    SettingsSave => plain,
     // Motion-related configuration.
-    MotionSyncMode,
-    MotionSyncPreset,
-    VariableSpeedMode,
+    MotionSyncMode => plain,
+    MotionSyncPreset => plain,
+    VariableSpeedMode => plain(Set(VariableSpeedMode)),
 }
 
-/// Built-in command families/domains audited by this ledger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub enum BuiltinCommandDomain {
-    /// Pan/tilt movement and limits.
-    PanTilt,
-    /// Zoom movement and digital-zoom mode.
-    Zoom,
-    /// Focus movement and focus configuration.
-    Focus,
-    /// Preset memory operations.
-    Presets,
-    /// Power state commands.
-    Power,
-    /// Exposure-mode and exposure-compensation settings.
-    Exposure,
-    /// Iris/aperture mechanism.
-    Iris,
-    /// Electronic shutter settings.
-    Shutter,
-    /// Brightness settings.
-    Brightness,
-    /// Gain settings.
-    Gain,
-    /// White-balance mode and sensitivity.
-    WhiteBalance,
-    /// Color-temperature and color-channel settings.
-    Color,
-    /// Image processing and orientation settings.
-    Image,
-    /// Neutral-density filter settings and mechanism.
-    NdFilter,
-    /// Tally-light settings.
-    Tally,
-    /// On-screen menu controls.
-    Menu,
-    /// Streaming and USB-audio controls.
-    Streaming,
-    /// Address, interface, cancellation, and settings persistence.
-    System,
-    /// Motion-sync configuration.
-    MotionSync,
-    /// Pan/tilt variable-speed mode configuration.
-    VariableSpeed,
-}
-
-#[allow(dead_code)]
-impl BuiltinCommandDomain {
-    /// Every audited built-in command domain.
-    pub const ALL: &[Self] = &[
-        Self::PanTilt,
-        Self::Zoom,
-        Self::Focus,
-        Self::Presets,
-        Self::Power,
-        Self::Exposure,
-        Self::Iris,
-        Self::Shutter,
-        Self::Brightness,
-        Self::Gain,
-        Self::WhiteBalance,
-        Self::Color,
-        Self::Image,
-        Self::NdFilter,
-        Self::Tally,
-        Self::Menu,
-        Self::Streaming,
-        Self::System,
-        Self::MotionSync,
-        Self::VariableSpeed,
-    ];
-
-    /// Returns every audited built-in command domain.
-    #[must_use]
-    pub const fn all() -> &'static [Self] {
-        Self::ALL
-    }
-}
-
-#[allow(dead_code)]
+#[cfg(test)]
 impl BuiltinCommand {
-    /// The complete closed command inventory.
-    ///
-    /// Keep this list in protocol/domain order.  The exhaustive match in
-    /// [`Self::classification`] is the compiler-enforced part of the ledger;
-    /// tests additionally assert that this list has no duplicate/missing rows.
-    pub const ALL: &[Self] = &[
-        Self::PanTiltHome,
-        Self::PanTiltReset,
-        Self::PanTiltDrive,
-        Self::PanTiltStop,
-        Self::PanTiltAbsolute,
-        Self::PanTiltRelative,
-        Self::PanTiltLimitSet,
-        Self::PanTiltLimitClear,
-        Self::ZoomStop,
-        Self::ZoomTele,
-        Self::ZoomWide,
-        Self::ZoomTeleVariable,
-        Self::ZoomWideVariable,
-        Self::ZoomPosition,
-        Self::DigitalZoom,
-        Self::FocusStop,
-        Self::FocusFar,
-        Self::FocusNear,
-        Self::FocusFarVariable,
-        Self::FocusNearVariable,
-        Self::FocusPosition,
-        Self::FocusAuto,
-        Self::FocusManual,
-        Self::FocusOnePush,
-        Self::FocusInfinity,
-        Self::FocusToggle,
-        Self::FocusSnap,
-        Self::FocusZone,
-        Self::FocusAutoSensitivity,
-        Self::FocusNearLimit,
-        Self::FocusLock,
-        Self::PushAfPress,
-        Self::PushAfRelease,
-        Self::PresetRecall,
-        Self::PresetRecallSpeed,
-        Self::PresetSet,
-        Self::PresetReset,
-        Self::PowerOn,
-        Self::PowerStandby,
-        Self::ExposureMode,
-        Self::ExposureCompensationOn,
-        Self::ExposureCompensationOff,
-        Self::ExposureCompensationReset,
-        Self::ExposureCompensationUp,
-        Self::ExposureCompensationDown,
-        Self::ExposureCompensationDirect,
-        Self::DynamicRange,
-        Self::IrisReset,
-        Self::IrisUp,
-        Self::IrisDown,
-        Self::IrisDirect,
-        Self::ShutterReset,
-        Self::ShutterUp,
-        Self::ShutterDown,
-        Self::ShutterDirect,
-        Self::BrightnessReset,
-        Self::BrightnessUp,
-        Self::BrightnessDown,
-        Self::BrightnessSet,
-        Self::AntiFlicker,
-        Self::SpotlightOn,
-        Self::SpotlightOff,
-        Self::AutoSlowShutterOn,
-        Self::AutoSlowShutterOff,
-        Self::GainReset,
-        Self::GainUp,
-        Self::GainDown,
-        Self::GainDirect,
-        Self::GainLimit,
-        Self::WhiteBalanceAuto,
-        Self::WhiteBalanceIndoor,
-        Self::WhiteBalanceOutdoor,
-        Self::WhiteBalanceOnePush,
-        Self::WhiteBalanceAutoTracking,
-        Self::WhiteBalanceManual,
-        Self::WhiteBalanceColorTemperature,
-        Self::AutoWhiteBalanceSensitivity,
-        Self::OnePushWhiteBalanceTrigger,
-        Self::RedTuning,
-        Self::BlueTuning,
-        Self::Saturation,
-        Self::Hue,
-        Self::ColorTemperatureReset,
-        Self::ColorTemperatureUp,
-        Self::ColorTemperatureDown,
-        Self::ColorTemperatureDirect,
-        Self::RedGainReset,
-        Self::RedGainUp,
-        Self::RedGainDown,
-        Self::RedGainDirect,
-        Self::BlueGainReset,
-        Self::BlueGainUp,
-        Self::BlueGainDown,
-        Self::BlueGainDirect,
-        Self::SharpnessMode,
-        Self::SharpnessReset,
-        Self::SharpnessUp,
-        Self::SharpnessDown,
-        Self::SharpnessDirect,
-        Self::Luminance,
-        Self::Contrast,
-        Self::Gamma,
-        Self::Backlight,
-        Self::NoiseReduction2dMode,
-        Self::NoiseReduction2d,
-        Self::NoiseReduction2dOff,
-        Self::NoiseReduction3d,
-        Self::NoiseReduction3dOff,
-        Self::ImageFlipOff,
-        Self::ImageFlipHorizontal,
-        Self::ImageFlipHorizontalOff,
-        Self::ImageFlipVertical,
-        Self::ImageFlipBoth,
-        Self::ImageFlipCombined,
-        Self::ImageFreezeOn,
-        Self::ImageFreezeOff,
-        Self::PictureEffect,
-        Self::NdFilterMode,
-        Self::NdFilterDirect,
-        Self::NdFilterStepUp,
-        Self::NdFilterStepDown,
-        Self::NdFilterAutoOn,
-        Self::NdFilterAutoOff,
-        Self::TallyRedOn,
-        Self::TallyRedOff,
-        Self::TallyBrightLow,
-        Self::TallyBrightHigh,
-        Self::TallyGreenOn,
-        Self::TallyGreenOff,
-        Self::TallyFlash,
-        Self::TallyOn,
-        Self::TallyOff,
-        Self::MenuDisplay,
-        Self::MenuNavigate,
-        Self::MenuSelect,
-        Self::MenuCancel,
-        Self::DirectMenu,
-        Self::MulticastStreamingOn,
-        Self::MulticastStreamingOff,
-        Self::NdiQuality,
-        Self::UsbAudioOn,
-        Self::UsbAudioOff,
-        Self::AddressSet,
-        Self::InterfaceClear,
-        Self::CommandCancel,
-        Self::SettingsSave,
-        Self::MotionSyncMode,
-        Self::MotionSyncPreset,
-        Self::VariableSpeedMode,
-    ];
-
-    /// Returns every audited built-in command row.
-    #[must_use]
-    pub const fn all() -> &'static [Self] {
-        Self::ALL
-    }
-
-    /// Returns the command's audited domain.
-    #[must_use]
-    pub const fn domain(self) -> BuiltinCommandDomain {
-        match self {
-            Self::PanTiltHome
-            | Self::PanTiltReset
-            | Self::PanTiltDrive
-            | Self::PanTiltStop
-            | Self::PanTiltAbsolute
-            | Self::PanTiltRelative
-            | Self::PanTiltLimitSet
-            | Self::PanTiltLimitClear => BuiltinCommandDomain::PanTilt,
-            Self::ZoomStop
-            | Self::ZoomTele
-            | Self::ZoomWide
-            | Self::ZoomTeleVariable
-            | Self::ZoomWideVariable
-            | Self::ZoomPosition
-            | Self::DigitalZoom => BuiltinCommandDomain::Zoom,
-            Self::FocusStop
-            | Self::FocusFar
-            | Self::FocusNear
-            | Self::FocusFarVariable
-            | Self::FocusNearVariable
-            | Self::FocusPosition
-            | Self::FocusAuto
-            | Self::FocusManual
-            | Self::FocusOnePush
-            | Self::FocusInfinity
-            | Self::FocusToggle
-            | Self::FocusSnap
-            | Self::FocusZone
-            | Self::FocusAutoSensitivity
-            | Self::FocusNearLimit
-            | Self::FocusLock
-            | Self::PushAfPress
-            | Self::PushAfRelease => BuiltinCommandDomain::Focus,
-            Self::PresetRecall | Self::PresetRecallSpeed | Self::PresetSet | Self::PresetReset => {
-                BuiltinCommandDomain::Presets
-            }
-            Self::PowerOn | Self::PowerStandby => BuiltinCommandDomain::Power,
-            Self::ExposureMode
-            | Self::ExposureCompensationOn
-            | Self::ExposureCompensationOff
-            | Self::ExposureCompensationReset
-            | Self::ExposureCompensationUp
-            | Self::ExposureCompensationDown
-            | Self::ExposureCompensationDirect
-            | Self::DynamicRange
-            | Self::AntiFlicker
-            | Self::SpotlightOn
-            | Self::SpotlightOff
-            | Self::AutoSlowShutterOn
-            | Self::AutoSlowShutterOff => BuiltinCommandDomain::Exposure,
-            Self::IrisReset | Self::IrisUp | Self::IrisDown | Self::IrisDirect => {
-                BuiltinCommandDomain::Iris
-            }
-            Self::ShutterReset | Self::ShutterUp | Self::ShutterDown | Self::ShutterDirect => {
-                BuiltinCommandDomain::Shutter
-            }
-            Self::BrightnessReset
-            | Self::BrightnessUp
-            | Self::BrightnessDown
-            | Self::BrightnessSet => BuiltinCommandDomain::Brightness,
-            Self::GainReset
-            | Self::GainUp
-            | Self::GainDown
-            | Self::GainDirect
-            | Self::GainLimit => BuiltinCommandDomain::Gain,
-            Self::WhiteBalanceAuto
-            | Self::WhiteBalanceIndoor
-            | Self::WhiteBalanceOutdoor
-            | Self::WhiteBalanceOnePush
-            | Self::WhiteBalanceAutoTracking
-            | Self::WhiteBalanceManual
-            | Self::WhiteBalanceColorTemperature
-            | Self::AutoWhiteBalanceSensitivity
-            | Self::OnePushWhiteBalanceTrigger => BuiltinCommandDomain::WhiteBalance,
-            Self::RedTuning
-            | Self::BlueTuning
-            | Self::Saturation
-            | Self::Hue
-            | Self::ColorTemperatureReset
-            | Self::ColorTemperatureUp
-            | Self::ColorTemperatureDown
-            | Self::ColorTemperatureDirect
-            | Self::RedGainReset
-            | Self::RedGainUp
-            | Self::RedGainDown
-            | Self::RedGainDirect
-            | Self::BlueGainReset
-            | Self::BlueGainUp
-            | Self::BlueGainDown
-            | Self::BlueGainDirect => BuiltinCommandDomain::Color,
-            Self::SharpnessMode
-            | Self::SharpnessReset
-            | Self::SharpnessUp
-            | Self::SharpnessDown
-            | Self::SharpnessDirect
-            | Self::Luminance
-            | Self::Contrast
-            | Self::Gamma
-            | Self::Backlight
-            | Self::NoiseReduction2dMode
-            | Self::NoiseReduction2d
-            | Self::NoiseReduction2dOff
-            | Self::NoiseReduction3d
-            | Self::NoiseReduction3dOff
-            | Self::ImageFlipOff
-            | Self::ImageFlipHorizontal
-            | Self::ImageFlipHorizontalOff
-            | Self::ImageFlipVertical
-            | Self::ImageFlipBoth
-            | Self::ImageFlipCombined
-            | Self::ImageFreezeOn
-            | Self::ImageFreezeOff
-            | Self::PictureEffect => BuiltinCommandDomain::Image,
-            Self::NdFilterMode
-            | Self::NdFilterDirect
-            | Self::NdFilterStepUp
-            | Self::NdFilterStepDown
-            | Self::NdFilterAutoOn
-            | Self::NdFilterAutoOff => BuiltinCommandDomain::NdFilter,
-            Self::TallyRedOn
-            | Self::TallyRedOff
-            | Self::TallyBrightLow
-            | Self::TallyBrightHigh
-            | Self::TallyGreenOn
-            | Self::TallyGreenOff
-            | Self::TallyFlash
-            | Self::TallyOn
-            | Self::TallyOff => BuiltinCommandDomain::Tally,
-            Self::MenuDisplay
-            | Self::MenuNavigate
-            | Self::MenuSelect
-            | Self::MenuCancel
-            | Self::DirectMenu => BuiltinCommandDomain::Menu,
-            Self::MulticastStreamingOn
-            | Self::MulticastStreamingOff
-            | Self::NdiQuality
-            | Self::UsbAudioOn
-            | Self::UsbAudioOff => BuiltinCommandDomain::Streaming,
-            Self::AddressSet | Self::InterfaceClear | Self::CommandCancel | Self::SettingsSave => {
-                BuiltinCommandDomain::System
-            }
-            Self::MotionSyncMode | Self::MotionSyncPreset => BuiltinCommandDomain::MotionSync,
-            Self::VariableSpeedMode => BuiltinCommandDomain::VariableSpeed,
-        }
-    }
-
-    /// Returns the authoritative semantic classification for this command.
-    ///
-    /// This match is intentionally exhaustive.  Do not add a default arm:
-    /// the compiler must force a semantic decision for every new variant.
-    #[must_use]
-    pub const fn classification(self) -> BuiltinRequestClass {
-        use AppliedStateEffectRequirement::{Clear, Invalidate, Set};
-        use BuiltinAxisSelection::{Exact, ProfilePresetRecall};
-        use BuiltinRequestClass::{AppliedOnly, Plain, Targeted};
-        use WriteOnlyState::{
-            AutoNdFilter, AutoSlowShutter, DigitalZoomMode, Flip, FocusLockMode, ImageFreeze,
-            MulticastStreaming, NdFilterMode, NdiQuality, PanTiltLimits, PresetRecallSpeed,
-            Spotlight, TallyBrightness, TallyMode, VariableSpeedMode,
-        };
-
-        match self {
-            Self::PanTiltHome
-            | Self::PanTiltReset
-            | Self::PanTiltAbsolute
-            | Self::PanTiltRelative => Targeted {
-                axes: Exact(BuiltinAxes::PAN_TILT),
-            },
-            Self::PanTiltDrive | Self::PanTiltStop => AppliedOnly {
-                axes: Exact(BuiltinAxes::PAN_TILT),
-            },
-            Self::PanTiltLimitSet => Plain {
-                state_effect: Some(Set(PanTiltLimits)),
-            },
-            Self::PanTiltLimitClear => Plain {
-                state_effect: Some(Clear(PanTiltLimits)),
-            },
-            Self::ZoomPosition => Targeted {
-                axes: Exact(BuiltinAxes::ZOOM),
-            },
-            Self::ZoomStop
-            | Self::ZoomTele
-            | Self::ZoomWide
-            | Self::ZoomTeleVariable
-            | Self::ZoomWideVariable => AppliedOnly {
-                axes: Exact(BuiltinAxes::ZOOM),
-            },
-            Self::DigitalZoom => Plain {
-                state_effect: Some(Set(DigitalZoomMode)),
-            },
-            Self::FocusPosition | Self::FocusInfinity => Targeted {
-                axes: Exact(BuiltinAxes::FOCUS),
-            },
-            Self::FocusStop
-            | Self::FocusFar
-            | Self::FocusNear
-            | Self::FocusFarVariable
-            | Self::FocusNearVariable
-            | Self::FocusOnePush
-            | Self::FocusSnap
-            | Self::PushAfPress
-            | Self::PushAfRelease => AppliedOnly {
-                axes: Exact(BuiltinAxes::FOCUS),
-            },
-            Self::FocusAuto
-            | Self::FocusManual
-            | Self::FocusToggle
-            | Self::FocusZone
-            | Self::FocusAutoSensitivity
-            | Self::FocusNearLimit => Plain { state_effect: None },
-            Self::FocusLock => Plain {
-                state_effect: Some(Set(FocusLockMode)),
-            },
-            Self::PresetRecall => Targeted {
-                axes: ProfilePresetRecall,
-            },
-            Self::PresetRecallSpeed => Plain {
-                state_effect: Some(Set(PresetRecallSpeed)),
-            },
-            Self::PresetSet | Self::PresetReset => Plain { state_effect: None },
-            Self::PowerOn | Self::PowerStandby => Plain { state_effect: None },
-            Self::ExposureMode
-            | Self::ExposureCompensationOn
-            | Self::ExposureCompensationOff
-            | Self::ExposureCompensationReset
-            | Self::ExposureCompensationUp
-            | Self::ExposureCompensationDown
-            | Self::ExposureCompensationDirect
-            | Self::DynamicRange
-            | Self::ShutterReset
-            | Self::ShutterUp
-            | Self::ShutterDown
-            | Self::ShutterDirect
-            | Self::BrightnessReset
-            | Self::BrightnessUp
-            | Self::BrightnessDown
-            | Self::BrightnessSet
-            | Self::AntiFlicker
-            | Self::GainReset
-            | Self::GainUp
-            | Self::GainDown
-            | Self::GainDirect
-            | Self::GainLimit => Plain { state_effect: None },
-            // Iris commands are finite physical aperture movements.  They
-            // have a meaningful end state and an exact Iris inquiry, so every
-            // reset/step/direct form is targeted rather than applied-only.
-            Self::IrisReset | Self::IrisUp | Self::IrisDown | Self::IrisDirect => Targeted {
-                axes: Exact(BuiltinAxes::IRIS),
-            },
-            Self::SpotlightOn | Self::SpotlightOff => Plain {
-                state_effect: Some(Set(Spotlight)),
-            },
-            Self::AutoSlowShutterOn | Self::AutoSlowShutterOff => Plain {
-                state_effect: Some(Set(AutoSlowShutter)),
-            },
-            Self::WhiteBalanceAuto
-            | Self::WhiteBalanceIndoor
-            | Self::WhiteBalanceOutdoor
-            | Self::WhiteBalanceOnePush
-            | Self::WhiteBalanceAutoTracking
-            | Self::WhiteBalanceManual
-            | Self::WhiteBalanceColorTemperature
-            | Self::AutoWhiteBalanceSensitivity
-            | Self::OnePushWhiteBalanceTrigger
-            | Self::RedTuning
-            | Self::BlueTuning
-            | Self::Saturation
-            | Self::Hue
-            | Self::ColorTemperatureReset
-            | Self::ColorTemperatureUp
-            | Self::ColorTemperatureDown
-            | Self::ColorTemperatureDirect
-            | Self::RedGainReset
-            | Self::RedGainUp
-            | Self::RedGainDown
-            | Self::RedGainDirect
-            | Self::BlueGainReset
-            | Self::BlueGainUp
-            | Self::BlueGainDown
-            | Self::BlueGainDirect
-            | Self::SharpnessMode
-            | Self::SharpnessReset
-            | Self::SharpnessUp
-            | Self::SharpnessDown
-            | Self::SharpnessDirect
-            | Self::Luminance
-            | Self::Contrast
-            | Self::Gamma
-            | Self::Backlight
-            | Self::NoiseReduction2dMode
-            | Self::NoiseReduction2d
-            | Self::NoiseReduction2dOff
-            | Self::NoiseReduction3d
-            | Self::NoiseReduction3dOff
-            | Self::PictureEffect
-            | Self::MenuDisplay
-            | Self::MenuNavigate
-            | Self::MenuSelect
-            | Self::MenuCancel
-            | Self::DirectMenu
-            | Self::MotionSyncMode
-            | Self::MotionSyncPreset => Plain { state_effect: None },
-            // The combined-flip opcode carries both axes in one parameter, so
-            // it establishes a complete horizontal/vertical pair.
-            Self::ImageFlipBoth | Self::ImageFlipCombined => Plain {
-                state_effect: Some(Set(Flip)),
-            },
-            // The single-axis flip and mirror opcodes move one axis and say
-            // nothing about the other, so a complete pair stops being known.
-            Self::ImageFlipOff
-            | Self::ImageFlipHorizontal
-            | Self::ImageFlipHorizontalOff
-            | Self::ImageFlipVertical => Plain {
-                state_effect: Some(Invalidate(Flip)),
-            },
-            // ND direct and step commands physically reposition the filter.
-            // The direct target and each finite step have meaningful end
-            // states and are therefore targeted on the ND axis.
-            Self::NdFilterDirect | Self::NdFilterStepUp | Self::NdFilterStepDown => Targeted {
-                axes: Exact(BuiltinAxes::ND_FILTER),
-            },
-            Self::NdFilterMode => Plain {
-                state_effect: Some(Set(NdFilterMode)),
-            },
-            Self::NdFilterAutoOn | Self::NdFilterAutoOff => Plain {
-                state_effect: Some(Set(AutoNdFilter)),
-            },
-            Self::ImageFreezeOn => Plain {
-                state_effect: Some(Set(ImageFreeze)),
-            },
-            Self::ImageFreezeOff => Plain {
-                // The typed request supplies `false`; this is a known value,
-                // not removal of the cache entry.
-                state_effect: Some(Set(ImageFreeze)),
-            },
-            Self::MulticastStreamingOn => Plain {
-                state_effect: Some(Set(MulticastStreaming)),
-            },
-            Self::MulticastStreamingOff => Plain {
-                // The typed request supplies `false`; this is a known value,
-                // not removal of the cache entry.
-                state_effect: Some(Set(MulticastStreaming)),
-            },
-            Self::NdiQuality => Plain {
-                state_effect: Some(Set(NdiQuality)),
-            },
-            Self::UsbAudioOn | Self::UsbAudioOff => Plain { state_effect: None },
-            Self::VariableSpeedMode => Plain {
-                state_effect: Some(Set(VariableSpeedMode)),
-            },
-            // Red/green tally status has profile-gated inquiries. Brightness
-            // and vendor output mode do not, so their applied effects are
-            // either deterministic or explicitly invalidated.
-            Self::TallyRedOn | Self::TallyRedOff | Self::TallyGreenOn | Self::TallyGreenOff => {
-                Plain { state_effect: None }
-            }
-            Self::TallyBrightLow | Self::TallyBrightHigh => Plain {
-                state_effect: Some(Set(TallyBrightness)),
-            },
-            Self::TallyFlash => Plain {
-                state_effect: Some(Invalidate(TallyMode)),
-            },
-            Self::TallyOn | Self::TallyOff => Plain {
-                state_effect: Some(Set(TallyMode)),
-            },
-            Self::AddressSet | Self::InterfaceClear | Self::CommandCancel | Self::SettingsSave => {
-                Plain { state_effect: None }
-            }
-        }
-    }
-
     /// Returns whether this command is a plain request.
     #[must_use]
-    pub const fn is_plain(self) -> bool {
+    pub(crate) const fn is_plain(self) -> bool {
         matches!(self.classification(), BuiltinRequestClass::Plain { .. })
-    }
-
-    /// Returns the exact operation axes, if this command is an operation.
-    #[must_use]
-    pub const fn affected_axes(self) -> Option<BuiltinAxisSelection> {
-        self.classification().axes()
     }
 
     /// Returns the operation completion class, if this command is an
     /// operation.
     #[must_use]
-    pub const fn completion(self) -> Option<BuiltinCompletionClass> {
+    pub(crate) const fn completion(self) -> Option<BuiltinCompletionClass> {
         self.classification().completion()
-    }
-
-    /// Returns the write-only cache effect requirement, if any.
-    #[must_use]
-    pub const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
-        self.classification().state_effect()
     }
 }
 
@@ -1281,33 +635,23 @@ mod tests {
     #[test]
     fn ledger_is_closed_and_every_row_has_a_classification() {
         let mut seen = HashSet::new();
-        let mut domains = HashSet::new();
-        for command in BuiltinCommand::all() {
+        for command in BuiltinCommand::ALL {
             assert!(seen.insert(*command), "duplicate ledger row: {command:?}");
-            domains.insert(command.domain());
             let class = command.classification();
-            if class.is_operation() {
+            if command.is_plain() {
+                assert!(class.axes().is_none());
+            } else {
                 assert!(
                     command.completion().is_some(),
                     "operation row has no completion class: {command:?}"
                 );
                 let axes = class.axes().expect("operation must declare axes");
-                assert!(axes.is_non_empty());
                 if let BuiltinAxisSelection::Exact(axes) = axes {
                     assert_ne!(axes.bits(), 0);
                 }
-            } else {
-                assert!(class.axes().is_none());
             }
         }
-        assert_eq!(seen.len(), BuiltinCommand::all().len());
-        assert_eq!(domains.len(), BuiltinCommandDomain::all().len());
-        for domain in BuiltinCommandDomain::all() {
-            assert!(
-                domains.contains(domain),
-                "domain missing from ledger: {domain:?}"
-            );
-        }
+        assert_eq!(seen.len(), BuiltinCommand::ALL.len());
     }
 
     #[test]
@@ -1316,7 +660,6 @@ mod tests {
             match command.classification() {
                 BuiltinRequestClass::Targeted { axes }
                 | BuiltinRequestClass::AppliedOnly { axes } => {
-                    assert!(axes.is_non_empty());
                     if let BuiltinAxisSelection::Exact(axes) = axes {
                         assert!(axes.is_single() || axes.axis_count() > 1);
                     }
@@ -1325,7 +668,7 @@ mod tests {
             }
         }
         assert_eq!(
-            BuiltinCommand::PresetRecall.affected_axes(),
+            BuiltinCommand::PresetRecall.classification().axes(),
             Some(BuiltinAxisSelection::ProfilePresetRecall)
         );
     }
@@ -1340,8 +683,8 @@ mod tests {
         ] {
             assert_eq!(command.completion(), Some(BuiltinCompletionClass::Targeted));
             assert_eq!(
-                command.affected_axes(),
-                Some(BuiltinAxisSelection::Exact(BuiltinAxes::IRIS))
+                command.classification().axes(),
+                Some(BuiltinAxisSelection::Exact(AffectedAxes::IRIS))
             );
         }
         for command in [
@@ -1351,8 +694,8 @@ mod tests {
         ] {
             assert_eq!(command.completion(), Some(BuiltinCompletionClass::Targeted));
             assert_eq!(
-                command.affected_axes(),
-                Some(BuiltinAxisSelection::Exact(BuiltinAxes::ND_FILTER))
+                command.classification().axes(),
+                Some(BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER))
             );
         }
         for command in [BuiltinCommand::PushAfPress, BuiltinCommand::PushAfRelease] {
@@ -1361,8 +704,8 @@ mod tests {
                 Some(BuiltinCompletionClass::AppliedOnly)
             );
             assert_eq!(
-                command.affected_axes(),
-                Some(BuiltinAxisSelection::Exact(BuiltinAxes::FOCUS))
+                command.classification().axes(),
+                Some(BuiltinAxisSelection::Exact(AffectedAxes::FOCUS))
             );
         }
     }
@@ -1370,37 +713,45 @@ mod tests {
     #[test]
     fn write_only_state_effects_are_closed() {
         assert_eq!(
-            BuiltinCommand::PanTiltLimitSet.state_effect(),
+            BuiltinCommand::PanTiltLimitSet
+                .classification()
+                .state_effect(),
             Some(AppliedStateEffectRequirement::Set(
                 WriteOnlyState::PanTiltLimits
             ))
         );
         assert_eq!(
-            BuiltinCommand::PanTiltLimitClear.state_effect(),
+            BuiltinCommand::PanTiltLimitClear
+                .classification()
+                .state_effect(),
             Some(AppliedStateEffectRequirement::Clear(
                 WriteOnlyState::PanTiltLimits
             ))
         );
         assert_eq!(
-            BuiltinCommand::ImageFreezeOn.state_effect(),
+            BuiltinCommand::ImageFreezeOn
+                .classification()
+                .state_effect(),
             Some(AppliedStateEffectRequirement::Set(
                 WriteOnlyState::ImageFreeze
             ))
         );
         assert_eq!(
-            BuiltinCommand::ImageFreezeOff.state_effect(),
+            BuiltinCommand::ImageFreezeOff
+                .classification()
+                .state_effect(),
             Some(AppliedStateEffectRequirement::Set(
                 WriteOnlyState::ImageFreeze
             ))
         );
         assert_eq!(
-            BuiltinCommand::TallyFlash.state_effect(),
+            BuiltinCommand::TallyFlash.classification().state_effect(),
             Some(AppliedStateEffectRequirement::Invalidate(
                 WriteOnlyState::TallyMode
             ))
         );
         assert_eq!(
-            BuiltinCommand::DigitalZoom.state_effect(),
+            BuiltinCommand::DigitalZoom.classification().state_effect(),
             Some(AppliedStateEffectRequirement::Set(
                 WriteOnlyState::DigitalZoomMode
             ))
@@ -1408,7 +759,12 @@ mod tests {
 
         let represented: HashSet<_> = BuiltinCommand::ALL
             .iter()
-            .filter_map(|command| command.state_effect().map(|effect| effect.state()))
+            .filter_map(|command| {
+                command
+                    .classification()
+                    .state_effect()
+                    .map(|effect| effect.state())
+            })
             .collect();
         let listed: HashSet<_> = WriteOnlyState::ALL.iter().copied().collect();
         assert_eq!(listed.len(), WriteOnlyState::ALL.len());
@@ -1420,18 +776,23 @@ mod tests {
         }
         assert!(BuiltinCommand::ALL.iter().any(|command| {
             command
+                .classification()
                 .state_effect()
-                .is_some_and(|effect| effect.kind() == AppliedStateEffectKind::Set)
+                .is_some_and(|effect| matches!(effect, AppliedStateEffectRequirement::Set(_)))
         }));
         assert!(BuiltinCommand::ALL.iter().any(|command| {
             command
+                .classification()
                 .state_effect()
-                .is_some_and(|effect| effect.kind() == AppliedStateEffectKind::Clear)
+                .is_some_and(|effect| matches!(effect, AppliedStateEffectRequirement::Clear(_)))
         }));
         assert!(BuiltinCommand::ALL.iter().any(|command| {
             command
+                .classification()
                 .state_effect()
-                .is_some_and(|effect| effect.kind() == AppliedStateEffectKind::Invalidate)
+                .is_some_and(|effect| {
+                    matches!(effect, AppliedStateEffectRequirement::Invalidate(_))
+                })
         }));
     }
 

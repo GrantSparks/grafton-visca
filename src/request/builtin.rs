@@ -2965,163 +2965,117 @@ macro_rules! fixed_operation_contract {
 
 fixed_operation_contract!(
     PanTiltHome,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     PanTiltReset,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     PanTiltDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     PanTiltStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     PanTiltAbsolute,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     PanTiltRelative,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::PAN_TILT
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT),
     AffectedAxes::PAN_TILT
 );
 fixed_operation_contract!(
     ZoomTarget,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ZOOM
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
     AffectedAxes::ZOOM
 );
 fixed_operation_contract!(
     ZoomDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ZOOM
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
     AffectedAxes::ZOOM
 );
 fixed_operation_contract!(
     ZoomStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ZOOM
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ZOOM),
     AffectedAxes::ZOOM
 );
 fixed_operation_contract!(
     FocusTarget,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     FocusInfinity,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     FocusDrive,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     FocusStop,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     FocusTrigger,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     IrisReset,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::IRIS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
     AffectedAxes::IRIS
 );
 fixed_operation_contract!(
     IrisUp,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::IRIS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
     AffectedAxes::IRIS
 );
 fixed_operation_contract!(
     IrisDown,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::IRIS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
     AffectedAxes::IRIS
 );
 fixed_operation_contract!(
     IrisDirect,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::IRIS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::IRIS),
     AffectedAxes::IRIS
 );
 fixed_operation_contract!(
     NdFilterDirect,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ND_FILTER
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
     AffectedAxes::ND_FILTER
 );
 fixed_operation_contract!(
     NdFilterStepUp,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ND_FILTER
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
     AffectedAxes::ND_FILTER
 );
 fixed_operation_contract!(
     NdFilterStepDown,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::ND_FILTER
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::ND_FILTER),
     AffectedAxes::ND_FILTER
 );
 fixed_operation_contract!(
     PushAfPress,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 fixed_operation_contract!(
     PushAfRelease,
-    crate::command::semantics::BuiltinAxisSelection::Exact(
-        crate::command::semantics::BuiltinAxes::FOCUS
-    ),
+    crate::command::semantics::BuiltinAxisSelection::Exact(AffectedAxes::FOCUS),
     AffectedAxes::FOCUS
 );
 

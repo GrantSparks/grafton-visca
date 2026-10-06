@@ -8,12 +8,9 @@
 //!   `source.contains("PowerAccessor")` can be satisfied by the test data after
 //!   the accessor itself is gone.  [`declarations`] blanks every
 //!   `#[cfg(test)]` item so a positive gate reads the declaration region only.
-//! * *Ambiguous needles.*  `src/command/semantics.rs` declares two
-//!   `pub const ALL: &[Self]` slices; picking one with `rsplit_once` silently
-//!   depends on which is written last.  [`builtin_command_rows`] anchors on the
-//!   `impl BuiltinCommand` block and reads the slice by bracket depth, so it
-//!   tolerates re-indentation and fails loudly rather than counting the wrong
-//!   list.
+//! * *Ambiguous needles.*  A scan that counts entries must anchor on exactly
+//!   one block and read it by delimiter depth, so it tolerates re-indentation
+//!   and fails loudly rather than counting the wrong list.
 //!
 //! This is the integration-test twin of the scanner in `src/noun_parity.rs`;
 //! the crate's own gate cannot be reached from an integration test binary.
@@ -181,64 +178,6 @@ pub fn declarations(source: &str) -> String {
         .map(|(line, skip)| if skip { "" } else { line })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Returns the body of the single item whose trimmed header line is `header`.
-fn item_body(source: &str, header: &str) -> String {
-    let cleaned = clean(source);
-    let lines: Vec<&str> = cleaned.lines().collect();
-    let starts: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| line.trim() == header)
-        .map(|(index, _)| index)
-        .collect();
-    assert_eq!(
-        starts.len(),
-        1,
-        "expected exactly one {header:?} header, found {}",
-        starts.len(),
-    );
-    let start = starts[0];
-    let end = block_end(&lines, start);
-    lines[start..end].join("\n")
-}
-
-/// Returns the `[...]` body that follows `needle`, read by bracket depth.
-fn bracket_body(text: &str, needle: &str) -> String {
-    let matches = text.matches(needle).count();
-    assert_eq!(
-        matches, 1,
-        "expected exactly one {needle:?} anchor, found {matches}",
-    );
-    let start = text.find(needle).unwrap_or_else(|| unreachable!());
-    let rest = &text[start + needle.len()..];
-    let mut depth = 1_i32;
-    for (index, ch) in rest.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return rest[..index].to_owned();
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("unterminated slice after {needle:?}")
-}
-
-/// Rows listed in the closed `BuiltinCommand::ALL` slice.
-///
-/// Anchored on the `impl BuiltinCommand` block: `BuiltinCommandDomain` declares
-/// an `ALL` slice of its own, so an unanchored needle counts whichever list
-/// happens to be written last.
-pub fn builtin_command_rows(semantics: &str) -> usize {
-    let body = item_body(semantics, "impl BuiltinCommand {");
-    bracket_body(&body, "pub const ALL: &[Self] = &[")
-        .matches("Self::")
-        .count()
 }
 
 /// Entries in the generated camera-facing inquiry-accessor table.

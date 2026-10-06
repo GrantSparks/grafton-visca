@@ -2,8 +2,10 @@
 
 `command::semantics::BuiltinCommand` is the authoritative ledger.  A wire
 opcode, timeout category, or command module is not allowed to infer a request
-class.  Each enum variant has an exhaustive `classification()` arm; adding a
-future built-in variant without a reviewed arm fails to compile.
+class.  One `builtin_command_ledger!` list in `src/command/semantics.rs` names
+every built-in command together with its classification; the enum, its `ALL`
+inventory and `classification()` are expanded from that list, so a command
+cannot exist without a reviewed classification.
 
 The rule is intentionally narrow:
 
