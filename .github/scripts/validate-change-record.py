@@ -95,6 +95,70 @@ def immutable_changelog(prefix: str, suffix: str) -> str:
     return prefix + "\0UNRELEASED-BODY\0" + suffix
 
 
+def top_level_sections(text: str) -> list[tuple[int, int]]:
+    """Return the span of each `## ` section in a changelog suffix."""
+
+    starts = [match.start() for match in re.finditer(r"(?m)^## ", text)]
+    return [
+        (start, starts[index + 1] if index + 1 < len(starts) else len(text))
+        for index, start in enumerate(starts)
+    ]
+
+
+def dated_release_version(section: str) -> str | None:
+    heading = STRICT_DATED_RELEASE_HEADING.match(section)
+    if heading is None:
+        return None
+    return section[len("## [") : section.index("]")]
+
+
+def release_tag_exists(version: str) -> bool:
+    result = git(
+        "rev-parse", "--quiet", "--verify", f"refs/tags/v{version}", check=False
+    )
+    return result.returncode == 0
+
+
+def unpublished_release_versions(suffix: str, revision: str) -> frozenset[str]:
+    """Find dated sections that were prepared but never published.
+
+    A release is published once its `v<version>` tag exists. Only the dated
+    sections above the newest tagged one can be unpublished: anything below a
+    published release was released before it, whether or not its tag exists.
+    Those leading untagged sections may be folded back into Unreleased.
+    """
+
+    unpublished: list[str] = []
+    for start, end in top_level_sections(suffix):
+        version = dated_release_version(suffix[start:end])
+        if version is None:
+            break
+        if release_tag_exists(version):
+            return frozenset(unpublished)
+        unpublished.append(version)
+
+    if unpublished:
+        # Without any release tag every section would look unpublished; a
+        # shallow or tagless checkout must not silently unlock released history.
+        raise ValidationError(
+            f"{CHANGELOG} at {revision} has dated release sections but no "
+            "`v<version>` tag for any of them; fetch tags and use a "
+            "full-history checkout"
+        )
+    return frozenset()
+
+
+def published_suffix(suffix: str, unpublished: frozenset[str]) -> str:
+    """Drop the leading unpublished release sections from a changelog suffix."""
+
+    offset = 0
+    for start, end in top_level_sections(suffix):
+        if dated_release_version(suffix[start:end]) not in unpublished:
+            break
+        offset = end
+    return suffix[offset:]
+
+
 def lines_are_retained_in_order(previous: str, current: str) -> bool:
     """Require every prior changelog line to remain, allowing release additions."""
 
@@ -148,6 +212,7 @@ def validated_release_cut(
     history_start: str,
     head: str,
     history_immutable: str,
+    unpublished: frozenset[str],
     head_prefix: str,
     head_suffix: str,
 ) -> tuple[str, str, int] | None:
@@ -192,7 +257,12 @@ def validated_release_cut(
         if cut is None:
             continue
 
-        if immutable_changelog(parent_prefix, parent_suffix) != history_immutable:
+        if (
+            immutable_changelog(
+                parent_prefix, published_suffix(parent_suffix, unpublished)
+            )
+            != history_immutable
+        ):
             continue
         if head_prefix != cut_prefix or head_suffix != cut_suffix:
             continue
@@ -289,6 +359,9 @@ def policy_start(merge_base: str, head: str, marker_path: str, policy: str) -> s
     return merge_base
 
 
+ISSUE_REFERENCE = re.compile(r"\(#[1-9][0-9]*(?:, #[1-9][0-9]*)*\)")
+
+
 def breaking_bullet_errors(changelog: str, body: str, offset: int) -> list[str]:
     errors: list[str] = []
     starts = list(re.finditer(r"(?m)^- [^\n]*\*\*BREAKING\*\*", body))
@@ -298,11 +371,11 @@ def breaking_bullet_errors(changelog: str, body: str, offset: int) -> list[str]:
         following = boundary_pattern.search(body, start.end())
         end = following.start() if following is not None else len(body)
         bullet = body[start.start() : end]
-        if re.search(r"\(#[1-9][0-9]*\)", bullet) is None:
+        if ISSUE_REFERENCE.search(bullet) is None:
             line = changelog.count("\n", 0, offset + start.start()) + 1
             errors.append(
                 f"{CHANGELOG}:{line}: `**BREAKING**` bullet is missing an issue "
-                "reference in the form `(#NNN)`"
+                "reference in the form `(#NNN)` or `(#NNN, #MMM)`"
             )
     return errors
 
@@ -363,12 +436,21 @@ def main(argv: list[str]) -> int:
         head_prefix, unreleased, head_suffix, unreleased_offset = split_unreleased(
             head_changelog, head
         )
-        base_immutable = immutable_changelog(base_prefix, base_suffix)
-        head_immutable = immutable_changelog(head_prefix, head_suffix)
+        # Published sections are byte-immutable. A dated section with no
+        # `v<version>` tag above the newest published one was never released;
+        # it stays mutable and may be folded back into Unreleased.
+        unpublished = unpublished_release_versions(base_suffix, history_start)
+        base_immutable = immutable_changelog(
+            base_prefix, published_suffix(base_suffix, unpublished)
+        )
+        head_immutable = immutable_changelog(
+            head_prefix, published_suffix(head_suffix, unpublished)
+        )
         release_cut = validated_release_cut(
             history_start,
             head,
             base_immutable,
+            unpublished,
             head_prefix,
             head_suffix,
         )
@@ -379,15 +461,18 @@ def main(argv: list[str]) -> int:
                 difflib.unified_diff(
                     base_immutable.splitlines(),
                     head_immutable.splitlines(),
-                    fromfile=f"{CHANGELOG}@{history_start[:12]} outside Unreleased",
-                    tofile=f"{CHANGELOG}@{head[:12]} outside Unreleased",
+                    fromfile=f"{CHANGELOG}@{history_start[:12]} published history",
+                    tofile=f"{CHANGELOG}@{head[:12]} published history",
                     lineterm="",
                 )
             )
             preview = "\n".join(diff[:12])
             errors.append(
-                f"{CHANGELOG} content outside [Unreleased] is immutable; restore released "
-                f"history and add a superseding Unreleased entry\n{preview}"
+                f"{CHANGELOG} published release history is immutable: only "
+                "[Unreleased] and untagged release sections above the newest "
+                "published one may change, apart from a validated release cut; "
+                "restore the published text and record any correction under "
+                f"Unreleased\n{preview}"
             )
 
         snapshots = changed_paths(merge_base, head, API_SNAPSHOT_GLOB)
@@ -423,8 +508,8 @@ def main(argv: list[str]) -> int:
         return 1
 
     print(
-        "change-record validation passed: released history is immutable outside "
-        "validated release cuts, "
+        "change-record validation passed: published release history is immutable "
+        "outside validated release cuts, "
         "API snapshots are recorded, breaking bullets are referenced, and src/ "
         "commits have bodies"
     )

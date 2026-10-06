@@ -23,8 +23,13 @@ targeted representative hardware pass.
    checkout-local lockfile immediately before its locked package/publish
    commands.
 5. Keep the 2.0 notes under `## [Unreleased]` until the release commit is
-   ready. At release time, move them to `## [2.0.0-rc.3] - YYYY-MM-DD` (or the
-   final version) and restore an empty `Unreleased` heading.
+   ready. Unreleased states the net change since the last published version
+   (the newest `v<version>` tag), not the churn between candidates. At release
+   time, move them to `## [2.0.0-rc.3] - YYYY-MM-DD` (or the final version) and
+   restore an empty `Unreleased` heading; `validate-release.sh` refuses a tag
+   whose version has no dated heading. A dated section whose release was never
+   tagged and published is not part of the record: fold it back into
+   Unreleased before the next release cut.
 
 The `api/2.0.0-rc.1/` directory is the rolling public-surface baseline for the
 whole 2.0 prerelease line; its name records the candidate where that baseline
@@ -118,12 +123,13 @@ test "$(git rev-parse --verify HEAD^{commit})" = "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
-The change-record validator requires a full-history checkout. It keeps every
-released changelog section immutable, requires public API snapshot changes to
-carry an Unreleased record, requires `**BREAKING**` records to name an issue,
-and requires explanatory commit bodies for source changes. Correct an old
-release note with a dated superseding Unreleased entry; never rewrite the old
-text to make the current release look internally consistent.
+The change-record validator requires a full-history checkout with tags. It
+keeps every published changelog section (one with a `v<version>` tag, or below
+one) immutable, requires public API snapshot changes to carry an Unreleased
+record, requires `**BREAKING**` records to name an issue, and requires
+explanatory commit bodies for source changes. Correct a published release note
+with an Unreleased entry; never rewrite the published text to make the current
+release look internally consistent.
 
 Also run the supported no-default, blocking-only, async-runtime, dynamic, and
 coexistence matrices documented in the repository before tagging. Check the

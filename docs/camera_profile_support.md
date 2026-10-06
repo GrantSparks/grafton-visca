@@ -232,9 +232,9 @@ bench-tested.
 
 Decoding is not gated: the focus-zone inquiry decodes `03` from any camera,
 because reading a reply sends nothing. A runtime profile may add `Zone03` to
-its own list when its camera has evidence for it. A profile persisted before
-the field existed (2.0.0-rc.3) deserializes with its built-in list when it
-carries a built-in identity, and with the documented three otherwise. See
+its own list when its camera has evidence for it. A persisted `ProfileSpec`
+must carry the field; one saved without it is refused on load with an error
+that names the regeneration call. See
 [VISCA reference §7.13](visca_reference.md) for the source search.
 
 ### Color-temperature inquiry (`HasColorTemperatureInquiry`)
@@ -274,10 +274,10 @@ hold:
 2. its `ProfileTypedSupport::TYPED_SUPPORT` includes
    `TypedSupportSurface::VersionInquiry`;
 3. every persisted runtime profile lists `"version-inquiry"` in
-   `capabilities.typed_support`. A runtime profile saved by 2.0.0-rc.3 lacks
-   the tag and loads successfully, but `version()` then fails with
-   `FeatureNotSupported`; add the tag to the stored JSON (or to the
-   `TypedSupportSet` before building the `ProfileSpec`).
+   `capabilities.typed_support`. A custom runtime profile without the tag
+   loads, but `version()` then fails with `FeatureNotSupported`; add the tag
+   to the stored JSON (or to the `TypedSupportSet` before building the
+   `ProfileSpec`).
 
 The row-specific surfaces `HasImageFreeze`, `HasDefogLevel`,
 `HasTallyBrightness`, and `HasPtzOpticsTally` currently have no built-in profile
