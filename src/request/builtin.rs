@@ -2401,11 +2401,16 @@ impl BuiltinValidation for FocusTrigger {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
+        // `gate_by_value`: each value is gated by its own ledger row.
         match self {
-            Self::OnePush => {
-                validate_static_typed_command(profile, Self::LEDGER_ROW, "one-push focus")
+            Self::OnePush => validate_static_typed_command(
+                profile,
+                BuiltinCommand::FocusOnePush,
+                "one-push focus",
+            ),
+            Self::Snap => {
+                validate_static_typed_command(profile, BuiltinCommand::FocusSnap, "snap focus")
             }
-            Self::Snap => validate_static_typed_command(profile, Self::LEDGER_ROW, "snap focus"),
         }
     }
 }
@@ -2922,12 +2927,22 @@ mod tests {
             &g2, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
         ];
 
+        // `prepare_builtin_command` admits plain requests; an operation names
+        // its completion kind and goes through `prepare_builtin_operation`.
         macro_rules! follows_static_surface {
             ($surface:expr, $request:expr) => {
+                follows_static_surface!(@prepare [prepare_builtin_command] $surface, $request)
+            };
+            ($kind:ty: $surface:expr, $request:expr) => {
+                follows_static_surface!(
+                    @prepare [prepare_builtin_operation::<$kind, _>] $surface, $request
+                )
+            };
+            (@prepare [$($prepare:tt)+] $surface:expr, $request:expr) => {
                 for profile in profiles {
                     let request = $request;
                     assert_eq!(
-                        prepare_builtin_command(
+                        $($prepare)+(
                             &request,
                             CameraId::CAMERA_1,
                             profile,
@@ -2978,6 +2993,14 @@ mod tests {
         follows_static_surface!(
             TypedSupportSurface::PtzOpticsNdiQuality,
             SetNdiQuality::new(NdiQuality::High)
+        );
+        follows_static_surface!(
+            completion::AppliedOnly: TypedSupportSurface::OnePushFocus,
+            FocusTrigger::OnePush
+        );
+        follows_static_surface!(
+            completion::AppliedOnly: TypedSupportSurface::PtzOpticsSnapFocus,
+            FocusTrigger::Snap
         );
     }
 
