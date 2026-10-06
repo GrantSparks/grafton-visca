@@ -3326,8 +3326,9 @@ mod tests {
     fn every_write_only_state_command_has_an_exact_closed_projection() {
         use crate::command::semantics::{
             AppliedStateEffectRequirement::{Clear, Invalidate, Set},
-            BuiltinCommand as B, WriteOnlyState as S,
+            BuiltinCommand as B,
         };
+        use crate::StateKey as S;
 
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");

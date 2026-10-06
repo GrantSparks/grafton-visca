@@ -298,37 +298,33 @@ mod control_reserve {
 #[test]
 fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
     let mut cache = TargetStateCache::default();
-    let known = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[0, 12, -4])
+    let known = AppliedStateProjection::set(StateKey::PanTiltLimits, &[0, 12, -4])
         .expect("valid down-left limit projection");
-    let malformed_set = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[3, 9, 8])
+    let malformed_set = AppliedStateProjection::set(StateKey::PanTiltLimits, &[3, 9, 8])
         .expect("bounded malformed projection");
-    let malformed_clear =
-        AppliedStateProjection::clear_with_values(WriteOnlyState::PanTiltLimits, &[3])
-            .expect("bounded malformed projection");
+    let malformed_clear = AppliedStateProjection::clear_with_values(StateKey::PanTiltLimits, &[3])
+        .expect("bounded malformed projection");
 
     cache.apply(known, 1);
     cache.apply(malformed_set, 1);
     assert_eq!(
-        cache.get(WriteOnlyState::PanTiltLimits),
+        cache.get(StateKey::PanTiltLimits),
         Some(known),
         "a malformed set must not replace the known corner"
     );
 
     cache.apply(malformed_clear, 1);
     assert_eq!(
-        cache.get(WriteOnlyState::PanTiltLimits),
+        cache.get(StateKey::PanTiltLimits),
         Some(known),
         "a malformed clear must not replace the known corner"
     );
 
     // A limit clear is local to one corner like a limit set; one that names
     // no corner is malformed, not a whole-key clear.
-    cache.apply(
-        AppliedStateProjection::clear(WriteOnlyState::PanTiltLimits),
-        1,
-    );
+    cache.apply(AppliedStateProjection::clear(StateKey::PanTiltLimits), 1);
     assert_eq!(
-        cache.get(WriteOnlyState::PanTiltLimits),
+        cache.get(StateKey::PanTiltLimits),
         Some(known),
         "a clear that names no corner must not replace the known corner"
     );
@@ -1407,9 +1403,7 @@ mod lifecycle_trace {
             },
             // Applied-state delivery is one of the normative observations, and
             // an unsubscribed fixture simply produces no subscriber record.
-            applied_state: Some(
-                AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap(),
-            ),
+            applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
         }
     }
 

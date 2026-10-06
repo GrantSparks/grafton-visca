@@ -18,7 +18,7 @@ use crate::{
     },
     raw::{RawReplyShape, MAX_BYTES},
     request,
-    requests::{AppliedStateAuthority, EncodeError, RequestContractAuthority},
+    requests::{AppliedStateAuthority, RequestContractAuthority},
     AffectedAxes, CameraId, ControlClass, Error, OperationCommand, Request, RetryClass,
     TimeoutClass,
 };
@@ -43,7 +43,7 @@ mod private {
 
         fn encoded_size(&self) -> usize;
 
-        fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError>;
+        fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
         fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
 
@@ -93,7 +93,7 @@ mod private {
             Request::encoded_size(self)
         }
 
-        fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError> {
+        fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             Request::write_into(self, camera, buffer)
         }
 
@@ -228,7 +228,7 @@ where
         self.request.encoded_size()
     }
 
-    fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError> {
+    fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         self.request.write_into(camera, buffer)
     }
 

@@ -31,7 +31,7 @@
 //! The ledger is therefore load-bearing in ordinary builds, not only in the
 //! independent semantic tests.
 
-use crate::AffectedAxes;
+use crate::{AffectedAxes, StateKey};
 
 /// Exact axis selection for an operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,13 +58,6 @@ impl BuiltinAxisSelection {
     }
 }
 
-/// Private semantic spelling for the public [`crate::state_cache::StateKey`].
-///
-/// Keeping this alias in the ledger preserves the existing internal naming
-/// while ensuring that the public cache key list and the applied-state ledger
-/// have one source of truth.
-pub(crate) use crate::state_cache::StateKey as WriteOnlyState;
-
 /// Required cache projection for one write-only state command.
 ///
 /// The value itself is carried by the typed request. This closed requirement
@@ -73,13 +66,13 @@ pub(crate) use crate::state_cache::StateKey as WriteOnlyState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum AppliedStateEffectRequirement {
     /// The request supplies a deterministic replacement value.
-    Set(WriteOnlyState),
+    Set(StateKey),
     /// The request removes one deterministic state entry (for example a
     /// cleared pan/tilt limit corner). A boolean `Off` command is `Set` with
     /// a false value, because false is still known after exact application.
-    Clear(WriteOnlyState),
+    Clear(StateKey),
     /// The request changes state without exposing a deterministic value.
-    Invalidate(WriteOnlyState),
+    Invalidate(StateKey),
 }
 
 impl AppliedStateEffectRequirement {
@@ -96,7 +89,7 @@ impl AppliedStateEffectRequirement {
     /// Returns the affected write-only state key.
     #[cfg(test)]
     #[must_use]
-    pub(crate) const fn state(self) -> WriteOnlyState {
+    pub(crate) const fn state(self) -> StateKey {
         match self {
             Self::Set(state) | Self::Clear(state) | Self::Invalidate(state) => state,
         }
@@ -301,7 +294,7 @@ where
 /// `plain`, `plain(Set(<key>))`, `plain(Clear(<key>))`,
 /// `plain(Invalidate(<key>))`, `targeted(<axes>)`,
 /// `targeted(profile_preset_recall)` and `applied(<axes>)` are the only row
-/// forms; `<key>` names a [`WriteOnlyState`] and `<axes>` an
+/// forms; `<key>` names a [`StateKey`] and `<axes>` an
 /// [`AffectedAxes`] constant. [`BuiltinCommand`], [`BuiltinCommand::ALL`] and
 /// [`BuiltinCommand::classification`] are all expanded from this one list, so
 /// a row cannot be declared without a classification, listed twice, or left
@@ -337,18 +330,18 @@ macro_rules! ledger_class {
     };
     (plain(Set($key:ident))) => {
         BuiltinRequestClass::Plain {
-            state_effect: Some(AppliedStateEffectRequirement::Set(WriteOnlyState::$key)),
+            state_effect: Some(AppliedStateEffectRequirement::Set(StateKey::$key)),
         }
     };
     (plain(Clear($key:ident))) => {
         BuiltinRequestClass::Plain {
-            state_effect: Some(AppliedStateEffectRequirement::Clear(WriteOnlyState::$key)),
+            state_effect: Some(AppliedStateEffectRequirement::Clear(StateKey::$key)),
         }
     };
     (plain(Invalidate($key:ident))) => {
         BuiltinRequestClass::Plain {
             state_effect: Some(AppliedStateEffectRequirement::Invalidate(
-                WriteOnlyState::$key,
+                StateKey::$key,
             )),
         }
     };
@@ -667,44 +660,38 @@ mod tests {
             BuiltinCommand::PanTiltLimitSet
                 .classification()
                 .state_effect(),
-            Some(AppliedStateEffectRequirement::Set(
-                WriteOnlyState::PanTiltLimits
-            ))
+            Some(AppliedStateEffectRequirement::Set(StateKey::PanTiltLimits))
         );
         assert_eq!(
             BuiltinCommand::PanTiltLimitClear
                 .classification()
                 .state_effect(),
             Some(AppliedStateEffectRequirement::Clear(
-                WriteOnlyState::PanTiltLimits
+                StateKey::PanTiltLimits
             ))
         );
         assert_eq!(
             BuiltinCommand::ImageFreezeOn
                 .classification()
                 .state_effect(),
-            Some(AppliedStateEffectRequirement::Set(
-                WriteOnlyState::ImageFreeze
-            ))
+            Some(AppliedStateEffectRequirement::Set(StateKey::ImageFreeze))
         );
         assert_eq!(
             BuiltinCommand::ImageFreezeOff
                 .classification()
                 .state_effect(),
-            Some(AppliedStateEffectRequirement::Set(
-                WriteOnlyState::ImageFreeze
-            ))
+            Some(AppliedStateEffectRequirement::Set(StateKey::ImageFreeze))
         );
         assert_eq!(
             BuiltinCommand::TallyFlash.classification().state_effect(),
             Some(AppliedStateEffectRequirement::Invalidate(
-                WriteOnlyState::TallyMode
+                StateKey::TallyMode
             ))
         );
         assert_eq!(
             BuiltinCommand::DigitalZoom.classification().state_effect(),
             Some(AppliedStateEffectRequirement::Set(
-                WriteOnlyState::DigitalZoomMode
+                StateKey::DigitalZoomMode
             ))
         );
 
@@ -717,9 +704,9 @@ mod tests {
                     .map(|effect| effect.state())
             })
             .collect();
-        let listed: HashSet<_> = WriteOnlyState::ALL.iter().copied().collect();
-        assert_eq!(listed.len(), WriteOnlyState::ALL.len());
-        for state in WriteOnlyState::ALL {
+        let listed: HashSet<_> = StateKey::ALL.iter().copied().collect();
+        assert_eq!(listed.len(), StateKey::ALL.len());
+        for state in StateKey::ALL {
             assert!(
                 represented.contains(state),
                 "write-only state has no ledger effect: {state:?}"

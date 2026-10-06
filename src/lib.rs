@@ -988,7 +988,7 @@ pub use crate::{
     },
     error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
     inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
-    types::{Coarse, FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
+    types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,
     visca_socket::ViscaSocket,
 };
@@ -1058,7 +1058,7 @@ pub mod raw;
 
 mod requests;
 pub use requests::{
-    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, EncodeError, Inquiry, InquiryRoute,
+    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, InquiryRoute,
     OperationCommand, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
     TimeoutClass,
 };

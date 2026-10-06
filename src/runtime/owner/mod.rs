@@ -69,7 +69,10 @@ use std::{
 
 use bytes::BytesMut;
 
-use crate::command::{encode::WireEncode, semantics::WriteOnlyState, system::CommandCancelCommand};
+use crate::{
+    command::{encode::WireEncode, system::CommandCancelCommand},
+    StateKey,
+};
 use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
@@ -484,7 +487,7 @@ pub(crate) enum DiagnosticEvent {
     AppliedState {
         id: RequestId,
         target: CameraId,
-        key: WriteOnlyState,
+        key: StateKey,
     },
     Terminal {
         id: RequestId,
@@ -507,8 +510,8 @@ struct CachedProjection {
 
 #[derive(Debug, Default)]
 pub(crate) struct TargetStateCache {
-    values: BTreeMap<WriteOnlyState, CachedProjection>,
-    order: VecDeque<(WriteOnlyState, u64)>,
+    values: BTreeMap<StateKey, CachedProjection>,
+    order: VecDeque<(StateKey, u64)>,
     generation: u64,
 }
 
@@ -526,11 +529,11 @@ impl TargetStateCache {
         // update.
         let invalid_limit_corner = match projection {
             AppliedStateProjection::Set {
-                key: WriteOnlyState::PanTiltLimits,
+                key: StateKey::PanTiltLimits,
                 value,
             }
             | AppliedStateProjection::Clear {
-                key: WriteOnlyState::PanTiltLimits,
+                key: StateKey::PanTiltLimits,
                 value,
             } => !matches!(
                 value.values[0..value.value_count as usize].first(),
@@ -575,11 +578,11 @@ impl TargetStateCache {
         }
     }
 
-    fn get(&self, state: WriteOnlyState) -> Option<AppliedStateProjection> {
+    fn get(&self, state: StateKey) -> Option<AppliedStateProjection> {
         self.values.get(&state).map(|value| value.projection)
     }
 
-    pub(crate) fn entry(&self, state: WriteOnlyState) -> crate::state_cache::StateEntry {
+    pub(crate) fn entry(&self, state: StateKey) -> crate::state_cache::StateEntry {
         let Some(value) = self.get(state) else {
             return crate::state_cache::StateEntry::Unknown;
         };

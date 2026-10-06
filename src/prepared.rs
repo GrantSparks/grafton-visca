@@ -3468,7 +3468,7 @@ mod tests {
         assert!(matches!(
             prepared_clear.applied_state,
             Some(AppliedStateProjection::Clear {
-                key: crate::command::semantics::WriteOnlyState::PanTiltLimits,
+                key: crate::StateKey::PanTiltLimits,
                 ..
             })
         ));

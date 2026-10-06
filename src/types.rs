@@ -720,28 +720,6 @@ impl From<SpeedLevel> for PanSpeed {
     }
 }
 
-impl PanSpeed {
-    /// Create a PanSpeed from a coarse speed level.
-    ///
-    /// This provides a convenient mapping from user-friendly speed levels
-    /// to device-specific pan speed values:
-    /// - Slowest → 1
-    /// - Slow → 6
-    /// - Medium → 12
-    /// - Fast → 18
-    /// - Fastest → 24
-    ///
-    /// # Example
-    /// ```ignore
-    /// let speed = PanSpeed::from_coarse(Coarse::Medium);
-    /// assert_eq!(speed.value(), 12);
-    /// ```
-    #[inline]
-    pub fn from_coarse(coarse: Coarse) -> Self {
-        Self::from(coarse)
-    }
-}
-
 crate::__grafton_visca_newtype! {
     /// Tilt speed value for vertical camera movement speed.
     ///
@@ -761,28 +739,6 @@ impl TiltSpeed {
 impl From<SpeedLevel> for TiltSpeed {
     fn from(level: SpeedLevel) -> Self {
         Self(level.to_tilt_speed())
-    }
-}
-
-impl TiltSpeed {
-    /// Create a TiltSpeed from a coarse speed level.
-    ///
-    /// This provides a convenient mapping from user-friendly speed levels
-    /// to device-specific tilt speed values:
-    /// - Slowest → 1
-    /// - Slow → 5
-    /// - Medium → 10
-    /// - Fast → 15
-    /// - Fastest → 20
-    ///
-    /// # Example
-    /// ```ignore
-    /// let speed = TiltSpeed::from_coarse(Coarse::Fast);
-    /// assert_eq!(speed.value(), 15);
-    /// ```
-    #[inline]
-    pub fn from_coarse(coarse: Coarse) -> Self {
-        Self::from(coarse)
     }
 }
 
@@ -807,51 +763,6 @@ impl From<SpeedLevel> for ZoomSpeed {
     }
 }
 
-/// Type alias for coarse speed levels to improve API discoverability.
-///
-/// `Coarse` is an alias for `SpeedLevel` that provides intuitive speed control
-/// with five granularity levels: Slowest, Slow, Medium, Fast, and Fastest.
-///
-/// This type can be converted to device-specific speed values using the `From` trait:
-/// - `ZoomSpeed::from(Coarse::Fast)` → ZoomSpeed(6)
-/// - `PanSpeed::from(Coarse::Medium)` → PanSpeed(12)
-/// - `TiltSpeed::from(Coarse::Slow)` → TiltSpeed(5)
-///
-/// # Example
-/// ```ignore
-/// use grafton_visca::types::{Coarse, ZoomSpeed};
-///
-/// // Using coarse speed for zoom
-/// let zoom_speed = ZoomSpeed::from(Coarse::Fast);
-/// camera.zoom_tele(Some(zoom_speed))?;
-///
-/// // Direct conversion
-/// camera.zoom_wide(Some(Coarse::Slow.into()))?;
-/// ```
-pub type Coarse = SpeedLevel;
-
-impl ZoomSpeed {
-    /// Create a ZoomSpeed from a coarse speed level.
-    ///
-    /// This provides a convenient mapping from user-friendly speed levels
-    /// to device-specific zoom speed values:
-    /// - Slowest → 0
-    /// - Slow → 2
-    /// - Medium → 4
-    /// - Fast → 6
-    /// - Fastest → 7
-    ///
-    /// # Example
-    /// ```ignore
-    /// let speed = ZoomSpeed::from_coarse(Coarse::Fast);
-    /// assert_eq!(speed.value(), 6);
-    /// ```
-    #[inline]
-    pub fn from_coarse(coarse: Coarse) -> Self {
-        Self::from(coarse)
-    }
-}
-
 crate::__grafton_visca_newtype! {
     /// Focus speed value for camera focus control.
     ///
@@ -870,28 +781,6 @@ impl FocusSpeed {
 impl From<SpeedLevel> for FocusSpeed {
     fn from(level: SpeedLevel) -> Self {
         Self(level.to_focus_speed())
-    }
-}
-
-impl FocusSpeed {
-    /// Create a FocusSpeed from a coarse speed level.
-    ///
-    /// This provides a convenient mapping from user-friendly speed levels
-    /// to device-specific focus speed values:
-    /// - Slowest → 0
-    /// - Slow → 2
-    /// - Medium → 4
-    /// - Fast → 6
-    /// - Fastest → 7
-    ///
-    /// # Example
-    /// ```ignore
-    /// let speed = FocusSpeed::from_coarse(Coarse::Slow);
-    /// assert_eq!(speed.value(), 2);
-    /// ```
-    #[inline]
-    pub fn from_coarse(coarse: Coarse) -> Self {
-        Self::from(coarse)
     }
 }
 
