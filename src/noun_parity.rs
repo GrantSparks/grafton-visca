@@ -193,137 +193,37 @@ pub(crate) enum TableRow {
 pub(crate) fn table_surface() -> BTreeMap<String, BTreeMap<String, TableRow>> {
     let mut table: BTreeMap<String, BTreeMap<String, TableRow>> = BTreeMap::new();
 
+    let mut insert = |noun: &str, method: &str, row: TableRow| {
+        let rows = table.entry(noun.to_owned()).or_default();
+        assert!(
+            rows.insert(method.to_owned(), row).is_none(),
+            "duplicate noun-table row {noun}::{method}",
+        );
+    };
+
     macro_rules! collect {
-        (@row_kind []) => {
-            TableRow::Helper
+        (@row $noun:ident, $method:ident, inquiry []) => {
+            insert(stringify!($noun), stringify!($method), TableRow::Inquiry);
         };
-        (@row_kind [$($command:ident),+]) => {
-            TableRow::Command
+        (@row $noun:ident, $method:ident, $kind:ident []) => {
+            insert(stringify!($noun), stringify!($method), TableRow::Helper);
         };
-
-        (@noun $noun:ident; $($rows:tt)*) => {
-            collect!(@rows stringify!($noun); $($rows)*);
-        };
-
-        (@rows $noun:expr; @noun $next:ident; $($rest:tt)*) => {
-            collect!(@rows stringify!($next); $($rest)*);
+        (@row $noun:ident, $method:ident, $kind:ident [$command:ident]) => {
+            insert(stringify!($noun), stringify!($method), TableRow::Command);
         };
 
-        (@rows $noun:expr; @exceptions; $($rest:tt)*) => {};
-        (@rows $noun:expr;) => {};
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-                $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(stringify!($method).to_owned(), TableRow::Inquiry).is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
-        };
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident(
-                $($arg:ident: $ty:ty),*
-            ) $(-> $request_ty:ty)? $(where $gate:tt $(+ $extra:tt)*)?
-                = checked $request:expr;
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(
-                    stringify!($method).to_owned(),
-                    collect!(@row_kind [$($command),*]),
-                )
-                .is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
-        };
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident(
-                $($arg:ident: $ty:ty),*
-            ) $(-> $request_ty:ty)? $(where $gate:tt $(+ $extra:tt)*)?
-                = with_profile |$profile:ident| $request:expr;
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(
-                    stringify!($method).to_owned(),
-                    collect!(@row_kind [$($command),*]),
-                )
-                .is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
-        };
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident(
-                $($arg:ident: $ty:ty),*
-            ) $(-> $request_ty:ty)? $(where $gate:tt $(+ $extra:tt)*)?
-                = with_core |$core:ident| $request:expr;
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(
-                    stringify!($method).to_owned(),
-                    collect!(@row_kind [$($command),*]),
-                )
-                .is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
-        };
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident(
-                $($arg:ident: $ty:ty),*
-            ) $(-> $request_ty:ty)? $(where $gate:tt $(+ $extra:tt)*)?
-                = delegate $target:ident($($delegated:expr),*);
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(
-                    stringify!($method).to_owned(),
-                    collect!(@row_kind [$($command),*]),
-                )
-                .is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
-        };
-
-        (@rows $noun:expr; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident(
-                $($arg:ident: $ty:ty),*
-            ) $(-> $request_ty:ty)? $(where $gate:tt $(+ $extra:tt)*)?
-                = $request:expr;
-            $($rest:tt)*) => {
-            let rows = table.entry($noun.to_owned()).or_default();
-            assert!(
-                rows.insert(
-                    stringify!($method).to_owned(),
-                    collect!(@row_kind [$($command),*]),
-                )
-                .is_none(),
-                "duplicate noun-table row {}::{}",
-                $noun,
-                stringify!($method),
-            );
-            collect!(@rows $noun; $($rest)*);
+        (
+            $(
+                @noun $noun:ident;
+                $(
+                    $(#[$doc:meta])*
+                    $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                        $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+                )*
+            )*
+            @exceptions; $($exceptions:tt)*
+        ) => {
+            $( $( collect!(@row $noun, $method, $kind [$($command)?]); )* )*
         };
     }
 
@@ -376,70 +276,35 @@ fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
     let mut map: BTreeMap<String, Option<String>> = BTreeMap::new();
 
     macro_rules! collect {
-        (@noun $noun:ident; $($rows:tt)*) => {
-            collect!(@rows $noun; $($rows)*);
-        };
-        (@rows $noun:ident; @noun $next:ident; $($rest:tt)*) => {
-            collect!(@rows $next; $($rest)*);
-        };
-        (@rows $noun:ident; @exceptions; $($rest:tt)*) => {};
-        (@rows $noun:ident;) => {};
-
         // Inquiry with a typed `where` marker: the marker is the static gate.
-        (@rows $noun:ident; $(#[$doc:meta])*
-            inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-                where $gate:ident $(+ $extra:ident)* = $request:expr;
-            $($rest:tt)*) => {
+        (@row $noun:ident, inquiry [$gate:ident], [$($request:tt)*]) => {
             map.insert(
-                last_segment(stringify!($($inquiry)::+)),
+                last_segment(stringify!($($request)*)),
                 Some(bare_marker(stringify!($gate))),
             );
-            collect!(@rows $noun; $($rest)*);
         };
         // Inquiry with no `where`: the static gate is the noun's base marker.
-        (@rows $noun:ident; $(#[$doc:meta])*
-            inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty = $request:expr;
-            $($rest:tt)*) => {
+        (@row $noun:ident, inquiry [], [$($request:tt)*]) => {
             map.insert(
-                last_segment(stringify!($($inquiry)::+)),
+                last_segment(stringify!($($request)*)),
                 noun_marker(StaticNoun::$noun).map(bare_marker),
             );
-            collect!(@rows $noun; $($rest)*);
         };
+        // Command and helper rows are not inquiries.
+        (@row $noun:ident, $kind:ident $gate:tt, $request:tt) => {};
 
-        // Command rows carry an explicit request form; none are inquiries, so
-        // each form simply recurses past the row.
-        (@rows $noun:ident; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)? = checked $request:expr;
-            $($rest:tt)*) => {
-            collect!(@rows $noun; $($rest)*);
-        };
-        (@rows $noun:ident; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-                = with_profile |$profile:ident| $request:expr;
-            $($rest:tt)*) => {
-            collect!(@rows $noun; $($rest)*);
-        };
-        (@rows $noun:ident; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-                = with_core |$core:ident| $request:expr;
-            $($rest:tt)*) => {
-            collect!(@rows $noun; $($rest)*);
-        };
-        (@rows $noun:ident; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-                $(where $gate:ident $(+ $extra:ident)*)? = delegate $target:ident($($delegated:expr),*);
-            $($rest:tt)*) => {
-            collect!(@rows $noun; $($rest)*);
-        };
-        (@rows $noun:ident; $(#[$doc:meta])*
-            $kind:ident [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-                $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)? = $request:expr;
-            $($rest:tt)*) => {
-            collect!(@rows $noun; $($rest)*);
+        (
+            $(
+                @noun $noun:ident;
+                $(
+                    $(#[$doc:meta])*
+                    $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                        $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+                )*
+            )*
+            @exceptions; $($exceptions:tt)*
+        ) => {
+            $( $( collect!(@row $noun, $kind [$($gate)?], [$($request)*]); )* )*
         };
     }
 

@@ -154,26 +154,6 @@ macro_rules! noun_marker {
     };
 }
 
-macro_rules! broadcast_entry {
-    ($command:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
-            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
-        }
-    };
-}
-
-macro_rules! internal_entry {
-    ($command:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
-            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
-        }
-    };
-}
-
 /// Resolve a noun-table row kind against the authoritative semantic
 /// classification.
 ///
@@ -532,18 +512,13 @@ pub(crate) use surface_marker;
 pub(crate) use typed_surface_for_marker;
 
 macro_rules! noun_entry {
-    ($kind:ident, $command:ident, $noun:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::Noun {
-                noun: StaticNoun::$noun,
-                method: $method,
-                marker: noun_marker!($noun),
-            },
-            class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
-        }
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, []) => {
+        noun_entry!(@entry $kind, $command, $noun, $method, noun_marker!($noun))
     };
-    ($kind:ident, $command:ident, $noun:ident, $method:expr, $marker:expr) => {
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, [$gate:ident]) => {
+        noun_entry!(@entry $kind, $command, $noun, $method, surface_marker!($gate))
+    };
+    (@entry $kind:ident, $command:ident, $noun:ident, $method:expr, $marker:expr) => {
         StaticSurfaceEntry {
             command: BuiltinCommand::$command,
             disposition: StaticSurfaceDisposition::Noun {
@@ -556,198 +531,62 @@ macro_rules! noun_entry {
     };
 }
 
-/// Consume one flat projection of every noun row.
+macro_rules! exception_entry {
+    (broadcast, $command:ident, $method:expr) => {
+        StaticSurfaceEntry {
+            command: BuiltinCommand::$command,
+            disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
+            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
+        }
+    };
+    (internal, $command:ident, $method:expr) => {
+        StaticSurfaceEntry {
+            command: BuiltinCommand::$command,
+            disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
+            class: registry_class(BuiltinCommand::$command, BuiltinRequestKind::Plain),
+        }
+    };
+}
+
+/// Project every noun row and protocol exception into one exhaustive match.
 ///
-/// Inquiry and empty-ID convenience rows are intentionally consumed without
-/// emitting a command arm.  Every canonical row emits one arm per explicitly
-/// listed BuiltinCommand variant.  The exceptions are rows in the same
-/// projection, so the resulting match is complete without a wildcard or a
-/// second hand-written inventory.
+/// The first arm normalizes each row to its noun, kind, optional command,
+/// method and a bracketed gate token; the second emits one match arm per row
+/// that names a command and one per exception.  Inquiry and convenience rows
+/// (`[]`) emit nothing.  The match therefore has no wildcard and no second
+/// hand-written inventory: a missing row is a non-exhaustive match and a
+/// duplicate one an unreachable pattern.
 macro_rules! surface_rows {
-    (@start $input:ident; [$($arms:tt)*]; @noun $noun:ident; $($rest:tt)*) => {
-        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
-    };
-
-    (@rows $input:ident; $noun:ident; [$($arms:tt)*]; @noun $next:ident; $($rest:tt)*) => {
-        surface_rows!(@rows $input; $next; [$($arms)*]; $($rest)*)
-    };
-
-    // Append one command row.  The gate is split into separate arms so the
-    // command-list repetition below can reuse it without a repetition-depth
-    // mismatch in macro_rules.
-    (
-        @append $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $kind:ident;
-        [$($command:ident),*];
-        $method:expr;
-        ;
-        $($rest:tt)*
+    (@entries $input:ident;
+        $( $noun:ident [ $( $kind:ident [$($command:ident)?] $method:ident $gate:tt; )* ] )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
     ) => {
-        surface_rows!(@rows $input; $noun; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => noun_entry!(
-                    $kind,
-                    $command,
-                    $noun,
-                    $method,
-                    noun_marker!($noun)
-                ),
-            )*
-        ]; $($rest)*)
-    };
-
-    (
-        @append $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $kind:ident;
-        [$($command:ident),*];
-        $method:expr;
-        $gate:ident;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@rows $input; $noun; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => noun_entry!(
-                    $kind,
-                    $command,
-                    $noun,
-                    $method,
-                    surface_marker!($gate)
-                ),
-            )*
-        ]; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        @exceptions;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@exceptions $input; [$($arms)*]; $($rest)*)
-    };
-
-    // Consume one row at a time.  Keeping the row grammar non-repetitive avoids
-    // a local ambiguity between the row's documentation attributes and the
-    // trailing token stream.
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-            $(where $gate:ident $(+ $extra:ident)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = checked $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = with_core |$core:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = delegate $target:ident($($delegated:expr),*);
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*]; broadcast [$($command:ident),*] $method:ident;
-        $($rest:tt)*) => {
-        surface_rows!(@exceptions $input; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => broadcast_entry!($command, stringify!($method)),
-            )*
-        ]; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*]; internal [$($command:ident),*] $method:ident;
-        $($rest:tt)*) => {
-        surface_rows!(@exceptions $input; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => internal_entry!($command, stringify!($method)),
-            )*
-        ]; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*];) => {
         match $input {
-            $($arms)*
+            $( $( $(
+                BuiltinCommand::$command =>
+                    noun_entry!($kind, $command, $noun, stringify!($method), $gate),
+            )? )* )*
+            $(
+                BuiltinCommand::$excommand =>
+                    exception_entry!($exkind, $excommand, stringify!($exmethod)),
+            )*
         }
     };
 
-    // The public projection always starts with a noun marker.  Restrict this
-    // entry arm to that shape so recursive dispatcher calls cannot match it.
-    ($input:ident; @noun $noun:ident; $($rest:tt)*) => {
-        surface_rows!(@start $input; []; @noun $noun; $($rest)*)
+    ($input:ident;
+        $(
+            @noun $noun:ident;
+            $(
+                $(#[$doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
+    ) => {
+        surface_rows!(@entries $input;
+            $( $noun [ $( $kind [$($command)?] $method [$($gate)?]; )* ] )*
+            @exceptions; $( $exkind [$excommand] $exmethod; )*)
     };
 }
 

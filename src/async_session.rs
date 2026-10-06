@@ -23,12 +23,10 @@ use crate::{
         ClassSelection,
     },
     profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
-    request::builtin::PanTiltStop,
     runtime::{
         owner::AsyncTransportAdapter,
         owner::{AsyncOwnerActor, AsyncOwnerHandle},
     },
-    stop_request::pan_tilt_stop_request,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand,
     Result, SessionConfig, StateCache, SubmissionClass,
@@ -567,10 +565,6 @@ impl AsyncCameraCore {
         let queries =
             prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
         self.owner.wait_until_idle(wait, &queries).await
-    }
-
-    pub(crate) fn pan_tilt_stop_request(&self) -> Result<PanTiltStop> {
-        pan_tilt_stop_request(self.profile.as_ref())
     }
 }
 

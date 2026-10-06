@@ -1013,6 +1013,10 @@ pub(crate) mod macros;
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
 
+/// Shared expansion helpers for the noun facades.
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) mod noun_facade;
+
 #[cfg(all(test, feature = "async", feature = "blocking"))]
 mod facade_parity;
 /// Cross-surface parity gate for the table-driven noun facades.

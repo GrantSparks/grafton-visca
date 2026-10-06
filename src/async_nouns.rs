@@ -41,6 +41,7 @@ use crate::{
     },
     command,
     completion::{AppliedOnly, Targeted},
+    noun_facade::noun_request,
     noun_table::{motion_table, noun_table},
     operation::Operation,
     profile::CompileTimeProfile,
@@ -96,209 +97,66 @@ macro_rules! accessor {
 
 /// Generates one async noun method per [`noun_table`] row.
 ///
-/// The row grammar is documented on [`crate::noun_table`].  This consumer
-/// carries everything the async surface adds to a row: `pub async fn`, the
-/// `Result<..>` alias, `Operation<Kind>` handles without a session lifetime,
-/// and the `self.camera` owner hop.
+/// The row grammar is documented on [`crate::noun_table`]; the request form is
+/// parsed only by [`noun_request!`]. This consumer carries everything the
+/// async surface adds to a row: `pub async fn`, the `Result<..>` alias,
+/// `Operation<Kind>` handles without a session lifetime, and the `self.camera`
+/// owner hop.
 macro_rules! async_noun_methods {
-    () => {};
-
-    // `noun_table!(All => ...)` carries noun context between sections.  The
-    // async surface only needs the rows themselves, so strip the marker and
-    // continue through the same grammar used by per-noun projections.
-    (@noun $noun:ident; $($rows:tt)*) => {
-        async_noun_methods!($($rows)*);
+    (@noun $noun:ident;
+        $(
+            $(#[$doc:meta])*
+            $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+        )*
+    ) => {
+        $(
+            async_noun_methods!(@method [$(#[$doc])*] $kind $method($($arg: $ty),*) -> $ret;
+                [$($gate $(+ $extra)*)?]; [$($request)*]);
+        )*
     };
 
-    (
-        $(#[$doc:meta])*
-        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-            $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
-        pub async fn $method(&self) -> Result<$response>
+        pub async fn $method(&self) -> Result<$ret>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $($inquiry)::+ = $request;
-            self.camera.inquire(&request).await
+            self.camera.inquire(&$($request)*).await
         }
-        async_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] plain $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub async fn $method(&self, $($arg: $ty),*) -> Result<()>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.execute(&request).await
         }
-        async_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<()>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $profile = self.camera.profile();
-                let request: $request_ty = $request?;
-                request
-            };
-            self.camera.execute(&request).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<()>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            self.camera.execute(&request).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            $(where $gate:tt $(+ $extra:tt)*)?
-            = delegate $target:ident($($delegated:expr),*);
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] applied $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
-            self.$target($($delegated),*).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.submit::<AppliedOnly, _>(&request).await
         }
-        async_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_core |$core:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $core = self.camera.core();
-                let request: $request_ty = $request?;
-                request
-            };
-            self.camera.submit::<AppliedOnly, _>(&request).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            self.camera.submit::<AppliedOnly, _>(&request).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] targeted $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.submit::<Targeted, _>(&request).await
         }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $profile = self.camera.profile();
-                let request: $request_ty = $request?;
-                request
-            };
-            self.camera.submit::<Targeted, _>(&request).await
-        }
-        async_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub async fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            self.camera.submit::<Targeted, _>(&request).await
-        }
-        async_noun_methods!($($rest)*);
     };
 }
 

@@ -36,6 +36,7 @@ use crate::{
     },
     command,
     completion::{self, AppliedOnly, Targeted},
+    noun_facade::noun_request,
     noun_table::{motion_table, noun_table},
     request::builtin,
     types,
@@ -91,208 +92,66 @@ macro_rules! accessor {
 
 /// Generates one blocking noun method per [`noun_table`] row.
 ///
-/// The row grammar is documented on [`crate::noun_table`].  This consumer
-/// carries everything the blocking surface adds to a row: a synchronous
-/// `pub fn`, `Operation<Kind>` handles, and the free `execute` /
-/// `inquire` / `submit` hops onto the owner core.
+/// The row grammar is documented on [`crate::noun_table`]; the request form is
+/// parsed only by [`noun_request!`]. This consumer carries everything the
+/// blocking surface adds to a row: a synchronous `pub fn`, `Operation<Kind>`
+/// handles, and the free `execute` / `inquire` / `submit` hops onto the owner
+/// core.
 macro_rules! blocking_noun_methods {
-    () => {};
-
-    // Strip the all-rows projection's noun context before expanding the
-    // normal blocking method grammar.
-    (@noun $noun:ident; $($rows:tt)*) => {
-        blocking_noun_methods!($($rows)*);
+    (@noun $noun:ident;
+        $(
+            $(#[$doc:meta])*
+            $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+        )*
+    ) => {
+        $(
+            blocking_noun_methods!(@method [$(#[$doc])*] $kind $method($($arg: $ty),*) -> $ret;
+                [$($gate $(+ $extra)*)?]; [$($request)*]);
+        )*
     };
 
-    (
-        $(#[$doc:meta])*
-        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-            $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
-        pub fn $method(&self) -> Result<$response>
+        pub fn $method(&self) -> Result<$ret>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $($inquiry)::+ = $request;
-            inquire(self.camera, &request)
+            inquire(self.camera, &$($request)*)
         }
-        blocking_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] plain $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<()>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             execute(self.camera, &request)
         }
-        blocking_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<()>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $profile = self.camera.profile();
-                let request: $request_ty = $request?;
-                request
-            };
-            execute(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        plain [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<()>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            execute(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            $(where $gate:tt $(+ $extra:tt)*)?
-            = delegate $target:ident($($delegated:expr),*);
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] applied $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
         $(where P: $gate $(+ $extra)*)?
         {
-            self.$target($($delegated),*)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             submit(self.camera, &request)
         }
-        blocking_noun_methods!($($rest)*);
     };
 
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_core |$core:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $core = self.camera.core();
-                let request: $request_ty = $request?;
-                request
-            };
-            submit(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        applied [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<AppliedOnly>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            submit(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = checked $request:expr;
-        $($rest:tt)*
-    ) => {
+    (@method [$(#[$doc:meta])*] targeted $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
+        [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
         $(where P: $gate $(+ $extra)*)?
         {
-            let request: $request_ty = $request?;
+            let request = noun_request!(self.camera.profile(); $ret; $($request)*)?;
             submit(self.camera, &request)
         }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request = {
-                let $profile = self.camera.profile();
-                let request: $request_ty = $request?;
-                request
-            };
-            submit(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
-    };
-
-    (
-        $(#[$doc:meta])*
-        targeted [$($command:ident),*] $method:ident($($arg:ident: $ty:ty),*)
-            -> $request_ty:ty $(where $gate:tt $(+ $extra:tt)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        $(#[$doc])*
-        pub fn $method(&self, $($arg: $ty),*) -> Result<Operation<Targeted>>
-        $(where P: $gate $(+ $extra)*)?
-        {
-            let request: $request_ty = $request;
-            submit(self.camera, &request)
-        }
-        blocking_noun_methods!($($rest)*);
     };
 }
 

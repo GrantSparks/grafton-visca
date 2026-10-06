@@ -20,9 +20,7 @@ use crate::{
         prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
         ClassSelection,
     },
-    request::builtin::PanTiltStop,
     runtime::owner::{BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter},
-    stop_request::pan_tilt_stop_request,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache, SubmissionClass,
@@ -829,10 +827,6 @@ impl BlockingCameraCore {
         let queries =
             prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
         self.owner.wait_until_idle(wait, &queries)
-    }
-
-    fn pan_tilt_stop_request(&self) -> Result<PanTiltStop, Error> {
-        pan_tilt_stop_request(self.profile.as_ref())
     }
 }
 
