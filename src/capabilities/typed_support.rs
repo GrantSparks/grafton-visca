@@ -113,6 +113,39 @@ macro_rules! define_typed_support_surfaces {
 
 super::typed_support_registry::typed_support_registry!(define_typed_support_surfaces);
 
+/// Generates `typed_surface!`, the one marker-to-surface lookup.
+///
+/// `typed_surface!(HasDirectZoom)` expands to
+/// `TypedSupportSurface::DirectZoom`. Each arm comes from one registry row,
+/// so the static marker named in a noun-table `where` clause or header gate
+/// and the runtime surface the dynamic facade checks cannot disagree, and a
+/// marker without a registry row fails to expand.
+macro_rules! define_typed_surface_lookup {
+    (
+        [
+            $(
+                {
+                    surface: $surface:ident,
+                    marker: $marker:ident,
+                    $($fields:tt)*
+                },
+            )*
+        ]
+    ) => {
+        macro_rules! typed_surface {
+            $(
+                ($marker) => {
+                    $crate::capabilities::TypedSupportSurface::$surface
+                };
+            )*
+        }
+
+        pub(crate) use typed_surface;
+    };
+}
+
+super::typed_support_registry::typed_support_registry!(define_typed_surface_lookup);
+
 /// Compact set of typed API surfaces supported by a profile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct TypedSupportSet(u64);

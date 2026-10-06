@@ -218,7 +218,7 @@ macro_rules! builtin_accessor_gate {
     ($profile:ident, $command:ident, [typed $marker:ident]) => {
         validate_builtin_inquiry_surface(
             $profile,
-            crate::command::surface::typed_surface_for_marker!($marker),
+            crate::capabilities::typed_surface!($marker),
             concat!("typed inquiry ", stringify!($command)),
         )
     };

@@ -28,6 +28,7 @@ pub use profile_metadata::{
     SupportsUdp,
 };
 
+pub(crate) use typed_support::typed_surface;
 pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
 
 macro_rules! export_typed_support_marker_entry {
