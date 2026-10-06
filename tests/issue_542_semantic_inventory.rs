@@ -5,7 +5,7 @@ use std::{fs, path::PathBuf};
 #[path = "common/source_scan.rs"]
 mod source_scan;
 
-use source_scan::{declarations, inquiry_accessor_rows};
+use source_scan::declarations;
 
 fn source(relative: &str) -> String {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -58,7 +58,6 @@ fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
     // its expansion is where their owner hops are spelled.
     let static_nouns = declarations(&source("src/noun_facade.rs"));
     let dynamic_nouns = declarations(&source("src/dynapi/nouns.rs"));
-    let inquiry_structs = declarations(&source("src/command/inquiry_structs.rs"));
 
     for text in [&static_nouns, &dynamic_nouns] {
         assert!(text.contains("execute"));
@@ -73,17 +72,5 @@ fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
         declared_usize(&dynamic_nouns, "DYN_NOUN_TARGET_METHOD_COUNT"),
         declared_usize(&surface, "TARGET_FACING_COMMAND_COUNT"),
         "dynamic target-method count drifted from the static noun ledger"
-    );
-    // Both sides of the inquiry count used to come out of `dynapi/nouns.rs`
-    // itself, which made the assertion self-referential.  The independent
-    // source is the generated accessor table in `command/inquiry_structs.rs`
-    // that `BUILTIN_INQUIRY_ACCESSORS` is built from; the crate's own
-    // `dynamic_inquiry_count_follows_generated_typed_accessor_ledger` test in
-    // `src/dynapi/nouns.rs` anchors the same constant against that slice at
-    // run time, and this gate is the source-level half of it.
-    assert_eq!(
-        declared_usize(&dynamic_nouns, "DYN_NOUN_INQUIRY_METHOD_COUNT"),
-        inquiry_accessor_rows(&inquiry_structs),
-        "dynamic inquiry-method count drifted from the generated inquiry ledger"
     );
 }

@@ -179,35 +179,3 @@ pub fn declarations(source: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
-
-/// Entries in the generated camera-facing inquiry-accessor table.
-///
-/// This is the table behind `BUILTIN_INQUIRY_ACCESSORS`, and therefore an
-/// independent source for the dynamic projection's inquiry-method count.  The
-/// `accessors { .. }` group of the macro *definition* is skipped by requiring
-/// the block to be free of macro metavariables.
-pub fn inquiry_accessor_rows(inquiry_structs: &str) -> usize {
-    let cleaned = clean(inquiry_structs);
-    let lines: Vec<&str> = cleaned.lines().collect();
-    let mut bodies = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if line.trim() != "accessors {" {
-            continue;
-        }
-        let end = block_end(&lines, index);
-        let body = lines[index..end].join("\n");
-        if !body.contains('$') {
-            bodies.push(body);
-        }
-    }
-    assert_eq!(
-        bodies.len(),
-        1,
-        "expected exactly one generated `accessors` table, found {}",
-        bodies.len(),
-    );
-    bodies[0]
-        .lines()
-        .filter(|line| line.contains("=>") && line.trim_end().ends_with(';'))
-        .count()
-}

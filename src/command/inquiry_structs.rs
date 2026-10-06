@@ -11,9 +11,11 @@
 //! - `queryable` rows declare a response kind, its data and decoder, and the
 //!   one or more commands that query it;
 //! - `decode_only` rows declare a response kind that no built-in command
-//!   queries, with the provenance that explains why;
-//! - `accessors` groups bind commands to camera-facing accessor methods and the
-//!   profile gate each accessor requires.
+//!   queries, with the provenance that explains why.
+//!
+//! The profile gate of each typed inquiry is not part of this table: it is the
+//! gate of the inquiry's noun-table row, which `crate::command::surface`
+//! projects into [`BuiltinInquiryGate`].
 
 use super::exposure::{AntiFlickerMode, ExposureMode};
 use super::focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone};
@@ -28,6 +30,7 @@ use crate::command::bytes::constants::{
     INQUIRY,
 };
 use crate::command::bytes::FrameWriter;
+use crate::command::surface::{BuiltinInquiryGate, RowGate};
 use crate::command::{encode::WireEncode, FlipState, ResponseParser};
 use crate::types::{
     BlueTuning, BroadcastDomain, DefogLevel, ExposureCompensationLevel,
@@ -100,35 +103,6 @@ pub(crate) enum BuiltinInquiryQuery {
         /// Canonical command for the shared request bytes.
         canonical: BuiltinInquiryCommand,
     },
-}
-
-/// Profile gate required before a camera-facing accessor is implemented.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BuiltinInquiryProfileGate {
-    /// The accessor is available for every profile.
-    Always,
-    /// The accessor requires the named profile support marker.
-    Capability {
-        /// Profile marker trait required by the accessor impl.
-        marker: &'static str,
-    },
-}
-
-/// Static metadata for generated camera-facing inquiry accessors.
-#[cfg(test)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct BuiltinInquiryAccessorMetadata {
-    /// Camera control trait exposing the accessor.
-    pub(crate) trait_name: &'static str,
-    /// Accessor method name.
-    pub(crate) method: &'static str,
-    /// Generated query command used by the accessor.
-    pub(crate) command: BuiltinInquiryCommand,
-    /// Typed response returned by the accessor.
-    pub(crate) response_type: &'static str,
-    /// Profile support required to expose the accessor.
-    pub(crate) profile_gate: BuiltinInquiryProfileGate,
 }
 
 /// Static metadata for generated built-in inquiry invariants.
@@ -206,41 +180,38 @@ macro_rules! builtin_inquiry_lift {
     };
 }
 
-/// The runtime check behind one accessor group's profile gate.
-///
-/// `[typed Marker]` requires the typed-support surface the marker projects;
-/// `[domain Marker]` requires the base-domain capability the marker's noun
-/// accessor is gated on; `[always]` has no gate.
-macro_rules! builtin_accessor_gate {
-    ($profile:ident, $command:ident, [always]) => {
-        Ok(())
-    };
-    ($profile:ident, $command:ident, [typed $marker:ident]) => {
-        validate_builtin_inquiry_surface(
-            $profile,
-            crate::capabilities::typed_surface!($marker),
-            concat!("typed inquiry ", stringify!($command)),
-        )
-    };
-    ($profile:ident, $command:ident, [domain $marker:ident]) => {
-        require_builtin_inquiry_domain(
-            base_capability!($marker, $profile),
-            concat!("inquiry ", stringify!($command)),
-        )
-    };
-}
-
-/// The test metadata form of one accessor group's profile gate.
-#[cfg(test)]
-macro_rules! builtin_accessor_gate_metadata {
-    ([always]) => {
-        BuiltinInquiryProfileGate::Always
-    };
-    ([$kind:ident $marker:ident]) => {
-        BuiltinInquiryProfileGate::Capability {
-            marker: concat!("crate::capabilities::", stringify!($marker)),
+/// The `typed: none` inquiry has no noun row and no gate; a typed inquiry's
+/// [`BuiltinInquiryGate`] comes from its noun-table row.
+macro_rules! builtin_inquiry_untyped_gate {
+    (none, $struct:ident) => {
+        impl BuiltinInquiryGate for $struct {
+            const GATE: RowGate = RowGate::Always;
         }
     };
+    (($($typed:tt)*), $struct:ident) => {};
+}
+
+/// Runtime admission for a generated inquiry under its noun row's gate.
+///
+/// The erased dynamic surface carries no compile-time bound, so it reproduces
+/// at runtime the gate the static `<noun>().<inquiry>()` call resolves (#684):
+/// a base-domain inquiry (`power().state()`, `zoom().position()`, ...) has no
+/// `where` clause of its own and inherits its noun's base-domain marker, and a
+/// typed one requires its marker's typed-support surface.
+fn validate_builtin_inquiry_gate(
+    profile: &crate::ProfileSpec,
+    gate: RowGate,
+    inquiry: &'static str,
+    typed_inquiry: &'static str,
+) -> Result<(), Error> {
+    match gate {
+        RowGate::Always => Ok(()),
+        RowGate::Domain(domain) if domain.permits(profile) => Ok(()),
+        RowGate::Domain(_) => Err(Error::FeatureNotSupported { feature: inquiry }),
+        RowGate::Typed(surface) => {
+            validate_builtin_inquiry_surface(profile, surface, typed_inquiry)
+        }
+    }
 }
 
 fn validate_builtin_inquiry_surface(
@@ -251,7 +222,7 @@ fn validate_builtin_inquiry_surface(
     let capabilities = profile.capabilities();
     // These vendor/status surfaces require both the typed admission bit and
     // the underlying source-backed protocol fact. Keeping this narrow match
-    // here lets the generated accessor groups remain the single inquiry list.
+    // here lets the noun-table rows remain the single gate list.
     let source_backed = match surface {
         crate::capabilities::TypedSupportSurface::FocusZoneInquiry => {
             capabilities.has_focus_zone_inquiry
@@ -274,57 +245,6 @@ fn validate_builtin_inquiry_surface(
             },
         })
     }
-}
-
-/// Runtime gate for a base-domain inquiry accessor.
-///
-/// A base-domain inquiry (`power().state()`, `zoom().position()`, ...) has no
-/// `where` clause of its own, so on the static facades it inherits its noun
-/// accessor's base-domain marker (`HasPower`, `HasZoom`, ...). Those markers are
-/// blanket-implemented from the domain data traits
-/// (`capabilities::profile_metadata`: `impl<T: Power> HasPower`, ...), which the
-/// `Capabilities::has_*` flags mirror at runtime. The erased dynamic surface
-/// carries no compile-time bound, so it reproduces that same gate here — keeping
-/// `dyn power().state()` refused on exactly the profiles where static `power()`
-/// cannot be named (#684).
-fn require_builtin_inquiry_domain(supported: bool, inquiry: &'static str) -> Result<(), Error> {
-    if supported {
-        Ok(())
-    } else {
-        Err(Error::FeatureNotSupported { feature: inquiry })
-    }
-}
-
-/// Maps a base-domain accessor marker to the runtime capability flag behind it.
-///
-/// This is the runtime half of the `gate: [domain <Marker>]` declared in each
-/// `@noun` header of `crate::noun_table`: each base-domain noun's static
-/// accessor getter is gated on the marker named here, and the erased surface gates the same inquiries on the
-/// matching `Capabilities` flag so the two cannot drift. A pan/tilt position
-/// can only be decoded through the profile's coordinate conversion, so the
-/// pan/tilt domain also requires one.
-macro_rules! base_capability {
-    (HasPower, $profile:expr) => {
-        $profile.capabilities().has_power
-    };
-    (HasPanTilt, $profile:expr) => {
-        $profile.capabilities().has_pan_tilt && $profile.pan_tilt_coordinates().is_some()
-    };
-    (HasZoom, $profile:expr) => {
-        $profile.capabilities().has_zoom
-    };
-    (HasFocus, $profile:expr) => {
-        $profile.capabilities().has_focus
-    };
-    (HasExposure, $profile:expr) => {
-        $profile.capabilities().has_exposure
-    };
-    (HasWhiteBalance, $profile:expr) => {
-        $profile.capabilities().has_white_balance
-    };
-    (HasImageProcessing, $profile:expr) => {
-        $profile.capabilities().has_image_processing
-    };
 }
 
 /// The facts every generated inquiry command shares with the generic decode
@@ -426,13 +346,6 @@ macro_rules! define_builtin_inquiries {
                 rationale: $decode_rationale:expr;
             )*
         }
-        accessors {
-            $(
-                $trait_name:ident $gate:tt {
-                    $($command:ident => $method:ident : $response_ty:ty;)*
-                }
-            )*
-        }
     ) => {
         /// Type of expected response for inquiry commands.
         ///
@@ -501,20 +414,6 @@ macro_rules! define_builtin_inquiries {
             $(InquiryKind::$decode_kind,)*
         ];
 
-        /// Runtime admission for the generated inquiry commands, projected
-        /// from the accessor groups' profile gates.
-        fn validate_builtin_inquiry_profile(
-            inquiry: &'static str,
-            profile: &crate::ProfileSpec,
-        ) -> crate::Result<()> {
-            match inquiry {
-                $($(
-                    stringify!($command) => builtin_accessor_gate!(profile, $command, $gate),
-                )*)*
-                _ => Ok(()),
-            }
-        }
-
         /// Re-exports of the generated inquiry commands for `crate::command`.
         pub(crate) mod commands {
             pub use super::{$($($struct,)+)*};
@@ -541,6 +440,7 @@ macro_rules! define_builtin_inquiries {
             }
 
             impl_builtin_response_parser!($typed, $struct, $kind);
+            builtin_inquiry_untyped_gate!($typed, $struct);
 
             impl crate::Request for $struct {
                 type Class = crate::request::Inquiry;
@@ -557,7 +457,12 @@ macro_rules! define_builtin_inquiries {
                 }
 
                 fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> crate::Result<()> {
-                    validate_builtin_inquiry_profile(stringify!($struct), profile)
+                    validate_builtin_inquiry_gate(
+                        profile,
+                        <Self as BuiltinInquiryGate>::GATE,
+                        concat!("inquiry ", stringify!($struct)),
+                        concat!("typed inquiry ", stringify!($struct)),
+                    )
                 }
             }
 
@@ -650,21 +555,6 @@ macro_rules! define_builtin_inquiries {
                     rationale: $decode_rationale,
                 },
             )*
-        ];
-
-        /// Iterable camera-facing inquiry accessor metadata generated from the
-        /// same table as the built-in commands.
-        #[cfg(test)]
-        pub(crate) const BUILTIN_INQUIRY_ACCESSORS: &[BuiltinInquiryAccessorMetadata] = &[
-            $($(
-                BuiltinInquiryAccessorMetadata {
-                    trait_name: stringify!($trait_name),
-                    method: stringify!($method),
-                    command: <$command as BuiltinInquiryCommandMarker>::METADATA,
-                    response_type: stringify!($response_ty),
-                    profile_gate: builtin_accessor_gate_metadata!($gate),
-                },
-            )*)*
         ];
     };
 }
@@ -2030,166 +1920,6 @@ define_builtin_inquiries! {
         vendor_specific: false,
         rationale: Some("Night/day switch response is decode-only; public API exposes NightDayModeInquiry.");
     }
-
-    accessors {
-        // Each group names its profile gate. Base-domain inquiries carry no
-        // `where` clause of their own, so on the static facades they inherit
-        // their noun's base-domain marker (the `gate:` of its `@noun` header
-        // in `crate::noun_table`). `[domain Marker]` reproduces that same
-        // gate for the erased surface at runtime (#684), so a runtime
-        // `ProfileSpec` missing the domain cannot reach
-        // `dyn <noun>().<inquiry>()` any more than the static `<noun>()`
-        // accessor can be named without the marker; the pan/tilt domain also
-        // requires the coordinate conversion its position decoder reads.
-        // `[typed Marker]` requires the marker's typed-support surface.
-        // Inquiries on the `System` and `Advanced` nouns (`gate: [always]`) and the universally-reachable `Menu` noun have no
-        // base-domain gate; those with no typed gate either stay in
-        // `InquiryControl` as `[always]`. `VersionInquiry` has its own
-        // `HasVersionInquiry` typed gate (#795) because it decodes only the
-        // Sony reply layout.
-        PowerInquiryControl [domain HasPower] {
-            PowerInquiry => power_state: bool;
-        }
-        ZoomInquiryControl [domain HasZoom] {
-            ZoomPositionInquiry => zoom_position: crate::types::ZoomPosition;
-        }
-        FocusInquiryControl [domain HasFocus] {
-            FocusPositionInquiry => focus_position: crate::types::FocusPosition;
-            FocusModeInquiry => focus_mode: FocusMode;
-            FocusRangeInquiry => focus_range: FocusRange;
-        }
-        ExposureModeInquiryControl [typed HasExposureMode] {
-            ExposureModeInquiry => exposure_mode: ExposureMode;
-        }
-        ExposureInquiryControl [domain HasExposure] {
-            ShutterInquiry => shutter: crate::types::ShutterSpeed;
-            GainInquiry => gain: crate::types::GainLevel;
-            GainLimitInquiry => gain_limit: crate::types::GainLimit;
-        }
-        PtzOpticsAntiFlickerInquiryControl [typed HasPtzOpticsAntiFlicker] {
-            FlickerModeInquiry => flicker_mode: crate::command::exposure::AntiFlickerMode;
-        }
-        WhiteBalanceInquiryControl [domain HasWhiteBalance] {
-            WhiteBalanceModeInquiry => white_balance_mode: WhiteBalanceMode;
-        }
-        DefogLevelInquiryControl [typed HasDefogLevel] {
-            DefogLevelInquiry => defog_level: crate::types::DefogLevel;
-        }
-        VersionInquiryControl [typed HasVersionInquiry] {
-            VersionInquiry => version: crate::command::VersionInfo;
-        }
-        InquiryControl [always] {
-            MenuOpenCloseInquiry => menu_status: bool;
-            NightDayModeInquiry => night_day_mode: bool;
-            StandbyInquiry => standby_enabled: bool;
-            DigitalPtzInquiry => digital_ptz_enabled: bool;
-            AutoTraceInquiry => auto_trace_enabled: bool;
-            FocusUnlockInquiry => focus_unlock: bool;
-            BroadcastDomainInquiry => broadcast_domain: crate::types::BroadcastDomain;
-            TwoToneModeInquiry => two_tone_mode_enabled: bool;
-            DigitalInquiry => digital_mode_enabled: bool;
-        }
-        UsbAudioInquiryControl [typed HasUsbAudio] {
-            UsbAudioInquiry => usb_audio_enabled: bool;
-        }
-        BrightnessInquiryControl [typed HasBrightnessControl] {
-            BrightnessInquiry => brightness: crate::types::BrightnessLevel;
-        }
-        ContrastInquiryControl [typed HasContrastControl] {
-            ContrastInquiry => contrast: crate::types::ContrastLevel;
-        }
-        SharpnessInquiryControl [typed HasSharpnessControl] {
-            SharpnessModeInquiry => sharpness_mode: SharpnessMode;
-            SharpnessPositionInquiry => sharpness_level: crate::types::SharpnessLevel;
-        }
-        TallyControl [typed HasTally] {
-            TallyRedInquiry => red_tally_status: bool;
-            TallyGreenInquiry => green_tally_status: bool;
-        }
-        PtzOpticsTallyInquiryControl [typed HasPtzOpticsTally] {
-            TallyStatusInquiry => tally_status: crate::command::TallyStatusState;
-            TallyAutoAdjustInquiry => tally_auto_adjust_enabled: bool;
-        }
-        ExposureCompensationInquiryControl [typed HasExposureCompensation] {
-            ExposureCompensationInquiry => exposure_compensation: ExposureCompensationLevel;
-            ExposureCompensationModeInquiry => exposure_compensation_enabled: bool;
-            ExposureCompensationPositionInquiry => exposure_compensation_position: crate::types::ExposureCompensationPosition;
-        }
-        BacklightCompensationInquiryControl [typed HasBacklightCompensation] {
-            BacklightInquiry => backlight_enabled: bool;
-        }
-        WideDynamicRangeInquiryControl [typed HasWideDynamicRange] {
-            DynamicRangeInquiry => dynamic_range: crate::types::DynamicRangeLevel;
-        }
-        ColorTemperatureInquiryControl [typed HasColorTemperatureInquiry] {
-            ColorTemperatureInquiry => color_temperature: crate::types::ColorTemp;
-        }
-        RgbGainInquiryControl [typed HasRgbGain] {
-            RedGainInquiry => red_gain: crate::types::RedChannel;
-            BlueGainInquiry => blue_gain: crate::types::BlueChannel;
-        }
-        RgbTuningInquiryControl [typed HasRgbTuning] {
-            RedTuningInquiry => red_tuning: RedTuning;
-            BlueTuningInquiry => blue_tuning: BlueTuning;
-        }
-        SaturationInquiryControl [typed HasSaturationControl] {
-            SaturationInquiry => saturation: crate::types::SaturationLevel;
-        }
-        HueInquiryControl [typed HasHueControl] {
-            HueInquiry => hue: crate::types::HueLevel;
-        }
-        LuminanceInquiryControl [typed HasLuminanceControl] {
-            LuminanceInquiry => luminance: crate::types::LuminanceLevel;
-        }
-        GammaInquiryControl [typed HasGammaControl] {
-            GammaInquiry => gamma: crate::types::GammaLevel;
-        }
-        ImageFlipInquiryControl [typed HasImageFlip] {
-            ImageFlipInquiry => image_flip: crate::command::FlipState;
-            FlipStateInquiry => flip_mode: crate::command::FlipState;
-        }
-        NoiseReduction2DModeInquiryControl [typed HasNoiseReduction2DMode] {
-            NoiseReduction2DModeInquiry => noise_reduction_2d_mode: crate::command::NoiseReduction2DMode;
-        }
-        NoiseReduction2DInquiryControl [typed HasNoiseReduction2D] {
-            NoiseReduction2DInquiry => noise_reduction_2d: crate::types::NoiseReduction2DLevel;
-        }
-        NoiseReduction3DInquiryControl [typed HasNoiseReduction3D] {
-            NoiseReduction3DInquiry => noise_reduction_3d: crate::types::NoiseReduction3DLevel;
-        }
-        PictureEffectInquiryControl [typed HasPictureEffect] {
-            PictureEffectInquiry => picture_effect: crate::command::PictureEffectMode;
-        }
-        NdFilterInquiryControl [typed HasNdFilter] {
-            NdFilterInquiry => nd_filter_position: crate::command::NdFilterPosition;
-            NdFilterPresetInquiry => nd_filter_preset: crate::types::NdFilterPreset;
-        }
-        MotionSyncControl [typed HasMotionSync] {
-            MotionSyncModeInquiry => motion_sync_mode: crate::command::MotionSyncMode;
-            MotionSyncPresetInquiry => motion_sync_speed: crate::command::MotionSyncPreset;
-        }
-        FocusNearLimitInquiryControl [typed HasFocusNearLimitInquiry] {
-            FocusNearLimitInquiry => focus_near_limit: crate::types::FocusPosition;
-        }
-        FocusZoneInquiryControl [typed HasFocusZoneInquiry] {
-            FocusZoneInquiry => focus_zone: FocusZone;
-        }
-        AutoFocusSensitivityInquiryControl [typed HasAutoFocusSensitivity] {
-            AutoFocusSensitivityInquiry => auto_focus_sensitivity: AutoFocusSensitivity;
-        }
-        AutoWhiteBalanceSensitivityInquiryControl [typed HasAutoWhiteBalanceSensitivity] {
-            AutoWhiteBalanceSensitivityInquiry => auto_white_balance_sensitivity: AutoWhiteBalanceSensitivity;
-        }
-        IrisControlInquiryControl [typed HasIrisControlInquiry] {
-            IrisControlInquiry => iris_control: bool;
-        }
-        IrisInquiryControl [typed HasIrisControl] {
-            IrisInquiry => iris: crate::types::IrisLevel;
-        }
-        PanTiltInquiryControl [domain HasPanTilt] {
-            PanTiltPositionInquiry => pan_tilt_position: crate::camera::PanTiltPosition;
-        }
-    }
 }
 
 // ============================================================
@@ -2388,96 +2118,6 @@ mod generated_invariant_tests {
         untyped.sort_unstable();
 
         assert_eq!(untyped, ["DefogModeInquiry"]);
-    }
-
-    #[test]
-    fn required_queryable_typed_inquiries_have_generated_accessors() {
-        let required = [
-            ("FocusRangeInquiry", "focus_range"),
-            (
-                "AutoWhiteBalanceSensitivityInquiry",
-                "auto_white_balance_sensitivity",
-            ),
-            ("TallyRedInquiry", "red_tally_status"),
-            ("MotionSyncPresetInquiry", "motion_sync_speed"),
-            ("DynamicRangeInquiry", "dynamic_range"),
-            ("FlickerModeInquiry", "flicker_mode"),
-            ("AutoFocusSensitivityInquiry", "auto_focus_sensitivity"),
-        ];
-
-        for (command, method) in required {
-            assert!(
-                BUILTIN_INQUIRY_ACCESSORS.iter().any(|accessor| {
-                    accessor.command.name() == command && accessor.method == method
-                }),
-                "{command} must have generated typed accessor {method}",
-            );
-        }
-    }
-
-    #[test]
-    fn nd_filter_inquiry_has_one_generated_accessor_path() {
-        let rows = BUILTIN_INQUIRY_ACCESSORS
-            .iter()
-            .filter(|accessor| accessor.command.name() == "NdFilterInquiry")
-            .collect::<Vec<_>>();
-
-        assert_eq!(rows.len(), 1, "NdFilterInquiry must have one accessor row");
-        assert_eq!(rows[0].trait_name, "NdFilterInquiryControl");
-        assert_eq!(rows[0].method, "nd_filter_position");
-        assert!(
-            !BUILTIN_INQUIRY_ACCESSORS.iter().any(|accessor| {
-                accessor.trait_name == "NdFilterControl"
-                    && accessor.command.name() == "NdFilterInquiry"
-            }),
-            "the legacy NdFilterControl inquiry path must not be generated",
-        );
-    }
-
-    #[test]
-    fn camera_accessor_metadata_is_internally_complete() {
-        assert!(
-            !BUILTIN_INQUIRY_ACCESSORS.is_empty(),
-            "camera-facing inquiry accessors must be table-backed",
-        );
-
-        for accessor in BUILTIN_INQUIRY_ACCESSORS {
-            assert!(
-                !accessor.trait_name.is_empty(),
-                "{} must name an accessor trait",
-                accessor.method,
-            );
-            assert!(
-                !accessor.method.is_empty(),
-                "{} must name an accessor method",
-                accessor.trait_name,
-            );
-            assert!(
-                !accessor.response_type.is_empty(),
-                "{}::{} must name a response type",
-                accessor.trait_name,
-                accessor.method,
-            );
-            let body = accessor.command.bytes();
-            assert!(
-                !body.is_empty() && !body.contains(&VISCA_TERMINATOR),
-                "{}::{} must reference a generated command with an address-free, unterminated body",
-                accessor.trait_name,
-                accessor.method,
-            );
-
-            match accessor.profile_gate {
-                BuiltinInquiryProfileGate::Always => {}
-                BuiltinInquiryProfileGate::Capability { marker } => {
-                    assert!(
-                        marker.starts_with("crate::capabilities::Has"),
-                        "{}::{} has an unexpected profile gate marker: {marker}",
-                        accessor.trait_name,
-                        accessor.method,
-                    );
-                }
-            }
-        }
     }
 
     #[test]

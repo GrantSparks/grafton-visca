@@ -10,8 +10,7 @@
 //!
 //! All three facades are now generated whole from that registry, so no
 //! facade file is compared against it here. This module keeps the compiled
-//! registry's readable totals and the static/erased gate cross-checks, plus
-//! the declaration scanner that `crate::facade_parity` reads the hand-written
+//! registry's readable totals, plus the declaration scanner that `crate::facade_parity` reads the hand-written
 //! session and camera facades with.
 //!
 //! The source reader below is intentionally not a Rust parser. It strips
@@ -19,11 +18,10 @@
 
 #![allow(clippy::panic)]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::{
     command::{
-        inquiry_structs::{BuiltinInquiryProfileGate, BUILTIN_INQUIRY_ACCESSORS},
         semantics::BuiltinCommand,
         surface::{
             surface_entry, StaticSurfaceDisposition, BUILTIN_COMMAND_COUNT, NON_NOUN_COMMAND_COUNT,
@@ -114,80 +112,6 @@ fn table_row_counts(table: &BTreeMap<String, BTreeMap<String, TableRow>>) -> (us
         }
     }
     (commands, inquiries, helpers)
-}
-
-/// Reduces a marker path or bare marker to its bare trait name.
-///
-/// The noun-table `where` clauses and header gates name a bare marker
-/// (`HasPower`); the erased accessor metadata stringifies a full path
-/// (`crate :: capabilities :: HasPower`). Both collapse to `HasPower` here so the
-/// two gate sets can be compared directly.
-fn bare_marker(marker: &str) -> String {
-    let compact: String = marker.chars().filter(|c| !c.is_whitespace()).collect();
-    compact.rsplit("::").next().unwrap_or(&compact).to_owned()
-}
-
-/// Projects the static gate the noun surface puts on each built-in inquiry.
-///
-/// An inquiry row's static gate is its own `where` marker when it has one, and
-/// otherwise its noun header's base gate marker. This is exactly
-/// the compile-time bound a static `<noun>().<inquiry>()` call resolves, so
-/// comparing it against the erased accessor's runtime gate proves the two
-/// surfaces cannot drift (#684). Command and helper rows are skipped.
-#[must_use]
-fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
-    fn last_segment(path: &str) -> String {
-        let compact: String = path.chars().filter(|c| !c.is_whitespace()).collect();
-        compact.rsplit("::").next().unwrap_or(&compact).to_owned()
-    }
-
-    let mut map: BTreeMap<String, Option<String>> = BTreeMap::new();
-
-    macro_rules! collect {
-        // Inquiry with a typed `where` marker: the marker is the static gate.
-        (@row $base:tt, inquiry [$gate:ident], [$($request:tt)*]) => {
-            map.insert(
-                last_segment(stringify!($($request)*)),
-                Some(bare_marker(stringify!($gate))),
-            );
-        };
-        // Inquiry with no `where`: the static gate is the noun header's base
-        // gate.
-        (@row [always], inquiry [], [$($request:tt)*]) => {
-            map.insert(last_segment(stringify!($($request)*)), None);
-        };
-        (@row [$base:ident $marker:ident], inquiry [], [$($request:tt)*]) => {
-            map.insert(
-                last_segment(stringify!($($request)*)),
-                Some(bare_marker(stringify!($marker))),
-            );
-        };
-        // Command and helper rows are not inquiries.
-        (@row $base:tt, $kind:ident $gate:tt, $request:tt) => {};
-
-        (
-            $(
-                @noun $noun:ident {
-                    accessor: $accessor:ident,
-                    getter: $getter:ident,
-                    dyn_trait: $dyn_trait:ident,
-                    gate: $base:tt,
-                    doc: $noun_doc:literal $(,)?
-                };
-                $(
-                    $(#[$doc:meta])*
-                    $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
-                        $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
-                )*
-            )*
-            @exceptions; $($exceptions:tt)*
-        ) => {
-            $( $( collect!(@row $base, $kind [$($gate)?], [$($request)*]); )* )*
-        };
-    }
-
-    noun_table!(collect);
-    map
 }
 
 /// Blanks comments and literal contents while retaining line structure.
@@ -393,7 +317,6 @@ fn compiled_registry_inventory_counts_remain_readable() {
     assert_eq!(target, TARGET_FACING_COMMAND_COUNT); // 146 target-facing
     assert_eq!(exceptions, NON_NOUN_COMMAND_COUNT); // 3 protocol exceptions
     assert_eq!(nouns.len(), 14); // 14 nouns
-    assert_eq!(BUILTIN_INQUIRY_ACCESSORS.len(), 62); // 62 typed inquiries
 
     // The compiled noun-table projection has one row for each target-facing
     // command ID, one for each typed inquiry, and one for each empty-ID
@@ -408,6 +331,8 @@ fn compiled_registry_inventory_counts_remain_readable() {
 
     #[cfg(all(feature = "dyn-api", feature = "async"))]
     {
+        use std::collections::BTreeSet;
+
         use crate::dynapi::DYN_NOUN_CONVENIENCE_METHODS;
 
         let registry_helpers: BTreeSet<(String, String)> = table
@@ -423,64 +348,6 @@ fn compiled_registry_inventory_counts_remain_readable() {
             .map(|(noun, method)| ((*noun).to_owned(), (*method).to_owned()))
             .collect();
         assert_eq!(declared_helpers, registry_helpers);
-    }
-}
-
-/// Issue #684: the erased inquiry surface gates each built-in inquiry on exactly
-/// the marker the static noun surface resolves, so the two gate sets cannot
-/// drift. The static gate is the inquiry's own `where` marker, or its noun's
-/// base-domain marker when the row carries none; the erased gate is the runtime
-/// accessor gate recorded in [`BUILTIN_INQUIRY_ACCESSORS`].
-#[test]
-fn erased_inquiry_gates_match_the_static_noun_surface() {
-    // One inquiry carries a static base marker that the shared accessor gate
-    // deliberately leaves `Always`, for a reason unrelated to drift:
-    // `MenuOpenCloseInquiry` has no runtime menu capability to gate on: a
-    // runtime `ProfileSpec` cannot express "no menu", so basic OSD menu
-    // stays universally reachable, exactly like the menu commands.
-    const ACCESSOR_UNGATED_EXCEPTIONS: &[&str] = &["MenuOpenCloseInquiry"];
-
-    let static_gates = inquiry_static_gates();
-
-    // The two projections describe the same closed set of inquiries.
-    let accessor_commands: BTreeSet<&str> = BUILTIN_INQUIRY_ACCESSORS
-        .iter()
-        .map(|accessor| accessor.command.name())
-        .collect();
-    let table_commands: BTreeSet<&str> = static_gates.keys().map(String::as_str).collect();
-    assert_eq!(
-        accessor_commands, table_commands,
-        "the erased accessor inventory and the noun-table inquiry rows must cover \
-         the same commands",
-    );
-
-    for accessor in BUILTIN_INQUIRY_ACCESSORS {
-        let command = accessor.command.name();
-        let erased = match accessor.profile_gate {
-            BuiltinInquiryProfileGate::Always => None,
-            BuiltinInquiryProfileGate::Capability { marker } => Some(bare_marker(marker)),
-        };
-        let expected = static_gates
-            .get(command)
-            .unwrap_or_else(|| panic!("accessor command {command} has no noun-table row"))
-            .clone();
-
-        if ACCESSOR_UNGATED_EXCEPTIONS.contains(&command) {
-            assert_eq!(
-                erased, None,
-                "{command} is a documented accessor-ungated exception",
-            );
-            assert!(
-                expected.is_some(),
-                "{command} exception must still name a static marker enforced elsewhere",
-            );
-            continue;
-        }
-
-        assert_eq!(
-            erased, expected,
-            "erased and static inquiry gates disagree for {command}",
-        );
     }
 }
 

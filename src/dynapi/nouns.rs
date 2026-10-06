@@ -264,12 +264,11 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::command::{
-        inquiry_structs::{BuiltinInquiryQuery, BUILTIN_INQUIRIES, BUILTIN_INQUIRY_ACCESSORS},
         semantics::{BuiltinCommand, BuiltinRequestClass},
         surface::{surface_entry, StaticSurfaceDisposition},
     };
 
-    use super::{DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT};
+    use super::{DYN_NOUN_COUNT, DYN_NOUN_TARGET_METHOD_COUNT};
 
     #[test]
     fn dynamic_command_counts_follow_static_surface_ledger() {
@@ -343,54 +342,5 @@ mod tests {
             ),
             (all_plain, all_applied_only, all_targeted)
         );
-    }
-
-    #[test]
-    fn dynamic_inquiry_count_follows_generated_typed_accessor_ledger() {
-        // The generated inquiry table is shared by the static accessors; the
-        // dynamic fixture type-checks the corresponding erased response types.
-        let typed_queryable = BUILTIN_INQUIRIES
-            .iter()
-            .filter(|metadata| {
-                !matches!(metadata.query, BuiltinInquiryQuery::DecodeOnly) && metadata.typed
-            })
-            .count();
-        assert_eq!(typed_queryable, BUILTIN_INQUIRY_ACCESSORS.len());
-        assert_eq!(
-            DYN_NOUN_INQUIRY_METHOD_COUNT,
-            BUILTIN_INQUIRY_ACCESSORS.len()
-        );
-
-        let mut mappings = HashSet::new();
-        for accessor in BUILTIN_INQUIRY_ACCESSORS {
-            assert!(
-                mappings.insert((accessor.trait_name, accessor.method)),
-                "duplicate inquiry mapping {}::{}",
-                accessor.trait_name,
-                accessor.method,
-            );
-            let metadata = BUILTIN_INQUIRIES
-                .iter()
-                .find(|metadata| metadata.name == accessor.command.name())
-                .unwrap_or_else(|| {
-                    panic!("missing inquiry metadata for {}", accessor.command.name())
-                });
-            assert!(metadata.typed, "{} must be typed", metadata.name);
-            assert!(
-                !matches!(metadata.query, BuiltinInquiryQuery::DecodeOnly),
-                "{} must be queryable",
-                metadata.name,
-            );
-        }
-
-        let mut untyped_queryable = BUILTIN_INQUIRIES
-            .iter()
-            .filter(|metadata| {
-                !matches!(metadata.query, BuiltinInquiryQuery::DecodeOnly) && !metadata.typed
-            })
-            .map(|metadata| metadata.name)
-            .collect::<Vec<_>>();
-        untyped_queryable.sort_unstable();
-        assert_eq!(untyped_queryable, ["DefogModeInquiry"]);
     }
 }
