@@ -542,7 +542,7 @@ macro_rules! surface_registry {
     };
 }
 
-noun_table!(All => surface_registry);
+noun_table!(surface_registry);
 
 /// Returns the runtime typed-support surface carried by one static command row.
 ///

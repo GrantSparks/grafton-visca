@@ -29,7 +29,7 @@ pub(crate) use noun_request;
 /// Generates one static noun facade — blocking or async — from
 /// [`crate::noun_table::noun_table`].
 ///
-/// Invoke it as `noun_table!(All => static_noun_facade, [<async>], [<.await>])`
+/// Invoke it as `noun_table!(static_noun_facade, [<async>], [<.await>])`
 /// from a module that has `Camera` and `Operation` in scope: the blocking
 /// facade passes `[] []`, the async facade `[async] [.await]`. These two mode
 /// tokens are the only difference between the facades, so the blocking facade

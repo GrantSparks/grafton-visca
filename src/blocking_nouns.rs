@@ -25,6 +25,6 @@ use crate::{
 
 use super::{BlockingCameraCore, Camera, Operation};
 
-noun_table!(All => static_noun_facade, [], []);
+noun_table!(static_noun_facade, [], []);
 
 motion_table!(static_motion_facade, [], [], BlockingCameraCore);

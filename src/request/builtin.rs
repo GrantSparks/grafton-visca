@@ -1561,7 +1561,7 @@ macro_rules! typed_request_inventory {
     };
 }
 
-noun_table!(All => typed_request_inventory);
+noun_table!(typed_request_inventory);
 
 /// Reset the pan/tilt mechanism.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

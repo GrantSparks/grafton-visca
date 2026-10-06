@@ -7,6 +7,26 @@ use crate::{
     completion, CompileTimeProfile, Error, Inquiry, OperationCommand, PlainCommand, Result,
 };
 
+/// Emits the runtime-profile camera's motion getter from the
+/// [`crate::noun_table::motion_table`] header: it returns the typed blocking
+/// view and carries the same doc as every other motion getter.
+macro_rules! blocking_dyn_motion_getter {
+    (
+        @motion {
+            accessor: $accessor:ident,
+            getter: $getter:ident,
+            dyn_trait: $dyn_trait:ident,
+            doc: $doc:literal $(,)?
+        };
+        $($rows:tt)*
+    ) => {
+        #[doc = $doc]
+        pub fn $getter(&self) -> crate::blocking::$accessor<'_> {
+            crate::blocking::$accessor::new(&self.core)
+        }
+    };
+}
+
 /// An owner-backed blocking camera view for a runtime [`ProfileSpec`](crate::ProfileSpec).
 ///
 /// This view shares the same owner worker as a typed blocking [`Camera`] and,
@@ -73,9 +93,5 @@ impl BlockingDynSessionCamera {
         self.core.submit(operation)
     }
 
-    /// Returns the separate motion safety and observation view, the same
-    /// view a typed blocking [`Camera`] returns.
-    pub fn motion(&self) -> crate::blocking::MotionAccessor<'_> {
-        crate::blocking::MotionAccessor::new(&self.core)
-    }
+    crate::noun_table::motion_table!(blocking_dyn_motion_getter);
 }

@@ -18,6 +18,8 @@ use crate::{
     OperationId, PlainCommand, ProfileSpec, Result, StateCache,
 };
 
+use super::nouns::{dyn_motion_facade, DynMotion};
+
 /// The lifecycle methods every dynamic operation handle shares with the root
 /// [`Operation`] it wraps. Each projection adds only what its completion kind
 /// allows, so the dynamic layer never re-implements lifecycle behaviour.
@@ -228,11 +230,7 @@ impl DynSessionCamera {
         self.core.submit::<K, O>(operation).await.map(K::erase)
     }
 
-    /// Returns the canonical owner-backed motion safety and observation view.
-    #[must_use]
-    pub fn motion(&self) -> &dyn super::nouns::DynMotion {
-        self
-    }
+    crate::noun_table::motion_table!(dyn_motion_facade, [inherent_getter]);
 
     /// Exposes the one erased core to crate-local dynamic noun modules.
     ///

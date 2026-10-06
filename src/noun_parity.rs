@@ -8,13 +8,14 @@
 //! registry and the exhaustive [`crate::command::surface`] projection already
 //! make that disagreement impossible.
 //!
-//! This module therefore keeps only checks that the type system and macro
-//! expansion cannot express for the dynamic facade: it must invoke every
-//! noun arm.
+//! All three facades are now generated whole from that registry, so no
+//! facade file is compared against it here. This module keeps the compiled
+//! registry's readable totals and the static/erased gate cross-checks, plus
+//! the declaration scanner that `crate::facade_parity` reads the hand-written
+//! session and camera facades with.
 //!
 //! The source reader below is intentionally not a Rust parser. It strips
-//! comments/literals and masks test and macro bodies; there is no
-//! table/request parsing and no generated-signature cross-comparison.
+//! comments/literals and masks test and macro bodies.
 
 #![allow(clippy::panic)]
 
@@ -26,100 +27,13 @@ use crate::{
         inquiry_structs::{BuiltinInquiryProfileGate, BUILTIN_INQUIRY_ACCESSORS},
         semantics::BuiltinCommand,
         surface::{
-            surface_entry, typed_surface_for_command, StaticMarkerRequirement, StaticNoun,
+            surface_entry, typed_surface_for_command, StaticMarkerRequirement,
             StaticSurfaceDisposition, BUILTIN_COMMAND_COUNT, NON_NOUN_COMMAND_COUNT,
             TARGET_FACING_COMMAND_COUNT,
         },
     },
     noun_table::noun_table,
 };
-
-/// The 14 registry noun arms, in the same order as the public facades.
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-const NOUN_KEYS: &[&str] = &[
-    "Power",
-    "Zoom",
-    "System",
-    "PanTilt",
-    "Focus",
-    "Presets",
-    "Exposure",
-    "WhiteBalance",
-    "Image",
-    "Tally",
-    "NdFilter",
-    "MotionSync",
-    "Menu",
-    "Advanced",
-];
-
-/// The name each facade gives one registry noun.
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct NounFacade {
-    key: &'static str,
-    dyn_trait: &'static str,
-}
-
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-const NOUN_FACADES: &[NounFacade] = &[
-    NounFacade {
-        key: "Power",
-        dyn_trait: "DynPower",
-    },
-    NounFacade {
-        key: "Zoom",
-        dyn_trait: "DynZoom",
-    },
-    NounFacade {
-        key: "System",
-        dyn_trait: "DynSystem",
-    },
-    NounFacade {
-        key: "PanTilt",
-        dyn_trait: "DynPanTilt",
-    },
-    NounFacade {
-        key: "Focus",
-        dyn_trait: "DynFocus",
-    },
-    NounFacade {
-        key: "Presets",
-        dyn_trait: "DynPresets",
-    },
-    NounFacade {
-        key: "Exposure",
-        dyn_trait: "DynExposure",
-    },
-    NounFacade {
-        key: "WhiteBalance",
-        dyn_trait: "DynWhiteBalance",
-    },
-    NounFacade {
-        key: "Image",
-        dyn_trait: "DynImage",
-    },
-    NounFacade {
-        key: "Tally",
-        dyn_trait: "DynTally",
-    },
-    NounFacade {
-        key: "NdFilter",
-        dyn_trait: "DynNdFilter",
-    },
-    NounFacade {
-        key: "MotionSync",
-        dyn_trait: "DynMotionSync",
-    },
-    NounFacade {
-        key: "Menu",
-        dyn_trait: "DynMenu",
-    },
-    NounFacade {
-        key: "Advanced",
-        dyn_trait: "DynAdvanced",
-    },
-];
 
 /// A row category used by the compiled-registry parity checks.
 ///
@@ -133,8 +47,8 @@ pub(crate) enum TableRow {
     Helper,
 }
 
-/// Materialize the registry's method names for the facade parity checks that
-/// verify each spelling belongs to the expected noun.
+/// Materialize the registry's rows per noun, keyed by the `Dyn*` trait name
+/// its header declares.
 ///
 /// Request expressions and argument types are deliberately captured as token
 /// trees and discarded. This is a macro projection of the compiled registry,
@@ -143,28 +57,34 @@ pub(crate) enum TableRow {
 pub(crate) fn table_surface() -> BTreeMap<String, BTreeMap<String, TableRow>> {
     let mut table: BTreeMap<String, BTreeMap<String, TableRow>> = BTreeMap::new();
 
-    let mut insert = |noun: &str, method: &str, row: TableRow| {
-        let rows = table.entry(noun.to_owned()).or_default();
+    let mut insert = |dyn_trait: &str, method: &str, row: TableRow| {
+        let rows = table.entry(dyn_trait.to_owned()).or_default();
         assert!(
             rows.insert(method.to_owned(), row).is_none(),
-            "duplicate noun-table row {noun}::{method}",
+            "duplicate noun-table row {dyn_trait}::{method}",
         );
     };
 
     macro_rules! collect {
-        (@row $noun:ident, $method:ident, inquiry []) => {
-            insert(stringify!($noun), stringify!($method), TableRow::Inquiry);
+        (@row $dyn_trait:ident, $method:ident, inquiry []) => {
+            insert(stringify!($dyn_trait), stringify!($method), TableRow::Inquiry);
         };
-        (@row $noun:ident, $method:ident, $kind:ident []) => {
-            insert(stringify!($noun), stringify!($method), TableRow::Helper);
+        (@row $dyn_trait:ident, $method:ident, $kind:ident []) => {
+            insert(stringify!($dyn_trait), stringify!($method), TableRow::Helper);
         };
-        (@row $noun:ident, $method:ident, $kind:ident [$command:ident]) => {
-            insert(stringify!($noun), stringify!($method), TableRow::Command);
+        (@row $dyn_trait:ident, $method:ident, $kind:ident [$command:ident]) => {
+            insert(stringify!($dyn_trait), stringify!($method), TableRow::Command);
         };
 
         (
             $(
-                @noun $noun:ident { $($header:tt)* };
+                @noun $noun:ident {
+                    accessor: $accessor:ident,
+                    getter: $getter:ident,
+                    dyn_trait: $dyn_trait:ident,
+                    gate: $base:tt,
+                    doc: $noun_doc:literal $(,)?
+                };
                 $(
                     $(#[$doc:meta])*
                     $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -173,11 +93,11 @@ pub(crate) fn table_surface() -> BTreeMap<String, BTreeMap<String, TableRow>> {
             )*
             @exceptions; $($exceptions:tt)*
         ) => {
-            $( $( collect!(@row $noun, $method, $kind [$($command)?]); )* )*
+            $( $( collect!(@row $dyn_trait, $method, $kind [$($command)?]); )* )*
         };
     }
 
-    noun_table!(All => collect);
+    noun_table!(collect);
     table
 }
 
@@ -268,42 +188,8 @@ fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
         };
     }
 
-    noun_table!(All => collect);
+    noun_table!(collect);
     map
-}
-
-/// Maps a static noun to its registry arm name.
-#[must_use]
-pub(crate) const fn noun_table_key(noun: StaticNoun) -> &'static str {
-    match noun {
-        StaticNoun::Power => "Power",
-        StaticNoun::Zoom => "Zoom",
-        StaticNoun::System => "System",
-        StaticNoun::PanTilt => "PanTilt",
-        StaticNoun::Focus => "Focus",
-        StaticNoun::Exposure => "Exposure",
-        StaticNoun::WhiteBalance => "WhiteBalance",
-        StaticNoun::Image => "Image",
-        StaticNoun::Presets => "Presets",
-        StaticNoun::Tally => "Tally",
-        StaticNoun::NdFilter => "NdFilter",
-        StaticNoun::MotionSync => "MotionSync",
-        StaticNoun::Menu => "Menu",
-        StaticNoun::Advanced => "Advanced",
-    }
-}
-
-/// Maps a dynamic noun trait to its registry arm name.
-#[must_use]
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-pub(crate) fn dyn_trait_noun_key(dyn_trait: &str) -> &'static str {
-    NOUN_FACADES
-        .iter()
-        .find(|facade| facade.dyn_trait == dyn_trait)
-        .map_or_else(
-            || panic!("{dyn_trait} is not a registry noun trait"),
-            |facade| facade.key,
-        )
 }
 
 /// Blanks comments and literal contents while retaining line structure.
@@ -488,85 +374,18 @@ pub(crate) fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<
         .collect()
 }
 
-/// Extracts the parenthesized body of one macro invocation.
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-fn invocation_body<'a>(text: &'a str, label: &str) -> (&'a str, usize) {
-    assert!(
-        text.starts_with('('),
-        "{label}: macro invocation has no `(`"
-    );
-    let mut depth = 0_i32;
-    for (index, character) in text.char_indices() {
-        match character {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return (&text[1..index], index + 1);
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("{label}: unterminated macro invocation");
-}
-
-/// Returns the registry noun arms consumed by one facade macro.
-///
-/// This is the only source check that follows `noun_table!`; it reads the
-/// invocation's two identifiers and does not inspect any generated row.
-#[must_use]
-#[cfg(all(feature = "dyn-api", feature = "async"))]
-pub(crate) fn consumed_nouns(
-    source: &str,
-    label: &'static str,
-    consumer: &str,
-) -> BTreeSet<String> {
-    let declarations = without_test_modules(source, label);
-    let cleaned = clean_source(&declarations, label);
-    let mut consumed = BTreeSet::new();
-    let mut offset = 0;
-
-    while let Some(relative) = cleaned[offset..].find("noun_table!") {
-        let start = offset + relative + "noun_table!".len();
-        let rest = &cleaned[start..];
-        if !rest.starts_with('(') {
-            offset = start;
-            continue;
-        }
-        let (body, consumed_length) = invocation_body(rest, label);
-        let Some((noun, named_consumer)) = body.split_once("=>") else {
-            panic!("{label}: noun_table! invocation has no consumer");
-        };
-        if named_consumer.trim() == consumer {
-            let noun = noun.trim();
-            assert!(
-                NOUN_KEYS.contains(&noun),
-                "{label}: {consumer} consumes unknown noun arm {noun:?}",
-            );
-            assert!(
-                consumed.insert(noun.to_owned()),
-                "{label}: {consumer} consumes {noun} more than once",
-            );
-        }
-        offset = start + consumed_length;
-    }
-
-    consumed
-}
-
 #[test]
 fn compiled_registry_inventory_counts_remain_readable() {
     let mut target = 0;
     let mut exceptions = 0;
-    let mut nouns = BTreeSet::new();
+    let mut nouns = std::collections::HashSet::new();
     for command in BuiltinCommand::ALL {
         let entry = surface_entry(*command);
         assert_eq!(entry.class, command.classification());
         match entry.disposition {
             StaticSurfaceDisposition::Noun { noun, .. } => {
                 target += 1;
-                nouns.insert(noun_table_key(noun));
+                nouns.insert(noun);
             }
             StaticSurfaceDisposition::BroadcastHandshake { .. }
             | StaticSurfaceDisposition::InternalCancellation { .. } => exceptions += 1,
@@ -593,21 +412,14 @@ fn compiled_registry_inventory_counts_remain_readable() {
     {
         use crate::dynapi::DYN_NOUN_CONVENIENCE_METHODS;
 
-        let mut registry_helpers = BTreeSet::new();
-        for facade in NOUN_FACADES {
-            let rows = table.get(facade.key);
-            assert!(
-                rows.is_some(),
-                "every registry noun has a projected row map"
-            );
-            if let Some(rows) = rows {
-                for (method, row) in rows {
-                    if matches!(row, TableRow::Helper) {
-                        registry_helpers.insert((facade.dyn_trait.to_owned(), method.to_owned()));
-                    }
-                }
-            }
-        }
+        let registry_helpers: BTreeSet<(String, String)> = table
+            .iter()
+            .flat_map(|(dyn_trait, rows)| {
+                rows.iter()
+                    .filter(|(_, row)| matches!(row, TableRow::Helper))
+                    .map(move |(method, _)| (dyn_trait.clone(), method.clone()))
+            })
+            .collect();
         let declared_helpers: BTreeSet<(String, String)> = DYN_NOUN_CONVENIENCE_METHODS
             .iter()
             .map(|(noun, method)| ((*noun).to_owned(), (*method).to_owned()))
@@ -767,15 +579,5 @@ mod scanner {
         assert!(declarations.contains("LaterAccessor"));
         assert!(!declarations.contains("GhostAccessor"));
         assert_eq!(declarations.lines().count(), source.lines().count());
-    }
-
-    #[test]
-    #[cfg(all(feature = "dyn-api", feature = "async"))]
-    fn consumed_nouns_reads_only_macro_invocation_identifiers() {
-        let source = "noun_table!(Power => consumer);\nnoun_table!(Zoom => other);\n";
-        assert_eq!(
-            consumed_nouns(source, "fixture", "consumer"),
-            BTreeSet::from(["Power".to_owned()]),
-        );
     }
 }

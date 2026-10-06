@@ -8,11 +8,12 @@
 //! the copies.
 //!
 //! [`noun_table!`] is a continuation-passing macro: it takes the name of a
-//! consumer macro and hands that consumer the rows of one noun.
-//! Each facade defines its own consumer, so the *differences* between the
-//! facades (async `fn` plus `.await`, blocking `fn`, object-safe `dyn`
-//! variants, different receiver and session plumbing, different cfg features)
-//! live in the consumers, while everything that must agree lives here.
+//! consumer macro, plus optional fixed-shape leading arguments, and hands
+//! that consumer every noun header and row in one invocation
+//! (`noun_table!(static_noun_facade, [async], [.await]);`). The consumers own
+//! the *differences* between the facades (async `fn` plus `.await`, blocking
+//! `fn`, object-safe `dyn` variants, different receiver and session plumbing,
+//! different cfg features), while everything that must agree lives here.
 //!
 //! # Row grammar
 //!
@@ -68,8 +69,10 @@
 //!
 //! `gate` is the noun's base capability gate: `[always]` needs none,
 //! `[domain M]` names a profile domain marker and `[typed M]` a typed-support
-//! marker.  A row's own `where` clause narrows it.  The static surface
-//! registry reads the headers; the facade consumers strip them.
+//! marker.  A row's own `where` clause narrows it.  The surface registry, the
+//! static facades and the dynamic facade all read the headers: the accessor,
+//! getter and `Dyn*` trait names and the one doc of every surface of the noun
+//! come from here.
 //!
 //! # The motion view
 //!
@@ -92,30 +95,17 @@
     allow(unused_macros, unused_imports)
 )]
 
-/// Hands one noun's rows, or with `All` the whole table, to a consumer macro.
+/// Hands the whole noun table to a consumer macro.
 ///
 /// See the module documentation for the row grammar.  Invoke it as
-/// `noun_table!(Zoom => my_consumer);` or `noun_table!(All => my_consumer);`.
-/// `All` takes optional fixed-shape leading arguments
-/// (`noun_table!(All => my_consumer, [async], [.await])`), which the consumer
+/// `noun_table!(my_consumer);`, or with fixed-shape leading arguments
+/// (`noun_table!(my_consumer, [async], [.await]);`), which the consumer
 /// receives as single token trees before the first `@noun` header.
 macro_rules! noun_table {
-    // The flat projection deliberately reuses every noun arm instead of
-    // carrying a second command list.  Consumers that need noun context (the
-    // static surface registry) handle the internal `@noun` marker; the public
-    // facade consumers strip it in one forwarding arm.
-    (All => $consumer:ident $(, $arg:tt)*) => {
-        noun_table! { @collect $consumer; [$($arg)*]; Power Zoom System PanTilt Focus Presets
-            Exposure WhiteBalance Image Tally NdFilter MotionSync Menu Advanced @exceptions }
-    };
+    ($consumer:ident $(, $arg:tt)*) => {
+        $consumer! {
+            $($arg)*
 
-    (Power => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Power }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Power $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Power {
                 accessor: PowerAccessor,
                 getter: power,
@@ -129,16 +119,7 @@ macro_rules! noun_table {
             plain [PowerOn] on() -> command::PowerOn = [command::PowerOn::new()];
             /// Places the camera in standby.
             plain [PowerStandby] off() -> command::PowerStandby = [command::PowerStandby::new()];
-        ]; $($rest)* }
-    };
 
-    (Zoom => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Zoom }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Zoom $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Zoom {
                 accessor: ZoomAccessor,
                 getter: zoom,
@@ -193,16 +174,7 @@ macro_rules! noun_table {
             plain [DigitalZoom] set_digital_zoom(enabled: bool) -> command::DigitalZoom
                 where HasDigitalZoomToggle
                 = [command::DigitalZoom::new(enabled)];
-        ]; $($rest)* }
-    };
 
-    (System => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; System }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; System $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun System {
                 accessor: SystemAccessor,
                 getter: system,
@@ -223,16 +195,7 @@ macro_rules! noun_table {
             plain [SettingsSave] save_settings() -> command::SettingsSaveCommand
                 where HasPtzOpticsSettingsSave
                 = [command::SettingsSaveCommand::new()];
-        ]; $($rest)* }
-    };
 
-    (PanTilt => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; PanTilt }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; PanTilt $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun PanTilt {
                 accessor: PanTiltAccessor,
                 getter: pan_tilt,
@@ -295,16 +258,7 @@ macro_rules! noun_table {
             plain [PanTiltLimitClear] limit_clear(corner: command::PanTiltLimitCorner)
                 -> builtin::PanTiltLimitClear
                 = [with_profile |profile| builtin::PanTiltLimitClear::for_profile(corner, profile)];
-        ]; $($rest)* }
-    };
 
-    (Focus => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Focus }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Focus $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Focus {
                 accessor: FocusAccessor,
                 getter: focus,
@@ -389,16 +343,7 @@ macro_rules! noun_table {
             /// Returns the configured focus range.
             inquiry [] range() -> command::FocusRange
                 = [command::FocusRangeInquiry];
-        ]; $($rest)* }
-    };
 
-    (Presets => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Presets }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Presets $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Presets {
                 accessor: PresetsAccessor,
                 getter: presets,
@@ -421,16 +366,7 @@ macro_rules! noun_table {
             /// Clears a stored preset.
             plain [PresetReset] reset(preset: command::PresetNumber) -> builtin::PresetReset
                 = [builtin::PresetReset::new(preset)];
-        ]; $($rest)* }
-    };
 
-    (Exposure => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Exposure }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Exposure $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Exposure {
                 accessor: ExposureAccessor,
                 getter: exposure,
@@ -584,16 +520,7 @@ macro_rules! noun_table {
             plain [AutoSlowShutterOff] auto_slow_shutter_off() -> command::AutoSlowShutterOff
                 where HasSonyAutoSlowShutter
                 = [command::AutoSlowShutterOff::new()];
-        ]; $($rest)* }
-    };
 
-    (WhiteBalance => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; WhiteBalance }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; WhiteBalance $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun WhiteBalance {
                 accessor: WhiteBalanceAccessor,
                 getter: white_balance,
@@ -708,16 +635,7 @@ macro_rules! noun_table {
             /// Returns blue-channel tuning.
             inquiry [] blue_tuning() -> types::BlueTuning where HasRgbTuning
                 = [command::BlueTuningInquiry];
-        ]; $($rest)* }
-    };
 
-    (Image => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Image }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Image $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Image {
                 accessor: ImageAccessor,
                 getter: image,
@@ -873,16 +791,7 @@ macro_rules! noun_table {
             /// Returns the vendor defog level on profiles with validated support.
             inquiry [] defog_level() -> types::DefogLevel
                 where HasDefogLevel = [command::DefogLevelInquiry];
-        ]; $($rest)* }
-    };
 
-    (Tally => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Tally }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Tally $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Tally {
                 accessor: TallyAccessor,
                 getter: tally,
@@ -925,16 +834,7 @@ macro_rules! noun_table {
             /// Returns PTZOptics automatic tally-adjustment state.
             inquiry [] auto_adjust_enabled() -> bool
                 where HasPtzOpticsTally = [command::TallyAutoAdjustInquiry];
-        ]; $($rest)* }
-    };
 
-    (NdFilter => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; NdFilter }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; NdFilter $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun NdFilter {
                 accessor: NdFilterAccessor,
                 getter: nd_filter,
@@ -974,16 +874,7 @@ macro_rules! noun_table {
             /// Disables automatic ND filtering.
             plain [NdFilterAutoOff] auto_off() -> command::AutoNdCommand
                 = [command::AutoNdCommand::new(false)];
-        ]; $($rest)* }
-    };
 
-    (MotionSync => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; MotionSync }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; MotionSync $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun MotionSync {
                 accessor: MotionSyncAccessor,
                 getter: motion_sync,
@@ -1009,16 +900,7 @@ macro_rules! noun_table {
             plain [MotionSyncPreset] set_speed(speed: types::MotionSyncSpeed)
                 -> command::SetMotionSyncPreset
                 = [command::SetMotionSyncPreset::new(speed)];
-        ]; $($rest)* }
-    };
 
-    (Menu => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Menu }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Menu $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Menu {
                 accessor: MenuAccessor,
                 getter: menu,
@@ -1051,16 +933,7 @@ macro_rules! noun_table {
             /// [`Self::status`] round trip to decide which way to move.
             plain [] toggle_display() -> command::DirectMenuControl where HasDirectMenuControl
                 = [command::DirectMenuControl::open_close()];
-        ]; $($rest)* }
-    };
 
-    (Advanced => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Advanced }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*]; Advanced $($rest:tt)*) => {
-        noun_table! { @collect $consumer; [
-            $($acc)*
             @noun Advanced {
                 accessor: AdvancedAccessor,
                 getter: advanced,
@@ -1117,21 +990,12 @@ macro_rules! noun_table {
             plain [VariableSpeedMode] set_variable_speed_mode(mode: command::VariableSpeedMode)
                 -> command::SetVariableSpeedMode where HasVariableSpeed
                 = [command::SetVariableSpeedMode::new(mode)];
-        ]; $($rest)* }
-    };
 
-    (@collect $consumer:ident; [$($acc:tt)*]; @exceptions) => {
-        $consumer! {
-            $($acc)*
             @exceptions;
             broadcast [AddressSet] address_set -> command::system::AddressSetCommand;
             broadcast [InterfaceClear] interface_clear -> command::system::InterfaceClearCommand;
             internal [CommandCancel] cancel_command -> command::system::CommandCancelCommand;
         }
-    };
-
-    (@collect $consumer:ident; [$($acc:tt)*];) => {
-        $consumer! { $($acc)* }
     };
 }
 

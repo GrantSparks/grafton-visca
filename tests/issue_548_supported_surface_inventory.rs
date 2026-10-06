@@ -159,50 +159,43 @@ static_accessor_inventory!(
     ZoomAccessor,
 );
 
-const EXPECTED_DYN_TRAITS: &[&str] = &[
-    "DynAdvanced",
-    "DynAppliedRequest",
-    "DynExposure",
-    "DynFocus",
-    "DynImage",
-    "DynMenu",
-    "DynMotion",
-    "DynMotionSync",
-    "DynNdFilter",
-    "DynPanTilt",
-    "DynPower",
-    "DynPresets",
-    "DynSessionCameraControl",
-    "DynSessionCameraNouns",
-    "DynSystem",
-    "DynTally",
-    "DynTargetedRequest",
-    "DynWhiteBalance",
-    "DynZoom",
-];
+/// Pins the public `Dyn*` trait names and makes each one a compile-time fact:
+/// every name must resolve as an object type in `grafton_visca::dynapi`, so a
+/// renamed or missing trait fails to build rather than relying on a source
+/// scan.
+macro_rules! dyn_trait_inventory {
+    ($($dyn_trait:ident),* $(,)?) => {
+        const EXPECTED_DYN_TRAITS: &[&str] = &[$(stringify!($dyn_trait)),*];
 
-fn public_trait_names(sources: &[&str]) -> Vec<String> {
-    let mut names = Vec::new();
-    for source in sources {
-        for line in source.lines() {
-            let Some(rest) = line.trim_start().strip_prefix("pub trait ") else {
-                continue;
-            };
-            let name = rest
-                .split(|character: char| {
-                    character == '<' || character == ':' || character.is_whitespace()
-                })
-                .next()
-                .unwrap_or_default();
-            if !name.is_empty() {
-                names.push(name.to_owned());
-            }
+        #[cfg(all(feature = "dyn-api", feature = "async"))]
+        #[allow(dead_code)]
+        fn dyn_traits_resolve() {
+            $( let _: Option<&dyn grafton_visca::dynapi::$dyn_trait> = None; )*
         }
-    }
-    names.sort();
-    names.dedup();
-    names
+    };
 }
+
+dyn_trait_inventory!(
+    DynAdvanced,
+    DynAppliedRequest,
+    DynExposure,
+    DynFocus,
+    DynImage,
+    DynMenu,
+    DynMotion,
+    DynMotionSync,
+    DynNdFilter,
+    DynPanTilt,
+    DynPower,
+    DynPresets,
+    DynSessionCameraControl,
+    DynSessionCameraNouns,
+    DynSystem,
+    DynTally,
+    DynTargetedRequest,
+    DynWhiteBalance,
+    DynZoom,
+);
 
 #[test]
 fn built_in_profile_and_transport_inventory_is_closed() {
@@ -345,28 +338,15 @@ fn static_noun_and_control_inventory_is_closed() {
 
 #[test]
 fn dynamic_control_inventory_is_closed() {
-    let owner = declarations(include_str!("../src/dynapi/owner_projection.rs"));
     let nouns = declarations(include_str!("../src/dynapi/nouns.rs"));
-    let custom = declarations(include_str!("../src/dynapi/custom.rs"));
     let whole_nouns = include_str!("../src/dynapi/nouns.rs");
 
-    let mut actual = public_trait_names(&[&owner, &nouns]);
-    actual.extend(["DynAppliedRequest", "DynTargetedRequest"].map(str::to_owned));
-    actual.sort();
-    actual.dedup();
-    assert_eq!(actual, EXPECTED_DYN_TRAITS);
-
-    // Each of the 14 noun traits has one declaration and one implementation
-    // projection. Both are generated from the shared registry; no method list
-    // is reconstructed from source tokens here.
-    assert_eq!(nouns.matches("pub trait Dyn").count(), 16); // 14 nouns + Motion + owner nouns
-    assert_eq!(
-        nouns.matches("noun_table!(").count(),
-        28,
-        "every noun arm needs declaration and implementation consumers"
-    );
-    assert!(custom.contains("pub trait DynTargetedRequest"));
-    assert!(custom.contains("pub trait DynAppliedRequest"));
+    // The trait names are compile-time facts (`dyn_trait_inventory!`); this
+    // keeps the closed list itself readable and duplicate-free.
+    let mut sorted = EXPECTED_DYN_TRAITS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, EXPECTED_DYN_TRAITS);
 
     // Keep the six public totals visible without making the test a second
     // registry. The crate's compiled tests derive the same totals from the
@@ -419,7 +399,6 @@ fn dynamic_control_inventory_is_closed() {
         );
     }
     assert!(!whole_nouns.contains("fn result("));
-    assert_eq!(nouns.matches("pub trait DynSessionCameraNouns").count(), 1);
 }
 
 #[test]

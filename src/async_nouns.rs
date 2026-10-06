@@ -31,6 +31,6 @@ use crate::{
     ZoomDomain,
 };
 
-noun_table!(All => static_noun_facade, [async], [.await]);
+noun_table!(static_noun_facade, [async], [.await]);
 
 motion_table!(static_motion_facade, [async], [.await], AsyncCameraCore);
