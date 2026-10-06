@@ -1,10 +1,11 @@
 //! Closed static camera-surface metadata for built-in requests.
 //!
 //! [`crate::command::semantics::BuiltinCommand::ALL`] is the only command-row
-//! inventory.  This module adds no second list: its exhaustive match derives
-//! noun spelling and marker facts for each existing semantic row.  Adding a
-//! new command therefore requires the source inventory, semantic
-//! classification, and this surface decision to be updated together.
+//! inventory.  This module adds no second list and makes no surface decision
+//! of its own: [`StaticNoun`] and the exhaustive [`surface_entry`] match are
+//! generated from the `@noun` headers and rows of [`crate::noun_table`], which
+//! give each command its noun, method spelling and capability marker.  A
+//! command without a noun-table row (or protocol exception) fails to build.
 
 use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 

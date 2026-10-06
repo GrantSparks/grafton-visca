@@ -297,9 +297,9 @@ fn require_builtin_inquiry_domain(supported: bool, inquiry: &'static str) -> Res
 
 /// Maps a base-domain accessor marker to the runtime capability flag behind it.
 ///
-/// This is the runtime half of the `noun_marker!` mapping in
-/// `crate::command::surface`: each base-domain noun's static accessor is gated on
-/// the marker named here, and the erased surface gates the same inquiries on the
+/// This is the runtime half of the `gate: [domain <Marker>]` declared in each
+/// `@noun` header of `crate::noun_table`: each base-domain noun's static
+/// accessor getter is gated on the marker named here, and the erased surface gates the same inquiries on the
 /// matching `Capabilities` flag so the two cannot drift. A pan/tilt position
 /// can only be decoded through the profile's coordinate conversion, so the
 /// pan/tilt domain also requires one.
@@ -2034,16 +2034,15 @@ define_builtin_inquiries! {
     accessors {
         // Each group names its profile gate. Base-domain inquiries carry no
         // `where` clause of their own, so on the static facades they inherit
-        // their noun accessor's base-domain marker (`noun_marker!` in
-        // `crate::command::surface`). `[domain Marker]` reproduces that same
+        // their noun's base-domain marker (the `gate:` of its `@noun` header
+        // in `crate::noun_table`). `[domain Marker]` reproduces that same
         // gate for the erased surface at runtime (#684), so a runtime
         // `ProfileSpec` missing the domain cannot reach
         // `dyn <noun>().<inquiry>()` any more than the static `<noun>()`
         // accessor can be named without the marker; the pan/tilt domain also
         // requires the coordinate conversion its position decoder reads.
         // `[typed Marker]` requires the marker's typed-support surface.
-        // Inquiries on the `System` and `Advanced` nouns (`noun_marker!` =
-        // `None`) and the universally-reachable `Menu` noun have no
+        // Inquiries on the `System` and `Advanced` nouns (`gate: [always]`) and the universally-reachable `Menu` noun have no
         // base-domain gate; those with no typed gate either stay in
         // `InquiryControl` as `[always]`. `VersionInquiry` has its own
         // `HasVersionInquiry` typed gate (#795) because it decodes only the

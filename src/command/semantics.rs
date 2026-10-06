@@ -368,6 +368,15 @@ macro_rules! ledger_class {
             axes: BuiltinAxisSelection::Exact(AffectedAxes::$axes),
         }
     };
+    ($($row:tt)*) => {
+        compile_error!(concat!(
+            "unknown ledger class `",
+            stringify!($($row)*),
+            "`; expected plain, plain(Set(<StateKey>)), plain(Clear(<StateKey>)), ",
+            "plain(Invalidate(<StateKey>)), targeted(<AXES>), ",
+            "targeted(profile_preset_recall) or applied(<AXES>)"
+        ))
+    };
 }
 
 builtin_command_ledger! {

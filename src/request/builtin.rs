@@ -92,21 +92,37 @@ macro_rules! builtin_request {
             const GATE_BY_VALUE: bool = true;
         }
     };
-    (@contract $type:ty, $row:ident $(, $flag:ident)?) => {
+    (@contract $type:ty, $row:ident $(, profile_axes)?) => {
         impl crate::command::semantics::BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
         }
     };
+    (@contract $type:ty, $row:ident, $flag:ident) => {
+        compile_error!(concat!(
+            "unknown builtin_request! flag `",
+            stringify!($flag),
+            "`; expected gate_by_value or profile_axes"
+        ));
+    };
 
-    (@operation $type:ty, Plain $(, $flag:ident)?) => {};
+    (@operation $type:ty, Plain, profile_axes) => {
+        compile_error!(concat!(
+            "builtin_request! flag `profile_axes` on Plain request `",
+            stringify!($type),
+            "`; only an operation has affected axes"
+        ));
+    };
+    (@operation $type:ty, Plain $(, gate_by_value)?) => {};
     (@operation $type:ty, $class:ident, profile_axes) => {};
-    (@operation $type:ty, $class:ident $(, $flag:ident)?) => {
+    (@operation $type:ty, $class:ident $(, gate_by_value)?) => {
         impl OperationCommand<completion::$class> for $type {
             fn affected_axes(&self) -> AffectedAxes {
                 const { crate::command::semantics::fixed_axes::<$type>() }
             }
         }
     };
+    // An unknown flag is reported once, by the `@contract` arm.
+    (@operation $type:ty, $class:ident, $flag:ident) => {};
 
     ($(
         $type:ty => $row:ident: $class:ident $(($flag:ident))? {

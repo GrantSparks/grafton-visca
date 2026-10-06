@@ -1904,7 +1904,8 @@ mod tests {
         let bare = minimal_profile(|_| {});
         assert!(!admits(&PowerInquiry, &bare));
         assert!(!admits(&ZoomPositionInquiry, &bare));
-        // `VersionInquiry` sits on the `System` noun (`noun_marker!` = `None`),
+        // `VersionInquiry` sits on the `System` noun (`gate: [always]` in its
+        // `@noun` header in `crate::noun_table`),
         // so no base domain gates it; only its own `HasVersionInquiry` typed
         // surface does, because its decoder accepts only the Sony reply layout.
         assert!(!admits(&VersionInquiry, &bare));
